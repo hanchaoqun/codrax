@@ -47,6 +47,9 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	// Lookup provenance anchors the quote here; identity membership is checked
 	// separately by the shared whole-surface authority, never this helper.
 	{"emit_analysis_thread_lookup.go", "parseRuntimeThreadLookups"}: true,
+	// Independent capture scope anchors each local quote to the current
+	// request here; exact path-token membership is checked separately.
+	{"emit_analysis_comparison_scope.go", "parseRuntimeArtifactComparisonScope"}: true,
 }
 
 var diagramIdentityCensusHardArms = map[string]bool{

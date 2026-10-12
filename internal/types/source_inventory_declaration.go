@@ -25,6 +25,16 @@ func SourceInventoryCurrentSourceApplicableInContext(rm RequestModel, hint TurnR
 	if !runtimeSourceRequestHasExternalObservationCarrier(&rm, hint) {
 		return true
 	}
+	// Source permission cannot certify its own inventory obligation through a
+	// generic scope. Route-synthesized allow plus an unquoted all/production
+	// scope otherwise turns a runtime record roster into source declarations.
+	// Probe independent typed source authority without changing permissions,
+	// route obligations, explicit inventory declarations, or accepted evidence.
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.CurrentSourceMode == ExternalObservationCurrentSourceAllow {
+		policy := *rm.ExternalObservationPolicy
+		policy.CurrentSourceMode = ExternalObservationCurrentSourceDefault
+		rm.ExternalObservationPolicy = &policy
+	}
 	return RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, hint) == RuntimeSourceRequirementPrecise
 }
 

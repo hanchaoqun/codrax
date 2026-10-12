@@ -9,9 +9,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func hasNamedTraceComparison(rm types.RequestModel) bool {
+	return rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.Comparison.Valid()
+}
+
 func comparisonNamedTraceProfile(rm types.RequestModel, profile types.RuntimeArtifactPreflightProfile) types.RuntimeArtifactPreflightProfile {
-	policy := rm.ExternalObservationPolicy
-	if policy == nil || (!policy.ExcludesCurrentSource() && !policy.ArtifactCitationsExternalOnly()) || rm.RuntimeArtifactScopeProfile == nil || !rm.RuntimeArtifactScopeProfile.Comparison.Valid() {
+	if !hasNamedTraceComparison(rm) {
 		return profile
 	}
 	for _, side := range rm.RuntimeArtifactScopeProfile.Comparison.Sides() {

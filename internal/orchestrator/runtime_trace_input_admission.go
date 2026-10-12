@@ -52,7 +52,7 @@ func validateRuntimeTraceInputsBeforeInvestigation(ctx context.Context, attached
 // physical trace parser may run until every request-path trace in the
 // deterministic preflight profile passes the shared held-file admission gate.
 //
-// The blocking decision consumes only typed analyzer policy plus a
+// The blocking decision consumes only typed analyzer policy/scope plus a
 // deterministic existing-file profile. Path shape alone remains identity
 // guidance and can never block converter/parser source-code work.
 func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *types.BusContext, request string) error {
@@ -75,7 +75,7 @@ func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.Bus
 	}
 	rm := bus.AnalysisIR.RequestModel
 	profile := types.NormalizeRuntimeArtifactPreflightProfile(bus.RuntimeArtifactPreflight)
-	// The current typed policy, not the file suffix or prose, permits native
+	// The current typed intent, not the file suffix or prose, permits native
 	// content discovery. The new candidates remain local until real preparation
 	// and complete input admission succeed below.
 	profile = namedTraceContentAdmissionProfile(ctx, bus, request, runtimeAnchor, profile)
@@ -171,10 +171,13 @@ func prepareAndAdmitNamedTracePath(ctx context.Context, bus *types.BusContext, p
 }
 
 func typedNamedTraceAdmissionEnabled(rm types.RequestModel, profile types.RuntimeArtifactPreflightProfile, request string) bool {
-	// The analyzer's typed external-observation policy is the sole intent
-	// authority. Raw request path shape is used only later to enumerate the
-	// physical files covered by that already-settled policy; it can never arm
-	// this gate on its own.
+	// A source-owned comparison is precise runtime-acquisition intent even
+	// when source-code analysis remains allowed. Neither changes the other.
+	if hasNamedTraceComparison(rm) {
+		return true
+	}
+	// Legacy inputs still require the settled external-observation policy.
+	// Raw request path shape alone can never arm this gate.
 	policy := rm.ExternalObservationPolicy
 	if policy == nil || (!policy.ExcludesCurrentSource() && !policy.ArtifactCitationsExternalOnly()) {
 		return false

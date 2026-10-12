@@ -94,8 +94,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_authority_snapshot_normalize.go": 24,
 	"../types/source_inventory_authority_snapshot_support.go":   63,
 	"../types/source_inventory_inclusion.go":                    38,
-	"../types/source_inventory_declaration.go":                  94,
-	"../types/source_inventory_exact_file_boundary.go":          94, // B37 typed equality bridge plus independent user-mentioned-file provenance and SourceScopeAll fail-closed guard.
+	"../types/source_inventory_declaration.go":                  104, // HMC224: 10-line independent permission probe and rationale; same applicability concern, other cluster ceilings unchanged.
+	"../types/source_inventory_exact_file_boundary.go":          94,  // B37 typed equality bridge plus independent user-mentioned-file provenance and SourceScopeAll fail-closed guard.
 	"../types/source_inventory_class_complete.go":               35,
 	"../types/source_inventory_language_census.go":              75,
 	// DELIBERATE raise (LENSBURN-FIX §29.122/§29.127 病B): the typed

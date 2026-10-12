@@ -19,10 +19,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-type hmc224PartialPairFinalizerLLM struct{ namedInputHMC223LLM }
+type hmc224PartialPairFinalizerLLM struct {
+	namedInputHMC223LLM
+	singles []json.RawMessage
+}
 
 func (l *hmc224PartialPairFinalizerLLM) Chat(ctx context.Context, messages []llm.Message, schemas []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
-	if l.calls == 1 {
+	if len(l.singles) > 0 && l.calls < len(l.singles) {
+		for _, schema := range schemas {
+			l.visible = l.visible || schema.Name == "trace_query"
+		}
+		params := l.singles[l.calls]
+		l.calls++
+		return llm.Response{ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("native-side-%d", l.calls), Name: "trace_query", Params: params}}}, ctx.Err()
+	}
+	if l.calls == 1 && len(l.singles) == 0 || len(l.singles) > 0 && l.calls == len(l.singles) {
 		l.calls++
 		if err := ctx.Err(); err != nil {
 			return llm.Response{}, err
@@ -36,6 +47,21 @@ func (l *hmc224PartialPairFinalizerLLM) Chat(ctx context.Context, messages []llm
 // Explorer and Finalizer all the way through Run and rendered native tables.
 // No result, source receipt, table or preparation capability is test-minted.
 func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
+	hmc224PartialComparisonFinalizer(t, "exclude", false)
+}
+
+func TestHMC224ComparisonNaturalPolicyPublicRun(t *testing.T) {
+	for _, policy := range []string{"nil", "default", "allow"} {
+		for _, singles := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/singles_%t", policy, singles), func(t *testing.T) {
+				hmc224PartialComparisonFinalizer(t, policy, singles)
+			})
+		}
+	}
+}
+
+func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool) {
+	t.Helper()
 	for _, failedIndex := range []int{0, 1} {
 		t.Run(fmt.Sprintf("failed_side_%d", failedIndex), func(t *testing.T) {
 			repo := t.TempDir()
@@ -63,7 +89,15 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 				pair[[]string{"baseline", "current"}[i]] = map[string]any{"source": "path", "path": side.Path, "view": "measurements", "time_start": *side.TimeStart, "time_end": *side.TimeEnd}
 			}
 			params, _ := json.Marshal(map[string]any{"comparison": pair})
-			adapter := &hmc224PartialPairFinalizerLLM{namedInputHMC223LLM{params: params}}
+			adapter := &hmc224PartialPairFinalizerLLM{namedInputHMC223LLM: namedInputHMC223LLM{params: params}}
+			iterations := 2
+			if singles {
+				iterations++
+				for _, side := range scope.Comparison.Sides() {
+					raw, _ := json.Marshal(map[string]any{"path": side.Path, "view": "measurements", "time_start": *side.TimeStart, "time_end": *side.TimeEnd})
+					adapter.singles = append(adapter.singles, raw)
+				}
+			}
 			finalAdapter := &namedInputHMC223LLM{finalize: true, params: json.RawMessage(`{"blocks":[{"id":"interpretation","kind":"summary","text":"One requested input is unavailable. The healthy input's original records remain independently available; no zero values or causal explanation are inferred for the failed input."}]}`)}
 			registry := tool.NewRegistry()
 			registry.Register(&tool.TraceQuery{})
@@ -72,7 +106,7 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 			deps := func(model llm.Adapter, iterations int) *agent.Dependencies {
 				return &agent.Dependencies{LLM: model, Tools: registry, MaxIterations: iterations, AgentSettings: types.DefaultAgentSettings(), Emit: func(render.Event) {}}
 			}
-			explorer := agent.NewExplorerAgent(deps(adapter, 2))
+			explorer := agent.NewExplorerAgent(deps(adapter, iterations))
 			finalizer := agent.NewFinalizerAgent(deps(finalAdapter, 1))
 			ir := dagIR(types.AnswerContract{})
 			ir.RequestModel = types.RequestModel{RawRequest: request, Intent: types.IntentExplain, Scenario: types.ScenarioGeneric,
@@ -84,11 +118,18 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 			ir.EvidencePlan.Budget.MaxReactIters = 10
 			var output *agent.StageOutput
 			var finalizerCalls int
+			var policyBefore string
+			var o *Orchestrator
 			ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 				types.AgentAnalyzer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 					if len(ctx.TraceInputPreparer.PreparedMaterials()) != 0 {
 						t.Error("input prepared before typed analyzer decision")
 					}
+					if policy != "exclude" {
+						ir.RequestModel = hmc224EmitNaturalComparison(t, o.busCtx, request, scope, policy)
+					}
+					serialized, _ := json.Marshal(ir.RequestModel.ExternalObservationPolicy)
+					policyBefore = string(serialized)
 					return &agent.StageOutput{AnalysisIR: ir}, nil
 				},
 				types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
@@ -109,7 +150,7 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 					return finalizer.Execute(ctx, &skill.Config{Name: "answer-document-skill", ToolSuggestions: []string{"emit_answer_document"}})
 				},
 			})
-			o := New(types.PipelineSettings{MaxRetriesPerStage: 1}, ar, sr, sar)
+			o = New(types.PipelineSettings{MaxRetriesPerStage: 1}, ar, sr, sar)
 			o.SetTraceRuntimeAnchor(t.TempDir())
 			bus, err := o.Run(request, repo, "main")
 			if err != nil {
@@ -125,6 +166,33 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 			if doc == nil {
 				t.Fatal("actual Finalizer did not emit the answer document")
 			}
+			serialized, _ := json.Marshal(bus.AnalysisIR.RequestModel.ExternalObservationPolicy)
+			if string(serialized) != policyBefore {
+				t.Fatalf("runtime acquisition changed source policy: before=%s after=%s", policyBefore, serialized)
+			}
+			if _, terminal := bus.Mutable.TraceInputAdmissionTerminal(types.StageExplore); terminal {
+				t.Fatal("independently failed side armed whole-investigation terminal")
+			}
+			catalogs := bus.Mutable.TraceCatalogs()
+			if len(catalogs) != 1 || len(catalogs[0].Snapshot().Artifacts) != 2 {
+				t.Fatal("current request did not retain its exact two-source catalog")
+			}
+			if singles {
+				failed, healthy := 0, 0
+				for _, result := range output.ToolResults {
+					if result.ToolName != "trace_query" {
+						continue
+					}
+					if result.Success {
+						healthy++
+					} else if result.TraceCatalogIndependentFailure && len(result.Observations) == 0 {
+						failed++
+					}
+				}
+				if failed != 1 || healthy != 1 {
+					t.Fatalf("single queries lost side ownership: failed=%d healthy=%d", failed, healthy)
+				}
+			}
 			rows := map[int]int{}
 			var states [][]string
 			for _, block := range doc.Blocks {
@@ -137,10 +205,10 @@ func TestHMC224PartialNamedComparisonReachesRealFinalizer(t *testing.T) {
 					states = table.Rows
 				}
 			}
-			if rows[8] != 1 || rows[2] != 1 || len(rows) != 2 {
+			if rows[8] != 1 || !singles && (rows[2] != 1 || len(rows) != 2) {
 				t.Fatalf("healthy eight records and two-side status did not survive finalization: %v", rows)
 			}
-			if len(states) != 2 || states[failedIndex][1] != "failed" || states[1-failedIndex][1] != "available" {
+			if !singles && (len(states) != 2 || states[failedIndex][1] != "failed" || states[1-failedIndex][1] != "available") {
 				t.Fatalf("final native status lost independent side identity: %+v", states)
 			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "en"))
