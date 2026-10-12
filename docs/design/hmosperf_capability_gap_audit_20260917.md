@@ -7298,3 +7298,77 @@ display-coalesce-red-v2为实际产品RED，同时复现旧want4→1、新实际
 按原退出条件完成10.1：现有两侧源/代次/窗口/单位/分母/覆盖、缺测及坏侧隔离，再加本批已有设备/负载元数据保真、真实准备绑定、single/pair消费，形成完整取数envelope。没有把10.2逐维差值/可比性、17.6/17.7全部二进制平台和正文/图质量纳入虚假完成；当前两份人工FAIL仍在12.5/16.4/18.4及持续18.5，旧FAIL不改签。
 
 终态79唯一ID=21完整实现已交付+58开放、重复0；38待实施/14部分实施/2待验收/3验收中/1持续执行，18类仍有开放内容。本批完整能力新增1（10.1），另交付2组子能力（当前原生成员显示复用；显式模型图参与者覆盖），以及同轨memo/pair冲突补救。剩余验收缺陷为本批2份完整人工FAIL与原5个稳定验收父项交叉记账，不相加创造新任务，也不以已交付子能力抹去未通过答案。后继双轨和边界按§229.6。
+
+## 230. 同源事实、业务量尺、事件时序与无损采样树（2026-10-12）
+
+### 230.1 起点和双轨范围
+
+起点`fc52e9f0c8ec`工作区干净；独立复算79唯一ID=21已交付+58开放，重复0，38待实施/14部分实施/2待验收/3验收中/1持续执行。§229两份人工FAIL原件保持，不把代码已交付当答案已通过。完整能力轨09.4保帧身份、全量分母和有界展开；共享缺陷轨12.5/16.4/18.4修同源整份事实重复、业务区间量测复用及验证过的事件在图中倒序。每批固定两例自然问题并行各一次，本批选择新采样树与既有业务IO时序，不增加第三live。
+
+参考`core/preprocess/perf_calltree_ops.py:72/137/157/196/206/389/528`，采用完整采样路径聚合的意图，不照搬按名称合帧、系统栈删除/重连、错窗全量fallback或采样比例×窗口当实测毫秒。参考`core/llm_contract.py:115–145`的成员/字段定位，沿当前原件代次和生产者结构结果建立显示身份、业务量尺和时序约束，不扫用户/答案关键词或数字。显示能力不扩大链资格、因果范围或调查完成权，显式窗、自动补齐、受信原生事实均保留。
+
+已识别范围边界：请求的每个dimension目前只有Label/Role/SourceQuote/Required/Index，没有精确事实家族；全请求FactFamilies不能替代逐维绑定。因此设备维度误接量测表保原12.5/16.4/18.4开放，不用标签硬门临时追绿。其它时钟见证、跨平台实机、只读登记自然分支及任意共享锚点批量迁移继续保原任务，不扩本批第三主线。此节为开工记录，最终验证/交付收据见§230.4–8。
+
+### 230.2 同源事实与业务量尺的实现边界
+
+整份量测publication仅在当前原件/准备代次可验证且有完整native display population时生成私有显示键。精确剥离结果信封位置，保完整query hash、递归/帧作用域、来源、窗口、字段/原值/单位、行身份、所有视图和说明；两个结果只多出外层窗口继承诊断时可复用显示。原选择器与原始工具结果不合并、不删除，查询诊断仍留原payload。same-ID真实冲突继续sticky，显示正见证缺席与其它私有权限冲突分别处理，不能用JSON恢复私有显示权。
+
+业务同步区间直接复用已验证的marker-local调度账户，新增summary-only原生表，查询窗与业务窗分别展示。主线程5ms、工作线程8ms保原所属区间；缺测显示未知，裁切保当前量尺并说明原始完整区间，嵌套区间不能相加、睡眠内IO标记不加第二次。publication在物理来源归属之后发布，精确检查源/线程/配对行/起止；无MemberSet、无DisplayPopulation，不授调查完成或因果权。跨view找到同一paired事实时，私有显示键保当前代次、真实业务owner/物理区间、完整表、来源时间基准和外层查询窗；检索target不是该业务owner，不因此重复显示同一事实。single+pair业务summary的统一键后继仍需承接原生owner/span凭证，不能用本批普通collection见证泛称全部组合已覆盖。
+
+已验证点事件的图序约束只读native精确关系元组，不读标签时间；同source/window/clock且同一线性语法区域内才比较顺序。静态调用、alt/par/loop、未验证角色及不同时间基准不强排。倒序诊断列精确早晚事件与源行，退休失效的atomic修补租约，允许对当前稿replace_blocks重排；不凭箭头排布产生新因果边。正文仍由模型解释，不能因原生表正确就宣布主文没有越权。
+
+相关联调已通过：业务公共查询/裁切/缺测、实际Finalizer→Emit→Render及投影不变；同源双侧21行只展示一次（42行原始选择仍在）；真实倒序箭头拒绝及合法修复。结构快检通过。一次独立审查发现未知帧空身份合并，已交采样能力轨修正，未把相关通过当09.4已验收。设备逐维类型绑定、历史宽窗正文误述、只含note的未绑定业务泳道及其它时间区间关系的点序权仍按原任务开放。
+
+证据纪律例外如实记录：子任务曾复用`facts-related.log`，覆盖了中间HMC220 pair独立单位分支4/7选择器FAIL及测试断言装配失败；原始完整文件未保存，仅工具会话与交接记录留有诊断，不能声称这些文件已归档。其修复保原statistics replay回退同时保prepared/nativeNavigation见证，末版related与race通过。`facts-red.log`现为真实禁用显示键的overlay反事实RED（26/13、42/21），不是被覆盖的早期编译失败；`facts-green.log`现存Kind字段编译失败，不是先前被覆盖的首次GREEN。后续日志均要求版本化。根任务business各版失败、集成与race收据均独立保留，不能用复制或重跑伪造丢失原件。
+
+### 230.3 无损采样树实现与冻结边界
+
+新增`perf_sampling_tree`复用默认原件准备和已有采样身份/事件单位账本。五种生产者（raw perf、simpleperf文本、simpleperf protobuf、hiperf protobuf、TraceStreamer SQLite）附加版本化帧载体，原平面字段保持；帧保symbol/DSO/IP/原始引用/深度，合法符号内分号不再被拆帧。原始上下文标记独立保留，不当函数；未知身份帧、零地址及旧分号串只记录缺栈，不造公共父路径。SQLite遵循参考已声明的depth=0根方向，不反转；原始perf地址块转换为根到叶，保上下文分界。
+
+独立source/generation/producer/event/unit/clock/thread-generation总体，含缺栈样本的完整分母；inclusive与self是采样权重，不折算毫秒，不保证完整解栈、不铸调用/唤醒/根因。展开与折叠仅改变展示，保省略节点/引用数量、原始行定位；同名异库、递归、系统帧不丢，默认按包含权重排序。query/window属于节点选择身份，错窗/未知选择器不回退全采集。完整文件扫描及原件换代检查复用现实现；65536保留记录/64MiB字符串预算或131072树节点预算超限时拒发部分分母，显示不可用而非零。
+
+独立审查的三项确定缺口已同轨修复并新增反例：全空SQLite帧不能合成路径；保留预算计算完整私有帧及元数据字符串，并复制解析子串避免短字段意外持有整行；已有身份账本判定selector-withheld时，指定线程结果不可伪装成零样本，保原缺失/冲突说明。溢出总体在模型投影中显示未知，不把结构占位0解释为实测零。此处不扩大采样关系授权；单源supporting-context缺少消费时私有新鲜度复验仍挂既有17.7/18.4，不能被本批窗口/路径校验代签。
+
+最终交接测试现经实际TraceQuery→BuildInitialInstruction，三独立总体和35/5完整/缺栈权重、两库同名帧均进入最终上下文；它不是自动原生表/图渲染验收。新自然问题只问文档线程采样路径和事件差异，精确分母、未知、范围、非因果等验收约束置独立ORACLE而不提示模型。第二例复用原业务IO问题；本批不重复上一批元数据live，也不以它的确定性去重GREEN改签原人工FAIL。
+
+冻结前接口普查`final-registry-v1`收齐7个tracediag旧Result schema断言失败，全部来自新增可选采样字段尚无演进见证。补精确单字段/类型/tag及可选JSON见证，保每个历史hash与其余字段/顺序不变；`sampling-schema-green-v1`通过，不以刷新旧hash解除防护。相关七包、五包race及skill整包已通过；该冻结前阶段尚未启动昂贵全仓，避免在共享编辑中反复跑全量，最终全仓见§230.6。
+
+最终只读交接审查另确认原始`perf_sampling_tree={...}` RichNotes与可读原生摘要重复进入finalizer、且前者被截断。新增实际BuildInitialInstruction缺席断言取得`sampling-json-red-v1`真实FAIL；修复限定现有runtime-artifact来源和deterministic-query生产者，仅隔离精确私有传输键，完整ledger/其它备注/非该来源不变。不扫描用户或模型正文，不增加模型必填JSON。这是已证系统上下文接缝，非把成文错误统称模型波动。
+
+### 230.4 冻结与验证收据
+
+实现冻结提交`d90384847152`，68文件、3350增行/47删行（包含测试和新eval）；不混入后续人工审计文档。定向末版：`integration-related-v1`的agent/tool/types/orchestrator通过（skill无匹配不能算覆盖，另跑skill整包0.571s）；business-green-v5、business-race-v2通过。事实去重related/types/race、序列public/修补及旧租约/不同语法区域正反例通过；同源私有凭证不扩大因果权，实际finalizer业务表测试验证证据与投影序列化不变。
+
+采样`targeted-final-v2`七包通过，`race-final-v1`五包通过；最后原始JSON隔离的`note-green-v1`types/agent/tool和`note-race-v1`types/agent通过，实际prompt不再含私有raw transport且原生数据仍完整。三项独立复核发现均已验修，未新增低ROI扩展。现存早期编译/装配FAIL和真正产品RED分别留档；丢失原件的日志纪律例外见§230.2。
+
+`build-v1`正式exit0，binary revision=`d90384847152-dirty`、build=`2026-10-12T11:34:04Z`，dirty仅文档。本机04:34:32启动固定双例各一次、并行2、单例1200s；统一`full-v1`同版运行，过程中不改Go。六份题目/输入/独立oracle已预存SHA-256；末版全仓、真实人工结论与发布状态在后节补齐，此段不先签通过。
+
+### 230.5 自然入口实测缺口与后继范围
+
+采样例182s机器PASS，完整人工FAIL。实际完整view矩阵已给`perf_sampling_tree`及教学，不能误记成未注册；实际却只调用旧`perf_stats`和`event_search`，新树无原生observation，故新finalizer投影也未命中。正文把合法单帧`sys;root`拆成sys→root，cycles按42作分母，A.so=22/42、B.so=20/42，丢掉raw独立35=30已知栈+5未知栈和simpleperf独立7；又以instructions100与cycles42推采样稀疏度，缺配置证据。不能用最后的非耗时免责声明抵消前述错误，不倒签为09.4自然入口已通过。
+
+只读定位证明旧统计本身也有共享事实缺口，不全归模型选错工具：`tracequery/query.go`的`perfCohortKeyForSample`仅event+weightUnit，热点symbol/callchain键仅DSO+label，`addPerfHotspot`取首条Source后继续累计。真实payload的A.so=22含raw与simpleperf，Source却仍写raw。新树已精确隔离，旧统计仍可给下游相冲突的分母/归属。09.4由待实施改部分实施，58开放不减；该缺陷并挂16.4/18.4，不新建重复编号。
+
+后继优先共用已准入原始sample+身份账本的census，派生stats和tree两个事实视图；不能从已经合并的PerfContext逆造准确路径。可在已请求perf_stats的同源同窗结果上附原生树投影，沿现typed receipt进入最终上下文，降低工具选择负担；按source-generation+physical-sample坐标去重，避免WindowStats.PerfSamples/PerfStats镜像或重复query倍增。旧flat显示兼容但不授精确树权威，unsupported筛选不偷偷剥掉扩大范围。此路径比继续加路由关键词/用户约束的ROI高；本批冻结后只记录，不在全仓运行中继续改Go或追加第三例。
+
+### 230.6 全仓与代码发布
+
+冻结版`d90384847152`的完整`full-v1`正式exit0，本机04:44:09完成：90测试包PASS、13无测试包，全量Action=fail为空；tool560.339s。构建、相关/race及完整回归都基于本批实现，运行中Go/build输入与冻结提交一致。代码普通推送成功，origin/main从`fc52e9f0c`前进到`d90384847`，无force；HEAD与origin/main完整SHA一致。文档与真实双例人工收据在第二例终态后统一收尾，见下节。
+
+### 230.7 业务时序真实验收与系统接缝
+
+固定双例正式exit0，机器2/2、完整人工0/2，182s/978s；主审与独立只读审计核真实工具、完整payload、finalizer、最终正文/图及出厂旁路，详见[本批人工审计](../../eval/parallel_selected_summary_hmc_sampling_fact_scope_20261012_manual_audit.md)。没有追加第三例、修改题目约束或重跑挑绿。业务实际查event_search、宽窗window_stats与worker wakeup_chain；finalizer确实收到业务窗主线程5ms/工作线程8ms，两份原生13行summary与宽窗7/9.5ms各自有精确所属范围。
+
+正文这次正确保OpenDocument50ms/运行5ms，线程IO等待31ms与请求驻留35ms分开，47ms backup留背景；图两条native唤醒80→200@1.040010、200→100@1.045的方向与先后正确，私有Trace因果投影仍在。但三实际主体画成九条生命线（业务role三条、native三条、M/W/S三条）；消息挂native而note挂W，1.044500业务结束note排在1.045唤醒之后。正文唤醒与上CPU的措辞仍不够清晰，不能以旁路正确替主文纠错。新点事件倒序错误码未命中，note没有对应native点绑定，本轮不能宣称实测了新倒序拒绝修复；最终未选择runtime_measurement业务表，表物化/默认去重只由实际公共回归证明，不伪称这次live覆盖。
+
+12次finalizer拒绝/12次patch后正常接受，非法M→W触发与状态self-call被删除，HTML source/Markdown未留被拒关系旁路。环路有可定位的系统接缝：第一次试用S/W被拒not a typed carrier，改nativeID又保旧M/W/S；ensure_visible复用S/M/W被拒node_id already used，于是新增中文role；孤立S又需retain_as_context。当前局部安全patch可闭合，但主体/角色/注释三套身份不能通过一次精确重绑定整合，不能统称模型波动。后继在12.5沿已有原生身份建立可读参与者及业务区间注释的复用/重绑定，保缺证边界，不按显示标签合并、更不读note数字造时间权。
+
+首个analyzer请求9m36.28s后由provider回finish_reason=length，cap=0无客户端上限；保持活跃流后按既有fail-loud重试进入正常查询，未因4分钟无答案而降级。此项与图缺口分列，未全面验收所有超时路径。finalizer最大上下文估计145429/200000，重复视图/局部修补的噪声有后续压缩空间；不据一次长请求臆断唯一性能根因。
+
+### 230.8 最终归档、计数与ROI顺序
+
+130份当前有效原件逐件与源比较并SHA-256归档：70工具载荷、8出厂产物、52验证/发布收据。结果根`eval/results/hmc_sampling_fact_scope_20261012/evidence-sha256-index.txt`排除自身；RED辅助Go保存为.go.txt，避免进入包发现。6份题目/fixture/oracle运行前后相同。早期日志覆盖例外保持§230.2实录，不能把当前130份声称为从未遗失所有中间原件。大产物保本地结果目录，机器/人工摘要和两份统一文档按批提交。
+
+当前79唯一ID=21完整实现已交付+58开放，重复0；37待实施/15部分实施/2待验收/3验收中/1持续执行，18类仍有开放内容。本批完整能力新增0，已交付子能力4组：整份同源显示身份、业务区间原生量尺、已验证点事件顺序及可执行修复、无损帧/采样树查询到最终上下文。09.4改部分实施，不虚减58；当前两份完整人工FAIL与原五个稳定验收父项交叉记账，旧FAIL不改签。
+
+下一双轨按ROI：能力轨先闭09.4自然入口，旧perf_stats与新tree共享原始准入census及精确来源/分母，自动附同窗原生树事实，避免只加路由教学；共享缺陷轨优先已有物理身份下的参与者/业务注释复用与合法重绑定，修一类图表达而非另造角色名硬门。随后固定双例轮换18.3二进制尾部/显式窗与18.5只读登记恢复终态，不让同一业务题无限占用回放。设备逐维总体schema、single+pair业务summary凭证、持续写入、多来源及其它实机平台仍归原ID，不被本批子能力代销。
