@@ -697,6 +697,9 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	if err := placementPlan.finish(working); err != nil {
 		return err
 	}
+	if err := validateAtomicDiagramSharedAnchorLifetimes(previous, working, resolvedEdits); err != nil {
+		return err
+	}
 	boundarySeen := make(map[string]bool, len(boundaries))
 	for i, replacement := range boundaries {
 		blockID := strings.TrimSpace(replacement.BlockID)
@@ -1502,9 +1505,9 @@ func atomicDiagramParticipantProtected(protected map[string]bool, surfaces ...st
 // exact visible Mermaid statement and chose remove for each of them. Distinct
 // typed anchors can legitimately share one body occurrence (for example a
 // rejected call and a rejected precedence claim rendered on the same arrow).
-// The statement can be removed only once, while every selected anchor must be
-// removed in the same transaction. No action, relation, endpoint, or visible
-// wording is inferred here.
+// The statement can be removed only once. Selected anchors retire with it
+// unless a unique exact tuple still owns another visible occurrence. No
+// action, relation, endpoint, or visible wording is inferred here.
 func validateAtomicSharedBodyRemove(members []resolvedAtomicDiagramEdgeEdit) error {
 	if len(members) < 2 {
 		return fmt.Errorf("shared body removal requires at least two selected failures")
@@ -1573,16 +1576,19 @@ func applyAtomicSharedBodyRemove(block *types.AnswerBlock, edits []emitAnswerDia
 		anchorIndexes[anchorIndex] = true
 	}
 	indexes := make([]int, 0, len(anchorIndexes))
+	lines := strings.Split(block.Diagram.Body, "\n")
+	lines = append(lines[:lineIndex], lines[lineIndex+1:]...)
+	remainingBody := strings.Join(lines, "\n")
 	for index := range anchorIndexes {
-		indexes = append(indexes, index)
+		if !atomicDiagramAnchorOwnsRemainingBody(block.EdgeAnchors, index, remainingBody) {
+			indexes = append(indexes, index)
+		}
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(indexes)))
 	for _, index := range indexes {
 		block.EdgeAnchors = append(block.EdgeAnchors[:index], block.EdgeAnchors[index+1:]...)
 	}
-	lines := strings.Split(block.Diagram.Body, "\n")
-	lines = append(lines[:lineIndex], lines[lineIndex+1:]...)
-	block.Diagram.Body = strings.Join(lines, "\n")
+	block.Diagram.Body = remainingBody
 	return nil
 }
 
@@ -2201,7 +2207,7 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			return fmt.Errorf("action=remove must omit edge and visible_label")
 		}
 		lines = replaceAtomicMermaidStatementLine(lines, lineIndex, preservedNodeDeclarations)
-		if !bodyOnly {
+		if !bodyOnly && !atomicDiagramAnchorOwnsRemainingBody(block.EdgeAnchors, anchorIndex, strings.Join(lines, "\n")) {
 			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
 		}
 	case "relabel":
@@ -2725,6 +2731,69 @@ func atomicDiagramAnchorPairCount(anchors []types.DiagramEdgeAnchor, fromNode, t
 		}
 	}
 	return count
+}
+
+// A unique explicit endpoint tuple owns every repeated presentation on its
+// visible pair (the same rule used by diagramEvidenceEdgeEndpointSymbolsAtOccurrence).
+// Removing one body occurrence cannot revoke that tuple from the remaining
+// ones. Multiple anchors retain their existing exact occurrence semantics;
+// neither another identity on the same pair nor a display label can save the
+// selected anchor. Metadata-only removals do not use this body-lifetime rule.
+func atomicDiagramAnchorOwnsRemainingBody(anchors []types.DiagramEdgeAnchor, index int, body string) bool {
+	if index < 0 || index >= len(anchors) {
+		return false
+	}
+	anchor := anchors[index]
+	return anchor.HasEndpointIdentityPair() && anchor.RelationKind.IsValid() &&
+		atomicDiagramAnchorPairCount(anchors, anchor.FromNode, anchor.ToNode) == 1 &&
+		atomicDiagramBodyPairCount(body, anchor.FromNode, anchor.ToNode) > 0
+}
+
+// Check the final transaction, not intermediate replacements: a shared owner
+// may retire when every old occurrence was selected, but a local replacement
+// must not migrate the authority of an unselected sibling into a retry draft.
+func validateAtomicDiagramSharedAnchorLifetimes(previous, working map[string]types.AnswerBlock, edits []resolvedAtomicDiagramEdgeEdit) error {
+	for _, resolved := range edits {
+		edit := resolved.edit
+		if !strings.EqualFold(strings.TrimSpace(edit.Action), "replace") || edit.Match == nil || edit.BodyOccurrence <= 0 {
+			continue
+		}
+		blockID := strings.TrimSpace(edit.BlockID)
+		base, current := previous[blockID], working[blockID]
+		if base.Diagram == nil || current.Diagram == nil {
+			continue
+		}
+		index, _, err := findAtomicDiagramEditAnchor(base.EdgeAnchors, edit)
+		if err != nil || !atomicDiagramAnchorOwnsRemainingBody(base.EdgeAnchors, index, base.Diagram.Body) {
+			continue
+		}
+		owner := base.EdgeAnchors[index]
+		total := atomicDiagramBodyPairCount(base.Diagram.Body, owner.FromNode, owner.ToNode)
+		if total < 2 || atomicDiagramBodyPairCount(current.Diagram.Body, owner.FromNode, owner.ToNode) == 0 {
+			continue
+		}
+		retained := false
+		for _, anchor := range current.EdgeAnchors {
+			retained = retained || atomicDiagramAnchorSameTuple(owner, anchor)
+		}
+		if retained {
+			continue
+		}
+		selected := make(map[int]bool)
+		for _, sibling := range edits {
+			e := sibling.edit
+			action := strings.ToLower(strings.TrimSpace(e.Action))
+			if strings.TrimSpace(e.BlockID) == blockID && e.Match != nil && e.BodyOccurrence > 0 &&
+				(action == "remove" || action == "replace") &&
+				strings.TrimSpace(e.Match.FromNode) == strings.TrimSpace(owner.FromNode) && strings.TrimSpace(e.Match.ToNode) == strings.TrimSpace(owner.ToNode) {
+				selected[e.BodyOccurrence] = true
+			}
+		}
+		if len(selected) < total {
+			return fmt.Errorf("diagram_edge_edits[%d] cannot move the shared anchor of an unselected visible occurrence; keep this replacement on the existing endpoint pair and typed relation", resolved.originalIndex)
+		}
+	}
+	return nil
 }
 
 func atomicDiagramBodyOnlyFailureAuthorized(
