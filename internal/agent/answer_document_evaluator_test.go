@@ -10909,9 +10909,11 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJS
 	if strings.Contains(out.FinalAnswer, `"blocks"`) || strings.Contains(out.FinalAnswer, `"citations"`) {
 		t.Fatalf("recovered answer leaked raw JSON: %q", out.FinalAnswer)
 	}
-	doc := ctx.Mutable.AnswerDocumentV2()
-	if doc == nil {
-		t.Fatal("lossless recovered answer document should be restored to Mutable for contract validation")
+	// Lossless JSON parsing is not relationship validation. This fixture has
+	// neither a request context nor typed owners for its recovered diagram.
+	doc := ctx.Mutable.DegradedRecoveredAnswerDocumentV2()
+	if doc == nil || ctx.Mutable.AnswerDocumentV2() != nil || !out.SkipAnswerChecks {
+		t.Fatal("unchecked recovered graph must not enter the accepted carrier")
 	}
 	if len(doc.Blocks) != 2 || len(doc.Citations) != 1 {
 		t.Fatalf("recovered Mutable document shape = blocks:%d citations:%d, want 2/1", len(doc.Blocks), len(doc.Citations))
@@ -10919,10 +10921,9 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJS
 	for _, want := range []string{
 		"系统架构概述",
 		"可见答案应从 block text 渲染",
-		"```mermaid",
-		"sequenceDiagram",
+		"部分图未通过当前证据核验",
 		"internal/agent/agent.go:859",
-		"已从模型写在文本中的 answer_document JSON 恢复本答案",
+		"已从模型写在文本中的 answer_document JSON 提取可见答案块",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("recovered answer missing %q:\n%s", want, out.FinalAnswer)
@@ -11040,8 +11041,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_FallsBackToPreservedFinalizerSurfac
 		"未能生成结构化答案",
 		"已保留的模型草稿",
 		"| 模型响应超时 | 传输层事件 |",
-		"```mermaid",
-		"flowchart TD",
+		"部分图未通过当前证据核验",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
@@ -14313,8 +14313,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_RetryStateDiagramDropsOlderRejected
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	if !strings.Contains(out.FinalAnswer, "Current->>Target: current") {
-		t.Fatalf("retry-state diagram was lost:\n%s", out.FinalAnswer)
+	if strings.Contains(out.FinalAnswer, "Current->>Target: current") || !strings.Contains(out.FinalAnswer, "部分图未通过当前证据核验") {
+		t.Fatalf("unchecked retry-state diagram escaped isolation:\n%s", out.FinalAnswer)
 	}
 	if strings.Contains(out.FinalAnswer, "Old->>Wrong: rejected") || strings.Contains(out.FinalAnswer, "系统保留内容") {
 		t.Fatalf("older rejected diagram must not re-enter beside the shipped retry-state diagram:\n%s", out.FinalAnswer)
@@ -14357,16 +14357,15 @@ func TestAnswerDocumentEvaluator_ParseOutput_RetryStateInvalidDiagramFallsBackTo
 	}
 	for _, want := range []string{
 		"恢复正文",
-		"```text\n# ⚠ 恢复稿中的 Mermaid 未通过语法校验",
-		"] -->|",
+		"部分图未通过当前证据核验",
 		"最终重试未能产出有效的 answer_document",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("degraded output missing %q:\n%s", want, out.FinalAnswer)
 		}
 	}
-	if strings.Contains(out.FinalAnswer, "```mermaid") {
-		t.Fatalf("invalid recovered diagram must not ship as Mermaid:\n%s", out.FinalAnswer)
+	if strings.Contains(out.FinalAnswer, "```mermaid") || strings.Contains(out.FinalAnswer, "] -->|") {
+		t.Fatalf("invalid unverified diagram must not ship as a relation, even as text:\n%s", out.FinalAnswer)
 	}
 }
 
@@ -14460,13 +14459,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_TextRecoveryKeepsRetryStateDiagram(
 	}
 	for _, want := range []string{
 		"文本恢复正文",
-		"执行图",
-		"```mermaid",
-		"flowchart TD",
+		"部分图未通过当前证据核验",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+	if strings.Contains(out.FinalAnswer, "A[Agent] --> B[Tool]") || ctx.Mutable.AnswerDocumentV2() != nil {
+		t.Fatal("unchecked prior-generation attachment must not be promoted with a lossless text recovery")
 	}
 }
 

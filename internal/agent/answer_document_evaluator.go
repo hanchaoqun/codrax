@@ -21358,6 +21358,11 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 	if doc, ok := recoverRetryStateAnswerDocumentV2(ctx); ok {
+		attachments := []types.AnswerDisplayAttachment(nil)
+		if ctx != nil && ctx.Mutable != nil {
+			attachments = ctx.Mutable.AnswerDisplayAttachments()
+		}
+		attachments, _ = tool.IsolateRecoveredAnswerDiagrams(types.ToolBusContext(ctx, types.AgentFinalizer), doc, attachments, e.language)
 		// XGAP-FIX ④ (§29.104.8): the recovery lane never reached the
 		// persistMergedAnswerDocument chokepoint, so the deterministic,
 		// model-independent sections (◎ observation board / causal
@@ -21383,9 +21388,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		if ctx != nil && ctx.Mutable != nil {
 			ctx.Mutable.SetDegradedRecoveredAnswerDocumentV2(doc)
 		}
-		attachments := []types.AnswerDisplayAttachment(nil)
 		if ctx != nil && ctx.Mutable != nil {
-			attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 			// The retry-state document is now the customer-visible
 			// structured draft. If it already carries a diagram, older
 			// model-authored diagram attachments came from rejected attempts
@@ -21430,6 +21433,9 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if safeFallback == "" {
 		safeFallback = strings.TrimSpace(lastContent)
 	}
+	// Raw prose has no typed relationship owners. Inspect only Markdown graph
+	// carriers before appending privately generated native/causal supplements.
+	safeFallback, _ = tool.IsolateUnvalidatedDiagramFences(safeFallback, e.language)
 	// B800-RAWDETERMINISTIC1: the retry-state and text-recovery lanes above
 	// already run the deterministic export chain, but the final raw-prose lane
 	// used to append only a short fact list. That made the Trace causal
@@ -21463,7 +21469,12 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil {
-		if recovered := render.RenderAnswerDocumentWithAttachments(nil, ctx.Mutable.AnswerDisplayAttachments(), e.language); strings.TrimSpace(recovered) != "" {
+		attachments, isolated := tool.IsolateRecoveredAnswerDiagrams(types.ToolBusContext(ctx, types.AgentFinalizer), nil, ctx.Mutable.AnswerDisplayAttachments(), e.language)
+		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
+		if isolated > 0 {
+			combined += "\n\n" + tool.RecoveryDiagramIsolationNotice(e.language)
+		}
+		if recovered := render.RenderAnswerDocumentWithAttachments(nil, attachments, e.language); strings.TrimSpace(recovered) != "" {
 			combined = combined + "\n\n" + strings.TrimSpace(recovered)
 		}
 	}
@@ -21987,6 +21998,18 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	if !types.RebindRuntimeAnswerReceipts(doc, types.BuildAnswerSemanticViewForAgentContext(ctx)) {
 		return out, false
 	}
+	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
+	if ctx != nil && ctx.Mutable != nil {
+		attachments = appendAnswerDisplayAttachmentsUnique(attachments, retryStateDiagramDisplayAttachments(ctx)...)
+		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
+	}
+	attachments, isolated := tool.IsolateRecoveredAnswerDiagrams(types.ToolBusContext(ctx, types.AgentFinalizer), doc, attachments, e.language)
+	if isolated > 0 {
+		rec.Lossless = false
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
+	}
 	// XGAP-FIX ④: text-recovered documents bypass the persist chokepoint
 	// too — attach the deterministic sections before promotion/rendering.
 	materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
@@ -22009,11 +22032,6 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 		// on the degraded lane so the post-finalize prose defenses scan
 		// the shipped draft (XGAP-FIX ⑤).
 		ctx.Mutable.SetDegradedRecoveredAnswerDocumentV2(doc)
-	}
-	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
-	if ctx != nil && ctx.Mutable != nil {
-		attachments = appendAnswerDisplayAttachmentsUnique(attachments, retryStateDiagramDisplayAttachments(ctx)...)
-		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 	}
 	prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments)
 	prose = sanitizeRecoveredAnswerSurfaces(ctx, prose, e.language, false)

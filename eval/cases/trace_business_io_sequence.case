@@ -1,0 +1,9 @@
+# Natural causal/relationship task; recovery is possible but never forced.
+ID="trace_business_io_sequence"
+NAME="Document response IO dependency shown as a sequence diagram"
+QUESTION="OpenDocument 这次响应慢在哪里？请用时序图说明主线程、文档工作线程和存储完成之间的先后与唤醒关系，并指出最值得优先排查的环节。"
+HTRACE_FILE="eval/fixtures/hmosperf_business_io_chain/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=1
