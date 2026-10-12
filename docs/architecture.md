@@ -1124,6 +1124,8 @@ HMC §224在`runtime_artifact_scope_profile`增加可选`comparison:{baseline:{p
 
 合法的逐源comparison本身是精确取数意图，不以`current_source_mode=exclude`或`external_only`为前提；nil/default/allow策略同样执行独立准备，且原源码策略保持原值。没有合法comparison的旧入口仍执行原策略判断；路径形状、文件数或源码许可不能单独授权准备。
 
+无窗comparison保留两侧身份、未知范围和各自执行状态；仅一侧有窗时另一侧不借用。共同修饰的单窗复用外层`time_start/time_end/source_quote`，两侧仅保自己的原件/path quote，不能与侧内端点或`time_windows`混用。`EffectiveComparisonWindow`统一提供按原件投影的展示/查询补窗/量测范围与状态身份；毫秒沿原literal binder归一为秒，不复制成伪造的侧内原文。共同数字窗不授时钟对齐、设备/业务负载可比或因果权限。
+
 单侧与双侧查询交接按完整publication去重（完整来源、全部视图及私有覆盖范围均须一致），任何同ID冲突整份拒选，不保留恰好相同的兄弟表来冒充已解决冲突。双侧私有覆盖在当前来源/轮次验证后复制给消费者，再应用与单侧相同的来源资格；JSON不能恢复权限。若comparison子查询命中未携当前读取凭证的纯结果memo，只在调用局部跳过memo重读该侧一次，不修改共享工具、不给缓存值补造凭证。
 
 进程原始量测注册`summary/members/timeline`，不提供未获协议的分布聚合。summary按来源、真实进程/filter及原始类型整理保留观测序列，members保精确原值/起点/dur，timeline另列窗口交集；三表共同保留完整行、省略与未知说明。源值可能并非字节或内存存量，不计算通用增长/累计，也不把指标名称当协议。工具发布64KiB有界表时只删完整记录，三表保持一致，完整query载荷不变；不附成员全集完成凭证，不代替因果链或线程执行证明。
@@ -1167,6 +1169,8 @@ HMC §224在`runtime_artifact_scope_profile`增加可选`comparison:{baseline:{p
 ### 6.5 Diagram relation 与 edge anchor
 
 **JSON恢复的可见字段归属（HMC-16.4）**：full emit、局部patch、agent畸形参数预解析和display-only恢复共用结构所有权检查。`columns/items/text/diagram`等可见字段落在文档根或字符串blocks的块外时，不能仅凭恢复前后块数相同判无损，也不猜它属于最后一个块；保原始载体和可寻址草稿，返回按原schema放回明确owner的局部修复。合法metadata作为完整值跳过，引号内JSON示例不计为块；仅保留既有能证明字段实际保存的邻接注解修复。拒绝出口继续处理合法/非法根因选择旁路，成功局部修复后不把失败原JSON另当答案展示。没有新增模型必填字段或原文关键词硬门。
+
+**恢复图的展示资格（HMC §227）**：重试稿、文本JSON恢复与原文降级统一经`IsolateRecoveredAnswerDiagrams`。逐图按未改动的同稿快照、当前证据及既有关系/参与者/边界校验复核；未检查或失败的模型图转明确范围说明，不剪边伪装通过，不让无typed owner的附件或正文Markdown图绕过。普通序列回复复用原有结构回复规则；其它图或表失败不抹掉局部已证关系。正文围栏只按Markdown载体识别，不扫语义关键词；受信私有系统图及随后物化的原生事实/Trace因果投影保留。隔离后的无损JSON不进入accepted载体，原失败稿原样留证；正常accepted结构正文及L7/L8不变。附件还须在最终last-mile与后置首稿引用出口隔离，不能因后来接受的正文不含图、或恢复稿无accepted载体而复活旧图；附件标题与正文共享载体校验，Source字符串不授关系权限。
 
 Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚举以 `internal/types/diagram_relation.go::AllDiagramRelationKinds` 为准，包括调用、回调交接、注册、回复、时序、类型关系等不同语义。它们不能互相冒充；命名相似、展示标签或消息参数不产生身份与关系证据。调用链的 principal claim-form 清单由 `CallChainPrincipalClaimForms` 统一提供给编译器和发射校验，避免某语言或某关系只更新一侧。
 
