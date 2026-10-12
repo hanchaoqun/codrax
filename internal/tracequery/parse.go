@@ -4889,6 +4889,7 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTyp
 	pf.UserStackSize = perfOptionalInt64(kv, "user_stack_size", &typed)
 	pf.AuxSize = perfOptionalInt64(kv, "aux_size", &typed)
 	pf.Callchain = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), tracewire.MaxPerfCallchainBytes))
+	pf.FramesV1 = intern.intern(kv["frames_v1"])
 	pf.Source = intern.intern(perfTextValueBounded(firstNonEmpty(kv["source"], kv["producer"]), tracewire.MaxPerfMetadataBytes))
 	pf.ParserCaveats = intern.intern(perfTextValueBounded(kv["parser_caveats"], tracewire.MaxPerfParserCaveatsBytes))
 	if known, ok := perfWireBool(kv["thread_identity_known"]); ok {

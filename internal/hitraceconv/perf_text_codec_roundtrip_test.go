@@ -12,7 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
-const perfCodecHostileSymbol = `Hot" pid=888 tid=999 cpu=7 cpu_known=true sample_weight=999 source=evil tail`
+const perfCodecHostileSymbol = `Hot;literal" pid=888 tid=999 cpu=7 cpu_known=true sample_weight=999 source=evil tail`
 const perfCodecWindowsDSO = `C:\Program Files\鸿蒙\libfoo.dll`
 
 type perfCodecRoundTripWant struct {
@@ -85,6 +85,14 @@ func assertPerfCodecWriterRoundTrip(t *testing.T, wire string, want perfCodecRou
 	}
 	if pf.PerfTextIntegrity != "" {
 		t.Fatalf("canonical writer was degraded by reader: %s", pf.PerfTextIntegrity)
+	}
+	frames, ok := tracewire.DecodePerfFrames(pf.FramesV1)
+	if !ok || frames.Status != "available" || len(frames.Frames) != 1 || frames.Frames[0].Symbol != want.Symbol || frames.Frames[0].DSO != want.DSO || frames.Frames[0].SourceRef == "" {
+		t.Fatalf("producer lost exact frame boundaries/provenance: %+v", frames)
+	}
+	tree, err := tracequery.StreamPerfSamplingTree(context.Background(), path, tracequery.Query{View: tracequery.ViewPerfSamplingTree})
+	if err != nil || tree.PerfSamplingTree == nil || tree.PerfSamplingTree.SampleCount != 1 || len(tree.PerfSamplingTree.Cohorts) != 1 || len(tree.PerfSamplingTree.Cohorts[0].Nodes) != 1 || tree.PerfSamplingTree.Cohorts[0].Nodes[0].Symbol != want.Symbol {
+		t.Fatalf("writer-to-tree path failed: %v %+v", err, tree.PerfSamplingTree)
 	}
 	return ev
 }

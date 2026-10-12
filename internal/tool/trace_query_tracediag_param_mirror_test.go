@@ -53,6 +53,10 @@ var traceQueryTraceDiagStepMirror = map[string]string{
 // frame discovery scope, wakeup budgets, recipe/interaction selectors,
 // window_sweep bucketing, compute-supply topology).
 var traceQueryToolOnlyParams = map[string]bool{
+	// Sampling display navigation is tool-local; tracediag retains its full
+	// deterministic default projection without an interactive expand token.
+	"sampling_depth": true,
+	"sampling_root":  true,
 	// The tool composes two independent source queries with run-local
 	// measurement receipts; a tracediag Step has one CLI-selected source.
 	// Its ordinary per-side query selectors retain their existing mirrors.

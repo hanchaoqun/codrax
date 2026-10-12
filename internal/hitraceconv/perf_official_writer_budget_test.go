@@ -29,6 +29,7 @@ func TestPerfOfficialWritersPreserveCanonicalBodyBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := `perf_sample: cpu=5 cpu_known=true pid=1234 tid=5678 thread_comm="Render" sample_weight=10000 event="cpu-cycles" symbol="Foo::bar" dso="libfoo.so" ip="0x1234" callchain="main@libfoo.so;A@libfoo.so;Foo::bar@libfoo.so" source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized`
+		want = strings.Replace(want, " source=", " frames_v1="+strconv.Quote(`{"version":1,"status":"available","frames":[{"symbol":"main","dso":"libfoo.so","ip":"0x3000","source_ref":"report_sample.callchain[1]","source_depth":1},{"symbol":"A","dso":"libfoo.so","ip":"0x2000","source_ref":"report_sample.callchain[0]","source_depth":0},{"symbol":"Foo::bar","dso":"libfoo.so","ip":"0x1234","source_ref":"report_sample.leaf","source_depth":0}]}`)+" source=", 1)
 		assertSinglePerfBody(t, out.String(), want)
 	})
 
@@ -39,6 +40,7 @@ func TestPerfOfficialWritersPreserveCanonicalBodyBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := `perf_sample: cpu=-1 cpu_known=false pid=1234 tid=5678 thread_comm="Render" sample_weight=99 event="cpu-cycles" symbol="Foo::bar" dso="libfoo.so" ip="0x1234" callchain="main@libfoo.so;Foo::bar@libfoo.so" source=simpleperf_report_proto sample_kind=on_cpu symbolization_status=symbolized clock=simpleperf_record clock_confidence=assumed callchain_status=symbolized`
+		want = strings.Replace(want, " source=", " frames_v1="+strconv.Quote(`{"version":1,"status":"available","frames":[{"symbol":"main","dso":"libfoo.so","ip":"0x2000","source_ref":"simpleperf.proto.frames[1]","source_depth":1},{"symbol":"Foo::bar","dso":"libfoo.so","ip":"0x1234","source_ref":"simpleperf.proto.frames[0]","source_depth":0}]}`)+" source=", 1)
 		assertSinglePerfBody(t, out.String(), want)
 	})
 
@@ -49,6 +51,7 @@ func TestPerfOfficialWritersPreserveCanonicalBodyBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := `perf_sample: cpu=-1 cpu_known=false pid=1234 tid=5678 thread_comm="Render" sample_weight=99 event="cpu-cycles" symbol="doWork" dso="libfoo.so" ip="0x1234" callchain="main@libfoo.so;doWork@libfoo.so" source=hiperf_proto symbolization_status=symbolized clock=monotonic_raw clock_confidence=assumed callchain_status=symbolized`
+		want = strings.Replace(want, " source=", " frames_v1="+strconv.Quote(`{"version":1,"status":"available","frames":[{"symbol":"main","dso":"libfoo.so","ip":"0x2000","source_ref":"hiperf.proto.frames[1]","source_depth":1},{"symbol":"doWork","dso":"libfoo.so","ip":"0x1234","source_ref":"hiperf.proto.frames[0]","source_depth":0}]}`)+" source=", 1)
 		assertSinglePerfBody(t, out.String(), want)
 	})
 }

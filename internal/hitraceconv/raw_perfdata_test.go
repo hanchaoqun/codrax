@@ -82,6 +82,7 @@ func TestWriteRawPerfDataPerfTracePreservesSanitizedCommWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `perf_sample: cpu=0 cpu_known=true pid=1 tid=1 thread_comm="Render_Thread_X" sample_weight=1 event="unknown" symbol="0x1" dso="unknown" ip="0x1" callchain="0x1" source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only`
+	want = strings.Replace(want, " source=", " frames_v1="+strconv.Quote(`{"version":1,"status":"available","frames":[{"symbol":"0x1","dso":"unknown","ip":"0x1","source_ref":"PERF_SAMPLE_IP","source_depth":0}]}`)+" source=", 1)
 	assertSinglePerfBody(t, out.String(), want)
 }
 

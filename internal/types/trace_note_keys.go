@@ -423,6 +423,7 @@ const TraceNoteKeyTransactionHandoffs = "transaction_handoffs"
 
 // Full recorded native resource frames; no execution or causal authority.
 const TraceNoteKeyResourceStack = "resource_stack"
+const TraceNoteKeyPerfSamplingTree = "perf_sampling_tree"
 const TraceBusinessTreePredicate = "trace_business_tree"
 
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
@@ -1686,6 +1687,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyRenderingCandidates, "rendering_candidates", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTransactionHandoffs, "transaction_handoffs", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyResourceStack, "resource_stack", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyPerfSamplingTree, "perf_sampling_tree", TraceNoteCarrierSoftConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.

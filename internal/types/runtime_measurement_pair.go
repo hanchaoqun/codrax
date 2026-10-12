@@ -125,7 +125,13 @@ func NewNativeMeasurementPair(owner *MutableState, sides [2]NativeMeasurementPai
 		}
 		ref.replay[i], ref.material[i] = input.Result.TraceQueryWindowReplay, input.Material
 		if ref.replay[i].source.generation == nil {
-			ref.replay[i] = input.Result.TraceStatistics.replay
+			// Some statistics views need their original physical-source replay
+			// fallback. Preserve the independent prepared/native provenance too;
+			// replacing the whole receipt would erase its display identity.
+			fallback := input.Result.TraceStatistics.replay
+			fallback.preparedSource = ref.replay[i].preparedSource
+			fallback.nativeNavigation = ref.replay[i].nativeNavigation
+			ref.replay[i] = fallback
 		}
 		side.Generation = ref.replay[i].source.identity.CacheToken()
 		if input.Material != nil {
@@ -261,6 +267,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 							publication.Tables[i] = runtimeMeasurementUnverifiedWindowTable(table)
 						}
 					}
+					qualifyRuntimeMeasurementFactIdentity(&publication, original, result.RuntimeMeasurementPair.replay[sideIndex])
 					out = append(out, publication)
 				}
 				_, _, parser := runtimeMeasurementMetadataLabels(side.SourceMetadata)

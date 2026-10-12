@@ -31,7 +31,8 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	AnchorOccurrence int
 	// Same-pool call matcher receipts are repair navigation, not new evidence.
 	// Keep them internal: model-authored mismatches cannot supply these rows.
-	matchedCallEvidence []diagramCallRepairEvidence
+	matchedCallEvidence       []diagramCallRepairEvidence
+	nativeSequenceOrderDetail string
 }
 
 // IsRequestedStagePrecedenceSpineIncomplete exposes the typed completeness
@@ -74,6 +75,7 @@ const (
 	diagramEdgeAnchorNodeIdentityConflict     = "edge_anchor_node_identity_conflict"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
+	diagramNativeSequenceEventOrderConflict   = types.DiagramRelationFailureNativeSequenceEventOrder
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -584,6 +586,9 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				Relation:   relation,
 			})
 		}
+	}
+	if len(out) == 0 {
+		return diagramNativeSequenceEventOrderMismatches(doc, runtimeRelations)
 	}
 	return out
 }

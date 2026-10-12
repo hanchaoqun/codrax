@@ -17,6 +17,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 	encoded := make(map[string]string, len(publications))
 	conflicting := make(map[string]bool)
 	displayWitnesses := make(map[string][]bool, len(publications))
+	factIdentities := make(map[string][]string, len(publications))
 	for i, publication := range publications {
 		key := publication.ObservationID
 		raw, err := json.Marshal(publication)
@@ -30,14 +31,21 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 			} else {
 				for j, table := range publication.Tables {
 					displayWitnesses[key][j] = displayWitnesses[key][j] || table.nativeTraceDisplayPopulation
+					if prior := factIdentities[key][j]; prior != "" && table.nativeFactIdentity != "" && prior != table.nativeFactIdentity {
+						conflicting[key] = true
+					} else if table.nativeFactIdentity != "" {
+						factIdentities[key][j] = table.nativeFactIdentity
+					}
 				}
 			}
 			continue
 		}
 		first[key], encoded[key] = i, string(raw)
 		displayWitnesses[key] = make([]bool, len(publication.Tables))
+		factIdentities[key] = make([]string, len(publication.Tables))
 		for j, table := range publication.Tables {
 			displayWitnesses[key][j] = table.nativeTraceDisplayPopulation
+			factIdentities[key][j] = table.nativeFactIdentity
 		}
 	}
 	var out []RuntimeMeasurementTable
@@ -46,6 +54,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 			for j, table := range publication.Tables {
 				retained := table.Clone()
 				retained.nativeTraceDisplayPopulation = displayWitnesses[publication.ObservationID][j]
+				retained.nativeFactIdentity = factIdentities[publication.ObservationID][j]
 				out = append(out, retained)
 			}
 		}
@@ -61,9 +70,11 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	b.Tables = append([]RuntimeMeasurementTable(nil), b.Tables...)
 	for i := range a.Tables {
 		a.Tables[i].nativeTraceDisplayPopulation = false
+		a.Tables[i].nativeFactIdentity = ""
 	}
 	for i := range b.Tables {
 		b.Tables[i].nativeTraceDisplayPopulation = false
+		b.Tables[i].nativeFactIdentity = ""
 	}
 	return reflect.DeepEqual(a, b)
 }

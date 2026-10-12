@@ -15,6 +15,11 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m(ViewPerfSamplingTree, "Sampled prefix populations and original cohort weights.", []CapabilityOutput{
+			o("perf_sampling_tree.cohorts", "sample_count total_weight stack_weight unavailable_weight", "cohort.weight_unit", "entire selected cohort, including missing or unavailable stacks; independent source/generation/event/unit denominators"),
+			o("perf_sampling_tree.cohorts.nodes", "inclusive_weight self_weight percent", "cohort.weight_unit/percent", "sampled prefix and last-recorded-frame weight; percent divides original cohort total, never window milliseconds"),
+			o("perf_sampling_tree.cohorts", "node_count omitted_nodes", "count", "complete prefix census and display-only omissions"),
+		}, r("perf_sample", nil, "", "Exact versioned producer frames and complete source scan; legacy semicolon boundaries remain unavailable. Identity-mapped bundles only; query unaligned children separately."), PerfSamplingTreeTeaching),
 		m(ViewTransactionHandoffs, "Published-source transaction-key and endpoint populations; no frame, wait or causal measurement.", []CapabilityOutput{
 			o("transaction_handoffs", "total_keys omitted_keys", "count", "keys selected by an endpoint in the requested window and target versus display-only key omissions; multiplicity is assessed across the complete published source before selection"),
 			o("transaction_handoffs", "window_submission_events window_consumption_events", "count", "distinct physical endpoint events of selected keys inside the window, separated by role; one consumption carrying multiple keys counts once"),

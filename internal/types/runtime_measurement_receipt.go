@@ -42,6 +42,9 @@ type RuntimeMeasurementTable struct {
 	// healthy. This private display credential never grants completion.
 	nativeLogDisplayPopulation   bool
 	nativeTraceDisplayPopulation bool
+	// Exact whole-publication display identity, qualified by a current private
+	// source receipt. Never serialized or used as member/completion authority.
+	nativeFactIdentity string
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {

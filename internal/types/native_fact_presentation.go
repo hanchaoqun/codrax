@@ -148,7 +148,7 @@ func nativePresentationNoteRecord(record ObservationRecord) ObservationRecord {
 		// when malformed. Filter before the compact prompt spends its note
 		// budget or truncates JSON; the original ledger and table decoder keep
 		// every byte. Unknown keys and ordinary source prose remain untouched.
-		if traceRecord && strings.HasPrefix(note, TraceNoteKeyRuntimeMeasurement+"=") {
+		if traceRecord && (strings.HasPrefix(note, TraceNoteKeyRuntimeMeasurement+"=") || strings.HasPrefix(note, TraceNoteKeyPerfSamplingTree+"=")) {
 			continue
 		}
 		// Duplicate digests are retained in the source receipt. Keep generation

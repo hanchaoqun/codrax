@@ -21,12 +21,15 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	return predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
+	return predicate == TraceBusinessSpanPredicate || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
 	if !RuntimeMeasurementPredicateIsRegistered(predicate) {
 		return false
+	}
+	if predicate == TraceBusinessSpanPredicate {
+		return view == RuntimeMeasurementSummary
 	}
 	if predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" {
 		return view == RuntimeMeasurementTimeline
@@ -79,7 +82,8 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
 	for i, table := range p.Tables {
 		if !table.IsValid() || !runtimeMeasurementPredicateAllowsView(r.Predicate, table.View) || table.ObservationID != r.ID || seen[table.View] ||
-			(r.Predicate == "unpositioned_measurements_observation" && table.MemberSet != nil) {
+			(r.Predicate == "unpositioned_measurements_observation" && table.MemberSet != nil) ||
+			(r.Predicate == TraceBusinessSpanPredicate && (table.MemberSet != nil || table.DisplayPopulation != nil)) {
 			return RuntimeMeasurementPublication{}, false
 		}
 		seen[table.View] = true
@@ -148,6 +152,10 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 						table = runtimeMeasurementUnverifiedWindowTable(table)
 					}
 					p.Tables[i] = table
+				}
+				if !result.ReusedFromRunMemo {
+					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)
+					qualifyRuntimeBusinessMeasurementIdentity(&p, r, original, result.TraceQueryWindowReplay)
 				}
 				publications = append(publications, p)
 			}

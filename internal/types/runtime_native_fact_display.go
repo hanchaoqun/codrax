@@ -49,7 +49,19 @@ func RuntimeNativeFactDisplaySelections(rm *RequestModel, contract *RuntimeMeasu
 			selected = append(selected, AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View})
 		}
 	}
-	return selected
+	// Keep every original selector available, but display a complete exact
+	// repeated population once. Query-envelope diagnostics remain in their
+	// original publications; differing table notes do not share this identity.
+	seen := map[string]bool{}
+	out := selected[:0]
+	for _, receipt := range selected {
+		key := RuntimeMeasurementDisplayKey(receipt, contract)
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, receipt)
+		}
+	}
+	return out
 }
 
 const RuntimeNativeFactDisplayTeaching = "For the current requested finite facts, the system automatically displays the published default native tables after your answer: all retained rows, original values, time intervals, unknown fields and coverage boundaries. Do not retype those tables or infer names, units, state meanings, time alignment or causality. Write the business interpretation and supported relationships in separate blocks. You may still choose an exact runtime_measurement table to position that view yourself; the same observation_id/view is displayed only once. A summary does not replace the full record view. Independent source-code and causal obligations remain unchanged."

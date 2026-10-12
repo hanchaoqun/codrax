@@ -733,6 +733,7 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 			DSO:                 dso,
 			IP:                  sample.Leaf.IP,
 			Callchain:           callchain,
+			FramesV1:            simpleperfFramesV1(sample),
 			Source:              tracewire.PerfSampleSourceSimpleperfReportSample,
 			SampleKind:          sample.SampleKind,
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
@@ -809,4 +810,16 @@ func simpleperfCallchainFrameLabel(frame simpleperfFrame) string {
 		label += "@" + frame.DSO
 	}
 	return label
+}
+
+func simpleperfFramesV1(sample simpleperfSample) string {
+	var frames []tracewire.PerfFrame
+	add := func(f simpleperfFrame, ref string, depth int) {
+		frames = append(frames, tracewire.PerfFrame{Symbol: f.Symbol, DSO: f.DSO, IP: f.IP, SourceRef: ref, SourceDepth: int64(depth)})
+	}
+	for i := len(sample.CallFrames) - 1; i >= 0; i-- {
+		add(sample.CallFrames[i], fmt.Sprintf("report_sample.callchain[%d]", i), i)
+	}
+	add(sample.Leaf, "report_sample.leaf", 0)
+	return tracewire.EncodePerfFrames(frames, "available")
 }

@@ -2368,6 +2368,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			DSO:                 frame.DSO,
 			IP:                  frame.IP,
 			Callchain:           callchain,
+			FramesV1:            rawPerfFramesV1(&data, sample),
 			Source:              tracewire.PerfSampleSourceRawPerfDataFallback,
 			SampleKind:          tracewire.PerfSampleKind(sampleKind),
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
@@ -2463,6 +2464,79 @@ func rawPerfFrameCallchainLabel(frame rawPerfResolvedFrame) string {
 		return frame.Symbol
 	}
 	return frame.IP
+}
+
+func rawPerfFramesV1(data *rawPerfData, sample rawPerfSample) string {
+	var frames []tracewire.PerfFrame
+	add := func(ip uint64, ref string, depth int) {
+		f := rawPerfResolveFrame(data, sample, ip)
+		frames = append(frames, tracewire.PerfFrame{Symbol: f.Symbol, DSO: f.DSO, IP: f.IP, SourceRef: ref, SourceDepth: int64(depth)})
+	}
+	// PERF_CONTEXT_MAX is the signed -4095 sentinel. Entries in this
+	// reserved uint64 range are privilege/context markers, not addresses.
+	const contextMax = ^uint64(4094)
+	if sample.IP >= contextMax {
+		return tracewire.EncodePerfFrames(nil, "frame_budget_or_metadata_unavailable")
+	}
+	for _, ip := range sample.Callchain {
+		if ip == 0 {
+			return tracewire.EncodePerfFrames(nil, "frame_budget_or_metadata_unavailable")
+		}
+	}
+	firstAddress := uint64(0)
+	addressSeen := false
+	for _, ip := range sample.Callchain {
+		if ip < contextMax {
+			firstAddress = ip
+			addressSeen = true
+			break
+		}
+	}
+	if !addressSeen && sample.IP == 0 {
+		return tracewire.EncodePerfFrames(nil, "missing")
+	}
+	// Reverse address order within each source context block, and reverse
+	// block order, keeping each context marker before its own address block.
+	// Merely reversing every entry would move the user marker after the leaf
+	// and incorrectly assign the sample's self weight to a marker.
+	type block struct{ marker, start, end int }
+	var blocks []block
+	current := block{marker: -1, start: 0}
+	for i, ip := range sample.Callchain {
+		if ip >= contextMax {
+			current.end = i
+			if current.marker >= 0 || current.start < current.end {
+				blocks = append(blocks, current)
+			}
+			current = block{marker: i, start: i + 1}
+		}
+	}
+	current.end = len(sample.Callchain)
+	if current.marker >= 0 || current.start < current.end {
+		blocks = append(blocks, current)
+	}
+	for b := len(blocks) - 1; b >= 0; b-- {
+		part := blocks[b]
+		if part.marker >= 0 {
+			i := part.marker
+			frames = append(frames, tracewire.PerfFrame{Kind: "context_marker", IP: fmt.Sprintf("0x%x", sample.Callchain[i]), SourceRef: fmt.Sprintf("PERF_SAMPLE_CALLCHAIN[%d]", i), SourceDepth: int64(i)})
+		}
+		for i := part.end - 1; i >= part.start; i-- {
+			add(sample.Callchain[i], fmt.Sprintf("PERF_SAMPLE_CALLCHAIN[%d]", i), i)
+		}
+	}
+	// The first source address is the sampled leaf in the perf callchain
+	// protocol. A repeated PERF_SAMPLE_IP is corroborating metadata, not an
+	// extra recursive invocation. Preserve every duplicate inside the actual
+	// callchain (real recursion is not deduplicated).
+	if sample.IP != 0 && (!addressSeen || sample.IP != firstAddress) {
+		add(sample.IP, "PERF_SAMPLE_IP", 0)
+	}
+	status := "available"
+	if len(frames) == 0 {
+		status = "missing"
+	}
+	return tracewire.EncodePerfFrames(frames, status)
 }
 
 func rawPerfResolveFrame(data *rawPerfData, sample rawPerfSample, ip uint64) rawPerfResolvedFrame {

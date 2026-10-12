@@ -155,6 +155,8 @@ func AssignAnswerDiagramRelationRepairFailureRefs(
 	return out
 }
 
+const DiagramRelationFailureNativeSequenceEventOrder = "native_sequence_event_order_conflict"
+
 func answerDiagramRelationRepairFailureCapabilities(
 	base *AnswerDocumentV2,
 	failure AnswerDiagramRelationRepairFailure,
@@ -185,6 +187,11 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	switch issue {
+	case DiagramRelationFailureNativeSequenceEventOrder:
+		// Both events are proved. Edge removal/replacement cannot express a
+		// movement between existing statements. Retire older atomic leases and
+		// leave a fully validated model-authored block replacement available.
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "call_edge_occurrence_unproven":
 		// Compatibility for historical occurrence-failure checkpoints: keep
 		// their exact visible-body removal locator without reviving the old
@@ -1064,6 +1071,11 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		failure.FailureRef = strings.TrimSpace(failure.FailureRef)
 		failure.BlockID = strings.TrimSpace(failure.BlockID)
 		failure.Issue = strings.TrimSpace(failure.Issue)
+		if failure.Issue == DiagramRelationFailureNativeSequenceEventOrder {
+			// Even an optional-diagram removal lease would freeze the proved
+			// messages and suppress the useful ordinary reorder repair.
+			return nil
+		}
 		failure.FromNode = strings.TrimSpace(failure.FromNode)
 		failure.ToNode = strings.TrimSpace(failure.ToNode)
 		failure.FromIdentity = strings.TrimSpace(failure.FromIdentity)

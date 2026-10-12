@@ -24,6 +24,9 @@ type RuntimeDiagramRelation struct {
 	// Soft presentation sampling only. Neither field participates in proof,
 	// endpoint recovery, or alias ownership. Empty keys keep the row distinct.
 	presentationKey, presentationQuery string
+	// Native point-event ordering is separate from relation proof. Only a
+	// provider-validated event may populate this private carrier.
+	eventOrder *runtimeDiagramEventOrder
 }
 
 // RuntimeDiagramRelationProvider keeps producer validation separate from
@@ -301,6 +304,9 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	const limit = 8
 	var b strings.Builder
 	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Exact producer node IDs receive the endpoint names below when their display label is omitted or still equals that ID; an authored business alias is preserved. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
+	if runtimeDiagramRowsHaveObservedThreadLanes(rows) {
+		b.WriteString("For each known thread, reuse the same supplied native thread participant for its messages and state notes; a readable business alias is welcome. Do not create a second generic lane for that same known identity. A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
+	}
 	for _, row := range rows[:min(limit, len(rows))] {
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)
@@ -311,6 +317,15 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		fmt.Fprintf(&b, "同一观察的 %d 份重复查询凭证未重复展示；每行仍使用其原查询的完整凭证，不能混用端点。\n\n", repeated)
 	}
 	return b.String()
+}
+
+func runtimeDiagramRowsHaveObservedThreadLanes(rows []RuntimeDiagramRelation) bool {
+	for _, row := range rows {
+		if row.Kind == types.DiagramRelWakeup && (strings.HasPrefix(row.FromNode, "rt_thread_") || strings.HasPrefix(row.ToNode, "rt_thread_")) {
+			return true
+		}
+	}
+	return false
 }
 
 // Prefer a coherent query with broad event coverage, then fill uncovered rows

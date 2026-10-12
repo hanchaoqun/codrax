@@ -203,6 +203,7 @@ type ViewCompaction struct {
 }
 
 var viewCapacityTable = map[string]ViewCapacity{
+	ViewPerfSamplingTree:    {View: ViewPerfSamplingTree, DefaultLimit: 64, MaxLimit: 256, Dimension: CompactionDimensionEvents},
 	ViewTransactionHandoffs: {View: ViewTransactionHandoffs, DefaultLimit: sharedDefaultResultLimit, MaxLimit: TransactionHandoffsLimit, Dimension: CompactionDimensionEvents},
 	ViewProcessMeasurements: {View: ViewProcessMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: ProcessMeasurementsLimit, Dimension: CompactionDimensionIntervals},
 	ViewMeasurements:        {View: ViewMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: MeasurementsLimit, Dimension: CompactionDimensionIntervals},

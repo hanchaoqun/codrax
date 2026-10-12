@@ -484,6 +484,13 @@ func Run(idx *Index, q Query) Result {
 		}
 		res.RenderingCandidates = candidates
 		res.Caveats = append(res.Caveats, candidates.Caveats...)
+	case ViewPerfSamplingTree:
+		tree := buildPerfSamplingTree(idx, q)
+		if faceCanceled(ViewPerfSamplingTree) {
+			break
+		}
+		res.PerfSamplingTree = tree
+		res.Caveats = append(res.Caveats, tree.Caveats...)
 	case ViewResourceStack:
 		stack := buildResourceStack(idx, q)
 		if faceCanceled(ViewResourceStack) {

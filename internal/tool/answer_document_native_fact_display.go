@@ -31,13 +31,13 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 		if block.RuntimeMeasurement != nil {
 			receipt := *block.RuntimeMeasurement
 			if types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) {
-				selected[receipt.ObservationID+"\x00"+string(receipt.View)] = true
+				selected[types.RuntimeMeasurementDisplayKey(receipt, view.RuntimeMeasurementContract)] = true
 			}
 		}
 	}
 	doc.Blocks = retained
 	for _, receipt := range types.RuntimeNativeFactDisplaySelections(rm, view.RuntimeMeasurementContract) {
-		key := receipt.ObservationID + "\x00" + string(receipt.View)
+		key := types.RuntimeMeasurementDisplayKey(receipt, view.RuntimeMeasurementContract)
 		if selected[key] {
 			continue
 		}

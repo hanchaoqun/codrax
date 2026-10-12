@@ -5464,6 +5464,22 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	relationRepairDelta := diagramRelationRepairDeltaJSON(
 		doc, pctx.ctx, mismatches, evidence, stagePrecedence,
 	)
+	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict {
+		parts := make([]string, 0, len(mismatches))
+		for _, mismatch := range mismatches {
+			parts = append(parts, mismatch.nativeSequenceOrderDetail)
+		}
+		return append(standaloneHints, emitFixHint{
+			Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[]",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, mismatches),
+			ExpectedShape:                  "Use emit_answer_document_patch replace_blocks for the named diagram: move the existing event statements into the exact native order below, keeping their labels, endpoint tuples and other block fields. Move repeated-pair edge_anchors in the same occurrence order. Preserve siblings with unchanged_block_ids. Do not use diagram_edge_edits removal/addition to repair time order. If an older atomic lease still blocks replacement, use full emit_answer_document with the same preserved siblings. Alternatively choose a genuinely nonsequential relation graph, or omit an optional diagram; no new causal bridge is authorized. " + strings.Join(parts, "; "),
+			Reason:                         "The exact native source/window/clock event tuples prove each chosen arrow, but the model placed an earlier event below a later event in one linear sequence region. No label timestamp, prose, source-call ordering or cross-branch total order was inferred.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationFailureIssues:   failureIssues,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
+		})
+	}
 	if mismatches[0].Issue == diagramRequestedStageSpineIncomplete {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {
@@ -7079,6 +7095,16 @@ func diagramRelationRepairDeltaJSON(
 		if failure.FailureRef == "" {
 			return ""
 		}
+	}
+	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict {
+		// A reorder does not authorize new relations or deleting proved edges.
+		// The recognized non-executable current delta revokes an older atomic
+		// lease and exposes the ordinary block replacement lane.
+		raw, err := json.Marshal(diagramRelationRepairDelta{Version: types.AnswerDiagramRelationRepairDeltaVersion, Failures: failures, PreserveUnlistedEdges: true})
+		if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+			return ""
+		}
+		return string(raw)
 	}
 	candidates := ""
 	var allowedAdditions []types.AnswerDiagramRelationRepairCandidate

@@ -507,6 +507,7 @@ var traceNoteKeyGoldenRows = []string{
 	"perf_contexts|perf|display_only",
 	"perf_quality|perf|soft_consumer",
 	"perf_quality_caveats|perf|soft_consumer",
+	"perf_sampling_tree|perf_sampling_tree|soft_consumer",
 	"perf_statistical_caliber|perf|soft_consumer",
 	"periodic_source|periodic|hard_consumer",
 	"policy|cpu_load|display_only",

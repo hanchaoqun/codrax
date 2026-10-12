@@ -518,6 +518,7 @@ func writeSimpleperfProtoPerfTrace(ctx context.Context, w io.Writer, data simple
 			DSO:                 leaf.dso,
 			IP:                  leaf.ip,
 			Callchain:           callchain,
+			FramesV1:            simpleperfProtoFramesV1(sample, data.Files),
 			Source:              tracewire.PerfSampleSourceSimpleperfReportProto,
 			SampleKind:          tracewire.PerfSampleKind(sampleKind),
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
@@ -572,6 +573,25 @@ type resolvedSimpleperfProtoFrame struct {
 	symbol string
 	dso    string
 	ip     string
+}
+
+func simpleperfProtoFramesV1(sample simpleperfProtoSample, files map[uint32]simpleperfProtoFile) string {
+	var frames []tracewire.PerfFrame
+	for i := len(sample.Frames) - 1; i >= 0; i-- {
+		source := sample.Frames[i]
+		file, fileOK := files[source.FileID]
+		symbolKnown := source.FileSet && fileOK && source.SymbolSet && source.SymbolID >= 0 && (int(source.SymbolID) < len(file.Symbols) && file.Symbols[source.SymbolID] != "" || int(source.SymbolID) < len(file.MangledSymbols) && file.MangledSymbols[source.SymbolID] != "")
+		if source.VaddrInFile == 0 && !symbolKnown {
+			return tracewire.EncodePerfFrames(nil, "frame_budget_or_metadata_unavailable")
+		}
+		f := resolveSimpleperfProtoFrame(sample.Frames[i], files)
+		frames = append(frames, tracewire.PerfFrame{Symbol: f.symbol, DSO: f.dso, IP: f.ip, SourceRef: fmt.Sprintf("simpleperf.proto.frames[%d]", i), SourceDepth: int64(i)})
+	}
+	status := "available"
+	if len(frames) == 0 {
+		status = "missing"
+	}
+	return tracewire.EncodePerfFrames(frames, status)
 }
 
 func resolveSimpleperfProtoSampleFrames(ctx context.Context, sample simpleperfProtoSample, files map[uint32]simpleperfProtoFile) (resolvedSimpleperfProtoFrame, string, error) {

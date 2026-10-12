@@ -902,6 +902,7 @@ func writeHiperfPerfTrace(ctx context.Context, w io.Writer, data hiperfProtoData
 			DSO:                 leaf.dso,
 			IP:                  leaf.ip,
 			Callchain:           callchain,
+			FramesV1:            hiperfFramesV1(sample, data.Files),
 			Source:              tracewire.PerfSampleSourceHiperfProto,
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
 			Clock:               tracewire.PerfSampleClockMonotonicRaw,
@@ -923,6 +924,25 @@ type resolvedHiperfFrame struct {
 	symbol string
 	dso    string
 	ip     string
+}
+
+func hiperfFramesV1(sample hiperfProtoSample, files map[uint32]hiperfProtoFile) string {
+	var frames []tracewire.PerfFrame
+	for i := len(sample.Frames) - 1; i >= 0; i-- {
+		source := sample.Frames[i]
+		file, fileOK := files[source.SymbolsFileID]
+		symbolKnown := source.SymbolsFileSet && fileOK && source.FunctionSet && source.FunctionNameID >= 0 && int(source.FunctionNameID) < len(file.FunctionNames) && file.FunctionNames[source.FunctionNameID] != ""
+		if source.SymbolsVaddr == 0 && !symbolKnown {
+			return tracewire.EncodePerfFrames(nil, "frame_budget_or_metadata_unavailable")
+		}
+		f := resolveHiperfFrame(sample.Frames[i], files)
+		frames = append(frames, tracewire.PerfFrame{Symbol: f.symbol, DSO: f.dso, IP: f.ip, SourceRef: fmt.Sprintf("hiperf.proto.frames[%d]", i), SourceDepth: int64(i)})
+	}
+	status := "available"
+	if len(frames) == 0 {
+		status = "missing"
+	}
+	return tracewire.EncodePerfFrames(frames, status)
 }
 
 func resolveHiperfSampleFrames(ctx context.Context, sample hiperfProtoSample, files map[uint32]hiperfProtoFile) (resolvedHiperfFrame, string, error) {

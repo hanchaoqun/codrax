@@ -109,6 +109,8 @@ func (f PerfRawSampleFields) empty() bool {
 // It deliberately exposes no arbitrary KV list or raw suffix: every field and
 // its position is part of the converter/tracequery wire contract.
 type PerfSampleRow struct {
+	// FramesV1 is separate from the legacy semicolon display string.
+	FramesV1            string
 	Layout              PerfSampleLayout
 	CPU                 int64
 	CPUKnown            bool
@@ -194,6 +196,14 @@ func BuildPerfSampleBody(row PerfSampleRow) (string, error) {
 	}
 	if err := appendQuoted("callchain", row.Callchain, MaxPerfCallchainBytes); err != nil {
 		return "", err
+	}
+	if row.FramesV1 != "" {
+		if _, ok := DecodePerfFrames(row.FramesV1); !ok {
+			return "", &PerfWireBuildError{Field: "frames_v1", Reason: "invalid_frames"}
+		}
+		if err := appendQuoted("frames_v1", row.FramesV1, MaxPerfFramesBytes); err != nil {
+			return "", err
+		}
 	}
 	if err := appendBare("source", string(row.Source)); err != nil {
 		return "", err

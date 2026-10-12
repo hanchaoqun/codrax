@@ -13,6 +13,8 @@ import (
 const traceDBPerfAnonymousTask = "perf-unverified"
 
 type traceDBPerfFrame struct {
+	SourceRef   string
+	Depth       int64
 	Name        string
 	DSO         string
 	IP          string
@@ -364,6 +366,7 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			DSO:                 dso,
 			IP:                  ip,
 			Callchain:           callchain,
+			FramesV1:            traceDBPerfFramesV1(sampleFrames),
 			Source:              tracewire.PerfSampleSourceTraceStreamerDB,
 			SampleKind:          tracewire.PerfSampleKind(kind.wire()),
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
@@ -1131,6 +1134,8 @@ func (tdb *traceDB) loadPerfFrames(ctx context.Context, dict traceDBPerfTextCata
 			poison(callchainID, "conflicting_depth")
 			continue
 		}
+		frame.SourceRef = fmt.Sprintf("perf_callchain:%d/callchain:%d", stableID, callchainID)
+		frame.Depth = depth
 		byDepth[callchainID][depth] = depthFrame{frame: frame}
 	}
 	if err := rows.Err(); err != nil {
@@ -1201,6 +1206,20 @@ func traceDBPerfSymbolizationStatus(frames []traceDBPerfFrame) (symbolization, c
 		return "partial", "partial"
 	}
 	return "unsymbolized", "missing"
+}
+
+func traceDBPerfFramesV1(source []traceDBPerfFrame) string {
+	if len(source) == 0 {
+		return tracewire.EncodePerfFrames(nil, "missing")
+	}
+	frames := make([]tracewire.PerfFrame, 0, len(source))
+	for i, f := range source {
+		if f.Depth != int64(i) || f.SourceRef == "" {
+			return tracewire.EncodePerfFrames(nil, "source_depths_unavailable")
+		}
+		frames = append(frames, tracewire.PerfFrame{Symbol: f.Name, DSO: f.DSO, IP: f.IP, SourceRef: f.SourceRef, SourceDepth: f.Depth})
+	}
+	return tracewire.EncodePerfFrames(frames, "available")
 }
 
 func traceDBPerfAddressOnlyLabel(value string) bool {

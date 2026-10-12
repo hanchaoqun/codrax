@@ -1309,6 +1309,13 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		t.Fatalf("transaction registry fixture: %v %+v", transactionErr, transactionResult)
 	}
 	records = append(records, transactionResult.Observations...)
+	samplingPath, _ := filepath.Abs("../../eval/fixtures/hmosperf_lossless_sampling/paths.perftrace")
+	samplingParams, _ := json.Marshal(map[string]any{"source": "path", "path": samplingPath, "view": "perf_sampling_tree", "time_start": 1, "time_end": 2})
+	samplingResult, samplingErr := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir()}, samplingParams)
+	if samplingErr != nil || !samplingResult.Success {
+		t.Fatalf("sampling registry fixture: %v %+v", samplingErr, samplingResult)
+	}
+	records = append(records, samplingResult.Observations...)
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

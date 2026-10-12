@@ -1,0 +1,8 @@
+ID="trace_lossless_sampling_tree"
+NAME="Document worker sampled paths with independent event weights"
+QUESTION="请看附件中1到2秒文档工作线程（tid 11）的采样调用路径，哪些分支权重比较大？给出层次和占比，并说明不同采样事件显示的差异。"
+HTRACE_FILE="eval/fixtures/hmosperf_lossless_sampling/paths.perftrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_CONTAINS="work"

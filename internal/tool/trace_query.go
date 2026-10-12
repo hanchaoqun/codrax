@@ -39,6 +39,8 @@ type TraceQuery struct {
 const traceQueryFrameCrossThreadScopeContract = "In frame_timeline/frame_flow, a thread-scope pid/thread selector chooses the anchor but member enumeration remains selected-window cross-thread; explicit target_scope=process remains a proven process-membership filter."
 
 type traceQueryParams struct {
+	SamplingDepth        FlexInt                       `json:"sampling_depth,omitempty"`
+	SamplingRoot         string                        `json:"sampling_root,omitempty"`
 	Comparison           *traceMeasurementPairParams   `json:"comparison,omitempty"`
 	Source               string                        `json:"source,omitempty"`
 	Path                 string                        `json:"path,omitempty"`
@@ -284,7 +286,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))))
+	return traceQueryPerfSamplingTreeSchema(traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -552,6 +554,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		if streamed, ok := t.streamPerfSamplingTree(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
 		if streamed, ok := t.streamTransactionHandoffs(ctx, p, path, sourceLabel, callCaveat, window); ok {
 			return streamed, nil
 		}
@@ -1559,6 +1564,8 @@ func traceQueryIndexLimitRefinement(ctx *types.BusContext, p traceQueryParams, s
 func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, path string, timeStart, timeEnd float64) tracequery.Query {
 	p, _ = traceQueryApplyRequestModelTarget(ctx, p)
 	q := tracequery.Query{
+		SamplingDepth:        p.SamplingDepth.Int(),
+		SamplingRoot:         p.SamplingRoot,
 		View:                 p.View,
 		Thread:               p.Thread,
 		ThreadInput:          p.Thread,
@@ -5246,6 +5253,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.ResourceStack != nil {
 		b.WriteString(TraceResourceStackText(boundedResourceStackHandoff(*result.ResourceStack), 8))
+	}
+	if result.PerfSamplingTree != nil {
+		b.WriteString(TracePerfSamplingTreeText(boundedPerfSamplingTree(*result.PerfSamplingTree)))
 	}
 	if result.RenderingCandidates != nil {
 		b.WriteString(TraceRenderingCandidatesText(*result.RenderingCandidates, 12))
@@ -9180,6 +9190,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryNativeTimelineObservations(result, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
+	out = append(out, traceQueryPerfSamplingTreeObservations(result.PerfSamplingTree, ref, scope, at)...)
 	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
@@ -10461,7 +10472,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		}
 	}
 
-	return traceQueryApplyArtifactProvenance(result, out)
+	out = traceQueryApplyArtifactProvenance(result, out)
+	return traceQueryBusinessMeasurementPublications(result, out)
 }
 
 func traceQueryResultPrimaryPerfContext(result tracequery.Result) *tracequery.PerfContext {

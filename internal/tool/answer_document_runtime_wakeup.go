@@ -45,6 +45,7 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 			FromNode: runtimeWakeupDisplayNode(r, tracequery.ThreadRef(f.Waker), from), ToNode: runtimeWakeupDisplayNode(r, tracequery.ThreadRef(f.Wakee), to), FromLabel: r.Subject, ToLabel: r.Object,
 			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), strings.Join(r.SupportRefs, "; ")),
 			SupportRefs: append([]string(nil), r.SupportRefs...)}
+		row.eventOrder = runtimeWakeupDiagramEventOrder(r, f)
 		// Physical point + exact typed event fields distinguish repeated events,
 		// files, clocks and endpoints. Query/branch coordinates remain in the
 		// hard credentials above; they must not consume repeated display slots.

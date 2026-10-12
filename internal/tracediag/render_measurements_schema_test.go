@@ -15,6 +15,7 @@ import (
 // Keep every other field, type, order and JSON tag in their historical hashes.
 func resultSchemaBeforeMeasurements(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforePerfSamplingTree(t, schema)
 	const added = "Measurements|*tracequery.MeasurementsResult|measurements,omitempty"
 	var previous []string
 	count := 0
@@ -33,7 +34,9 @@ func resultSchemaBeforeMeasurements(t *testing.T, schema string) string {
 
 func TestMeasurementsResultSchemaAddsOnlyOptionalObservations(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.Result{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, schema := detailSchemaFingerprint(typ)
+	beforeSampling := sha256.Sum256([]byte(resultSchemaBeforePerfSamplingTree(t, schema)))
+	current := hex.EncodeToString(beforeSampling[:])
 	const currentFullResult = "a475ef18e2544967e66953275a97c395b03ab05f692446f51c8fd7c10a6bd664"
 	if current != currentFullResult {
 		t.Fatalf("complete Measurements-era Result schema drift: got=%s want=%s\nschema=%s", current, currentFullResult, schema)

@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v56"
+const ParserVersion = "tracequery-v57"
 
 type EventType string
 
@@ -616,6 +616,7 @@ type TraceCounterFields struct {
 // added, ~416 bytes before that addition) carried by every
 // sched_switch of every systrace that had no perf samples at all.
 type PerfFields struct {
+	FramesV1            string `json:"-"`
 	PID                 int    `json:"perf_pid,omitempty"`
 	TID                 int    `json:"perf_tid,omitempty"`
 	Comm                string `json:"perf_comm,omitempty"`
@@ -1085,6 +1086,9 @@ type Index struct {
 }
 
 type Query struct {
+	// Sampling tree display controls do not change the cohort census.
+	SamplingDepth     int
+	SamplingRoot      string
 	View              string
 	Thread            string
 	ThreadInput       string
@@ -1218,33 +1222,34 @@ type ViewCancellation struct {
 }
 
 type Result struct {
-	View                        string                `json:"view"`
-	SourcePath                  string                `json:"source_path"`
-	TraceArtifacts              []TraceArtifactSource `json:"trace_artifacts,omitempty"`
-	TraceFlavor                 string                `json:"trace_flavor,omitempty"`
-	Platform                    string                `json:"platform,omitempty"`
-	PlatformCandidate           string                `json:"platform_candidate,omitempty"`
-	PlatformCandidateConfidence float64               `json:"platform_candidate_confidence,omitempty"`
-	PlatformCandidateSignals    []string              `json:"platform_candidate_signals,omitempty"`
-	FlavorConfidence            float64               `json:"trace_flavor_confidence,omitempty"`
-	FlavorSignals               []string              `json:"trace_flavor_signals,omitempty"`
-	FrameworkMode               string                `json:"framework_mode,omitempty"`
-	FrameworkSurfaces           []FrameworkSurface    `json:"framework_surfaces,omitempty"`
-	TimeUnit                    string                `json:"time_unit,omitempty"`
-	PrioritySemantics           string                `json:"priority_semantics,omitempty"`
-	LineCount                   int                   `json:"line_count,omitempty"`
-	ScannedLineCount            int                   `json:"scanned_line_count,omitempty"`
-	IndexWindowed               bool                  `json:"index_windowed,omitempty"`
-	IndexTimeStart              float64               `json:"index_time_start,omitempty"`
-	IndexTimeEnd                float64               `json:"index_time_end,omitempty"`
-	IndexLineStart              int                   `json:"index_line_start,omitempty"`
-	IndexLineEnd                int                   `json:"index_line_end,omitempty"`
-	EventCount                  int                   `json:"event_count,omitempty"`
-	UnparsedLineCount           int                   `json:"unparsed_line_count,omitempty"`
-	ParseLinePanics             int                   `json:"parse_line_panics,omitempty"`
-	ClockRegressions            int                   `json:"clock_regressions,omitempty"`
-	TimeStart                   float64               `json:"time_start,omitempty"`
-	TimeEnd                     float64               `json:"time_end,omitempty"`
+	PerfSamplingTree            *PerfSamplingTreeResult `json:"perf_sampling_tree,omitempty"`
+	View                        string                  `json:"view"`
+	SourcePath                  string                  `json:"source_path"`
+	TraceArtifacts              []TraceArtifactSource   `json:"trace_artifacts,omitempty"`
+	TraceFlavor                 string                  `json:"trace_flavor,omitempty"`
+	Platform                    string                  `json:"platform,omitempty"`
+	PlatformCandidate           string                  `json:"platform_candidate,omitempty"`
+	PlatformCandidateConfidence float64                 `json:"platform_candidate_confidence,omitempty"`
+	PlatformCandidateSignals    []string                `json:"platform_candidate_signals,omitempty"`
+	FlavorConfidence            float64                 `json:"trace_flavor_confidence,omitempty"`
+	FlavorSignals               []string                `json:"trace_flavor_signals,omitempty"`
+	FrameworkMode               string                  `json:"framework_mode,omitempty"`
+	FrameworkSurfaces           []FrameworkSurface      `json:"framework_surfaces,omitempty"`
+	TimeUnit                    string                  `json:"time_unit,omitempty"`
+	PrioritySemantics           string                  `json:"priority_semantics,omitempty"`
+	LineCount                   int                     `json:"line_count,omitempty"`
+	ScannedLineCount            int                     `json:"scanned_line_count,omitempty"`
+	IndexWindowed               bool                    `json:"index_windowed,omitempty"`
+	IndexTimeStart              float64                 `json:"index_time_start,omitempty"`
+	IndexTimeEnd                float64                 `json:"index_time_end,omitempty"`
+	IndexLineStart              int                     `json:"index_line_start,omitempty"`
+	IndexLineEnd                int                     `json:"index_line_end,omitempty"`
+	EventCount                  int                     `json:"event_count,omitempty"`
+	UnparsedLineCount           int                     `json:"unparsed_line_count,omitempty"`
+	ParseLinePanics             int                     `json:"parse_line_panics,omitempty"`
+	ClockRegressions            int                     `json:"clock_regressions,omitempty"`
+	TimeStart                   float64                 `json:"time_start,omitempty"`
+	TimeEnd                     float64                 `json:"time_end,omitempty"`
 	// EventSearchCoverage keeps the physical scan/search domain separate
 	// from the matched/emitted row domain. TimeStart/TimeEnd remain the
 	// backward-compatible query/result window; callers that need artifact
