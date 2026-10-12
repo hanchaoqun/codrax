@@ -103,3 +103,65 @@ func TestHMC220NativeMeasurementPairPublicationConflictPublic(t *testing.T) {
 		t.Fatal("final answer selected a version of an ambiguous publication")
 	}
 }
+
+func TestHMC229MeasurementMemoDoesNotCancelCurrentPairDisplayWitness(t *testing.T) {
+	for _, order := range []string{"pair_then_memo", "memo_then_pair"} {
+		t.Run(order, func(t *testing.T) {
+			hmc229MeasurementMemoAndPairDisplayWitness(t, order == "memo_then_pair")
+		})
+	}
+}
+
+func hmc229MeasurementMemoAndPairDisplayWitness(t *testing.T, queryPairAfterMemo bool) {
+	t.Helper()
+	ctx, pair := hmc220PairPublicFixture(t)
+	report, _ := pair.RuntimeMeasurementPair.Report()
+	single, err := (&TraceQuery{}).Execute(ctx, report.Sides[0].Request)
+	if err != nil || !single.Success || !single.ReusedFromRunMemo {
+		t.Fatalf("fixture must exercise real memo after pair query: err=%v success=%t memo=%t", err, single.Success, single.ReusedFromRunMemo)
+	}
+	if _, _, ok := ctx.Mutable.ResolveTraceQueryWindowReplay(single.TraceQueryWindowReplay); ok {
+		t.Fatal("memo acquired a source replay receipt")
+	}
+	if queryPairAfterMemo {
+		params, _ := json.Marshal(map[string]any{"comparison": map[string]any{"baseline": report.Sides[0].Request, "current": report.Sides[1].Request}})
+		pair, err = (&TraceQuery{}).Execute(ctx, params)
+		if err != nil || !pair.Success {
+			t.Fatalf("actual pair after memo: %v / %s", err, pair.Summary)
+		}
+		current, ok := pair.RuntimeMeasurementPair.Report()
+		if !ok || current.Sides[0].Status != "available" || current.Sides[1].Status != "failed" {
+			t.Fatalf("pair did not reacquire an independent healthy side: %+v", current)
+		}
+	}
+	rm := nativeFactDisplayRequest(types.RequestedAnswerDimensionMemberSet)
+	rm.PerfTrace = &types.PerfBundle{}
+	ctx.AnalysisIR.RequestModel = rm
+	ctx.Mutable.SetRequestModel(rm)
+	for _, results := range [][]types.ToolResult{{single, pair}, {pair, single}} {
+		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: results})
+		choices := types.BuildAnswerSemanticViewForBusContext(ctx).RuntimeMeasurementContract.Choices()
+		qualified := 0
+		for _, table := range choices {
+			if table.HasCompleteNativeDisplayPopulation() {
+				qualified++
+				if len(table.Rows) != 13 || table.MemberSet != nil || table.CoversMemberSet(&rm) {
+					t.Fatal("display witness changed population or granted completion")
+				}
+			}
+		}
+		if len(choices) != 4 || qualified != 1 {
+			t.Fatalf("current pair lost its own exact display witness: choices=%d qualified=%d", len(choices), qualified)
+		}
+	}
+	ctx.Mutable.ResetTurnAArtifacts()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{single, pair}})
+	for _, table := range types.BuildAnswerSemanticViewForBusContext(ctx).RuntimeMeasurementContract.Choices() {
+		if table.HasCompleteNativeDisplayPopulation() {
+			t.Fatal("memo and old pair revived an expired private display witness")
+		}
+	}
+	if _, _, ok := ctx.Mutable.ResolveTraceQueryWindowReplay(single.TraceQueryWindowReplay); ok {
+		t.Fatal("display coalescing granted memo replay rights")
+	}
+}
