@@ -2,6 +2,30 @@ package types
 
 import "testing"
 
+func TestRuntimeNativeFactFiniteProfileDoesNotRequireDuplicateDimensions(t *testing.T) {
+	contract := &RuntimeMeasurementContract{Tables: []RuntimeMeasurementTable{{ObservationID: "native", View: RuntimeMeasurementMembers, Columns: []string{"value"}, Rows: [][]string{{"unknown"}}, DefaultPresentation: true}}}
+	rm := RequestModel{RuntimeQuestionProfile: &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet, FactFamilies: []RuntimeQuestionFactFamily{RuntimeQuestionFactCountOrDuration}}}
+	if len(RuntimeNativeFactDisplaySelections(&rm, contract)) != 1 {
+		t.Fatal("finite fact profile requires a redundant dimension declaration for native display")
+	}
+	for _, scope := range AllRuntimeQuestionScopes() {
+		rm.RuntimeQuestionProfile.Scope = scope
+		if got := len(RuntimeNativeFactDisplaySelections(&rm, contract)); (got == 1) != (scope == RuntimeQuestionScopeBoundedFactSet) {
+			t.Fatalf("scope %s gained an unrelated automatic display: %d", scope, got)
+		}
+	}
+	rm.RuntimeQuestionProfile.Scope = RuntimeQuestionScopeBoundedFactSet
+	rm.RuntimeQuestionProfile.FactFamilies = nil
+	if len(RuntimeNativeFactDisplaySelections(&rm, contract)) != 0 {
+		t.Fatal("an undeclared fact domain gained automatic records")
+	}
+	rm.RuntimeQuestionProfile.FactFamilies = []RuntimeQuestionFactFamily{RuntimeQuestionFactCountOrDuration}
+	rm.RequestedAnswerDimensions = &RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []RequestedAnswerDimension{{Required: true, Role: RequestedAnswerDimensionCurrentKeyCode}}}
+	if len(RuntimeNativeFactDisplaySelections(&rm, contract)) != 0 {
+		t.Fatal("finite fallback overrode explicit independent dimension ownership")
+	}
+}
+
 func TestRuntimeNativeFactDefaultSelectionBoundaries(t *testing.T) {
 	table := RuntimeMeasurementTable{ObservationID: "native", View: RuntimeMeasurementMembers, Columns: []string{"value"}, Rows: [][]string{{"unknown"}}, DefaultPresentation: true}
 	contract := &RuntimeMeasurementContract{Tables: []RuntimeMeasurementTable{table}}

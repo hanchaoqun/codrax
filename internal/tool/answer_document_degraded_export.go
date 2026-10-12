@@ -50,6 +50,16 @@ func MaterializeDeterministicAnswerSectionsForDegradedDoc(ctx *types.BusContext,
 			logging.Info("[answer_document/degraded_export] materialized deterministic section on recovery lane: %s", name)
 		}
 	}
+	// Reuse the normal persist path's current, source-bound display defaults.
+	// This neither accepts the recovered draft nor validates its relationships.
+	materializeNativeFactDisplay(doc, ctx, types.BuildAnswerSemanticViewForBusContext(ctx))
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind == types.AnswerSystemGeneratedNativeFacts &&
+			block.RuntimeMeasurement != nil && block.RuntimeMeasurement.IsBound() {
+			record("native_facts", true)
+			break
+		}
+	}
 	record("causal_projection", materializeRuntimeTraceCausalProjectionBlock(doc, ctx))
 	record("semantic_optimization", materializeRuntimeTraceSemanticOptimizationBlock(doc, ctx))
 	record("metric_snapshot", materializeRuntimeTraceMetricSnapshotBlock(doc, ctx))

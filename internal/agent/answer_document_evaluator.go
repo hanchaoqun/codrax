@@ -21889,6 +21889,7 @@ func retryStateRecoveredAnswerDocumentCaveat(lang string) string {
 // this table fails open to the generic degradedSectionGeneric{ZH,EN} word —
 // never invent a specific name for an unknown section.
 var degradedSectionDisplayNames = map[string][2]string{ // token → {zh, en}
+	"native_facts":            {"原始观测事实", "Native recorded facts"},
 	"causal_projection":       {"Trace 因果投影", "trace causal projection"},
 	"semantic_optimization":   {"确定性优化点", "deterministic optimization points"},
 	"metric_snapshot":         {"Trace 指标快照", "trace metric snapshot"},

@@ -803,6 +803,9 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	}
 	orphanParticipantEdits := make([]emitAnswerDiagramParticipantEdit, 0, len(participantEdits))
 	visibilityParticipantEdits := make([]emitAnswerDiagramParticipantEdit, 0, len(participantEdits))
+	// Every repair coordinate addresses the submitted array, never a classified sub-slice.
+	orphanParticipantIndices := make([]int, 0, len(participantEdits))
+	visibilityParticipantIndices := make([]int, 0, len(participantEdits))
 	for i, edit := range participantEdits {
 		switch strings.TrimSpace(edit.Action) {
 		case string(types.AnswerDiagramParticipantVisibilityRepairEnsureVisible):
@@ -811,11 +814,13 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 				return fmt.Errorf("diagram_participant_edits[%d] ensure_visible requires participant_ref, node_id, and visible_label; omit block_id and participant_id", i)
 			}
 			visibilityParticipantEdits = append(visibilityParticipantEdits, edit)
+			visibilityParticipantIndices = append(visibilityParticipantIndices, i)
 		case string(types.AnswerDiagramOrphanDispositionRemove), string(types.AnswerDiagramOrphanDispositionRetain):
 			if strings.TrimSpace(edit.ParticipantRef) != "" || strings.TrimSpace(edit.NodeID) != "" {
 				return fmt.Errorf("diagram_participant_edits[%d] orphan disposition must omit participant_ref and node_id", i)
 			}
 			orphanParticipantEdits = append(orphanParticipantEdits, edit)
+			orphanParticipantIndices = append(orphanParticipantIndices, i)
 		default:
 			return fmt.Errorf("diagram_participant_edits[%d].action=%q is invalid", i, edit.Action)
 		}
@@ -823,6 +828,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	participantSeen := make(map[string]bool, len(orphanParticipantEdits))
 	participantCandidates := make(map[string]types.AnswerDiagramOrphanCleanupCandidate, len(orphanParticipantEdits))
 	for i, edit := range orphanParticipantEdits {
+		i = orphanParticipantIndices[i]
 		blockID := strings.TrimSpace(edit.BlockID)
 		participantID := strings.TrimSpace(edit.ParticipantID)
 		if blockID == "" || participantID == "" {
@@ -881,6 +887,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		return err
 	}
 	for i, edit := range orphanParticipantEdits {
+		i = orphanParticipantIndices[i]
 		blockID := strings.TrimSpace(edit.BlockID)
 		participantID := strings.TrimSpace(edit.ParticipantID)
 		key := blockID + "\x00" + participantID
@@ -906,6 +913,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	usedParticipantRefs := make(map[string]bool, len(visibilityParticipantEdits))
 	usedVisibilityNodes := make(map[string]bool, len(visibilityParticipantEdits))
 	for i, edit := range visibilityParticipantEdits {
+		i = visibilityParticipantIndices[i]
 		ref := strings.TrimSpace(edit.ParticipantRef)
 		if usedParticipantRefs[ref] {
 			return fmt.Errorf("diagram_participant_edits[%d] reuses participant_ref=%q", i, ref)

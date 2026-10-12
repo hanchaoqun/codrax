@@ -145,12 +145,12 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 		var sequences [][]string
 		for _, row := range p.Rows[:keep] {
 			rec := row.Record
-			name, kind, arg := "未确认", "未确认", "未确认"
+			name := "未确认"
 			if f := rec.Filter; f != nil {
-				name, kind, arg = measurementScalar(f.Name), measurementScalar(f.Type), measurementScalar(f.SourceArgSetID)
+				name = measurementScalar(f.Name)
 			}
 			ref := fmt.Sprintf("%s / %d / %d", row.SourcePath, rec.RowID, row.SourceLine)
-			members.Rows = append(members.Rows, []string{ref, measurementScalar(rec.FilterID), name, measurementReferenceLabel(rec.FilterStatus), measurementScalar(rec.MeasureType), kind, arg, measurementScalar(rec.Value), measurementScalar(rec.StartNS), measurementScalar(rec.DurationNS), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)})
+			members.Rows = append(members.Rows, append(traceQueryRawMeasurementCells(row), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)))
 			timeline.Rows = append(timeline.Rows, []string{ref, measurementScalar(rec.FilterID), measurementScalar(rec.Value), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)})
 			parts := []any{row.SourcePath, rec.FilterID, rec.FilterStatus, rec.Filter, rec.MeasureType}
 			if rec.FilterStatus != "observed_unique" {

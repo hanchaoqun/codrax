@@ -121,3 +121,29 @@ func TestHMC226NativeTimelineActualFinalizerSourceWindowReuse(t *testing.T) {
 		t.Fatal("display mutated producer evidence or causal projection")
 	}
 }
+
+func TestHMC226FiniteFactsDoNotNeedDuplicateDimensionDeclaration(t *testing.T) {
+	ctx, table := nativeDisplayBindingContext224(t, `{}`)
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = nil
+	ctx.Mutable.SetRequestModel(ctx.AnalysisIR.RequestModel)
+	// Use a fresh prompt context after changing the accepted structured profile.
+	ctx = &types.AgentContext{RepoRoot: ctx.RepoRoot, WorkDir: ctx.WorkDir, Language: ctx.Language, AgentName: ctx.AgentName, Stage: ctx.Stage,
+		Mutable: ctx.Mutable, AnalysisIR: ctx.AnalysisIR, AttachedLogCatalog: ctx.AttachedLogCatalog, AttachedLog: ctx.AttachedLog}
+	if !strings.Contains(renderAnswerDocRuntimeMeasurementChoices(ctx), types.RuntimeNativeFactDisplayTeaching) {
+		t.Fatal("finite fact profile already declares the domain but duplicate dimension omission disables native display")
+	}
+	params, _ := json.Marshal(map[string]any{"blocks": []any{map[string]any{"id": "lead", "kind": "summary", "text": "原始记录保留如下。"}}})
+	out, err := (&tool.EmitAnswerDocument{}).Execute(types.ToolBusContext(ctx, types.AgentFinalizer), params)
+	if err != nil || !out.Success {
+		t.Fatalf("emit: %v %s", err, out.Summary)
+	}
+	for _, block := range ctx.Mutable.AnswerDocumentV2().Blocks {
+		if block.RuntimeMeasurement != nil && block.RuntimeMeasurement.ObservationID == table.ObservationID {
+			if !block.RuntimeMeasurement.IsBound() || !reflect.DeepEqual(block.RuntimeMeasurement.BoundTable.Rows, table.Rows) {
+				t.Fatal("automatic native display changed original rows")
+			}
+			return
+		}
+	}
+	t.Fatal("finite fact answer silently lost default native records")
+}

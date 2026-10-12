@@ -1,11 +1,10 @@
 package types
 
 // RuntimeNativeFactDisplaySelections is a display default, not a hard gate.
-// Required dimensions select this finite presentation domain; no labels,
+// A finite fact profile or required dimensions select this presentation domain; no labels,
 // request text, answer prose or inferred keyword relevance is inspected.
 func RuntimeNativeFactDisplaySelections(rm *RequestModel, contract *RuntimeMeasurementContract) []AnswerRuntimeMeasurementReceipt {
-	if rm == nil || rm.RuntimeQuestionProfile == nil || rm.SourceInventoryProfile.Active() ||
-		!rm.RequestedAnswerDimensions.Active() {
+	if rm == nil || rm.RuntimeQuestionProfile == nil || rm.SourceInventoryProfile.Active() {
 		return nil
 	}
 	// Overall analysis breadth does not erase an independently requested
@@ -16,14 +15,22 @@ func RuntimeNativeFactDisplaySelections(rm *RequestModel, contract *RuntimeMeasu
 	default:
 		return nil
 	}
-	requested := false
-	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
-		if !dimension.Required {
-			continue
-		}
-		switch dimension.Role {
-		case RequestedAnswerDimensionObservedValue, RequestedAnswerDimensionMemberSet, RequestedAnswerDimensionCount:
-			requested = true
+	// A bounded fact request already declares its finite domain. Do not require
+	// the analyzer to repeat it in a second optional profile just for display.
+	// Explicit dimensions still own presentation when present, and broader
+	// analysis scopes continue to require an independent fact dimension.
+	requested := !rm.RequestedAnswerDimensions.Active() &&
+		rm.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeBoundedFactSet &&
+		len(rm.RuntimeQuestionProfile.FactFamilies) > 0
+	if rm.RequestedAnswerDimensions.Active() {
+		for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
+			if !dimension.Required {
+				continue
+			}
+			switch dimension.Role {
+			case RequestedAnswerDimensionObservedValue, RequestedAnswerDimensionMemberSet, RequestedAnswerDimensionCount:
+				requested = true
+			}
 		}
 	}
 	if !requested {
