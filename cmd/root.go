@@ -1452,7 +1452,13 @@ func runSingleShot(_ *cobra.Command, request string) (runErr error) {
 	// step below (gated by --mermaid-render). REPL has its own
 	// renderer at the user-output boundary; both paths follow the
 	// "render only at the user-facing edge" rule.
-	if handled, result, err := maybeRunSingleShotDataTask(request, routePolicy, routePolicyOK); handled {
+	handledData, dataResult, dataErr := maybeRunSingleShotDataTask(request, routePolicy, routePolicyOK)
+	if delegated, ok := repl.NativeDataHandoffPolicy(routePolicy, dataErr); ok {
+		routePolicy = delegated
+		handledData = false
+		logging.Info("[cmd/route] initial typed data plan delegates unchanged request to native observation pipeline")
+	}
+	if handled, result, err := handledData, dataResult, dataErr; handled {
 		if err != nil {
 			printAnswerSeparator()
 			return err

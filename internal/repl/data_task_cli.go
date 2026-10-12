@@ -99,7 +99,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			oneLineClamp(reason, 500), oneLineClamp(lastErr, 500), oneLineClamp(lastNonterminalErr, 500), terminalPath)
 		emitDataTaskCLITerminalAuditPath(cfg.Progress, cfg.Language, status, terminalPath, reason)
 	}()
-	candidates, err := dataquery.DiscoverCandidateFiles(repoRoot, 240)
+	candidates, namedInputs, err := discoverCurrentDataInputs(ctx, request, repoRoot, cfg.RuntimeAnchor)
 	if err != nil {
 		return "", fmt.Errorf("data task discover files: %w", err)
 	}
@@ -173,6 +173,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		if err != nil {
 			return "", fmt.Errorf("data task plan: %w", err)
 		}
+		if err := initialDataNativeHandoff(ctx, request, repoRoot, plan); err != nil {
+			return "", err
+		}
 		if normalized, notes := normalizeDataTaskPlanShapeForPolicy(plan, policy); len(notes) > 0 {
 			logging.Info("[cli/data] normalized initial data task plan: %s", strings.Join(notes, "; "))
 			plan = normalized
@@ -245,12 +248,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	repairRoundsMax := normalizeDataTaskMaxRepairRounds(cfg.MaxRepairRounds)
 	dataRoundsMax := normalizeDataTaskMaxDataRounds(cfg.MaxDataRounds)
 	runner := dataquery.Runner{
-		RepoRoot: repoRoot,
-		TempRoot: filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
+		NamedInputs: namedInputs,
+		RepoRoot:    repoRoot,
+		TempRoot:    filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
 	}
 	actionRunner := dataquery.ActionRunner{
-		RepoRoot: repoRoot,
-		TempRoot: filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
+		NamedInputs: namedInputs,
+		RepoRoot:    repoRoot,
+		TempRoot:    filepath.Join(firstNonEmptyString(strings.TrimSpace(cfg.RuntimeAnchor), repoRoot), "data"),
 	}
 	currentPlan := plan
 	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {

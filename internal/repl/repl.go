@@ -1687,7 +1687,7 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
-func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
+func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) (nativeHandoff error) {
 	if r.dataTaskPlanner == nil {
 		msg := dataTaskUnavailableMarkdown(r.language)
 		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: "data task planner is not configured"})
@@ -1699,7 +1699,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	r.startDataTaskPlanningSpinner()
 	ctx := r.startTurn()
-	candidates, err := dataquery.DiscoverCandidateFiles(r.repoRoot, 240)
+	candidates, namedInputs, err := discoverCurrentDataInputs(ctx, line, r.repoRoot, r.runtimeAnchor)
 	if err != nil {
 		r.endTurn()
 		reason := fmt.Sprintf("discover data files: %v", err)
@@ -1712,8 +1712,16 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return
 	}
 	plan, err := r.dataTaskPlanner.PlanDataTask(ctx, line, r.repoRoot, policy, candidates)
+	if err == nil {
+		err = initialDataNativeHandoff(ctx, line, r.repoRoot, plan)
+	}
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+	if _, delegated := NativeDataHandoffPolicy(policy, err); delegated {
+		r.finishDataTaskRouteSpinner("delegated")
+		logging.Info("[repl/data] initial typed plan delegates unchanged request to native observation pipeline")
+		return err
+	}
 	if err != nil {
 		reason := fmt.Sprintf("plan data task: %v", err)
 		msg := dataTaskErrorMarkdown(r.language, reason)
@@ -1835,12 +1843,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return
 	}
 	runner := dataquery.Runner{
-		RepoRoot: r.repoRoot,
-		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
+		NamedInputs: namedInputs,
+		RepoRoot:    r.repoRoot,
+		TempRoot:    filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
 	}
 	actionRunner := dataquery.ActionRunner{
-		RepoRoot: r.repoRoot,
-		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
+		NamedInputs: namedInputs,
+		RepoRoot:    r.repoRoot,
+		TempRoot:    filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
 	}
 	currentPlan := plan
 	setCurrentPlan := func(source string, round int, next dataquery.TaskPlan, reason string) dataquery.TaskPlan {
@@ -7275,8 +7285,13 @@ func (r *REPL) dispatch(line, display string) {
 				r.operationDispatch(line, display, policy)
 				return
 			case UserModeData:
-				r.dataTaskDispatch(line, display, policy)
-				return
+				handoff := r.dataTaskDispatch(line, display, policy)
+				if handoff == nil {
+					return
+				}
+				resolvedTurnPolicy, _ = NativeDataHandoffPolicy(policy, handoff)
+				turnRouteHint = TurnRouteHintFromPolicy(resolvedTurnPolicy)
+				presentation = policy.PresentationAuthority()
 			case UserModeCode:
 				presentation = policy.PresentationAuthority()
 				logging.Info("[repl/turn_policy] explicit code mode → pipeline")
@@ -7373,8 +7388,13 @@ func (r *REPL) dispatch(line, display string) {
 					r.operationDispatch(line, display, policy)
 					return
 				case RouteData:
-					r.dataTaskDispatch(line, display, policy)
-					return
+					handoff := r.dataTaskDispatch(line, display, policy)
+					if handoff == nil {
+						return
+					}
+					resolvedTurnPolicy, _ = NativeDataHandoffPolicy(policy, handoff)
+					turnRouteHint = TurnRouteHintFromPolicy(resolvedTurnPolicy)
+					presentation = policy.PresentationAuthority()
 				case RouteWrite:
 					r.emitReplLLMTrace(tpc, "turn_policy_classifier", types.AgentName("turn_policy"), types.StageAnalyze)
 					r.emitTurnPolicyAudit(policy)

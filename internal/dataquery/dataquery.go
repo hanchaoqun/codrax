@@ -1628,17 +1628,19 @@ func NormalizeEvaluationStatus(status string) EvaluationStatus {
 }
 
 type CandidateFile struct {
-	Path              string     `json:"path"`
-	Size              int64      `json:"size"`
-	Kind              string     `json:"kind"`
-	ExtractionStatus  string     `json:"extraction_status,omitempty"`
-	TextEvidencePaths []string   `json:"text_evidence_paths,omitempty"`
-	Delimiter         string     `json:"delimiter,omitempty"`
-	Lines             int        `json:"lines,omitempty"`
-	Headers           []string   `json:"headers,omitempty"`
-	Sample            []string   `json:"sample,omitempty"`
-	SampleRows        [][]string `json:"sample_rows,omitempty"`
-	InspectError      string     `json:"inspect_error,omitempty"`
+	Path                  string     `json:"path"`
+	Size                  int64      `json:"size"`
+	Kind                  string     `json:"kind"`
+	ExtractionStatus      string     `json:"extraction_status,omitempty"`
+	TextEvidencePaths     []string   `json:"text_evidence_paths,omitempty"`
+	Delimiter             string     `json:"delimiter,omitempty"`
+	Lines                 int        `json:"lines,omitempty"`
+	Headers               []string   `json:"headers,omitempty"`
+	Sample                []string   `json:"sample,omitempty"`
+	SampleRows            [][]string `json:"sample_rows,omitempty"`
+	InspectError          string     `json:"inspect_error,omitempty"`
+	NativeReaderCandidate string     `json:"native_reader_candidate,omitempty"`
+	NativeViewCandidates  []string   `json:"native_view_candidates,omitempty"`
 }
 
 type Runner struct {
@@ -1648,6 +1650,7 @@ type Runner struct {
 	MaxFileBytes    int64
 	MaxTotalBytes   int64
 	ExtraInputFiles map[string]string
+	NamedInputs     *NamedInputs
 }
 
 const (
@@ -2092,7 +2095,8 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	defer os.RemoveAll(workDir)
 
-	relPaths, err := copyInputsWithExtras(absRoot, workDir, plan.InputPaths, maxFile, maxTotal, r.ExtraInputFiles)
+	r.NamedInputs = r.NamedInputs.tracked()
+	relPaths, namedCopies, err := copyNamedDataInputs(absRoot, workDir, plan.InputPaths, maxFile, maxTotal, r.ExtraInputFiles, r.NamedInputs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -2100,7 +2104,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		return Result{}, err
 	}
 	helperPath := filepath.Join(workDir, "_runner.py")
-	if err := os.WriteFile(helperPath, []byte(renderPythonHelper(plan.Script, relPaths)), 0600); err != nil {
+	if err := os.WriteFile(helperPath, []byte(renderPythonHelperWithNamedInputs(plan.Script, relPaths, namedCopies)), 0600); err != nil {
 		return Result{}, err
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -2117,6 +2121,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	res, err := parseRunnerResult(out, plan.OutputContract)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := r.NamedInputs.validate(); err != nil {
 		return Result{}, err
 	}
 	res.ResultPatches = append(res.ResultPatches, applyDataResultPatchEngine(&res)...)
@@ -4434,11 +4441,20 @@ func copyOneInput(src, dst string, maxFile int64) (int64, error) {
 }
 
 func renderPythonHelper(script string, relPaths []string) string {
+	return renderPythonHelperWithNamedInputs(script, relPaths, nil)
+}
+
+func renderPythonHelperWithNamedInputs(script string, relPaths []string, namedCopies map[string]string) string {
 	scriptJSON, _ := json.Marshal(script)
 	pathsJSON, _ := json.Marshal(relPaths)
+	if namedCopies == nil {
+		namedCopies = map[string]string{}
+	}
+	namedJSON, _ := json.Marshal(namedCopies)
 	return fmt.Sprintf(`# -*- coding: utf-8 -*-
 import csv, json, decimal, re, os, math, statistics, collections, datetime, itertools, functools, operator
 ALLOWED = set(%s)
+NAMED_COPIES = %s
 RESULT = None
 BASE_DIR = os.getcwd()
 CONSUMED = set()
@@ -4458,6 +4474,8 @@ ALLOWED_IMPORTS = {
 def _safe_path(path):
     path = str(path).replace("\\", "/").strip()
     norm = os.path.normpath(path).replace("\\", "/")
+    if norm in NAMED_COPIES and norm in ALLOWED:
+        return norm
     if norm.startswith("../") or norm == ".." or os.path.isabs(norm):
         raise ValueError("path outside data task workspace: " + path)
     if norm not in ALLOWED:
@@ -4474,7 +4492,7 @@ def _safe_open(path, mode="r", buffering=-1, encoding=None, errors=None, newline
     if any(ch in mode for ch in "wax+") or not mode.startswith("r"):
         raise ValueError("data task open is read-only: " + mode)
     norm = _mark_consumed(path)
-    full = os.path.abspath(os.path.join(BASE_DIR, norm))
+    full = os.path.abspath(os.path.join(BASE_DIR, NAMED_COPIES.get(norm, norm)))
     base = os.path.abspath(BASE_DIR)
     if full != base and not full.startswith(base + os.sep):
         raise ValueError("path outside data task workspace: " + str(path))
@@ -4910,7 +4928,7 @@ if not isinstance(RESULT, dict):
 if isinstance(RESULT, dict):
     RESULT.setdefault("consumed_paths", sorted(CONSUMED))
 print(%q + json.dumps(RESULT, ensure_ascii=False, default=str))
-`, string(pathsJSON), string(scriptJSON), resultMarker)
+`, string(pathsJSON), string(namedJSON), string(scriptJSON), resultMarker)
 }
 
 func parseRunnerResult(out []byte, fallbackContracts ...OutputContract) (Result, error) {

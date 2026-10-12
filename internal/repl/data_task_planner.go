@@ -218,13 +218,13 @@ var dataTaskPlanTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible"],
-      "description": "ready when input paths, output contract, and script are concrete; needs_clarification only for user-owned missing inputs; blocked when safe read-only data calculation cannot be attempted; complete/budget_exhausted/partial_answer_possible are terminal workflow statuses for repair/continuation turns."
+      "enum": ["ready", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible", "needs_native_reader"],
+      "description": "ready when input paths, output contract, and script are concrete; needs_clarification only for user-owned missing inputs; blocked when safe read-only data calculation cannot be attempted; complete/budget_exhausted/partial_answer_possible are terminal workflow statuses for repair/continuation turns. ` + dataTaskNativeReaderTeaching + `"
     },
     "input_paths": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Repo/workspace-relative local data files or directories to copy into the isolated data workspace. Use paths from the candidate list when possible."
+      "description": "Repo/workspace-relative local data files or directories, or exact absolute files named in the current request. Use paths from the candidate list when possible; parent directories of external named files are not authorized."
     },
     "output_contract": {
       "type": "object",
@@ -986,6 +986,7 @@ const dataTaskLedgerShapeTeaching = `Ledger and output-shape decision (choose th
 const dataTaskPlannerSystemPrompt = `You are a read-only data task planner.
 
 Convert the user's request into a typed data task plan for deterministic local data processing.
+` + dataTaskNativeReaderTeaching + `
 
 Hard rules:
 - Emit only emit_data_task_plan. Do not write prose.
@@ -1027,7 +1028,7 @@ Hard rules:
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
-- Candidate files may include materials whose semantic content is not directly readable by the Python runner. Do not put paths with extraction_status=needs_text_extraction or extraction_status=related_text_available directly into input_paths. If such a material is required and text_evidence_paths are available, use the relevant text evidence path as the script input and keep the original non-text path in coverage_contract.required_materials only when its content must be covered. If no text evidence is available, return blocked/needs_clarification or wait for the material extraction layer instead of silently ignoring it.
+- Candidate files may include materials whose semantic content is not directly readable by the Python runner. For ready data plans, do not put paths with extraction_status=needs_text_extraction or extraction_status=related_text_available directly into input_paths. If such a material is required and text_evidence_paths are available, use the relevant text evidence path as the script input and keep the original non-text path in coverage_contract.required_materials only when its content must be covered. When neither native-reader delegation nor text evidence can serve the request, return blocked/needs_clarification or wait for the material extraction layer instead of silently ignoring it.
 - extraction_status is objective inventory metadata. "text_ready" and "extracted_text" mean the runner can read the material; "related_text_available" means the material has candidate text evidence; "needs_text_extraction" means semantic content is not yet available to the deterministic runner.
 - Fill coverage_contract.required_materials with every material that must be covered to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
 - For each required material choose usage_mode. Default/empty is script_consumed. Use script_consumed when the script must directly read that material. Use text_evidence_consumed when an original material is covered by an extracted or related text evidence file; set text_evidence_path and read that path in the script. Use planner_distilled only when the material content has already been distilled into typed validation_rules/constraints for this batch; include distilled_notes. Use reference_only in optional_materials, not as a blocking requirement.
@@ -1613,9 +1614,9 @@ func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []
 		return
 	}
 	b.WriteString("\n## current_plan_emission_contract\n")
-	b.WriteString("- Choose exactly one executable carrier: either actions[] with an empty plan-level script, or one plan-level script with actions[] empty.\n")
+	b.WriteString("- For ready plans, choose exactly one executable carrier: either actions[] with an empty plan-level script, or one plan-level script with actions[] empty.\n")
 	b.WriteString("- Every custom_transform action must carry its own non-empty action.script and emit a result; typed action kinds must not carry script.\n")
-	b.WriteString("- A terminal batch (continue_after=false) must schedule every blocking required runner path. A bounded intermediate batch may defer work only with continue_after=true and a concrete next_batch.\n")
+	b.WriteString("- A terminal ready batch (continue_after=false) must schedule every blocking required runner path. A bounded intermediate batch may defer work only with continue_after=true and a concrete next_batch.\n")
 	b.WriteString("- Listing a path in input_paths is not consumption. Put each blocking path on the action that reads it, or use a typed derive_rules/material action before dependent calculation.\n")
 	if len(requiredMaterials) == 0 {
 		return
@@ -2113,6 +2114,9 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 		if strings.TrimSpace(f.InspectError) != "" {
 			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 160))
 		}
+		if f.NativeReaderCandidate != "" {
+			fmt.Fprintf(b, " native_reader_candidate=%q native_view_candidates=%q (navigation only)", f.NativeReaderCandidate, f.NativeViewCandidates)
+		}
 		b.WriteString("\n")
 	}
 	if len(candidates) > limit {
@@ -2149,6 +2153,9 @@ func appendCompactCandidateDataFiles(b *strings.Builder, candidates []dataquery.
 		}
 		if strings.TrimSpace(f.InspectError) != "" {
 			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 120))
+		}
+		if f.NativeReaderCandidate != "" {
+			fmt.Fprintf(b, " native_reader_candidate=%q (navigation only)", f.NativeReaderCandidate)
 		}
 		b.WriteString("\n")
 	}

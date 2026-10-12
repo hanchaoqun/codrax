@@ -29,6 +29,7 @@ type ActionRunner struct {
 	MaxFileBytes  int64
 	MaxTotalBytes int64
 	Seed          Result
+	NamedInputs   *NamedInputs
 	// AnswerRepair is the typed evaluator repair anchor for
 	// answer-projection repair; see assemble_answer_repair.go.
 	AnswerRepair AnswerRepairContext
@@ -541,7 +542,14 @@ func (e DataActionError) Unwrap() error {
 	return e.Err
 }
 
-func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
+func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (result Result, resultErr error) {
+	r.NamedInputs = r.NamedInputs.tracked()
+	defer func() {
+		if err := r.NamedInputs.validate(); err != nil {
+			result = Result{}
+			resultErr = err
+		}
+	}()
 	if len(plan.Actions) == 0 {
 		return Result{}, errors.New("data action plan has no actions")
 	}
@@ -641,7 +649,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				return failAction(action, err)
 			}
 			artifacts = append(artifacts, artifact)
-			consumed = append(consumed, artifact.SourcePaths...)
+			consumed = append(consumed, inspectedMaterialPaths(artifact)...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionExtractRecords:
 			artifact, err := r.runExtractRecords(action)
@@ -1183,45 +1191,6 @@ func (r ActionRunner) runMaterialInventory(action DataAction) (DataArtifact, err
 		Summary:  fmt.Sprintf("discovered %d candidate material(s)", len(files)),
 		Fields:   map[string]string{"count": fmt.Sprintf("%d", len(files))},
 		Children: children,
-	}, nil
-}
-
-func (r ActionRunner) runInspectMaterial(action DataAction) (DataArtifact, error) {
-	paths := cleanStringListPreserveOrder(action.InputPaths)
-	if len(paths) == 0 {
-		return DataArtifact{}, dataActionMissingParamError(DataActionInspectMaterial, "input_paths", "at least one material path", action.InputPaths)
-	}
-	root := firstNonEmptyString(strings.TrimSpace(r.RepoRoot), ".")
-	all, err := DiscoverCandidateFiles(root, 1000)
-	if err != nil {
-		return DataArtifact{}, err
-	}
-	byPath := map[string]CandidateFile{}
-	for _, f := range all {
-		byPath[normalizeMaterialPath(f.Path)] = f
-	}
-	children := make([]DataArtifact, 0, len(paths))
-	for _, p := range paths {
-		key := normalizeMaterialPath(p)
-		if f, ok := byPath[key]; ok {
-			children = append(children, candidateArtifact(f))
-			continue
-		}
-		children = append(children, DataArtifact{
-			ID:          key,
-			Kind:        "unknown",
-			SourcePaths: []string{key},
-			Summary:     "material was requested but not found in candidate inventory",
-		})
-	}
-	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "material_inspection")
-	return DataArtifact{
-		ID:          id,
-		Kind:        string(DataActionInspectMaterial),
-		SourcePaths: normalizeMaterialPaths(paths),
-		Summary:     fmt.Sprintf("inspected %d material(s)", len(paths)),
-		Fields:      map[string]string{"count": fmt.Sprintf("%d", len(paths))},
-		Children:    children,
 	}, nil
 }
 
@@ -11457,6 +11426,9 @@ func (r ActionRunner) resolveActionInputPath(path string) (abs string, rel strin
 	if err != nil {
 		return "", "", err
 	}
+	if _, _, namedErr := r.NamedInputs.resolve(absRoot, path); namedErr != nil {
+		return "", "", namedErr
+	}
 	if r.artifactFiles != nil {
 		if _, statErr := os.Stat(abs); statErr != nil {
 			if artifactAbs, ok := r.artifactFiles[path]; ok {
@@ -11469,6 +11441,9 @@ func (r ActionRunner) resolveActionInputPath(path string) (abs string, rel strin
 		return "", "", err
 	}
 	if relPath == "." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) || relPath == ".." || filepath.IsAbs(relPath) {
+		if named, ok, namedErr := r.NamedInputs.resolve(absRoot, path); ok {
+			return named, path, namedErr
+		}
 		return "", "", fmt.Errorf("action input path escapes data workspace: %s", path)
 	}
 	return abs, filepath.ToSlash(relPath), nil
@@ -11501,6 +11476,7 @@ func (r ActionRunner) runCustomTransform(ctx context.Context, plan TaskPlan, act
 		MaxFileBytes:    r.MaxFileBytes,
 		MaxTotalBytes:   r.MaxTotalBytes,
 		ExtraInputFiles: r.artifactFiles,
+		NamedInputs:     r.NamedInputs,
 	}
 	return runner.Run(ctx, subPlan)
 }
