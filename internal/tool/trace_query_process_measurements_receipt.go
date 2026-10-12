@@ -66,8 +66,11 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 			Columns: []string{"进程", "采集内进程ID", "指标", "过滤器ID", "原始类型", "原始值（单位未提供）", "原起点(ns)", "原持续(ns)", "源记录/行", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据"}, Notes: notes}
 		timeline := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementTimeline, Label: "进程量测窗口内观测",
 			Columns: []string{"进程", "采集内进程ID", "指标", "原始值（单位未提供）", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据", "源记录/行"}, Notes: notes}
+		var rowIDs []string
 		for _, row := range p.Rows[:keep] {
 			rec := row.Record
+			identity, _ := json.Marshal([]any{row.SourcePath, rec.RowID, row.SourceLine})
+			rowIDs = append(rowIDs, string(identity))
 			name, kind := "未提供", "未提供"
 			if rec.NameKnown {
 				name = rec.Name
@@ -87,6 +90,9 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 			}
 			members.Rows = append(members.Rows, []string{processMeasurementOwner(rec), processMeasurementScalar(rec.IPID), name, processMeasurementScalar(rec.FilterID), kind, processMeasurementScalar(rec.Value), processMeasurementScalar(rec.StartNS), processMeasurementScalar(rec.DurationNS), ref, processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), selection})
 			timeline.Rows = append(timeline.Rows, []string{processMeasurementOwner(rec), processMeasurementScalar(rec.IPID), name, processMeasurementScalar(rec.Value), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), selection, ref})
+		}
+		if p.Status == "available" && p.OmittedRows == 0 && keep == p.TotalRows && keep > 0 {
+			members.DisplayPopulation = &types.RuntimeMeasurementDisplayPopulation{QueryScopeID: r.SourceRef.QueryScopeID, RowIDs: rowIDs, MatchedRows: p.TotalRows}
 		}
 		publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef, Tables: []types.RuntimeMeasurementTable{summary, members, timeline}}
 		raw, err := json.Marshal(publication)

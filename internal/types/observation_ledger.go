@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/threadidentity"
 )
 
@@ -283,7 +284,7 @@ type AnchorUserEntity struct {
 
 type ObservationLedger struct {
 	runtimeDisplayScopes *RuntimeObservationDisplayScopes
-	Records []ObservationRecord `json:"records,omitempty"`
+	Records              []ObservationRecord `json:"records,omitempty"`
 	// RuntimeArtifactSources preserves producer-owned physical source receipts
 	// before claim deduplication can merge their factual authority with model
 	// aggregates. A present empty set is authoritative; nil is legacy only.
@@ -580,6 +581,10 @@ type ObservationLedgerInput struct {
 	// Current consumer epoch, not the producer fork's retained MutableState.
 	// Private pair receipts cannot grant authority after a receiving run resets.
 	runtimeMeasurementPairConsumer *MutableState
+	// Existing private preparation handles, not JSON-restorable permissions.
+	// Used only after current catalog membership and original-source validation.
+	runtimeMeasurementInputPreparer    TraceInputPreparer
+	runtimeMeasurementAttachedMaterial *attachment.TraceMaterial
 	// Full, ephemeral aggregate qualification context captured before the
 	// display evidence limit. It never adds direct records to the ledger.
 	aggregateSourceClaims      *aggregateSourceClaimContext
@@ -709,7 +714,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		}
 	}
 	return ObservationLedger{
-		runtimeDisplayScopes:          BuildRuntimeObservationDisplayScopes(input),
+		runtimeDisplayScopes:        BuildRuntimeObservationDisplayScopes(input),
 		Records:                     out,
 		RuntimeArtifactSources:      runtimeArtifactSourcesSnapshot,
 		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),

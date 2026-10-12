@@ -22,6 +22,7 @@ type TraceMaterial struct {
 	bindings          map[string]filegeneration.Identity
 	selfContainedText bool
 	sourceCheck       func(context.Context) error
+	sourceMetadata    TraceSourceMetadata
 }
 
 // BindTraceMaterial consumes the generations captured by the input preparer.

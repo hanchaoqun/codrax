@@ -34,14 +34,43 @@ type RuntimeMeasurementTable struct {
 	// It is display intent only, not completeness, source or causal authority.
 	DefaultPresentation bool                         `json:"default_presentation,omitempty"`
 	MemberSet           *RuntimeMeasurementMemberSet `json:"member_set,omitempty"`
-	coverageScope       *runtimeMeasurementCoverageScope
+	// DisplayPopulation describes the native rows matched by this one query.
+	// It is not a capture roster or investigation-completion certificate.
+	DisplayPopulation *RuntimeMeasurementDisplayPopulation `json:"display_population,omitempty"`
+	coverageScope     *runtimeMeasurementCoverageScope
 	// Native log query population is fully retained and every source read is
 	// healthy. This private display credential never grants completion.
-	nativeLogDisplayPopulation bool
+	nativeLogDisplayPopulation   bool
+	nativeTraceDisplayPopulation bool
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {
-	return t.IsValid() && t.View == RuntimeMeasurementMembers && len(t.Rows) > 0 && t.nativeLogDisplayPopulation
+	return t.IsValid() && t.View == RuntimeMeasurementMembers && len(t.Rows) > 0 &&
+		(t.nativeLogDisplayPopulation || t.nativeTraceDisplayPopulation && t.DisplayPopulation.valid(len(t.Rows)))
+}
+
+// RuntimeMeasurementDisplayPopulation never supplies MemberSet authority.
+// Unknown-time rows are outside this timed query population; their separate
+// tables and omission notes remain visible without inventing coordinates.
+type RuntimeMeasurementDisplayPopulation struct {
+	QueryScopeID string   `json:"query_scope_id"`
+	RowIDs       []string `json:"row_ids"`
+	MatchedRows  int      `json:"matched_rows"`
+	OmittedRows  int      `json:"omitted_rows"`
+}
+
+func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
+	if p == nil || strings.TrimSpace(p.QueryScopeID) == "" || rows <= 0 || p.MatchedRows != rows || p.OmittedRows != 0 || len(p.RowIDs) != rows {
+		return false
+	}
+	seen := make(map[string]bool, rows)
+	for _, id := range p.RowIDs {
+		if strings.TrimSpace(id) == "" || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
@@ -64,6 +93,11 @@ func (t RuntimeMeasurementTable) IsValid() bool {
 func (t RuntimeMeasurementTable) Clone() RuntimeMeasurementTable {
 	out := t
 	out.MemberSet = t.MemberSet.clone()
+	if t.DisplayPopulation != nil {
+		population := *t.DisplayPopulation
+		population.RowIDs = append([]string(nil), t.DisplayPopulation.RowIDs...)
+		out.DisplayPopulation = &population
+	}
 	if t.coverageScope != nil {
 		scope := *t.coverageScope
 		out.coverageScope = &scope

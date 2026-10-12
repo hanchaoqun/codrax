@@ -40,6 +40,7 @@ type RuntimeMeasurementPairSideReport struct {
 	Generation     string                                `json:"source_generation,omitempty"`
 	Device         string                                `json:"device"`
 	Workload       string                                `json:"workload"`
+	SourceMetadata []attachment.TraceSourceMetadataField `json:"source_metadata,omitempty"`
 	Publications   []RuntimeMeasurementPublication       `json:"publications,omitempty"`
 	ProducerStates []RuntimeMeasurementPairProducerState `json:"producer_states,omitempty"`
 }
@@ -71,6 +72,18 @@ func NewNativeMeasurementPair(owner *MutableState, sides [2]NativeMeasurementPai
 		side := &report.Sides[i]
 		side.Role = []string{"baseline", "current"}[i]
 		side.Device, side.Workload = "设备未知", "负载未知"
+		// Preparation context remains useful for failed/unexecuted queries, but
+		// carries no publication, no-data or investigation-completion authority.
+		ref.material[i] = input.Material
+		if input.Material != nil {
+			if fields, err := input.Material.SourceMetadata(context.Background()); err == nil {
+				side.SourceMetadata = fields
+				side.Device, side.Workload, _ = runtimeMeasurementMetadataLabels(fields)
+				if identity, err := filegeneration.FromPath(input.Material.SourcePath()); err == nil {
+					side.Generation = identity.CacheToken()
+				}
+			}
+		}
 		side.Request = append(json.RawMessage(nil), input.Request...)
 		side.Status = "not_requested"
 		if len(input.Request) == 0 {
@@ -142,7 +155,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 	}
 	for i := range report.Sides {
 		side := &report.Sides[i]
-		if len(side.Publications) == 0 {
+		if len(side.Publications) == 0 && r.material[i] == nil {
 			continue
 		}
 		current := consumer != nil && r.generation != nil
@@ -162,6 +175,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 		}
 		if !current {
 			side.Status, side.Detail, side.Publications = "stale", "来源或本轮代次已变化，旧测量不再作为当前值；另一侧独立保留。", nil
+			side.SourceMetadata, side.Device, side.Workload = nil, "设备未知", "负载未知"
 			continue
 		}
 		// report and publications were minted together. Copy each full table
@@ -195,19 +209,24 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 			}
 			for sideIndex, side := range report.Sides {
 				var references, sources []string
+				if len(side.Publications) == 0 && len(side.SourceMetadata) > 0 {
+					if material := result.RuntimeMeasurementPair.material[sideIndex]; material != nil {
+						sources = append(sources, material.SourcePath()+" @"+side.Generation)
+					}
+				}
 				for _, publication := range side.Publications {
 					start, end, known := TraceObservationContinuousQueryWindow(publication.Source)
+					original := ""
+					if material := result.RuntimeMeasurementPair.material[sideIndex]; material != nil {
+						original = runtimeMeasurementBoundOriginalSource(input, material, material.SourcePath())
+					} else {
+						original = result.RuntimeMeasurementPair.replay[sideIndex].source.path
+					}
 					var requested *RuntimeArtifactScopeProfile
 					if input.RequestModel != nil {
 						requested = input.RequestModel.RuntimeArtifactScopeProfile
 					}
 					if requested != nil && requested.Comparison != nil {
-						original := ""
-						if material := result.RuntimeMeasurementPair.material[sideIndex]; material != nil {
-							original = runtimeMeasurementBoundOriginalSource(input, material, material.SourcePath())
-						} else {
-							original = result.RuntimeMeasurementPair.replay[sideIndex].source.path
-						}
 						if !RuntimeArtifactComparisonPathEqual(requested.Comparison.Sides()[sideIndex].Path, original, input.RepoRoot) {
 							side.Status, side.Detail = "outside_requested_source_window", "实际来源和窗口不匹配本侧已接受的用户范围；保留状态，不作为请求量测。"
 							continue
@@ -229,6 +248,9 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					references = append(references, publication.ObservationID+" "+ruler)
 					sources = append(sources, publication.Source.Path+" @"+side.Generation)
 					origin := ObservationRecord{Origin: AnswerEvidenceOriginRuntimeArtifact, SourceRef: publication.Source}
+					for i, table := range publication.Tables {
+						publication.Tables[i] = qualifyRuntimeMeasurementNativeDisplay(table, publication.Source, original != "", requested)
+					}
 					if !runtimeMeasurementCoverageSourceAllowed(origin, input) {
 						for i := range publication.Tables {
 							publication.Tables[i].coverageScope = nil
@@ -241,7 +263,12 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					}
 					out = append(out, publication)
 				}
-				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), side.Device + " / " + side.Workload, side.Detail})
+				_, _, parser := runtimeMeasurementMetadataLabels(side.SourceMetadata)
+				metadata := side.Device + " / " + side.Workload
+				if parser != "" {
+					metadata += " / 解析器原文（不证明设备或负载身份）: " + parser
+				}
+				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), metadata, side.Detail})
 			}
 			if sharedCatalog == nil {
 				out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})

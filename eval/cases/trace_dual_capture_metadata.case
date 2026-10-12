@@ -1,0 +1,8 @@
+ID="trace_dual_capture_metadata"
+NAME="Two captures with original measurements and collection metadata"
+CAPTURE_METADATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_capture_metadata" && pwd)"
+QUESTION="帮我并排看看基线 ${CAPTURE_METADATA}/baseline.data 和当前 ${CAPTURE_METADATA}/current.data 在 1 到 2 秒的原始量测、时间区间和取数情况，也说明两份采集各自记录了哪些设备、负载信息。"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

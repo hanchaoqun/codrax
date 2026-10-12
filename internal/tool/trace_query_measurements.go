@@ -143,6 +143,7 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 		timeline := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementTimeline, Label: "量测窗口内观测", Columns: []string{"来源/记录/行", "过滤器ID", "原始值（单位未知）", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据"}, Notes: notes}
 		positions := map[string]int{}
 		var sequences [][]string
+		var rowIDs []string
 		for _, row := range p.Rows[:keep] {
 			rec := row.Record
 			name := "未确认"
@@ -150,6 +151,8 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 				name = measurementScalar(f.Name)
 			}
 			ref := fmt.Sprintf("%s / %d / %d", row.SourcePath, rec.RowID, row.SourceLine)
+			identity, _ := json.Marshal([]any{row.SourcePath, rec.RowID, row.SourceLine})
+			rowIDs = append(rowIDs, string(identity))
 			members.Rows = append(members.Rows, append(traceQueryRawMeasurementCells(row), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)))
 			timeline.Rows = append(timeline.Rows, []string{ref, measurementScalar(rec.FilterID), measurementScalar(rec.Value), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)})
 			parts := []any{row.SourcePath, rec.FilterID, rec.FilterStatus, rec.Filter, rec.MeasureType}
@@ -169,6 +172,9 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 		for i := range summary.Rows {
 			summary.Rows[i][4] = strconv.Itoa(len(sequences[i]))
 			summary.Rows[i][5] = strings.Join(sequences[i], "; ")
+		}
+		if p.Status == "available" && p.OmittedRows == 0 && keep == p.TotalRows && keep > 0 {
+			members.DisplayPopulation = &types.RuntimeMeasurementDisplayPopulation{QueryScopeID: r.SourceRef.QueryScopeID, RowIDs: rowIDs, MatchedRows: p.TotalRows}
 		}
 		raw, err := json.Marshal(types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef, Tables: []types.RuntimeMeasurementTable{summary, members, timeline}})
 		if err != nil {

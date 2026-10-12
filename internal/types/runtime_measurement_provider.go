@@ -89,6 +89,13 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 			p.Tables[i].coverageScope = &runtimeMeasurementCoverageScope{path: r.SourceRef.Path, windowStart: start, windowEnd: end, windowKnown: known,
 				targetPID: r.SourceRef.QueryTargetPID, targetThread: r.SourceRef.QueryTargetThread}
 		}
+		// Only a complete native, timed query roster can offer display binding.
+		// The private current-source check is repeated when building a contract.
+		if uniqueMembers && known && table.View == RuntimeMeasurementMembers && r.Predicate != "unpositioned_measurements_observation" &&
+			table.DisplayPopulation.valid(len(table.Rows)) && table.DisplayPopulation.QueryScopeID == r.SourceRef.QueryScopeID &&
+			(r.ClaimAuthority == ObservationClaimAuthorityUnknown || r.ClaimAuthority == ObservationClaimAuthorityDirectObservation || r.ClaimAuthority == ObservationClaimAuthorityIndependentlyProven) {
+			p.Tables[i].nativeTraceDisplayPopulation = true
+		}
 	}
 	return p, true
 }
@@ -123,7 +130,8 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					requested = input.RequestModel.RuntimeArtifactScopeProfile
 				}
 				start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
-				requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, runtimeMeasurementOriginalSource(input, result, r.SourceRef), input.RepoRoot)
+				original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
+				requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
 				if !qualified {
 					continue
 				}
@@ -132,6 +140,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				}
 				for i, table := range p.Tables {
 					table = table.Clone()
+					table = qualifyRuntimeMeasurementNativeDisplay(table, r.SourceRef, original != "", requested)
 					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
 						table.coverageScope = nil
 					}
@@ -152,11 +161,28 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 	return publications
 }
 
+// A complete drill-down is still displayable, but cannot stand in for a
+// different requested window. Source freshness comes only from the current
+// private prepared/replay receipt, not from a path string in the publication.
+func qualifyRuntimeMeasurementNativeDisplay(table RuntimeMeasurementTable, source ObservationSourceRef, currentOriginal bool, requested *RuntimeArtifactScopeProfile) RuntimeMeasurementTable {
+	start, end, known := TraceObservationContinuousQueryWindow(source)
+	qualified := currentOriginal && known
+	if requested.HasExplicitTimeWindows() {
+		_, exact := requested.MatchExplicitTimeWindow(start, end)
+		qualified = qualified && exact
+	}
+	if !qualified {
+		table.nativeTraceDisplayPopulation = false
+	}
+	return table
+}
+
 // Unverified time coverage remains available for an explicit supplementary
 // selection, but cannot automatically stand in for requested-window facts.
 func runtimeMeasurementUnverifiedWindowTable(table RuntimeMeasurementTable) RuntimeMeasurementTable {
 	table = table.Clone()
 	table.DefaultPresentation = false
+	table.nativeTraceDisplayPopulation = false
 	table.Label = "Supplementary query (time scope unverified): " + table.Label
 	table.Notes = append(table.Notes, "This query has no verified continuous time window; it cannot substitute for the requested-window statistics.")
 	return table

@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"fmt"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 )
 
@@ -55,21 +56,22 @@ type Options struct {
 }
 
 type Artifact struct {
-	Type          string                      `json:"type"`
-	Path          string                      `json:"path"`
-	Bytes         int64                       `json:"bytes"`
-	SHA256        string                      `json:"sha256,omitempty"`
-	DataType      uint32                      `json:"data_type,omitempty"`
-	PluginName    string                      `json:"plugin_name,omitempty"`
-	PluginVersion string                      `json:"plugin_version,omitempty"`
-	SourceOffset  int64                       `json:"source_offset,omitempty"`
-	SourceBytes   int64                       `json:"source_bytes,omitempty"`
-	Converter     string                      `json:"converter,omitempty"`
-	Trace         *TraceArtifactCapability    `json:"trace_capability,omitempty"`
-	Perf          *PerfArtifactCapability     `json:"perf_capability,omitempty"`
-	Standalone    *StandaloneSourceProvenance `json:"standalone_provenance,omitempty"`
-	PerfTransform *PerfInputTransform         `json:"perf_input_transform,omitempty"`
-	Caveats       []string                    `json:"caveats,omitempty"`
+	Type           string                         `json:"type"`
+	Path           string                         `json:"path"`
+	Bytes          int64                          `json:"bytes"`
+	SHA256         string                         `json:"sha256,omitempty"`
+	DataType       uint32                         `json:"data_type,omitempty"`
+	PluginName     string                         `json:"plugin_name,omitempty"`
+	PluginVersion  string                         `json:"plugin_version,omitempty"`
+	SourceOffset   int64                          `json:"source_offset,omitempty"`
+	SourceBytes    int64                          `json:"source_bytes,omitempty"`
+	Converter      string                         `json:"converter,omitempty"`
+	Trace          *TraceArtifactCapability       `json:"trace_capability,omitempty"`
+	Perf           *PerfArtifactCapability        `json:"perf_capability,omitempty"`
+	Standalone     *StandaloneSourceProvenance    `json:"standalone_provenance,omitempty"`
+	PerfTransform  *PerfInputTransform            `json:"perf_input_transform,omitempty"`
+	Caveats        []string                       `json:"caveats,omitempty"`
+	SourceMetadata attachment.TraceSourceMetadata `json:"source_metadata,omitempty"`
 	// These paths are factory-only, in-memory receipt bindings. The first is
 	// the frozen absolute ledger identity; the second pins the user-facing
 	// spelling so later validation cannot relabel a valid generation. Neither
@@ -271,26 +273,27 @@ type TraceDBCoverage struct {
 	Metrics      map[string]int64 `json:"metrics,omitempty"`
 	// Metadata contains bounded, display-only values from explicitly audited
 	// metadata tables. It is never source-admission or hard-gate authority.
-	Metadata               map[string]string           `json:"metadata,omitempty"`
-	ColumnsPresent         []string                    `json:"columns_present,omitempty"`
-	ColumnsMissing         []string                    `json:"columns_missing,omitempty"`
-	RowsRead               int                         `json:"rows_read,omitempty"`
-	RowsEmitted            int                         `json:"rows_emitted,omitempty"`
-	PeakBuffered           int                         `json:"peak_buffered_rows,omitempty"`
-	PeakBufferedBytes      uint64                      `json:"peak_buffered_bytes,omitempty"`
-	SpillChunks            int                         `json:"spill_chunks,omitempty"`
-	TempBytes              int64                       `json:"temp_bytes,omitempty"`
-	CurrentLiveTempBytes   uint64                      `json:"current_live_temp_bytes,omitempty"`
-	PeakLiveTempBytes      uint64                      `json:"peak_live_temp_bytes,omitempty"`
-	PeakOpenRunFDs         int                         `json:"peak_open_run_fds,omitempty"`
-	MergePasses            int                         `json:"merge_passes,omitempty"`
-	ElapsedUS              int64                       `json:"elapsed_us,omitempty"`
-	Skipped                string                      `json:"skipped,omitempty"`
-	Error                  string                      `json:"error,omitempty"`
-	CaptureCompleteness    *TraceCaptureCompleteness   `json:"capture_completeness,omitempty"`
-	RawCaptureCompleteness *RawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
-	RawCaptureResidual     *RawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
-	RawSampleAdmission     *RawPerfSampleAdmission     `json:"raw_perf_sample_admission,omitempty"`
+	Metadata               map[string]string              `json:"metadata,omitempty"`
+	SourceMetadata         attachment.TraceSourceMetadata `json:"source_metadata,omitempty"`
+	ColumnsPresent         []string                       `json:"columns_present,omitempty"`
+	ColumnsMissing         []string                       `json:"columns_missing,omitempty"`
+	RowsRead               int                            `json:"rows_read,omitempty"`
+	RowsEmitted            int                            `json:"rows_emitted,omitempty"`
+	PeakBuffered           int                            `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes      uint64                         `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks            int                            `json:"spill_chunks,omitempty"`
+	TempBytes              int64                          `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes   uint64                         `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes      uint64                         `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs         int                            `json:"peak_open_run_fds,omitempty"`
+	MergePasses            int                            `json:"merge_passes,omitempty"`
+	ElapsedUS              int64                          `json:"elapsed_us,omitempty"`
+	Skipped                string                         `json:"skipped,omitempty"`
+	Error                  string                         `json:"error,omitempty"`
+	CaptureCompleteness    *TraceCaptureCompleteness      `json:"capture_completeness,omitempty"`
+	RawCaptureCompleteness *RawPerfCaptureCompleteness    `json:"raw_perf_capture_completeness,omitempty"`
+	RawCaptureResidual     *RawPerfCaptureResidual        `json:"raw_perf_capture_residual,omitempty"`
+	RawSampleAdmission     *RawPerfSampleAdmission        `json:"raw_perf_sample_admission,omitempty"`
 }
 
 // TraceCaptureCompleteness is the bounded, typed interpretation of the

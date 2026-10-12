@@ -41,7 +41,7 @@ func runtimeMeasurementComparisonCatalog(input ObservationLedgerInput) (*traceca
 func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publications []RuntimeMeasurementPublication) []RuntimeMeasurementPublication {
 	catalog, artifacts, issues := runtimeMeasurementComparisonCatalog(input)
 	if catalog == nil {
-		return nil
+		return buildRuntimeMeasurementSingleSourceMetadata(input)
 	}
 	scope := input.RequestModel.RuntimeArtifactScopeProfile
 	comparison := scope.Comparison
@@ -70,8 +70,16 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 		if windows[i].Valid() {
 			window = fmt.Sprintf("[%g,%g) 秒", *windows[i].TimeStart, *windows[i].TimeEnd)
 		}
+		device, workload, parser := "设备未知", "负载未知", ""
+		if issues[i] == nil {
+			device, workload, parser = runtimeMeasurementMetadataLabels(runtimeMeasurementMetadataForOriginal(input, RuntimeArtifactComparisonLocalPath(side.Path, input.RepoRoot)))
+		}
+		metadata := device + " / " + workload
+		if parser != "" {
+			metadata += " / 解析器原文（不证明设备或负载身份）: " + parser
+		}
 		table.Rows = append(table.Rows, []string{[]string{"baseline", "current"}[i], status, side.Path + " " + window,
-			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), "设备未知 / 负载未知", strings.Join(history, "; ")})
+			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), metadata, strings.Join(history, "; ")})
 	}
 	return []RuntimeMeasurementPublication{{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table}}}
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
 const (
@@ -30,8 +32,14 @@ func inspectTraceDBDiagnosticMetadata(ctx context.Context, tdb *traceDB) ([]Trac
 	return []TraceDBCoverage{device, parser}, err
 }
 
-func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "metadata", "device_info",
+func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (coverage TraceDBCoverage, err error) {
+	fields := []attachment.TraceSourceMetadataField{
+		{Origin: "device_info", Kind: "device", Name: "physical_width", State: "missing"},
+		{Origin: "device_info", Kind: "device", Name: "physical_height", State: "missing"},
+		{Origin: "device_info", Kind: "device", Name: "physical_frame_rate", State: "missing"},
+	}
+	defer func() { coverage.SourceMetadata = attachment.NewTraceSourceMetadata(fields) }()
+	coverage, err = tdb.inspectCoverage(ctx, "metadata", "device_info",
 		[]string{"physical_width", "physical_height", "physical_frame_rate"})
 	coverage.Role = "diagnostic_metadata"
 	coverage.FieldSources = map[string]string{
@@ -44,19 +52,27 @@ func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (TraceD
 		return coverage, err
 	}
 	if coverage.RowsRead != 1 {
+		if coverage.RowsRead > 1 {
+			for i := range fields {
+				fields[i].State, fields[i].Detail = "invalid", "device_info is not a singleton"
+			}
+		}
 		coverage.Skipped = fmt.Sprintf("expected exactly one device_info row, got %d", coverage.RowsRead)
 		return coverage, nil
 	}
 	var widthRaw, heightRaw, frameRateRaw any
 	if err := tdb.db.QueryRowContext(ctx,
-		`SELECT physical_width, physical_height, physical_frame_rate FROM device_info`,
-	).Scan(&widthRaw, &heightRaw, &frameRateRaw); err != nil {
+		`SELECT CASE WHEN typeof(physical_width) IN ('integer','real','null') THEN physical_width END,
+		CASE WHEN typeof(physical_height) IN ('integer','real','null') THEN physical_height END,
+		CASE WHEN typeof(physical_frame_rate) IN ('integer','real','null') THEN physical_frame_rate END,
+		typeof(physical_width),typeof(physical_height),typeof(physical_frame_rate) FROM device_info`,
+	).Scan(&widthRaw, &heightRaw, &frameRateRaw, &fields[0].Detail, &fields[1].Detail, &fields[2].Detail); err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
 	coverage.Metadata = map[string]string{}
 	invalid := 0
-	for _, field := range []struct {
+	for index, field := range []struct {
 		name string
 		raw  any
 	}{
@@ -64,22 +80,30 @@ func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (TraceD
 		{name: "physical_height", raw: heightRaw},
 		{name: "physical_frame_rate", raw: frameRateRaw},
 	} {
+		sqlType := fields[index].Detail
+		fields[index].Detail = ""
 		value, ok := traceDBStrictSQLiteInt(field.raw)
 		if !ok {
-			if field.raw == nil {
+			if sqlType == "null" {
 				traceDBAddCoverageMetric(&coverage, field.name+"_unavailable", 1)
 			} else {
+				fields[index].State, fields[index].Detail = "invalid", "expected SQLite INTEGER, got "+sqlType
+				if sqlType == "real" {
+					fields[index].Value = fmt.Sprint(field.raw)
+				}
 				invalid++
 				traceDBAddCoverageMetric(&coverage, field.name+"_invalid", 1)
 			}
 			continue
 		}
 		if value <= 0 || value > math.MaxInt32 {
+			fields[index].State, fields[index].Value, fields[index].Detail = "invalid", strconv.FormatInt(value, 10), "outside positive int32 metadata range"
 			invalid++
 			traceDBAddCoverageMetric(&coverage, field.name+"_invalid", 1)
 			continue
 		}
 		coverage.Metadata[field.name] = strconv.FormatInt(value, 10)
+		fields[index].State, fields[index].Value = "observed", strconv.FormatInt(value, 10)
 		traceDBAddCoverageMetric(&coverage, field.name+"_available", 1)
 		traceDBAddCoverageMetric(&coverage, field.name, value)
 	}
@@ -92,8 +116,10 @@ func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (TraceD
 	return coverage, nil
 }
 
-func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "metadata", "meta", []string{"name", "value"})
+func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (coverage TraceDBCoverage, err error) {
+	var fields []attachment.TraceSourceMetadataField
+	defer func() { coverage.SourceMetadata = attachment.NewTraceSourceMetadata(fields) }()
+	coverage, err = tdb.inspectCoverage(ctx, "metadata", "meta", []string{"name", "value"})
 	coverage.Role = "diagnostic_metadata"
 	coverage.FieldSources = map[string]string{
 		"schema":     "official trace_streamer meta(name,value) parser metadata",
@@ -102,6 +128,7 @@ func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCov
 		"effect":     "exact bounded text is display diagnostics only; arbitrary keys never become source-admission or hard-gate authority and no row becomes ftrace",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
+		fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: "table", State: "missing"})
 		return coverage, err
 	}
 	rows, err := tdb.db.QueryContext(ctx, `
@@ -115,7 +142,8 @@ func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCov
 				WHEN typeof(value)='text'
 				 AND length(CAST(value AS BLOB)) <= ?
 				THEN value
-			END
+			END,
+			CASE WHEN length(CAST(name AS BLOB)) > 128 OR length(CAST(value AS BLOB)) > 1024 THEN 1 ELSE 0 END
 		FROM meta
 		ORDER BY name
 		LIMIT ?`,
@@ -139,13 +167,25 @@ func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCov
 		}
 		scanned++
 		var nameRaw, valueRaw any
-		if err := rows.Scan(&nameRaw, &valueRaw); err != nil {
+		var oversized int
+		if err := rows.Scan(&nameRaw, &valueRaw, &oversized); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
 		name, nameOK := nameRaw.(string)
 		value, valueOK := valueRaw.(string)
 		if !nameOK || !valueOK || !validTraceDBParserMetadataName(name) || !utf8.ValidString(value) {
+			state := "invalid"
+			if oversized != 0 {
+				state = "truncated"
+			}
+			label := "row"
+			if nameOK && validTraceDBParserMetadataName(name) {
+				label = name
+				invalidNames[name] = true
+				delete(candidates, name)
+			}
+			fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: label, State: state, Detail: "parser row not surfaced; no identity inferred"})
 			reasons["invalid_or_oversized_metadata_row"]++
 			continue
 		}
@@ -166,6 +206,7 @@ func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCov
 		return coverage, err
 	}
 	if coverage.RowsRead > scanned {
+		fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: "rows", State: "truncated", Detail: "64-row diagnostic budget"})
 		reasons["metadata_rows_not_surfaced_by_row_cap"] += coverage.RowsRead - scanned
 		traceDBAddCoverageMetric(&coverage, "metadata_truncated", 1)
 	}
@@ -180,13 +221,30 @@ func inspectTraceDBParserMetadata(ctx context.Context, tdb *traceDB) (TraceDBCov
 		value := candidates[name]
 		nextBytes := len(name) + len(value)
 		if nextBytes > maxTraceDBParserMetadataTotalBytes-totalBytes {
+			fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: name, State: "truncated", Detail: "16 KiB diagnostic budget; no partial value presented"})
 			reasons["metadata_rows_not_surfaced_by_byte_cap"]++
 			continue
 		}
 		coverage.Metadata[name] = value
+		fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: name, State: "observed", Value: value})
 		totalBytes += nextBytes
 	}
 	coverage.RowsEmitted = len(coverage.Metadata)
+	var poisoned []string
+	for name := range invalidNames {
+		poisoned = append(poisoned, name)
+	}
+	sort.Strings(poisoned)
+	for _, name := range poisoned {
+		alreadyDiagnosed := false
+		for _, field := range fields {
+			alreadyDiagnosed = alreadyDiagnosed || field.Name == name
+		}
+		if alreadyDiagnosed {
+			continue
+		}
+		fields = append(fields, attachment.TraceSourceMetadataField{Origin: "meta", Kind: "parser", Name: name, State: "invalid", Detail: "duplicate or invalid name/value; value omitted"})
+	}
 	traceDBAddCoverageMetric(&coverage, "metadata_rows_surfaced", int64(coverage.RowsEmitted))
 	traceDBAddCoverageMetric(&coverage, "metadata_bytes_surfaced", int64(totalBytes))
 	traceDBAddCoverageMetric(&coverage, "metadata_names_poisoned", int64(len(invalidNames)))

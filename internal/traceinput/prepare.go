@@ -287,11 +287,19 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	if existingDB {
-		return attachment.BindTraceMaterialWithSourceCheck(source, queryPath, preview, bindings, func(checkCtx context.Context) error {
+		material, err := attachment.BindTraceMaterialWithSourceCheck(source, queryPath, preview, bindings, func(checkCtx context.Context) error {
 			return hitraceconv.ValidateExistingTraceDBReceipt(checkCtx, source, result.ExistingTraceDBSource)
 		})
+		if err != nil {
+			return nil, err
+		}
+		return material.WithSourceMetadata(ctx, result.SourceMetadataForQueryPath(queryPath))
 	}
-	return bind(ctx, source, queryPath, preview, bindings, false)
+	material, err = bind(ctx, source, queryPath, preview, bindings, false)
+	if err != nil {
+		return nil, err
+	}
+	return material.WithSourceMetadata(ctx, result.SourceMetadataForQueryPath(queryPath))
 }
 
 // These are candidate families only. Version, member, payload, endian and

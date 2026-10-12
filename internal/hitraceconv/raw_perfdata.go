@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
@@ -245,6 +246,7 @@ type rawPerfData struct {
 }
 
 type rawPerfFeatures struct {
+	SourceMetadata  []attachment.TraceSourceMetadataField
 	Present         []int
 	Hostname        string
 	OSRelease       string
@@ -314,6 +316,9 @@ func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTr
 	artifact, err := newValidatedPerfTraceArtifact(
 		ledger, perfTracePath, ownedTracePerfRaw, inputFormat, "Codrax raw perf.data fallback", rawPerfArtifactCaveats(outcome),
 	)
+	if err == nil {
+		artifact.SourceMetadata = outcome.SourceMetadata
+	}
 	return artifact, "", err
 }
 
@@ -339,6 +344,9 @@ func maybeConvertRawPerfDataFromInput(ctx context.Context, opts Options, input d
 	artifact, err := newValidatedPerfTraceArtifact(
 		ledger, perfTracePath, ownedTracePerfRaw, input.inputFormat, "Codrax raw perf.data fallback", rawPerfArtifactCaveats(outcome),
 	)
+	if err == nil {
+		artifact.SourceMetadata = outcome.SourceMetadata
+	}
 	return artifact, "", err
 }
 
@@ -364,6 +372,9 @@ func maybeConvertRawPerfDataFromStandaloneInput(ctx context.Context, opts Option
 	artifact, err := newValidatedPerfTraceArtifact(
 		ledger, perfTracePath, ownedTracePerfRaw, input.reportedInputFormat(), "Codrax raw perf.data fallback", rawPerfArtifactCaveats(outcome),
 	)
+	if err == nil {
+		artifact.SourceMetadata = outcome.SourceMetadata
+	}
 	if err == nil && input.transform != nil {
 		artifact.PerfTransform = clonePerfInputTransform(input.transform)
 	}
@@ -610,6 +621,7 @@ const (
 )
 
 type rawPerfConversionOutcome struct {
+	SourceMetadata      attachment.TraceSourceMetadata
 	CaptureCompleteness RawPerfCaptureCompleteness
 	SampleAdmission     RawPerfSampleAdmission
 	SampleRows          int
@@ -742,6 +754,7 @@ func finishRawPerfDataConversionWithPolicy(
 	outcome.SampleRows = published.receipt.rows
 	outcome.QueryReady = published.receipt.queryReady
 	outcome.Inventory = !published.receipt.queryReady
+	outcome.SourceMetadata = attachment.NewTraceSourceMetadata(data.Features.SourceMetadata)
 	return outcome, nil
 }
 
@@ -1204,6 +1217,7 @@ func rawPerfEventNameForSample(sample rawPerfSample, fallback string, eventIDs m
 func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64) rawPerfFeatures {
 	ids := rawPerfFeatureIDs(header.Features)
 	features := rawPerfFeatures{Present: ids, Meta: map[string]string{}}
+	features.SourceMetadata = rawPerfSourceMetadata(ids)
 	if len(ids) == 0 {
 		return features
 	}
@@ -1235,6 +1249,10 @@ func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64
 			continue
 		}
 		if maxSize := rawPerfFeatureMaxSectionSize(id); size > maxSize {
+			if index := rawPerfMetadataIndex(id); index >= 0 {
+				features.SourceMetadata[index].State = "truncated"
+				features.SourceMetadata[index].Detail = "feature section exceeds decoder budget"
+			}
 			features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback skipped oversized perf feature %d section (%d bytes)", id, size))
 			continue
 		}
@@ -1242,6 +1260,9 @@ func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64
 		if _, err := r.ReadAt(buf, int64(offset)); err != nil {
 			features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback could not read perf feature %d section: %v", id, err))
 			continue
+		}
+		if index := rawPerfMetadataIndex(id); index >= 0 {
+			features.SourceMetadata[index] = decodeRawPerfMetadataField(features.SourceMetadata[index], buf)
 		}
 		switch id {
 		case perfFeatureBuildID:
