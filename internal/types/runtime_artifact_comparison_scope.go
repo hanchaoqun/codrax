@@ -71,6 +71,27 @@ func (c *RuntimeArtifactComparisonScope) Clone() *RuntimeArtifactComparisonScope
 	return &out
 }
 
+// EffectiveComparisonWindow resolves the request ruler without changing the
+// original declarations. A shared outer interval and source-owned intervals
+// are mutually exclusive. An unbounded side never inherits its peer's window.
+// ok means the binding shape is valid; window.Valid reports whether it is
+// bounded. This is not a source receipt or proof of aligned capture clocks.
+func (p *RuntimeArtifactScopeProfile) EffectiveComparisonWindow(sideIndex int) (window RuntimeArtifactTimeWindow, ok bool) {
+	if p == nil || !p.Comparison.Valid() || sideIndex < 0 || sideIndex > 1 {
+		return window, false
+	}
+	sides := p.Comparison.Sides()
+	if p.TimeStart != nil || p.TimeEnd != nil {
+		window = RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: p.SourceQuote}
+		if p.RequestedScope != RuntimeArtifactScopeExplicitWindow || p.TimeWindows != nil || !window.Valid() || sides[0].HasExplicitWindow() || sides[1].HasExplicitWindow() {
+			return RuntimeArtifactTimeWindow{}, false
+		}
+	} else {
+		window = sides[sideIndex].RuntimeArtifactTimeWindow
+	}
+	return cloneRuntimeArtifactTimeWindows([]RuntimeArtifactTimeWindow{window})[0], true
+}
+
 func RuntimeArtifactComparisonPathEqual(left, right, repoRoot string) bool {
 	left, right = RuntimeArtifactComparisonLocalPath(left, repoRoot), RuntimeArtifactComparisonLocalPath(right, repoRoot)
 	return left != "" && right != "" && runtimeArtifactIdentityPathKey(left) == runtimeArtifactIdentityPathKey(right)
@@ -113,12 +134,16 @@ func (p *RuntimeArtifactScopeProfile) ComparisonWindowAllows(originalPath, repoR
 	if !p.Comparison.Valid() {
 		return false
 	}
-	for _, side := range p.Comparison.Sides() {
+	for i, side := range p.Comparison.Sides() {
 		if RuntimeArtifactComparisonPathEqual(side.Path, originalPath, repoRoot) {
-			if !side.HasExplicitWindow() {
+			window, ok := p.EffectiveComparisonWindow(i)
+			if !ok {
+				return false
+			}
+			if !window.Valid() {
 				return true
 			}
-			return TraceCausalProjectionPrincipalValueWindowContains(*side.TimeStart, *side.TimeEnd, start, end)
+			return TraceCausalProjectionPrincipalValueWindowContains(*window.TimeStart, *window.TimeEnd, start, end)
 		}
 	}
 	return false

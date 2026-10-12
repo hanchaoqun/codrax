@@ -38,7 +38,7 @@ func (l *hmc224PartialPairFinalizerLLM) Chat(ctx context.Context, messages []llm
 		if err := ctx.Err(); err != nil {
 			return llm.Response{}, err
 		}
-		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "complete-independent-native-inputs", Name: "emit_investigation_complete", Params: json.RawMessage(`{"reason":"One independently requested input failed preparation. The other input's native records are retained in its own requested window; the failed input has no values, not zero values.","confidence":"high","result_kind":"resolved"}`)}}}, nil
+		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "complete-independent-native-inputs", Name: "emit_investigation_complete", Params: json.RawMessage(`{"reason":"Each independently requested input has a recorded acquisition outcome. Retained native records stay within their requested ranges; unavailable inputs are not zero values.","confidence":"high","result_kind":"resolved"}`)}}}, nil
 	}
 	return l.namedInputHMC223LLM.Chat(ctx, messages, schemas, opts)
 }
@@ -62,6 +62,8 @@ func TestHMC224ComparisonNaturalPolicyPublicRun(t *testing.T) {
 
 func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool, scopeMode ...string) {
 	t.Helper()
+	shared := len(scopeMode) > 0 && (scopeMode[0] == "shared" || scopeMode[0] == "shared_healthy")
+	bothHealthy := len(scopeMode) > 0 && scopeMode[0] == "shared_healthy"
 	for _, failedIndex := range []int{0, 1} {
 		t.Run(fmt.Sprintf("failed_side_%d", failedIndex), func(t *testing.T) {
 			repo := t.TempDir()
@@ -70,6 +72,10 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 			bad := filepath.Join(t.TempDir(), "empty.htrace")
 			if err := os.WriteFile(bad, nil, 0600); err != nil {
 				t.Fatal(err)
+			}
+			var baselineOriginal []byte
+			if bothHealthy {
+				bad, baselineOriginal = hmc223AcceptanceCopyCapture(t, "baseline.data")
 			}
 			paths := [2]string{bad, good}
 			if failedIndex == 1 {
@@ -104,6 +110,19 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 				expectedRows = 9
 			}
 			request := fmt.Sprintf("Show the original measurement records in %s and %s.", scope.Comparison.Baseline.SourceQuote, scope.Comparison.Current.SourceQuote)
+			if shared {
+				start, end := 4.0, 4.5
+				quote := "4 to 4.5 seconds"
+				if bothHealthy {
+					start, quote = 1, "1 to 4.5 seconds"
+				}
+				scope.Comparison.Baseline.RuntimeArtifactTimeWindow = types.RuntimeArtifactTimeWindow{SourceQuote: fmt.Sprintf("`%s`", paths[0])}
+				scope.Comparison.Current.RuntimeArtifactTimeWindow = types.RuntimeArtifactTimeWindow{SourceQuote: fmt.Sprintf("`%s`", paths[1])}
+				scope.TimeWindows, scope.TimeStart, scope.TimeEnd, scope.SourceQuote = nil, &start, &end, quote
+				request = fmt.Sprintf("Compare the original measurement records in `%s` and `%s` from %s.", paths[0], paths[1], scope.SourceQuote)
+				// Deliberately omit both query windows below: the real public tool
+				// must obtain the shared interval through each prepared original.
+			}
 			pair := map[string]any{}
 			for i, side := range scope.Comparison.Sides() {
 				query := map[string]any{"source": "path", "path": side.Path, "view": "measurements"}
@@ -127,6 +146,9 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 				}
 			}
 			finalAdapter := &namedInputHMC223LLM{finalize: true, params: json.RawMessage(`{"blocks":[{"id":"interpretation","kind":"summary","text":"One requested input is unavailable. The healthy input's original records remain independently available; no zero values or causal explanation are inferred for the failed input."}]}`)}
+			if bothHealthy {
+				finalAdapter.params = json.RawMessage(`{"blocks":[{"id":"interpretation","kind":"summary","text":"Both captures' original records remain independently available in the requested numeric interval; this does not establish aligned clocks or comparable workloads."}]}`)
+			}
 			registry := tool.NewRegistry()
 			registry.Register(&tool.TraceQuery{})
 			registry.Register(&tool.EmitInvestigationComplete{})
@@ -165,7 +187,11 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 				},
 				types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 					materials := ctx.TraceInputPreparer.PreparedMaterials()
-					if len(materials) != 1 {
+					wantMaterials := 1
+					if bothHealthy {
+						wantMaterials = 2
+					}
+					if len(materials) != wantMaterials {
 						t.Error("healthy input was not independently prepared")
 					} else {
 						// macOS /var can itself be a symlink. Keep this difference
@@ -220,7 +246,11 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 						failed++
 					}
 				}
-				if failed != 1 || healthy != 1 {
+				wantFailed, wantHealthy := 1, 1
+				if bothHealthy {
+					wantFailed, wantHealthy = 0, 2
+				}
+				if failed != wantFailed || healthy != wantHealthy {
 					t.Fatalf("single queries lost side ownership: failed=%d healthy=%d", failed, healthy)
 				}
 			}
@@ -236,11 +266,54 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 					states = table.Rows
 				}
 			}
-			if rows[expectedRows] != 1 || rows[2] != 1 || len(rows) != 2 {
+			wantTableKinds := 2
+			if bothHealthy {
+				wantTableKinds = 3
+				// The wider shared interval also includes baseline's event at
+				// 2 seconds; the former independent [1,2) ruler excluded it.
+				if rows[14] != 1 {
+					t.Fatalf("shared range lost baseline's 14 original records: %v", rows)
+				}
+			}
+			if rows[expectedRows] != 1 || rows[2] != 1 || len(rows) != wantTableKinds {
 				t.Fatalf("healthy %d records and two-side status did not survive finalization: %v", expectedRows, rows)
 			}
-			if len(states) != 2 || states[failedIndex][1] != "prep_failed" || states[1-failedIndex][1] != "available" {
+			wantState := "prep_failed"
+			if bothHealthy {
+				wantState = "available"
+			}
+			if len(states) != 2 || states[failedIndex][1] != wantState || states[1-failedIndex][1] != "available" {
 				t.Fatalf("final native status lost independent side identity: %+v", states)
+			}
+			if shared {
+				var sources []types.ObservationSourceRef
+				for _, result := range output.ToolResults {
+					for _, record := range result.Observations {
+						if publication, ok := types.DecodeRuntimeMeasurementPublication(record); ok {
+							sources = append(sources, publication.Source)
+						}
+					}
+					if report, ok := result.RuntimeMeasurementPair.Report(); ok {
+						for _, side := range report.Sides {
+							for _, publication := range side.Publications {
+								sources = append(sources, publication.Source)
+							}
+						}
+					}
+				}
+				if len(sources) == 0 {
+					t.Fatal("shared-window query yielded no actual native source proof")
+				}
+				for _, source := range sources {
+					if !source.QueryWindowKnown || source.QueryWindowStartTs != *scope.TimeStart || source.QueryWindowEndTs != *scope.TimeEnd {
+						t.Fatalf("actual query failed to inherit shared window: %+v", source)
+					}
+				}
+				for _, row := range states {
+					if !strings.Contains(row[2], fmt.Sprintf("[%g,%g) 秒", *scope.TimeStart, *scope.TimeEnd)) {
+						t.Fatalf("status lost common requested window: %+v", states)
+					}
+				}
 			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "en"))
 			for _, value := range []string{"9007199254740995", "0 (integer)", "\"0\" (text)", "未知（NULL）"} {
@@ -251,7 +324,7 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 			if after, err := os.ReadFile(good); err != nil || !bytes.Equal(after, original) {
 				t.Fatal("healthy input bytes changed", err)
 			}
-			if after, err := os.ReadFile(bad); err != nil || len(after) != 0 {
+			if after, err := os.ReadFile(bad); err != nil || !bytes.Equal(after, baselineOriginal) {
 				t.Fatal("failed input changed", err)
 			}
 		})

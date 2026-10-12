@@ -20,14 +20,29 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 	fail := func(reason string) (*types.RuntimeArtifactScopeProfile, string, []string) {
 		return nil, "runtime_artifact_scope_profile.comparison: " + reason + ". Re-emit the complete object, correcting the named invalid fields while preserving valid comparison members and unrelated decisions; do not drop the independent source binding to bypass this error.", nil
 	}
-	if p.TimeWindows != nil || p.TimeStart != nil || p.TimeEnd != nil {
-		return fail("use only source-owned comparison members, not pooled time_windows/scalar endpoints")
+	if p.TimeWindows != nil {
+		return fail("time_windows is for a single capture; use either source-owned comparison intervals or one shared outer time_start/time_end/source_quote, never both")
 	}
 	if p.Confidence == nil || *p.Confidence < 0 || *p.Confidence > 1 || !p.Comparison.Valid() {
 		return fail("both distinct paths, local source quotes and confidence in [0,1] are required; each side's optional time_start/time_end must be a complete finite ordered pair")
 	}
 	pair := p.Comparison.Clone()
+	shared := p.TimeStart != nil || p.TimeEnd != nil
+	sharedWindow := types.RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: strings.TrimSpace(p.SourceQuote)}
+	if shared && (!sharedWindow.Valid() || !sourceQuotePresentInCurrentRequest(raw, sharedWindow.SourceQuote) || pair.Baseline.HasExplicitWindow() || pair.Current.HasExplicitWindow()) {
+		return fail("shared outer time_start/time_end/source_quote needs a complete finite ordered pair and verbatim interval quote, with neither side carrying endpoints; preserve local path quotes separately")
+	}
 	var warnings []string
+	if shared {
+		bound, warning, err := bindRuntimeWindowSource(sharedWindow)
+		if err != nil {
+			return fail(fmt.Sprintf("shared outer interval: %v", err))
+		}
+		sharedWindow = bound
+		if warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
 	var windows []types.RuntimeArtifactTimeWindow
 	sides := []*types.RuntimeArtifactComparisonSide{&pair.Baseline, &pair.Current}
 	for i, side := range sides {
@@ -49,8 +64,9 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 		}
 	}
 	scope := types.RuntimeArtifactRequestedScope(p.RequestedScope)
-	if len(windows) > 0 && scope != types.RuntimeArtifactScopeExplicitWindow || len(windows) == 0 && scope != types.RuntimeArtifactScopeUnspecified && scope != types.RuntimeArtifactScopeFullArtifact {
-		return fail("use explicit_time_window when any side has literal endpoints; otherwise use unspecified or full_artifact without inventing endpoints")
+	bounded := shared || len(windows) > 0
+	if bounded && scope != types.RuntimeArtifactScopeExplicitWindow || !bounded && scope != types.RuntimeArtifactScopeUnspecified && scope != types.RuntimeArtifactScopeFullArtifact {
+		return fail("use explicit_time_window for a shared literal interval or source-owned endpoints; otherwise use unspecified or full_artifact without inventing endpoints")
 	}
 	quote := strings.TrimSpace(p.SourceQuote)
 	if quote != "" && !sourceQuotePresentInCurrentRequest(raw, quote) {
@@ -63,8 +79,12 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 		scope = types.RuntimeArtifactScopeUnspecified
 		warnings = append(warnings, "runtime_artifact_scope_profile.source_quote is missing or not verbatim in the current request: normalized requested_scope from full_artifact to unspecified; preserved validated comparison.baseline/current. No whole-artifact completeness or numeric-window authority is granted.")
 	}
-	return &types.RuntimeArtifactScopeProfile{RequestedScope: scope, Comparison: pair, SourceQuote: quote,
-		TimeWindows: windows, Confidence: *p.Confidence, Rationale: strings.TrimSpace(p.Rationale)}, "", warnings
+	profile := &types.RuntimeArtifactScopeProfile{RequestedScope: scope, Comparison: pair, SourceQuote: quote,
+		TimeWindows: windows, Confidence: *p.Confidence, Rationale: strings.TrimSpace(p.Rationale)}
+	if shared {
+		profile.TimeStart, profile.TimeEnd = sharedWindow.TimeStart, sharedWindow.TimeEnd
+	}
+	return profile, "", warnings
 }
 
 // Exact path-token validation only. A path prefix (a.data in a.data.backup)

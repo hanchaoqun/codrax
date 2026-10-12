@@ -1,0 +1,10 @@
+# A common user window applies to both independently named captures.
+ID="trace_dual_common_window_measurements"
+NAME="Two healthy captures with one shared measurement window"
+MEASUREMENTS_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_measurements" && pwd)"
+MEASUREMENTS_CURRENT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_common_window_measurements" && pwd)"
+QUESTION="帮我并排看看基线 ${MEASUREMENTS_BASE}/baseline.data 和当前 ${MEASUREMENTS_CURRENT}/current.data 在 1 到 2 秒的量测：有哪些数据序列、原始值和时间区间？两份数据的取数情况也说明一下。"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

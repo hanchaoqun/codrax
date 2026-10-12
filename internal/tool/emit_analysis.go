@@ -734,8 +734,8 @@ func buildEmitAnalysisSchema() {
 				"description": "Required user-scope authority for runtime artifacts. " + skill.AnalysisRuntimeArtifactScopeTeaching,
 				"properties": map[string]any{
 					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
-					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds for the legacy single-window form; do not combine with time_windows."},
-					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds for the legacy single-window form; greater than time_start and not combined with time_windows."},
+					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds: one capture's window, or a jointly requested comparison window when neither side has endpoints. Pair with time_end and the outer verbatim interval source_quote; never combine with time_windows."},
+					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds, greater than time_start. Follow the same single-capture/shared-comparison branch as time_start; never combine with time_windows or comparison side endpoints."},
 					"time_windows": map[string]any{
 						"type": "array", "minItems": 1,
 						"description": "Without comparison, all explicit requested windows within one capture in request order; never an envelope. Each member needs finite ordered endpoints and a verbatim current-request source_quote.",

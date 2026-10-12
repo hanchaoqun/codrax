@@ -43,8 +43,20 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 	if catalog == nil {
 		return nil
 	}
-	comparison := input.RequestModel.RuntimeArtifactScopeProfile.Comparison
-	raw, _ := json.Marshal(comparison)
+	scope := input.RequestModel.RuntimeArtifactScopeProfile
+	comparison := scope.Comparison
+	var windows [2]RuntimeArtifactTimeWindow
+	for i := range windows {
+		var ok bool
+		windows[i], ok = scope.EffectiveComparisonWindow(i)
+		if !ok {
+			return nil
+		}
+	}
+	raw, _ := json.Marshal(struct {
+		Comparison *RuntimeArtifactComparisonScope
+		Windows    [2]RuntimeArtifactTimeWindow
+	}{comparison, windows})
 	hash := sha256.Sum256(append([]byte(catalog.ID()), raw...))
 	id := "trace_measurement_acquisition:" + hex.EncodeToString(hash[:12])
 	table := RuntimeMeasurementTable{ObservationID: id, View: RuntimeMeasurementSummary, Label: "两份采集的独立取数状态", DefaultPresentation: true,
@@ -55,8 +67,8 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 	for i, side := range comparison.Sides() {
 		status, refs, history := runtimeMeasurementAcquisitionSide(artifacts[i], issues[i], queries, publications, states)
 		window := "未指定时间窗"
-		if side.HasExplicitWindow() {
-			window = fmt.Sprintf("[%g,%g) 秒", *side.TimeStart, *side.TimeEnd)
+		if windows[i].Valid() {
+			window = fmt.Sprintf("[%g,%g) 秒", *windows[i].TimeStart, *windows[i].TimeEnd)
 		}
 		table.Rows = append(table.Rows, []string{[]string{"baseline", "current"}[i], status, side.Path + " " + window,
 			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), "设备未知 / 负载未知", strings.Join(history, "; ")})

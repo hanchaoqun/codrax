@@ -14,17 +14,21 @@ func RuntimeArtifactDisplayScopeForOriginal(requested *RuntimeArtifactScopeProfi
 		return nil, false
 	}
 	var matched *RuntimeArtifactScopeProfile
-	for _, side := range requested.Comparison.Sides() {
+	for i, side := range requested.Comparison.Sides() {
 		if !RuntimeArtifactComparisonPathEqual(side.Path, originalPath, repoRoot) {
 			continue
 		}
 		if matched != nil {
 			return nil, false
 		}
+		window, ok := requested.EffectiveComparisonWindow(i)
+		if !ok {
+			return nil, false
+		}
 		matched = &RuntimeArtifactScopeProfile{RequestedScope: RuntimeArtifactScopeUnspecified, SourceQuote: side.SourceQuote}
-		if side.HasExplicitWindow() {
+		if window.Valid() {
 			matched.RequestedScope = RuntimeArtifactScopeExplicitWindow
-			matched.TimeWindows = cloneRuntimeArtifactTimeWindows([]RuntimeArtifactTimeWindow{side.RuntimeArtifactTimeWindow})
+			matched.TimeWindows = []RuntimeArtifactTimeWindow{window}
 		} else if requested.RequestedScope == RuntimeArtifactScopeFullArtifact {
 			matched.RequestedScope = RuntimeArtifactScopeFullArtifact
 		}
