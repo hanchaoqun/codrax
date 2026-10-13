@@ -13322,7 +13322,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 					Object:          "runnable",
 					Value:           "25.847",
 					Unit:            "ms",
-					RichNotes:       []string{"occurrence_windows=34579.525319..34579.534164,state=runnable,total=8.800ms;34579.546416..34579.553415,state=runnable,total=7.000ms", "cumulative_impact_ms=25.847", "chain_depth=1", "priority_relation=lower_wakes_higher"},
+					RichNotes:       []string{"occurrence_windows=34579.525319..34579.534164,state=runnable,total=8.800ms;34579.546416..34579.553415,state=runnable,total=7.000ms", "cumulative_impact_ms=25.847", "chain_depth=1", "priority_relation=lower_wakes_higher", "chain_relevance=on_chain"},
 					SupportRefs:     []string{"attached_trace.txt:13417-15158"},
 				},
 				{
@@ -13339,7 +13339,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 					Object:          "runnable",
 					Value:           "25.847",
 					Unit:            "ms",
-					RichNotes:       []string{"chain_depth=1", "priority_relation=lower_wakes_higher"},
+					RichNotes:       []string{"chain_depth=1", "priority_relation=lower_wakes_higher", "chain_relevance=on_chain"},
 					SupportRefs:     []string{"attached_trace.txt:13417-15158"},
 				},
 				{

@@ -6969,9 +6969,23 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 				label = fmt.Sprintf("trace %d", written)
 			}
 		}
-		topCause := answerDocTraceRankReaderCauseLabel(top.Type, zh)
+		topCause := answerDocTraceRankReaderMeasuredCauseLabel(top, zh)
 		boardScope := answerDocTraceRankReaderBoardScope(authority.BoardChannel, zh)
-		if zh {
+		if authority.BoardChannel != "on_chain" && zh {
+			fmt.Fprintf(&b, "- 支撑观测清单 %d；trace：%s；排序范围：%s；清单%s；首条已发布项：#%d %s，%s，原始排序计量 %.3fms",
+				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
+				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
+			if authority.BoardTarget != "" {
+				fmt.Fprintf(&b, "；分析目标：%s", authority.BoardTarget)
+			}
+		} else if authority.BoardChannel != "on_chain" {
+			fmt.Fprintf(&b, "- supporting observation list %d; trace: %s; ranking scope: %s; roster %s; first published row: #%d %s, %s, published ranking measure %.3fms",
+				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
+				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
+			if authority.BoardTarget != "" {
+				fmt.Fprintf(&b, "; analysis target: %s", authority.BoardTarget)
+			}
+		} else if zh {
 			fmt.Fprintf(&b, "- 排名清单 %d；trace：%s；排序范围：%s；清单%s；第一位：#%d %s，%s，"+tracefence.OptimizationPotentialZH+"影响 %.3fms",
 				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
 				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
@@ -7025,14 +7039,24 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 				b.WriteString("  - The current roster is incomplete or rank-ambiguous. Preserve published ranks, invent no missing entries, and do not claim complete cause coverage.\n")
 			}
 		}
-		if zh {
+		if authority.BoardChannel != "on_chain" {
+			if zh {
+				b.WriteString("  - 原始排序中的支撑观测（不是根因名次）：\n")
+			} else {
+				b.WriteString("  - Supporting observations in published order (not root-cause ordinals):\n")
+			}
+		} else if zh {
 			b.WriteString("  - 按名次排列的原因清单：\n")
 		} else {
 			b.WriteString("  - Causes in rank order:\n")
 		}
 		for _, seat := range authority.Seats {
-			cause := answerDocTraceRankReaderCauseLabel(seat.Type, zh)
-			if zh {
+			cause := answerDocTraceRankReaderMeasuredCauseLabel(seat, zh)
+			if authority.BoardChannel != "on_chain" && zh {
+				fmt.Fprintf(&b, "    - 原始排序 #%d %s：%s；原始排序计量 %.3fms（仅支撑，不授予根因或优化收益）\n", seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
+			} else if authority.BoardChannel != "on_chain" {
+				fmt.Fprintf(&b, "    - Published order #%d %s: %s; published ranking measure %.3fms (support only, not cause or optimization-benefit authority)\n", seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
+			} else if zh {
 				fmt.Fprintf(&b, "    - #%d %s：%s；"+tracefence.OptimizationPotentialZH+"影响 %.3fms\n",
 					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
 			} else {
@@ -7042,8 +7066,12 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 		}
 		if supply, ok := answerDocTraceRankAuthorityTopSupplySeat(authority.Seats); ok {
 			primary := authority.Complete && supply.Rank == top.Rank
-			cause := answerDocTraceRankReaderCauseLabel(supply.Type, zh)
-			if zh {
+			cause := answerDocTraceRankReaderMeasuredCauseLabel(supply, zh)
+			if authority.BoardChannel != "on_chain" && zh {
+				fmt.Fprintf(&b, "  - 算力供给支撑观测：原始排序 #%d %s 的“%s”计入 %.3fms；本条仅提供背景或邻近排查线索，不建立链上因果或修复优先级，也不证明热限频、调频策略限制或绑错核。\n", supply.Rank, strings.TrimSpace(supply.Subject), cause, supply.EffectiveImpactMS)
+			} else if authority.BoardChannel != "on_chain" {
+				fmt.Fprintf(&b, "  - Compute-supply supporting observation: published order #%d %s has %.3fms under “%s”. This is background or adjacent follow-up context, not on-chain causality or repair priority; it does not prove thermal throttling, governor limiting or wrong-core placement.\n", supply.Rank, strings.TrimSpace(supply.Subject), supply.EffectiveImpactMS, cause)
+			} else if zh {
 				relation := "次要候选"
 				if primary {
 					relation = "第一位"
@@ -7075,6 +7103,13 @@ func answerDocTraceRankReaderCauseLabel(raw string, zh bool) string {
 		return "未分类的已测原因"
 	}
 	return "unclassified measured cause"
+}
+
+func answerDocTraceRankReaderMeasuredCauseLabel(seat types.TraceRankRosterSeat, zh bool) string {
+	if label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(seat.Type, seat.IOValueCaliber, zh)); label != "" {
+		return label
+	}
+	return answerDocTraceRankReaderCauseLabel(seat.Type, zh)
 }
 
 func answerDocTraceRankReaderBoardScope(raw string, zh bool) string {
@@ -23861,6 +23896,7 @@ func traceQueryObservationSameValueFoldKey(record types.ObservationRecord, base,
 		strings.TrimSpace(record.Object),
 		value,
 		strings.TrimSpace(record.Unit),
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber),
 		traceQueryObservationSupplementNotes(record, zh),
 		outsideNote,
 	}, "\x00")
@@ -24102,6 +24138,7 @@ func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
 		strings.TrimSpace(record.Predicate),
 		strings.TrimSpace(record.Object),
 		strings.TrimSpace(record.Value),
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber),
 		traceQueryObservationLocation(record),
 		strings.TrimSpace(record.SourceRef.TimeDomain),
 		strings.TrimSpace(record.SourceRef.CanonicalTimeDomain),
@@ -24125,6 +24162,9 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	label := traceQueryObservationSupplementClaimLabel(record, zh)
 	subject := traceQueryObservationSupplementEntityLabel(record.Subject, zh)
 	object := traceQueryObservationSupplementEntityLabel(record.Object, zh)
+	if types.TraceUsesIOValueCaliber(record.Object, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber)) {
+		object = tool.TraceMeasurementTypeDisplayLabel(record.Object, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber), zh)
+	}
 	// Renderer-invented labels and separators follow the answer language.
 	// Raw claim/note tokens remain byte-preserved in the observation ledger and
 	// diagnostics; only this customer-facing projection is localized.
@@ -24257,7 +24297,29 @@ func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord
 	if tier == types.TraceCausalTierContextOnly {
 		return label("分析支撑观测", "analysis supporting observation")
 	}
-	return ""
+	if tier == types.TraceCausalTierTargetSelfState {
+		return label("目标状态观测（待沿链下钻）", "target-state observation (follow the chain for cause)")
+	}
+	// Retain the established wording for explicit legacy non-cause predicates
+	// even when their older publication omitted the richer relevance notes.
+	switch strings.TrimSpace(record.Predicate) {
+	case "root_cause_background":
+		return label("背景观测", "background observation")
+	case "root_cause_adjacent":
+		return label("邻近支撑观测", "adjacent supporting observation")
+	case "root_cause_unattributed":
+		return label("未归因支撑观测", "unattributed supporting observation")
+	}
+	if tier == types.TraceCausalTierCaliberSide || record.Role == types.AnswerAggregateRoleSupportingCoverage {
+		return label("分析支撑观测", "analysis supporting observation")
+	}
+	// A historical root_cause prefix and a rank do not prove a chain seat.
+	// Preserve compatibility with explicit typed on-chain legacy records, but
+	// never elect an unqualified row from its name or measurement magnitude.
+	if relevance == "on_chain" || causality == "on_wakeup_chain" || causality == "self_deterministic" {
+		return ""
+	}
+	return label("未归因支撑观测", "unattributed supporting observation")
 }
 
 func traceQueryObservationSupplementEntityLabel(raw string, zh bool) string {
@@ -24760,6 +24822,19 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 	}
 	readerNotes := make([]string, 0, len(notes)+1)
 	for _, note := range notes {
+		// A critical-blocking row places its peer in Object and its measured
+		// type in this note. Use that same row's IO ruler, never the peer or
+		// closure to infer what the number measures.
+		if key, token, ok := strings.Cut(note, "="); ok && key == types.TraceNoteKeyType &&
+			types.TraceUsesIOValueCaliber(token, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber)) {
+			label := tool.TraceMeasurementTypeDisplayLabel(token, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber), zh)
+			if zh {
+				readerNotes = append(readerNotes, "观测类型："+label)
+			} else {
+				readerNotes = append(readerNotes, "observation type: "+label)
+			}
+			continue
+		}
 		if display, ok := traceQueryObservationSupplementNoteDisplay(note, zh); ok {
 			readerNotes = append(readerNotes, display)
 		}

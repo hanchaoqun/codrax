@@ -39,10 +39,11 @@ type RuntimeTraceReconciliationRow struct {
 	IOWaitMS      float64
 	TotalMS       float64
 
-	Rank         int
-	EffectiveMS  float64
-	CauseToken   string
-	FixDirection string
+	Rank           int
+	EffectiveMS    float64
+	CauseToken     string
+	IOValueCaliber string
+	FixDirection   string
 }
 
 // TraceStateNonIODStateWord is the ONE customer-face word for the exclusive
@@ -126,15 +127,16 @@ func RuntimeTraceReconciliationRows(ctx *types.BusContext) []RuntimeTraceReconci
 		}
 		boardScope := types.TraceRankBoardDisplayIdentityFromNode(projection, row.Node)
 		out = append(out, RuntimeTraceReconciliationRow{
-			Kind:          RuntimeTraceReconciliationRankOne,
-			ArtifactLabel: label,
-			Subject:       strings.TrimSpace(row.Node.Subject),
-			EvidenceTag:   tag,
-			WindowScope:   projection.WindowScope.ForWindow(boardScope.WindowStartTs, boardScope.WindowEndTs),
-			Rank:          row.Node.Rank,
-			EffectiveMS:   row.Node.EffectiveImpactMS,
-			CauseToken:    strings.TrimSpace(row.Node.TypeToken),
-			FixDirection:  strings.TrimSpace(row.Node.FixDirection),
+			Kind:           RuntimeTraceReconciliationRankOne,
+			ArtifactLabel:  label,
+			Subject:        strings.TrimSpace(row.Node.Subject),
+			EvidenceTag:    tag,
+			WindowScope:    projection.WindowScope.ForWindow(boardScope.WindowStartTs, boardScope.WindowEndTs),
+			Rank:           row.Node.Rank,
+			EffectiveMS:    row.Node.EffectiveImpactMS,
+			CauseToken:     strings.TrimSpace(row.Node.TypeToken),
+			IOValueCaliber: row.Node.IOValueCaliber,
+			FixDirection:   strings.TrimSpace(row.Node.FixDirection),
 		})
 	}
 	return out

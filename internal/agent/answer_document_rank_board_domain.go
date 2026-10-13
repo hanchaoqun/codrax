@@ -60,7 +60,7 @@ func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet,
 				b.WriteString("  - Query identity is incomplete; keep this observed row separate, do not infer a shared board or global ordinal.\n")
 			}
 			for _, node := range group.shown {
-				causeLabel := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+				causeLabel := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh))
 				if causeLabel == "" {
 					if zh {
 						causeLabel = "已测链上候选"

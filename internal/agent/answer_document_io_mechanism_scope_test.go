@@ -85,7 +85,10 @@ func b1645Snapshot(t *testing.T, value any) string {
 }
 
 func b1645PublishedIOMechanismLine(prompt, lang string) string {
-	label := tool.TraceRootCauseTypeDisplayLabel("io_latency", lang == "zh")
+	// This actual native root carries the independently measured issuer wait,
+	// so the family permission must be adjacent to that ruler, not a token-only
+	// unspecified duration. All mechanism-scope assertions below stay intact.
+	label := tool.TraceMeasurementTypeDisplayLabel("io_latency", types.TraceIOValueCaliberIssuerBlocked, lang == "zh")
 	labelLine := fmt.Sprintf("permitted_reader_cause_label=%q", label)
 	lines := strings.Split(prompt, "\n")
 	for i, line := range lines {

@@ -149,6 +149,13 @@ func renderRankOneReconciliation(row tool.RuntimeTraceReconciliationRow) proseSc
 		causeZH = strings.TrimSpace(row.CauseToken)
 	}
 	causeEN := strings.ReplaceAll(strings.TrimSpace(row.CauseToken), "_", " ")
+	// This appendix consumes the same native value as the visible projection.
+	// Its IO ruler must survive the compact row carrier; an IO family token
+	// alone cannot distinguish request residence from a thread's blocked time.
+	if types.TraceUsesIOValueCaliber(row.CauseToken, row.IOValueCaliber) {
+		causeZH = tool.TraceMeasurementTypeDisplayLabel(row.CauseToken, row.IOValueCaliber, true)
+		causeEN = tool.TraceMeasurementTypeDisplayLabel(row.CauseToken, row.IOValueCaliber, false)
+	}
 	// B1635b: preserve the producer's candidate/caliber boundary on this
 	// reader face too; other tokens retain their existing display fallback.
 	if row.CauseToken == "priority_inversion_runnable_wait" {

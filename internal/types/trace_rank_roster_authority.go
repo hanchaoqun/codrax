@@ -9,6 +9,7 @@ type TraceRankRosterSeat struct {
 	Rank                     int
 	Tier                     string
 	Type                     string
+	IOValueCaliber           string
 	Subject                  string
 	EffectiveImpactMS        float64
 	EffectiveImpactPublished bool
@@ -77,6 +78,7 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 				Rank:                     node.Rank,
 				Tier:                     strings.TrimSpace(node.Tier),
 				Type:                     firstNonEmptyTraceRankRosterString(node.TypeToken, node.Object, node.Predicate, "unknown"),
+				IOValueCaliber:           node.IOValueCaliber,
 				Subject:                  strings.TrimSpace(node.Subject),
 				EffectiveImpactMS:        node.EffectiveImpactMS,
 				EffectiveImpactPublished: node.EffectiveImpactPublished,

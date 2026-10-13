@@ -6200,11 +6200,13 @@ func runtimeTraceCausalProjectionEvidenceDisplayDetail(node types.TraceCausalPro
 			parts = append(parts, "causal position: "+position)
 		}
 	}
-	if node.Rank > 0 {
-		if zh {
-			parts = append(parts, fmt.Sprintf("根因排序第 %d 位", node.Rank))
-		} else {
-			parts = append(parts, fmt.Sprintf("root-cause rank %d", node.Rank))
+	// The evidence index uses the same typed ordinal channel as the tree and
+	// detail table. A background rank remains an audit fact, not a cause badge.
+	if node.Rank > 0 && (node.ChainRelevance == "on_chain" || node.ChainRelevance == "adjacent") &&
+		!node.IsTargetSelfStateRow() && !node.IsContextOnlyRow() &&
+		!node.IsCaliberSideRow() && !node.IsEvidenceBoundaryRow() {
+		if word, ok := runtimeTraceProjSeatChannelWord(runtimeTraceProjNodeOrdinalChannel(node), zh); ok {
+			parts = append(parts, fmt.Sprintf("%s #%d", word, node.Rank))
 		}
 	}
 	if node.Confidence > 0 {
@@ -6220,7 +6222,7 @@ func runtimeTraceCausalProjectionEvidenceDisplayDetail(node types.TraceCausalPro
 	// typed token. Unknown wire values stay available in diagnostics but never
 	// leak into this customer-facing panel by fallback.
 	for _, token := range []string{node.TypeToken, node.SemanticClass, node.Object, node.Predicate} {
-		label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(token, zh))
+		label := strings.TrimSpace(TraceMeasurementTypeDisplayLabel(token, node.IOValueCaliber, zh))
 		if label == "" || strings.EqualFold(label, strings.TrimSpace(token)) {
 			continue
 		}

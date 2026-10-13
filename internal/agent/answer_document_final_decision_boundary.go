@@ -282,10 +282,13 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 				for _, raw := range []string{node.TypeToken, node.SemanticClass, node.Object, node.StateKind} {
 					token := strings.TrimSpace(raw)
 					key := strings.ToLower(token)
+					if types.TraceUsesIOValueCaliber(token, node.IOValueCaliber) {
+						key += "\x00" + types.NormalizeTraceIOValueCaliber(node.IOValueCaliber)
+					}
 					if key == "" || seen[key] {
 						continue
 					}
-					label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(token, zh))
+					label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(token, node.IOValueCaliber, zh))
 					if label == "" || strings.EqualFold(label, token) {
 						continue
 					}
@@ -471,7 +474,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 						fmt.Fprintf(&b, "  - Rank %d, %s: %s; "+tracefence.OptimizationPotentialEN+" %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					}
 					if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
-						state := traceFinalReaderStateLabel(node.StateKind, zh)
+						state := traceFinalReaderMeasuredStateLabel(node.StateKind, node.IOValueCaliber, zh)
 						if state == "" {
 							state = traceFinalReaderActualCauseLabel(node, zh)
 						}
@@ -678,14 +681,14 @@ func traceFinalReaderTargetAuthority(projection types.TraceCausalProjection, aut
 }
 
 func traceFinalReaderCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
-	label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+	label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh))
 	if label != "" {
 		return label
 	}
-	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+	if label := traceFinalReaderMeasuredStateLabel(node.StateKind, node.IOValueCaliber, zh); label != "" {
 		return label
 	}
-	if label := traceFinalReaderStateLabel(traceDecisionEliminableSeatKind(node), zh); label != "" {
+	if label := traceFinalReaderMeasuredStateLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh); label != "" {
 		return label
 	}
 	if zh {
@@ -695,13 +698,13 @@ func traceFinalReaderCauseLabel(node types.TraceCausalProjectionNode, zh bool) s
 }
 
 func traceFinalReaderActualCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
-	if label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(node.SemanticClass, zh)); label != "" {
+	if label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(node.SemanticClass, node.IOValueCaliber, zh)); label != "" {
 		return label
 	}
-	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+	if label := traceFinalReaderMeasuredStateLabel(node.StateKind, node.IOValueCaliber, zh); label != "" {
 		return label
 	}
-	if label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(node.StateKind, zh)); label != "" {
+	if label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(node.StateKind, node.IOValueCaliber, zh)); label != "" {
 		return label
 	}
 	if name := strings.TrimSpace(node.SpanName); name != "" {
@@ -758,11 +761,11 @@ func traceFinalReaderTargetSelfStateSymptom(projection types.TraceCausalProjecti
 }
 
 func traceFinalReaderContextLabel(node types.TraceCausalProjectionNode, zh bool) string {
-	label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+	label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh))
 	if label != "" {
 		return label
 	}
-	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+	if label := traceFinalReaderMeasuredStateLabel(node.StateKind, node.IOValueCaliber, zh); label != "" {
 		return label
 	}
 	if zh {
@@ -789,6 +792,13 @@ func traceFinalReaderNodeProvedOnChain(projection types.TraceCausalProjection, n
 	return false
 }
 
+func traceFinalReaderMeasuredStateLabel(token, caliber string, zh bool) string {
+	if types.TraceUsesIOValueCaliber(token, caliber) {
+		return tool.TraceMeasurementTypeDisplayLabel(token, caliber, zh)
+	}
+	return traceFinalReaderStateLabel(token, zh)
+}
+
 func traceFinalReaderStateLabel(token string, zh bool) string {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "running", "fragmented_running":
@@ -810,8 +820,10 @@ func traceFinalReaderStateLabel(token string, zh bool) string {
 		// V3-1 (§40.20 ③): the D/IO lane words come from tracefence Table ⑧
 		// (bytes unchanged; ownership moved).
 		return traceStateLaneWord(tracefence.StateLaneDState, zh)
-	case "io_wait", "io_latency":
+	case "io_wait":
 		return traceStateLaneWord(tracefence.StateLaneIOWait, zh)
+	case "io_latency":
+		return types.TraceIOValueCaliberLabel("", zh)
 	default:
 		return ""
 	}
