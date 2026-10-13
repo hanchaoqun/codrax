@@ -7504,3 +7504,70 @@ display-coalesce-red-v2为实际产品RED，同时复现旧want4→1、新实际
 完整父项新增0，仍21项已交付、58开放；18.3由待实施准确更正为部分实施，末版开放状态36待实施/16部分实施/2待验收/3验收中/1持续执行。已交付子能力按四组：同源资格及IO量尺展示；等待实例闭合与原生关系分离；认证只读登记复用已验证来源；失败子进程真实终态留档。第三/四组以确定性公开测试验，未补签本轮live。原五个稳定验收父项与本批两份人工FAIL交叉记账，不重复加到58。
 
 后继双轨按ROI：先补同物理事实的独立IO请求身份/量尺与投影去重（12.5/16.4/18.4），不再仅修单一正文标签；能力轨推进09.4剩余采样来源/分母及字面栈帧展示，既有树和Trace因果投影继续复用。18.3/18.5继续轮换真实二进制尾部/自然登记终态，35格登记回归不代替修后自然模型验收。二进制阈值/声明数量、全局/窗内总体、原始/规范化字段交接留01.3/16.4/18.4；未经重复证据不称模型波动，但不让一次成文误述触发无限局部规则。多来源/有slice登记与其它平台未覆盖范围继续按原任务ID保存。
+
+## 233. 独立IO请求身份与跨展示复用（2026-10-12，代码已交付、真实人工1/2）
+
+### 233.1 起点、参考意图与退出边界
+
+起点`a29a34c5e`干净且与origin/main一致，复算79唯一任务、21实现已交付、58开放、重复0；开放状态36待实施/16部分实施/2待验收/3验收中/1持续执行。§232两份人工FAIL原件和结论不倒签。本轮沿12.5/16.4/18.4修投影共享身份，固定两例轮换18.3二进制接入及18.5修后只读登记恢复终态，不增加第三条实现线。
+
+重新对照参考`config/skills/io_analysis.yaml`、`config/indicators/io/io_latency.yaml`及`core/preprocess/io_ops.py::format_io_latency`：同一准备数据库/选定范围下独立组合时延、大小、操作和并发，逐请求明细保start/end/duration与线程，是可借鉴的设计意图；不是把同线程同持续时间的两行当同一次请求。参考明细未提供足够物理请求身份，且毫秒整数化、缺值补零、已LIMIT结果算总体、固定阈值推竞争及双闭时间窗均不能移植。本项目须复用原生物理来源/成员端点和既有量尺，未知身份不猜同一请求，近值与包络重叠不授去重资格。
+
+退出以实际原生查询→ledger→CompileTraceCausalProjectionSet→公开答案及图/表消费为准，覆盖独立RQ/BIO与同层请求、真实重复发布、异量尺/来源/范围和缺身份；保原始请求值、链上与背景边界、已证关系和自动补齐。先RED/相关正负/race及结构登记快检，Go冻结后完整回归和同版构建。固定自然二进制清单与修后只读登记各一次并行2，机器和人工分开记录；未达到的能力继续按原ID留账。
+
+### 233.2 公开反例与共同交接缺口
+
+真实解析三个请求（两个RQ的sector不同、一个BIO，发起/完成线程、起止和10ms均相同）后ledger保3条，旧投影仅1条且DuplicatePublications=3，系统图和完整明细丢BIO量尺；中英文及线程改名四格均复现。图层另有同样的近值/重叠安全网，正文exact/same-value key又把两个RQ归为同身份，分别保留surface-red-v1/v2/v3原件。types初始red-v1因测试fixture未满足投影准入而得0条，是夹具问题，不充当生产误并证据。
+
+继续溯源发现critical_blocking及rank视图此前未完整传递请求端点；链上行的Span可能是issuer blocked→wakeup，而非issue→complete。仅从Span、说明字段或量尺推请求身份仍不正确。最小方案是保留原生配对端点，复用已有当前来源读取凭据铸内存私有请求身份；不同测量口径分别保留，聚合多成员/身份未知不推定同请求。模型可写说明不能铸正向身份，JSON恢复不能复活私有凭据，身份复用不增加因果/唤醒资格或变动模型正文。
+
+### 233.3 交接边界与回归审计
+
+原生配对端点经rank、critical-blocking及window-stats detail进入ObservationRecord，内部载体不新增模型JSON字段。源路径/文件代次及当前读取凭据确认后才生成私有身份；查询窗口、目标、时钟、事件行过滤和数值量尺各自参与发布兼容判断，不被当作请求原始端点。JSON恢复、缺端点、过期/失败/memo重盖或后续事实变化只能保留隔离，不能重建正向身份。合法零时长不等于缺测。精确IO类型的旧记录同样不能退回近值合并；普通调度器io_wait仍沿原规则，不按用户或模型用词作门。
+
+各共享合并入口及展示安全网复用同一判断；独立请求不进入线程状态SUM。rank多成员家族及IO facet union/roster清除代表请求的单成员载体，原始被吸收成员仍保端点，不从MemberKey或说明文本逆推。旧公开测试中“未知身份近值仍合并”“不同量尺互作MAX donor”的期望按新请求边界迁移，原矩阵及底层纯MAX/SUM/union数值归属测试保留；不是删除失败或放宽来源资格。
+
+公开原生正控额外发现native family为block_rq/block_bio，初版简称不能获得私有身份，保留fixture-migration-v1/v2及surface-green-v2/v3失败原件，末版改用既有精确枚举。测试原先只改limit或min_duration却仍返回相同payload，内容寻址ObservationID未改变；surface-green-v4保留“只有3个不同ID”的失败，后继须真实改变返回子集，不能伪造ID后自称跨查询通过。空AnalysisIR下window_stats原始明细不属于默认因果补充范围，rulers-v1额外断言未通过；后继公开双尺验收使用已存在的rank驻留发布与critical-blocking等待发布，不为该夹具扩大默认事实纳入或增加教学。
+
+### 233.4 首轮全仓与最小补救
+
+代码`98baeef88`及`9a997c96819b`冻结后构建正式exit0；首轮`full-v1.jsonl`正式exit1，87测试包PASS、13无测试包，agent/types/tool三包FAIL。完整Action=fail收齐为6个根测试、其中业务载体根含2个失败子例；先等正式退出再改Go，不并跑重复全仓。
+
+- `TestInfoContractNoteKeyCarrierTruth`发现新身份helper读取5个display-only备注。原生typed端点及来源凭据已经足以辨认请求，备注循环只查重复值冲突却未校验端点一致性，是重复且不完整的判定。删该循环及仅凭family展示备注的分类分支，不升级字段权限；完整事实快照仍绑定备注，盖章后修改即失效。新增无typed身份不授权、无展示备注仍可认证、认证后每个备注变化均失效三组回归。
+- `TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGenericBudget`、`TestPTV6AdjacentNearDuplicateFoldMirrorsTypesLane`及`TestPTV6DSpecimenReplayLineLedger`旧夹具没有原生请求身份却要求近值或等值IO合并。迁移为独立行，保留各自原值和E#、1.337ms等待区间union、1.347ms请求驻留、总体198/展示8/遗漏190/41.329 request·ms等原断言；普通io_wait近值/等值合并仍有正控。specimen行账随三行恢复从35到41，100列限制不变，不调上限追绿。
+- `TestInfoContractFieldCensus`遗漏Node.IORequestMeasurement及RankItem.IORequestEndpoints登记，分别登记投影隔离边界与原生配对载体/聚合清除用途；不授模型字段因果权。
+- `TestTraceQueryBusinessRefPublicCarrierMatrix`的内部rank/critical两子例用全结构DeepEqual比较memo与原结果，误把私章生命周期当公开事实字节契约。memo没有本次真实读取，不应继承原来源私章；补公开JSON逐字相等、端点逐行不变、memo私章失效而原结果仍有效的分层断言，其余非IO记录保持全结构比较。不是删除业务来源或放宽memo权限。
+
+六根均需修后独立PASS，再冻结一次完整末版回归；首轮FAIL与所有早期失败收据保留，最终正式结果见本节后续发布记录。
+
+六根修后均已有正式PASS：agent定向1.323s；types含实际NoteKeyCarrierTruth普查16.567s、身份race2.255s；tool四根1.783s，memo测试追加调用前key快照与两个原生IO非空正控后最终v3为1.556s。独立末审未发现新增阻断；“跨view”仅指兼容语义/角色/窗口的同请求重复发布，不表示不同predicate或量尺可任意合并。原生limit=2/3实际5个不同EvidenceID归为3请求，逆序及两份公开图/表保独立E#。非阻断维护项：`trace_causal_projection_aggregate.go`开头历史near-tier注释仍用IO漂移举例，typed IO已被新身份边界排除，留16.4下批同步注释，不为纯注释打断本次冻结。
+
+### 233.5 固定双例与后继范围
+
+真实双例使用`9a997c96819b`构建，2026-10-12 19:43并行启动、各一次，无第三例追绿。机器2/2、完整人工1/2，详见[机器摘要](../../eval/parallel_selected_summary_hmc_request_identity_terminal_20261012.md)与[人工审计](../../eval/parallel_selected_summary_hmc_request_identity_terminal_20261012_manual_audit.md)。轮换例不是IO碰撞live；本批IO同值请求/双量尺依赖实际TraceQuery→投影→Emit→ParseOutput的公开回归验收。
+
+二进制例实际gzip解包→SQLite只读准备→完整systrace→原生查询，最终两行数据与表格通过；完整过程仍FAIL：预览数量被analyzer虚构成用户declared_count及source_quote，工具又擅加appid过滤。当前单appid数据恰好不丢成员，但过滤后的完整性不能代签全应用总体。挂01.3/16.4/18.3/18.4，后继按用户选择/数据观察/查询覆盖分层修复，以多appid、阈值不等于条数的独立oracle验证，不把防护规则塞进自然问题或扫描问答原文硬门。
+
+只读登记真实planner读取源码与测试、精确登记后，由独立child重新运行原生验证；source/proof/整体workflow均verified，readonly_checked/readonly均true、HEAD/源和测试SHA/diff/status齐验，receipt.json确实落盘，限定路径人工PASS。证明§232合法观察误开义务的修复已命中，不倒签§232失败，也不以controller测试adapter冒称完整CLI/模型controller或永久完成18.5。
+
+额外发现恢复持久化的context-pack身份问题：child 7包7唯一ID，父进程持久化后仍7包但6唯一ID，批次引用由2/2/2变4/4/3。`write_workflow_run_store.go`反复Save添加run/batch/当前ID前缀再截前120字节，非幂等且长共同前缀丢区分尾部；planner_observation与merged发生实际ID碰撞。本次完整包及验证终态未丢，不夸大为已发生事实丢失/文件覆盖。按影响面升18.4/18.5后继P1，需Save→Load→Save公开反例、稳定ID及旧引用兼容，不在本批无限扩轨。
+
+后继只读设计进一步确认：`NormalizeWriteContextPack`还把PackID/BatchID按240字符正文规则截断，scheduler的upsert则依赖PackID|BatchID，故仅增加文件名hash或猜prefix仍不够。拟议方案是分离精确逻辑ID与版本化存储引用，内容地址排除存储引用自身、先完成全量映射/冲突检查再写盘，batch/slice沿映射替换而非追加；旧ID作为不透明别名，歧义明确报告，不猜剥前缀或任选同名包。下一批先RED：连续Save与Load→Save五轮稳定、长共同前缀/超过240字符/大小写标点中文不碰撞、顺序无关、同逻辑包更新不重复、旧碰撞及旧引用可诊断、写盘失败保原件。此处只有设计审计，尚未实施，不计新增交付。
+
+完整父项本批新增0，仍21交付+58开放；子能力交付与人工验收分别记录。五稳定验收父项03.2/04.2/08.3/08.4/18.2继续开放，与当批FAIL交叉不相加。下一双轨优先共享context-pack持久化身份缺陷及09.4采样来源/分母与字面帧剩余范围，二进制范围交接保P1；未证波动的错误不标为模型波动。
+
+### 233.6 末版验证、发布与证据保全
+
+本批三笔实现已普通推送origin/main，代码HEAD与远端均`b8e85dbd976c34395f957dceb5e0e7675349921c`：
+
+| 提交 | 交付范围 |
+| --- | --- |
+| `98baeef88` | 原生来源认证的请求身份、投影合并边界及权限/数值正反回归 |
+| `9a997c96819b` | rank/critical/window原始端点交接、家族清除及正文/图/表共用身份 |
+| `b8e85dbd976c` | 移除display-only判定依赖，补字段契约及六根旧边界测试迁移 |
+
+末版Go冻结后`full-v2.jsonl`正式exit0：90测试包PASS、13无测试包、零Action=fail；首轮6个失败根测试全部在同次末版有PASS，汇总`full-final-summary-v1.json`。tool末包589.239s正式完成；没有用部分输出或旧版全绿拼接收据。`build-v2.log`正式exit0，构建时间2026-10-13T02:58:09Z，revision=`b8e85dbd976c-dirty`的dirty仅本批文档，Go与HEAD一致。末版未重跑live，仍如实标注真实双例代码为`9a997c96819b`；之后生产补救只移除展示备注决策依赖，其他为回归/字段登记。
+
+相关公开链、既有量尺/自动补齐及非IO正负、wire/hash/结构/L1、skill整包、类型和展示race正式收据全部保留；新增语义没有进入用户问题或模型JSON必填项。真实输入12份SHA-256在启动前及完成后均一致，包括capture、case、登记测试和eval runner/oracle。原始FAIL、完整全仓两轮、实际工具payload、准备产物、成文/旁路和登记原件按字节复制校验到`eval/results/hmc_request_identity_terminal_20261012/`；逐件来源/哈希见`evidence-sha256-index.txt`，发布凭证为`verification-receipts/codrax-hmc233-push-code-v1.log`。大原件本地留存，统一账本、任务入口和两份人工/机器摘要随文档提交。
+
+最终重算79唯一ID、重复0；21实现已交付、58开放，分布仍36待实施/16部分实施/2待验收/3验收中/1持续执行。完整能力新增0，新增已交付子能力按原生请求身份、跨展示量尺复用、失效身份隔离三组报告。本批仍未通过的人工验收项是二进制范围/声明交接，其余历史开放缺陷保持原账；context-pack碰撞是同次审计新增的已证系统缺口，按原ID保P1，不推翻登记终态PASS，也不销其完整父项。
