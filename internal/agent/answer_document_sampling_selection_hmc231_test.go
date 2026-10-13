@@ -44,7 +44,7 @@ func samplingSelectionAnalysisContext(t *testing.T) *types.AgentContext {
 		"runtime_artifact_scope_profile":{"requested_scope":"explicit_time_window","time_start":1,"time_end":2,"source_quote":"1到2秒","confidence":0.9},
 		"runtime_question_profile":{"scope":"bounded_fact_set","fact_families":["count_or_duration"],"runtime_work_relation_requested":false,"frame_causality_requested":false,"confidence":0.9},
 		"runtime_target_profile":{"declaration":"named_target","source_quote":"tid 11","confidence":0.95},
-		"runtime_targets":[{"kind":"thread","thread":"document-worker","source":"user_explicit","confidence":0.95}],
+		"runtime_targets":[{"kind":"thread","pid":11,"thread":"document-worker","source":"user_explicit","confidence":0.95}],
 		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.9},
 		"completeness_obligation":{"required":false,"source_quote":""},
 		"call_chain_endpoints":{"source":"","sink":"","sink_mode":"exact","runtime_selection_required":false,"runtime_selection_source_quote":""},
@@ -136,6 +136,8 @@ func TestSamplingSelectionPublicFinalizerBoundariesHMC231(t *testing.T) {
 			ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 12
 		}},
 		{"other_requested_name", func(ctx *types.AgentContext, _ *types.ToolResult) {
+			// Exact PID outranks a display name; this is a name-only counterexample.
+			ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 0
 			ctx.AnalysisIR.RequestModel.RuntimeTargets[0].Thread = "other-worker"
 		}},
 		{"narrower_requested_window", func(ctx *types.AgentContext, _ *types.ToolResult) {

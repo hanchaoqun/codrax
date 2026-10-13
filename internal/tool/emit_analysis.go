@@ -5243,6 +5243,9 @@ func parseRuntimeTargetProfile(raw string, runtimeRequestDeclared bool, p *emitR
 			if strings.TrimSpace(target.Source) != "user_explicit" {
 				return nil, fmt.Sprintf("runtime_targets[%d].source must be user_explicit under runtime_target_profile named_target", i), nil
 			}
+			if !runtimeTargetIdentityInQuote(target, quote) {
+				return nil, fmt.Sprintf("runtime_targets[%d] identity is not supported by runtime_target_profile.source_quote; "+skill.AnalysisRuntimeTargetRosterTeaching, i), nil
+			}
 		}
 		profile.SourceQuote = quote
 	case types.RuntimeTargetDeclarationNoNamedTarget, types.RuntimeTargetDeclarationUnspecified:
