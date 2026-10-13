@@ -39,7 +39,12 @@ func TestSleepDependenciesPublicComposition(t *testing.T) {
 			if !reflect.DeepEqual(pairs, want) {
 				t.Fatalf("native branch authority: got %v want %v", pairs, want)
 			}
-			before, _ := json.Marshal(types.CompileTraceCausalProjectionSet(ledger))
+			beforeSet := types.CompileTraceCausalProjectionSet(ledger)
+			knownPoints := sleepDependenciesClearInstancePoints(&beforeSet)
+			if knownPoints == 0 {
+				t.Fatal("native single-wait positive did not retain any exact closure")
+			}
+			before, _ := json.Marshal(beforeSet)
 			for i := range ledger.Records {
 				var kept []string
 				for _, n := range ledger.Records[i].RichNotes {
@@ -49,9 +54,13 @@ func TestSleepDependenciesPublicComposition(t *testing.T) {
 				}
 				ledger.Records[i].RichNotes = kept
 			}
-			after, _ := json.Marshal(types.CompileTraceCausalProjectionSet(ledger))
+			afterSet := types.CompileTraceCausalProjectionSet(ledger)
+			if sleepDependenciesClearInstancePoints(&afterSet) != 0 {
+				t.Fatal("missing native event carrier must not retain any exact closure")
+			}
+			after, _ := json.Marshal(afterSet)
 			if string(before) != string(after) {
-				t.Fatal("diagram carrier altered causal projection")
+				t.Fatal("instance point qualification altered causal structure, navigation or references")
 			}
 		})
 	}
@@ -71,6 +80,31 @@ func TestSleepDependenciesPublicComposition(t *testing.T) {
 	if !found {
 		t.Fatal("missing full upstream sleep summary including missing-wake and sub-threshold intervals")
 	}
+}
+
+// Only closure coordinates now depend on the exact event-instance carrier.
+// Every causal node, navigation target, evidence reference and accounting field
+// remains part of the original byte-preservation assertion.
+func sleepDependenciesClearInstancePoints(set *types.TraceCausalProjectionSet) int {
+	known := 0
+	clear := func(n *types.TraceCausalProjectionNode) {
+		if n.DrilldownWakeupPointKnown {
+			known++
+		}
+		n.DrilldownWakeupPointKnown, n.DrilldownWakeupTs, n.DrilldownWakeupLine = false, 0, 0
+	}
+	for i := range set.Projections {
+		p := &set.Projections[i]
+		for _, bucket := range [][]types.TraceCausalProjectionNode{p.PrimaryRootCauses, p.OnChainCauses, p.AdjacentCauses, p.BackgroundCauses, p.SemanticSpans, p.SupportingHops} {
+			for i := range bucket {
+				clear(&bucket[i])
+			}
+		}
+		if p.PrimaryRootCause != nil {
+			clear(p.PrimaryRootCause)
+		}
+	}
+	return known
 }
 
 // A complete state census and its individual waits are overlapping views,

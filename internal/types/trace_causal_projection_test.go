@@ -379,14 +379,14 @@ func TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker(t *testing.T) 
 	if app.DrilldownTarget != "worker-200" || app.DrilldownEvidenceID != "edge-worker-app" {
 		t.Fatalf("app sleep should drill to its immediate waker, got %+v", app)
 	}
-	if !app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 2.020 || app.DrilldownWakeupLine != 15 {
-		t.Fatalf("app sleep should retain its exact typed wakeup point, got %+v", app)
+	if app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 0 || app.DrilldownWakeupLine != 0 {
+		t.Fatalf("legacy thread edge must not close an unbound app wait, got %+v", app)
 	}
 	if worker.DrilldownTarget != "threadpool-400" || worker.DrilldownEvidenceID != "edge-threadpool-worker" {
 		t.Fatalf("worker sleep should drill to its immediate waker, got %+v", worker)
 	}
-	if !worker.DrilldownWakeupPointKnown || worker.DrilldownWakeupTs != 2.016 || worker.DrilldownWakeupLine != 11 {
-		t.Fatalf("worker sleep should retain its exact typed wakeup point, got %+v", worker)
+	if worker.DrilldownWakeupPointKnown || worker.DrilldownWakeupTs != 0 || worker.DrilldownWakeupLine != 0 {
+		t.Fatalf("legacy thread edge must not close an unbound worker wait, got %+v", worker)
 	}
 }
 
@@ -451,8 +451,8 @@ func TestTraceCausalProjectionSleepDrilldownLineOnlyDoesNotFabricateTraceZero(t 
 	ledger.Records[1].RichNotes = []string{TraceNoteKeyWakeupTs + "=0.000000"}
 	got = CompileTraceCausalProjection(ledger)
 	app = traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
-	if app == nil || !app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 0 || app.DrilldownWakeupLine != 1 {
-		t.Fatalf("registered typed zero witness should preserve a real trace-zero point, got %+v", app)
+	if app == nil || app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 0 || app.DrilldownWakeupLine != 0 {
+		t.Fatalf("a timestamp presence witness alone cannot bind a waiting instance, got %+v", app)
 	}
 }
 

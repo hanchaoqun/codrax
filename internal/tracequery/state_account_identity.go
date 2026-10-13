@@ -9,60 +9,18 @@ package tracequery
 // identity only from the complete, exact segment inventory.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func stateAccountIdentity(thread ThreadRef, state string, window TimeWindow, intervals []foldInterval, expectedMS float64) string {
-	state = strings.TrimSpace(strings.ToLower(state))
-	if thread.PID <= 0 || state == "" || window.EndTs <= window.StartTs ||
-		len(intervals) == 0 || expectedMS <= 0 || math.IsNaN(expectedMS) || math.IsInf(expectedMS, 0) {
-		return ""
+	physical := make([][2]float64, len(intervals))
+	for i, interval := range intervals {
+		physical[i] = [2]float64{interval.start, interval.end}
 	}
-	ordered := append([]foldInterval(nil), intervals...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].start != ordered[j].start {
-			return ordered[i].start < ordered[j].start
-		}
-		return ordered[i].end < ordered[j].end
-	})
-	total := 0.0
-	var body strings.Builder
-	// The caller's window is a view boundary, not part of the physical
-	// scheduler account. Root-rank publishes against the selected query
-	// window while wakeup-chain publishes the same segments against its
-	// recursively narrowed dependency window. Hashing either view boundary
-	// would give one physical account two identities. Require every segment to
-	// be contained by the supplied view, then derive the identity scope from
-	// the exact segment inventory itself.
-	fmt.Fprintf(&body, "v2|pid=%d|state=%s", thread.PID, state)
-	lastEnd := 0.0
-	for i, interval := range ordered {
-		if interval.end <= interval.start || math.IsNaN(interval.start) || math.IsNaN(interval.end) ||
-			math.IsInf(interval.start, 0) || math.IsInf(interval.end, 0) ||
-			interval.start < window.StartTs || interval.end > window.EndTs {
-			return ""
-		}
-		// One thread cannot occupy the same scheduler state twice at once.
-		// Overlap therefore means this is not a physical partition.
-		if i > 0 && interval.start < lastEnd {
-			return ""
-		}
-		total += (interval.end - interval.start) * 1000
-		fmt.Fprintf(&body, "|%.9f..%.9f", interval.start, interval.end)
-		lastEnd = interval.end
-	}
-	if math.Abs(total-expectedMS) >= types.TraceCausalProjectionSameValueTieMS {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(body.String()))
-	return "state_account:v2:" + hex.EncodeToString(sum[:16])
+	return types.TraceSchedulerStateAccountIdentity(thread.PID, state, window.StartTs, window.EndTs, physical, expectedMS)
 }
 
 func rootCauseRankStateIntervals(item RootCauseRankItem) []foldInterval {

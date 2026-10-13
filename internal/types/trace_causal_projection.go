@@ -526,6 +526,9 @@ func (p TraceCausalProjection) Active() bool {
 }
 
 type TraceCausalProjectionNode struct {
+	// Compile-local eligibility, never restored from a rendered projection.
+	// A native sleep inventory is required before an event may close it.
+	sleepDrilldownNativeRecord bool
 	// Source references are bound after ledger capture/clock qualification.
 	// They describe inputs, not causal authority or additive value identity.
 	MeasurementOrigins []TraceSchedulerMeasurementOrigin `json:"measurement_origins,omitempty"`
@@ -972,8 +975,9 @@ type TraceCausalProjectionNode struct {
 	DrilldownRelation   string `json:"drilldown_relation,omitempty"`
 	// DrilldownWakeupPointKnown keeps the point-presence bit separate from
 	// the timestamp because a trace may legitimately start at 0s. The point
-	// and line come only from the typed wakeup_chain_edge ObservationSpan;
-	// path-only fallback and conflicting repeated edges leave them unknown.
+	// and line require a native event bound to this exact sleep instance and
+	// every contributing source/query receipt. Thread/path navigation alone,
+	// merged waits and conflicting event instances leave them unknown.
 	DrilldownWakeupPointKnown bool    `json:"drilldown_wakeup_point_known,omitempty"`
 	DrilldownWakeupTs         float64 `json:"drilldown_wakeup_ts,omitempty"`
 	DrilldownWakeupLine       int     `json:"drilldown_wakeup_line,omitempty"`
@@ -2859,6 +2863,9 @@ type traceCausalProjectionWakeupEdge struct {
 	WakeupPointKnown bool
 	WakeupTs         float64
 	WakeupLine       int
+	Instance         *RuntimeWakeupEvent
+	SourceRef        ObservationSourceRef
+	ObservedAt       string
 }
 
 func traceCausalProjectionWakeupEdgeFromRecord(record ObservationRecord) (traceCausalProjectionWakeupEdge, bool) {
@@ -2876,22 +2883,13 @@ func traceCausalProjectionWakeupEdgeFromRecord(record ObservationRecord) (traceC
 		EvidenceID: strings.TrimSpace(record.ID),
 		Relation:   "wakeup_chain_edge",
 	}
-	// Positive timestamps have an unambiguous presence signal in the typed
-	// span. At exactly trace-zero, JSON zero values cannot distinguish
-	// present from omitted, so require the producer's registered wakeup_ts=0
-	// note as the presence witness; a line-only record must not fabricate 0s.
-	zeroPointWitnessed := false
-	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyWakeupTs)); raw != "" {
-		if value, err := strconv.ParseFloat(raw, 64); err == nil && value == 0 {
-			zeroPointWitnessed = true
-		}
-	}
-	if (record.Span.StartTs != 0 || record.Span.EndTs != 0 || zeroPointWitnessed) &&
-		!math.IsNaN(record.Span.StartTs) && !math.IsInf(record.Span.StartTs, 0) &&
-		record.Span.StartTs >= 0 {
+	if instance, ok := DecodeRuntimeWakeupEvent(record); ok {
+		edge.Instance = &instance
+		edge.SourceRef = record.SourceRef
+		edge.ObservedAt = record.ObservedAt
 		edge.WakeupPointKnown = true
-		edge.WakeupTs = record.Span.StartTs
-		edge.WakeupLine = record.Span.LineStart
+		edge.WakeupTs = instance.Timestamp
+		edge.WakeupLine = instance.Line
 	}
 	return edge, true
 }
@@ -3453,7 +3451,7 @@ func traceCausalProjectionAttachSleepDrilldownTargets(projection *TraceCausalPro
 	targets := traceCausalProjectionUniqueDrilldownTargets(edges, path)
 	apply := func(nodes []TraceCausalProjectionNode) {
 		for i := range nodes {
-			traceCausalProjectionAttachSleepDrilldownTarget(&nodes[i], targets)
+			traceCausalProjectionAttachSleepDrilldownTarget(&nodes[i], targets, edges)
 		}
 	}
 	apply(projection.PrimaryRootCauses)
@@ -3463,19 +3461,15 @@ func traceCausalProjectionAttachSleepDrilldownTargets(projection *TraceCausalPro
 	apply(projection.SemanticSpans)
 	apply(projection.SupportingHops)
 	if projection.PrimaryRootCause != nil {
-		traceCausalProjectionAttachSleepDrilldownTarget(projection.PrimaryRootCause, targets)
+		traceCausalProjectionAttachSleepDrilldownTarget(projection.PrimaryRootCause, targets, edges)
 	}
 }
 
 type traceCausalProjectionDrilldownTarget struct {
-	Target              string
-	EvidenceID          string
-	Relation            string
-	Ambiguous           bool
-	WakeupPointKnown    bool
-	WakeupTs            float64
-	WakeupLine          int
-	WakeupPointConflict bool
+	Target     string
+	EvidenceID string
+	Relation   string
+	Ambiguous  bool
 }
 
 func traceCausalProjectionUniqueDrilldownTargets(edges []traceCausalProjectionWakeupEdge, path []string) map[string]traceCausalProjectionDrilldownTarget {
@@ -3506,41 +3500,15 @@ func traceCausalProjectionUniqueDrilldownTargets(edges []traceCausalProjectionWa
 			raw[wakeeKey] = map[string]traceCausalProjectionDrilldownTarget{}
 		}
 		candidate := traceCausalProjectionDrilldownTarget{
-			Target:           strings.TrimSpace(edge.Waker),
-			EvidenceID:       strings.TrimSpace(edge.EvidenceID),
-			Relation:         strings.TrimSpace(edge.Relation),
-			WakeupPointKnown: edge.WakeupPointKnown,
-			WakeupTs:         edge.WakeupTs,
-			WakeupLine:       edge.WakeupLine,
+			Target:     strings.TrimSpace(edge.Waker),
+			EvidenceID: strings.TrimSpace(edge.EvidenceID),
+			Relation:   strings.TrimSpace(edge.Relation),
 		}
 		if prior, ok := raw[wakeeKey][wakerKey]; ok {
-			switch {
-			case prior.WakeupPointConflict:
-				candidate.WakeupPointKnown = false
-				candidate.WakeupPointConflict = true
-				candidate.EvidenceID = ""
-				candidate.WakeupTs = 0
-				candidate.WakeupLine = 0
-			case prior.WakeupPointKnown && candidate.WakeupPointKnown &&
-				prior.WakeupTs != candidate.WakeupTs:
-				candidate.WakeupPointKnown = false
-				candidate.WakeupPointConflict = true
-				candidate.EvidenceID = ""
-				candidate.WakeupTs = 0
-				candidate.WakeupLine = 0
-			case prior.WakeupPointKnown && candidate.WakeupPointKnown &&
-				prior.WakeupTs == candidate.WakeupTs && prior.WakeupLine != candidate.WakeupLine:
-				// The exact time is still authoritative; only the physical
-				// line locator is ambiguous across duplicate publications.
-				candidate.EvidenceID = ""
-				candidate.WakeupLine = 0
-			case prior.WakeupPointKnown && !candidate.WakeupPointKnown:
-				candidate = prior
-			case !prior.WakeupPointKnown && !candidate.WakeupPointKnown:
-				// Keep the first deterministic evidence identity instead of
-				// making record order choose the last duplicate.
-				candidate = prior
-			}
+			// Thread navigation has no event-point authority. Repeated waits
+			// by one waker are not ambiguous; each point is resolved below
+			// against its own waiting instance instead of this thread map.
+			candidate = prior
 		}
 		raw[wakeeKey][wakerKey] = candidate
 	}
@@ -3566,20 +3534,25 @@ func traceCausalProjectionUniqueDrilldownTargets(edges []traceCausalProjectionWa
 	return out
 }
 
-func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjectionNode, targets map[string]traceCausalProjectionDrilldownTarget) {
+func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjectionNode, targets map[string]traceCausalProjectionDrilldownTarget, edges []traceCausalProjectionWakeupEdge) {
 	if node == nil || !node.IsSleepState() || node.Undrillable() {
 		return
 	}
 	target, ok := targets[traceCausalProjectionCanonicalNode(node.Subject)]
-	if !ok || target.Ambiguous || strings.TrimSpace(target.Target) == "" {
-		return
+	if ok && !target.Ambiguous && strings.TrimSpace(target.Target) != "" {
+		// This is thread navigation, not a closure claim about this wait.
+		node.DrilldownTarget = target.Target
+		node.DrilldownEvidenceID = target.EvidenceID
+		node.DrilldownRelation = target.Relation
 	}
-	node.DrilldownTarget = target.Target
-	node.DrilldownEvidenceID = target.EvidenceID
-	node.DrilldownRelation = target.Relation
-	node.DrilldownWakeupPointKnown = target.WakeupPointKnown && !target.WakeupPointConflict
-	node.DrilldownWakeupTs = target.WakeupTs
-	node.DrilldownWakeupLine = target.WakeupLine
+	if edge, proved := traceCausalProjectionSleepInstanceWakeup(*node, edges); proved {
+		node.DrilldownTarget = edge.Waker
+		node.DrilldownEvidenceID = edge.EvidenceID
+		node.DrilldownRelation = edge.Relation
+		node.DrilldownWakeupPointKnown = true
+		node.DrilldownWakeupTs = edge.WakeupTs
+		node.DrilldownWakeupLine = edge.WakeupLine
+	}
 }
 
 // traceCausalProjectionAnchorWindow returns the user's originally-requested
@@ -4062,6 +4035,9 @@ func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
 	node := TraceCausalProjectionNode{
+		sleepDrilldownNativeRecord: record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
+			RuntimeObservationProducerIsDeterministicQuery(record.Producer) && record.GroundingPolicy == ClaimGroundingHard &&
+			!record.Negative,
 		MeasurementOrigins: TraceSchedulerMeasurementOriginsFromRecord(record),
 		Role:               role,
 		EvidenceID:         strings.TrimSpace(record.ID),
