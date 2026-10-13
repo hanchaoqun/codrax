@@ -7771,3 +7771,81 @@ B原生树与实际finalizer上下文完整保留raw cycles35（完整栈30/未�
 最终再算79唯一任务=21实现已交付+58开放，重复0；36待实施/16部分实施/2待验收/3验收中/1持续执行不变。完整能力本批新增0，已交付子能力2组：原生事件字段/分组跨正文表图复用及真实来源桥，旧统计/无损树共享帧资格与质量口径。剩余本批验收/修复3组仍挂原01.3/09.4/16.4/18.3/18.4：新原生selector/分组/事实图自然选用；采样修后正确成文与实际失败→自然重试；额外数值条件出处/时间属性误绑。A最终PASS不证明所有新surface已验，B原人工FAIL不倒签，未触发的repair不算失败重试通过；本批无真实图输出，不冒称像素审计。
 
 后继优先已证跨事件的条件出处漏校验，保持时间窗自动补齐与因果投影；准备设计已归档为`verification-receipts/codrax-hmc236-next-scope-design-v1.md`，只是只读方案，非实现。真实引文仍可能绑定错字段、按业务起点查询仍可能被附加上报窗，不得把出处修复等同全部时间语义修复；Jank载荷ns默认与trace同一轴，无需时区/domain转换。同批另一轨验收共享采样口径或轮换只读登记/二进制完整尾部能力；遵守两例并行、不追第三例求绿，不让未命中的模型路径无限阻塞其余高ROI能力。
+
+## 237. 条件出处覆盖与时间属性分离（2026-10-13，人工0/2、确定性补救分列）
+
+### 237.1 起点、参考设计与边界
+
+起点`596297f29`工作区干净，79唯一任务、21已交付、58开放，状态与§236一致。已证漏行反例优先：accepted bounded_fact_set却count=false/completeness=nil时，模型伪造的数值条件出处被旁路，额外payload起点条件缩小上报窗口内的合法总体。修复复用原typed profile与精确引文出处验证，不扫描问答关键词、不静默删条件或代跑查询。
+
+参考`core/query_engine.py:95–155,606–623,720–754`把实际最终参数通过`params_used`交给预处理，设计目标是跨SQL/算子不丢范围和目标。本项目复用既有实际query回执；不照搬强制base覆盖显式参数，也不以Python `or`丢显式零。参考实现没有自然语言条件语义证明，不能借参数绑定声称字段选择必然正确。
+
+现有`bounded_selector`与`explicit_time_window`足以分开业务条件和Trace观测范围，无需扩大48处窗口消费者的DTO。原教学“带确切时间就不能是selector”会误引导业务起点范围为上报窗，改在单一共享教学解释时间属性。`start_ts/end_ts`与Trace同轴不意味着相同筛选属性；独立双条件仍可显式组合，因果投影、补齐、多窗和双侧来源门不改。
+
+### 237.2 验证计划与未决项
+
+固定两例：新gzip SQLite晚报告边界清单（原生字段、appid分组及记录图）＋原采样自然问题。每例一次并行，不修改§236输入/原始失败。小改先相关测试，最终冻结后全仓、race及构建；人工审计实际工具调用、完整载荷、模型上下文与答案全部surface。未触发的自然重试保持未验收，不用analyzer重试替代。
+
+测试开发收据保留：首版测试fixture编译类型错误，修正后RED证实count=false条件旁路；首次GREEN尝试把原生event_search闭区间查找误当最终半开成员，预期不符而失败。校正测试分层，不改旧查找语义或边界断言；最终半开成员由既有请求投影独立验收。真实引文错绑字段仍为语义残余，不能因精确出处通过即销账。所有后续结果在本节追加。
+
+### 237.3 实现及相关回归
+
+`672c36da4`修数值条件出处的count/completeness旁路，并统一共享schema/skill时间属性教学。`5208adf19`补无owner事实清单的请求窗投影、原生展示合同的同源逐行裁剪与分组复用；共享`TraceEventRowWithinRequestedWindows`仅看typed观测时刻，不看原文关键词或业务端点。原查询可为6条，当前请求展示5条、appid分组2/3；保原event-N身份，窗外ID不能再从原生选择器取回，coverage6/handoff0不改。源未知时刻不能借排序0进入窗内；原有独立未知表仍可显示。`8db257e81`仅隔离新增foreign测试的slice，避免污染后续原件变化负控。
+
+新夹具`hmosperf_gzip_sqlite_late_reports`为可再生闭合SQLite＋gzip，9条原始标记，5条合法结果包括两条业务起点窗外的迟报；另有左窗外、右界、窗外及2帧负控。新case只问业务结果、分组和概览图，不给模型内部约束/selector。公开准备→原生查询→默认请求选集→summary/table/diagram同元组通过，实际Mermaid渲染无降级、无虚构边、无长内部ID。原生输入字节与查询库存不变，另验多窗、无owner、探索游标、比较源资格及变更原件仅排失效侧。
+
+相关回归`related-v2`四包PASS，完整skill包PASS，三包HMC237 race PASS；独审未发现新增阻断。旧宽窗口空事件断言迁移为逐点展示可用但无MemberSet/DisplayPopulation/完成资格；旧未知时刻例明确0..5秒已知9条＋独立未知1条，完整源仍10。初次相关失败全部保留：上述合同迁移、测试旧notes字符串、HTML转义对比、两次测试fixture假设错误，未改原始真实FAIL。全仓与固定双例结果尚待收齐。
+
+真实执行前一次启动因直接`go build`未注入revision被runner拒绝，零模型调用、零case执行；原拒绝日志保留。标准`make`重建`8db257e81bce-dirty`（仅文档dirty）后启动原固定两例，不算第三例。首次输入manifest包含不存在的`eval/run_case.sh`路径，原部分manifest保留；修正到实际`eval/run.sh`/`runner_lib.sh`后13份输入/runner冻结，不改case或oracle追绿。
+
+### 237.4 固定双例结果与人工发现
+
+固定二例并行各一次，机器2/2、全量终稿人工0/2。A约297秒、B约224秒；原始机器PASS保留，与人工结论分列。逐例审计文件`codrax-hmc237-event-live-audit-v1.md`及`codrax-hmc237-sampling-live-audit-v1.md`归档于本批verification-receipts，不改之前的失败、不追第三例。
+
+- A真实完整gzip→SQLite→bundle准备、两个原生查询都成功，未额外增加payload start/end过滤；两条业务起点在窗外的迟报保留。实际finalizer原生inventory和selector均为5条、window_excluded=1，但通用`evidence_fact:6`仍携1.5秒右界行进入principal/native support名册；`Investigation Narrative Handoff`的current synthesis也称6。终稿因此6条、27599=3而非2，并将用户概览图在格式修复中删除。所有5条合法字段元组正确；正文又误称100ms“两个进程各一次”，实际均41002。不能以正确原生附表代替错误正文验收。
+- B先显式TID11的event_search得到5条，再三次tree/perf_stats省略目标，自动继承错误RuntimeTargets TID10（实际为父进程）；其中两次旧统计已有`exact_tid_name_mismatch`，直接tree却显示available/0。接受的analysis同时保存正确lookup TID11和错误subject TID10。模型扩大窗口没有修身份；终稿改用事件次数的20%替代采样权重，35/7/100独立分母、unknown5、A10/B20和字面帧均缺失，又把原始trace路径/行号称为DSO/源码行。实际所有query均success，不是失败后的自然repair。
+- B还暴露先存的owner投影不一致：inventory依据错误目标10排除5条，原生表selector仍提供显式query11的5条。应统一来源/主体展示合同，但不能通过猜同名线程、改用户目标或丢掉原件来补齐。生产target继承并未自造10，其来源是未被精确来源验证的模型typed目标；不应把全局自动补齐关闭。
+
+两例均未触发数值过滤或采样unsupported selector的自然typed repair→真实retry，analyzer重试和内部stream→index回退不充数。A没有实际采用新原生event_selection/分组/事实图；B原生事件表被采用，但不是采样权重载体。均无终稿链外伪根因，不能据此代替Trace因果专项验收。
+
+### 237.5 首轮验证及人工后补救范围
+
+`8db257e81`冻结后的完整`go test -json -timeout=20m ./...`正式exit0，全量JSON提取90测试包PASS/13无测试包、Action=fail为空、非JSON错误行为空；tool输出耗时585.785s，等待驱动正式退出后才记完成。相关三包race和标准make通过，13份输入/oracle/runner SHA全部不变。前三笔代码已普通推送origin/main至`8db257e81`，发布成功；不因已推送而改签本轮人工FAIL。
+
+人工后的补救优先限于A共享事实交接：同一受信event inventory内的成员镜像应复用同query/source/原生坐标资格，避免只有原生selector裁剪而旧fact仍升为窗内主答案。完整ledger、原始query/coverage、Trace因果投影和自动补证保持不动；仅收紧答案写作视图，不扫描用户/终稿关键词。B的主体/lookup来源资格、直接tree空值与身份错误区分、全部surface主体投影及必需概览图保留，分别挂原01.3/09.4/16.4/18.4，不增加重复任务、不用局部硬约束掩盖。
+
+### 237.6 人工后两条系统补救与相关验证
+
+`fbb11cf64`把有限清单的原生点事件镜像接入公共finalizer写作名册，正文ledger、NativeFactSupport和typed ObservationRefs共同排除已验证为窗外的成员。证据键使用严格原publication桥得到的完整SourceRef（含query/payload/capture/clock/tool-call）及单一物理行、上报点、事件类型；不按同名、邻近、摘要或ID后缀拼接。部分清单只证明列出的成员，缺席不作排除；冲突保留见证优先。不同query/来源、区间、因果lane、业务无上报窗、探索期全部保持，比较输入各用自己的窗。零时刻与量测排序零占位分别处理。完整ledger和查询库存不变。
+
+`f1b997c00`修复命名主体的源头准入：每个正PID/TID须由现有已锚定source_quote中的完整数字/选择器支持，名称相同不能证明模型添加的ID；name-only沿用已有标识匹配原语，不增字段或新匹配器。quote11/target10在发布前拒绝且旧Mutable不变；模型修正为11后，真实查询省略pid/thread仍继承11，保1..2窗口、35/7/100独立分母、完整栈30/未知5、A10/B20、字面sys;root及DSO/IP，窗外900不计入。显式工具12不被覆盖，lookup99仍只是定位者，不改主体或因果资格。共享JSON教学仍单源，错误返回同一教学而非每阶段堆叠提示。
+
+参考`core/preprocess/perf_calltree_ops.py`与`perf_calltree_in_interval.yaml`的设计意图是先按真实线程/窗取样，再构建有序路径和可读投影；本仓保留精确OS TID、原始路径与可审计权重。未复制参考的首个同名LIMIT1、包名LIKE兜底、全采集回退、丢弃callchain_id=-1、仅symbol合并或按占比乘墙钟估算耗时。这些做法会破坏已实现的未知分母及同名不同DSO/IP边界，参考不是直接搬运依据。
+
+公开实际finalizer、完整来源负控、比较侧scope、已知/未知0回归通过；相关agent6.224s，预算/因果/自动补齐8.259s，原128KiB断言不提高。目标侧全EmitAnalysis、profile/lookup/问法/JSON教学/身份普查及HMC231/235/236/237相关三包通过（tool7.906s、skill1.576s、agent1.704s）。主审结构/相关四包通过（orchestrator2.030s、types3.682s、tool12.629s、skill2.380s），含L1/hot-file/census/TraceSupplement。独立只读代码复核未发现本片新增阻断性回归。
+
+全部开发失败留证：事件首次fixture以1.5宽容差发起而非实际六位明确窗口，导致合法5条NativeFactSupport也缺失；改真实精度后RED准确重现三入口的第6条。另一次枚举名编译错误已修。目标两次numeric-comm新测试不符合既有analyzer严格语法，不扩生产语法追绿；旧共享采样fixture的name-only document-worker没有出现在quote=tid11内，补明确pid11，并在原other_requested_name负控清PID恢复其name-only意图，旧断言均保留。原失败日志不覆盖、不当模型波动。末版全仓在两笔代码冻结后另跑，结果见下一节。
+
+本片未闭环边界：currentSynthesis虽标advisory，仍可能污染终稿；在混合源码/运行时请求中，尚不能以RowsComplete代替预算后完整事实承载证明，故不无差别删除独立调查笔记。保留原Narrative RED，repo正例仅保护不误删混合笔记，不称该问题修复。ID门只验证数值/名称出处，不证明相同数字下process/thread自然语言角色，也未把既有snake/Camel标识别名规则变成字节级comm身份。直接tree缺ThreadSelection身份诊断、owner清单/表格选集一致性、原生selector/分组/必需图自然使用、采样正确成文和自然repair仍挂原任务；同批真实人工0/2不倒签。
+
+### 237.7 后继双轨轮换与完整能力边界
+
+只读核对收据`verification-receipts/codrax-hmc237-next-rotation-design-v1.md`给出最小下一轮组合，而非本批新增验收：A新增真实REPL二进制预览外尾部的运行/归档入口，复用公开`hmc17_binary_loop_test.go`的12页RMQ构造样本，走`/htrace`→自然业务问题→实际模型query；B复用`TestNativeRegistrationLiveRestoredTerminal`检验修后来源/补证/整体终态和持久化幂等。现有`eval/run.sh`只走CLI request，不应重新命名为REPL通过；已有materialAwareRunner覆盖真实准备，但不是LLM。RMQ解析完整生产格式也不等于新实机采集，不宣称新BRBE/SPE语义。
+
+B现成入口为真实planner、公开工具与独立新进程恢复，但controller仍scripted verify/finish；可作已交付高影响路径的限定回归，不销完整自然controller能力。若要后者须另建明确opt-in入口，普通commandless apply不保证命中只读登记。sample-only的既有SIMPLEPERF framing及真实本地perf数据公开负控继续保留，不当第三例模型验收；若自然sample-only优先则替换A并保留RMQ尾部待验。后续优先级以完整能力边界和影响面排序，不围绕一次未触发retry或单句误述无限微调。
+
+### 237.8 人工后完整回归失败与修复记录
+
+两条补救冻结后的full-v2已正式exit1并提取全部Action=fail：89测试包PASS、13无测试包，tool一包FAIL；只有`TestMultiWindowPublicAnalysisQuerySupplementPublicationB1626`（2子例）和`TestTraceStateRecordCountPublicTwoWindows`（6子例）两根。没有截尾漏报或并跑另一轮完整测试，原JSONL及summary均保留。tool输出588.733s。同期HMC237 race三包和标准make已正式exit0，但不能据此覆盖全仓失败。
+
+两根共用`b1626PublicMemberBus`：原请求/quote只写worker，typed目标却标pid200/user_explicit，新的准入正确拒绝无出处ID。修正该精确目标多窗测试的请求与quote为worker-200，保trace、窗口、查询、因果投影和所有原断言；不调整生产门。已有name-only公开正例继续保留。此处问题不是新门应容忍假ID，而是此前快检只按EmitAnalysis等测试名筛选，没有覆盖这个间接公共调用helper。以后修改目标准入需同时检查共享公共fixture的调用者并运行多窗/状态计数入口，避免同类重复全仓返工。修后相关及最终完整结果续记，不倒签full-v2。
+
+`c9576d81e`只提交上述两处身份引文及解释注释。扩组正式exit0：tool10.709s、skill0.923s、agent3.720s，覆盖两根8子例及全EmitAnalysis/profile/lookup/B1626/MultiWindow/TraceStateRecordCount、采样与name-only矩阵，旧断言不删。曾先尝试仅删除fixture PID以保持原问题，但原后续查询仍是裸pid200，不能取得name-only请求的精确member资格；该探针FAIL完整留在shared-fixture-v1。只读核对普通`thread=worker`无PID查询仍保名称坐标、原生唯一候选解析与原补齐规则，不能把裸PID探针失败误称用户必须写PID，也不把代码核对称为新的自然评测。后续裸PID需要共享原生name→TID解析凭证，不能靠同名猜测关联；挂原01.3/16.4。完整收据另见`codrax-hmc237-name-only-scope-readonly-v1.md`。
+
+### 237.9 末版回归、归档与发布
+
+`c9576d81e`冻结后的full-v3正式exit0：90测试包PASS、13无测试包，全量Action=fail为空、非JSON错误行为空；此前两根失败及8子例均在末版PASS。工具包测试输出567.088s、驱动正式package pass645.195s，两者分别保留，不在最后一行ok处提前宣布完成。HMC237三包race正式exit0（types3.331s、tool8.893s、agent20.501s），其后只改测试fixture未改生产；标准make使用嵌入streamer标签及`c9576d81ee27-dirty`修订（仅文档dirty）正式exit0。13份固定输入/oracle/runner末次SHA全不变。中途summary在尚未正式结束时仅有89包，明确存为`full-summary-in-progress-v3.json`，不与最终summary混称。
+
+文档发布前已按字节及SHA核对归档154份原件：66工具载荷、4准备文件、8答案产物、76失败/测试/设计/人工审计及发布收据。目录`eval/results/hmc_event_time_scope_20261013/`，索引`evidence-sha256-index.txt`保每项原路径和SHA。真实机器PASS和人工FAIL、三轮全仓、所有开发失败均在，不覆盖§236或本批原问题；后续发布收据仅续入索引。大原件按已有规则本地留存，统一任务清单/差距账本/架构及机器/人工摘要入库。
+
+本批代码六笔为`672c36da4`、`5208adf19`、`8db257e81`、`fbb11cf64`、`f1b997c00`、`c9576d81e`，分片普通提交；前三笔已在§237.5推送，后三笔在末版回归后发布。完整能力新增0、累计21，79唯一任务仍58开放，重复0；状态36待实施/16部分实施/2待验收/3验收中/1持续执行。交付子能力按两组而非提交数重复计算：时间条件/同源成员交接，目标身份出处与正常自动采样取数。固定两例机器2/2、原人工0/2，不因后续确定性通过倒签；自然采样retry、完整采样答案、原生字段/分组/请求图与混合叙述一致性继续开放。下一轮按§237.7轮换二进制REPL完整尾部和限定只读登记终态，不用重复局部评测掩盖未交付的入口能力。
