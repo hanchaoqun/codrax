@@ -172,5 +172,8 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 		t.Fatal("registration changed retained source/tests")
 	}
 	completedRun := o.busCtx.Mutable.WriteWorkflowRun()
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal})
+	if sourceTerminal {
+		assertNativeRegistrationContextPackReceipt(t, o.busCtx.WorkDir)
+	}
+	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal, "context_pack_durability_verified": sourceTerminal})
 }

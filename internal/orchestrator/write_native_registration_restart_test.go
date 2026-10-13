@@ -81,6 +81,10 @@ func (f controllerRegistrationFixture) restartExpectingSourceTerminal(t *testing
 	if err != nil || restored.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("default durable store did not complete: %v %+v", err, restored)
 	}
+	if sourceTerminal {
+		auditNativeRegistrationContextPacks(t, store, input.WorkDir, restored)
+		assertNativeRegistrationContextPackReceipt(t, input.WorkDir)
+	}
 	// Mirror the child's durable outputs for the optional live audit only;
 	// these values were not supplied to its execution environment.
 	completed, err := types.LoadChangePlanFromFile(filepath.Join(o.ensureChangeReportDir(), plan.ID+".json"))
@@ -243,7 +247,7 @@ var registrationRestartAuditFiles = []string{"restart-child-plan.json", "restart
 
 func preserveRegistrationRestartAudit(t *testing.T, workDir, out string) {
 	t.Helper()
-	for _, name := range registrationRestartAuditFiles {
+	for _, name := range append(append([]string(nil), registrationRestartAuditFiles...), registrationContextPackAuditFile) {
 		if data, err := os.ReadFile(filepath.Join(workDir, name)); err == nil {
 			if err := os.WriteFile(filepath.Join(out, name), data, 0600); err != nil {
 				t.Errorf("preserve child audit %s: %v", name, err)
