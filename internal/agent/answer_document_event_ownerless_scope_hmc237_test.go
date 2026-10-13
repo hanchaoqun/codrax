@@ -109,6 +109,7 @@ func TestTraceEventOwnerlessComparisonRequiresCurrentSourceHMC237(t *testing.T) 
 	})
 	t.Run("foreign_source", func(t *testing.T) {
 		foreign := ledger
+		foreign.Records = nil // preserve the private receipt index, not a shared row slice.
 		if err := json.Unmarshal(before, &foreign); err != nil {
 			t.Fatal(err)
 		}
