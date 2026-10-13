@@ -17,8 +17,8 @@ package tool
 //     tree (specimen replay assertions red);
 //   - 恢复 depthless 硬编码唤醒边 → fences regain 唤醒─ (edge pins red);
 //   - 去 badge 去重 → the same-subject cause row regains ➋ (badge pins red);
-//   - 摘除 near 道带宽 → the 1.354/1.383 boundary-resampling pair stops
-//     folding (near-lane pins red).
+//   - 摘除普通调度状态 near 道带宽 → the legacy near-lane pins turn red;
+//     IO 请求行无原生身份时，等值或近值均不能证明重复发布。
 
 import (
 	"fmt"
@@ -477,76 +477,81 @@ func TestPTV6LegendWordingVerbatimPins(t *testing.T) {
 // --- PTV6-B 移交件: display safety-net near lane mirrors the types authority -----
 
 func TestPTV6AdjacentNearDuplicateFoldMirrorsTypesLane(t *testing.T) {
-	node := func(id string, impact float64, object string, ls, le int) types.TraceCausalProjectionNode {
-		return types.TraceCausalProjectionNode{
-			EvidenceID: id, Subject: "sysevent_store-47924", Object: object,
-			TypeToken: "io_latency", ImpactMS: impact, CumulativeImpactMS: impact,
-			LineStart: ls, LineEnd: le, Confidence: 0.8,
-		}
-	}
-	// 标本对 (donghu_short, PTV6-B): 1.354 vs 1.383 = 2.1% boundary-resampling
-	// drift over overlapping ranges → ONE measurement, folded, display=MAX.
-	// MUTATION (带宽摘除必红): an exact-only revert stops this fold.
-	folded := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		node("n1", 1.354, "udk-irq-1-63", 2908, 3094),
-		node("n2", 1.383, "udk-irq-1-63", 2913, 3120),
-	})
-	if len(folded) != 1 {
-		t.Fatalf("near-duplicate pair must fold to one row: %+v", folded)
-	}
-	if folded[0].DuplicatePublications != 2 {
-		t.Fatalf("fold must disclose the publication count: %+v", folded[0])
-	}
-	if folded[0].ImpactMS != 1.383 || folded[0].CumulativeImpactMS != 1.383 {
-		t.Fatalf("near fold must keep the member MAX (显示取最大): %+v", folded[0])
-	}
-	// Sentinel-object gate (types authority TraceCausalProjectionKnownSubject):
-	// an unresolved peer carries no identity — never a near fold.
-	sentinel := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		node("s1", 112.223, "unknown-thread", 100, 200),
-		node("s2", 112.214, "unknown-thread", 120, 220),
-	})
-	if len(sentinel) != 2 {
-		t.Fatalf("sentinel-object near values must stay separate rows: %+v", sentinel)
-	}
-	// Outside the ≤3% band: distinct facts, never folded.
-	wide := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		node("w1", 1.000, "udk-irq-1-63", 100, 200),
-		node("w2", 1.100, "udk-irq-1-63", 120, 220),
-	})
-	if len(wide) != 2 {
-		t.Fatalf(">3%% drift must stay separate rows: %+v", wide)
-	}
-	// No overlap: two real bursts, never folded (RF2a unchanged on both lanes).
-	apart := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		node("a1", 1.354, "udk-irq-1-63", 100, 200),
-		node("a2", 1.383, "udk-irq-1-63", 300, 400),
-	})
-	if len(apart) != 2 {
-		t.Fatalf("non-overlapping rows must stay separate: %+v", apart)
-	}
-	// Exact lane byte-identical: equal values fold with the value untouched.
-	exact := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		node("e1", 1.354, "udk-irq-1-63", 100, 200),
-		node("e2", 1.354, "udk-irq-1-63", 120, 220),
-	})
-	if len(exact) != 1 || exact[0].ImpactMS != 1.354 || exact[0].DuplicatePublications != 2 {
-		t.Fatalf("exact lane must stay byte-identical: %+v", exact)
-	}
-	// [Med 修正轮] sentinel-SUBJECT gate: an unknown-thread subject pair with
-	// near values over overlapping ranges carries no identity either — never a
-	// near fold (types-layer gate mirrored through the same export).
-	subjNode := func(id, subject string, impact float64, ls, le int) types.TraceCausalProjectionNode {
-		n := node(id, impact, "udk-irq-1-63", ls, le)
-		n.Subject = subject
-		return n
-	}
-	subjSentinel := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
-		subjNode("u1", "unknown-thread", 1.354, 2908, 3094),
-		subjNode("u2", "unknown-thread", 1.383, 2913, 3120),
-	})
-	if len(subjSentinel) != 2 {
-		t.Fatalf("sentinel-subject near values must stay separate rows: %+v", subjSentinel)
+	for _, kind := range []string{"io_wait", "io_latency"} {
+		t.Run(kind, func(t *testing.T) {
+			node := func(id string, impact float64, object string, ls, le int) types.TraceCausalProjectionNode {
+				return types.TraceCausalProjectionNode{
+					EvidenceID: id, Subject: "sysevent_store-47924", Object: object,
+					TypeToken: kind, ImpactMS: impact, CumulativeImpactMS: impact,
+					LineStart: ls, LineEnd: le, Confidence: 0.8,
+				}
+			}
+			// Ordinary scheduler state retains the existing near/MAX rule. A request
+			// needs authenticated native endpoints; these old replay rows have none.
+			folded := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				node("n1", 1.354, "udk-irq-1-63", 2908, 3094),
+				node("n2", 1.383, "udk-irq-1-63", 2913, 3120),
+			})
+			if kind == "io_wait" {
+				if len(folded) != 1 || folded[0].DuplicatePublications != 2 || folded[0].ImpactMS != 1.383 || folded[0].CumulativeImpactMS != 1.383 {
+					t.Fatalf("legacy scheduler near fold must retain MAX and publication count: rows=%d", len(folded))
+				}
+			} else if len(folded) != 2 || folded[0].ImpactMS != 1.354 || folded[1].ImpactMS != 1.383 || folded[0].DuplicatePublications > 1 || folded[1].DuplicatePublications > 1 {
+				t.Fatalf("near request values must keep their independent measurements: rows=%d", len(folded))
+			}
+			// Sentinel-object gate (types authority TraceCausalProjectionKnownSubject):
+			// an unresolved peer carries no identity — never a near fold.
+			sentinel := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				node("s1", 112.223, "unknown-thread", 100, 200),
+				node("s2", 112.214, "unknown-thread", 120, 220),
+			})
+			if len(sentinel) != 2 {
+				t.Fatalf("sentinel-object near values must stay separate rows: %+v", sentinel)
+			}
+			// Outside the ≤3% band: distinct facts, never folded.
+			wide := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				node("w1", 1.000, "udk-irq-1-63", 100, 200),
+				node("w2", 1.100, "udk-irq-1-63", 120, 220),
+			})
+			if len(wide) != 2 {
+				t.Fatalf(">3%% drift must stay separate rows: %+v", wide)
+			}
+			// No overlap: two real bursts, never folded (RF2a unchanged on both lanes).
+			apart := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				node("a1", 1.354, "udk-irq-1-63", 100, 200),
+				node("a2", 1.383, "udk-irq-1-63", 300, 400),
+			})
+			if len(apart) != 2 {
+				t.Fatalf("non-overlapping rows must stay separate: %+v", apart)
+			}
+			// Equal request values also lack identity. The scheduler exact lane stays.
+			exact := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				node("e1", 1.354, "udk-irq-1-63", 100, 200),
+				node("e2", 1.354, "udk-irq-1-63", 120, 220),
+			})
+			if kind == "io_wait" {
+				if len(exact) != 1 || exact[0].ImpactMS != 1.354 || exact[0].DuplicatePublications != 2 {
+					t.Fatalf("scheduler exact lane must stay byte-identical: rows=%d", len(exact))
+				}
+			} else if len(exact) != 2 || exact[0].ImpactMS != 1.354 || exact[1].ImpactMS != 1.354 || exact[0].DuplicatePublications > 1 || exact[1].DuplicatePublications > 1 {
+				t.Fatalf("equal request values must remain independent: rows=%d", len(exact))
+			}
+			// [Med 修正轮] sentinel-SUBJECT gate: an unknown-thread subject pair with
+			// near values over overlapping ranges carries no identity either — never a
+			// near fold (types-layer gate mirrored through the same export).
+			subjNode := func(id, subject string, impact float64, ls, le int) types.TraceCausalProjectionNode {
+				n := node(id, impact, "udk-irq-1-63", ls, le)
+				n.Subject = subject
+				return n
+			}
+			subjSentinel := runtimeTraceProjAdjacentNodesForDisplay([]types.TraceCausalProjectionNode{
+				subjNode("u1", "unknown-thread", 1.354, 2908, 3094),
+				subjNode("u2", "unknown-thread", 1.383, 2913, 3120),
+			})
+			if len(subjSentinel) != 2 {
+				t.Fatalf("sentinel-subject near values must stay separate rows: %+v", subjSentinel)
+			}
+		})
 	}
 }
 

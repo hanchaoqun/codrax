@@ -2,6 +2,7 @@ package types
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -151,4 +152,68 @@ func TestHMC233IOIdentityRemovalCannotReenterLegacyMerges(t *testing.T) {
 	if _, handled := TraceCausalProjectionIOPublicationKey(nodes[0]); !handled {
 		t.Fatal("native projected request cannot regain permissive legacy folding")
 	}
+}
+
+func TestHMC233IOIdentityDisplayMetadataDoesNotGrantAuthority(t *testing.T) {
+	path := writeTraceReadTestFile(t, t.TempDir(), "capture.trace")
+	displayKeys := []string{TraceNoteKeyIOEndpointFamily, TraceNoteKeyIOSector, TraceNoteKeyIOLength, TraceNoteKeyIOIssueTS, TraceNoteKeyIOCompleteTS}
+	isDisplay := func(note string) bool {
+		key, _, _ := strings.Cut(note, "=")
+		for _, displayKey := range displayKeys {
+			if key == displayKey {
+				return true
+			}
+		}
+		return false
+	}
+	t.Run("display_only_cannot_classify_or_mint", func(t *testing.T) {
+		r := hmc233IORecord("a", path, 10, 20)
+		r.IORequestEndpoints = nil
+		var notes []string
+		for _, note := range r.RichNotes {
+			if isDisplay(note) {
+				notes = append(notes, note)
+			}
+		}
+		r.RichNotes = notes
+		if key, handled := TraceObservationIOPublicationKey(r); handled || key != "" {
+			t.Fatal("display metadata classified an ordinary record as an IO request")
+		}
+		r = hmc233StampIO(t, NewMutableState("display metadata"), path, r)[0]
+		if key, handled := TraceObservationIOPublicationKey(r); handled || key != "" {
+			t.Fatal("native source receipt cannot replace missing typed request endpoints")
+		}
+	})
+	t.Run("native_identity_without_display_notes", func(t *testing.T) {
+		rows := []ObservationRecord{hmc233IORecord("a", path, 10, 20), hmc233IORecord("b", path, 10, 20)}
+		for i := range rows {
+			var notes []string
+			for _, note := range rows[i].RichNotes {
+				if !isDisplay(note) {
+					notes = append(notes, note)
+				}
+			}
+			rows[i].RichNotes = notes
+		}
+		rows = hmc233StampIO(t, NewMutableState("native endpoints only"), path, rows...)
+		a, ah := TraceObservationIOPublicationKey(rows[0])
+		b, bh := TraceObservationIOPublicationKey(rows[1])
+		if !ah || !bh || a == "" || a != b {
+			t.Fatal("valid native endpoints must prove duplicate identity without display notes")
+		}
+	})
+	t.Run("post_stamp_display_mutation_invalidates_snapshot", func(t *testing.T) {
+		for _, key := range displayKeys {
+			t.Run(key, func(t *testing.T) {
+				r := hmc233StampIO(t, NewMutableState("original native fact"), path, hmc233IORecord("a", path, 10, 20))[0]
+				if identity, handled := TraceObservationIOPublicationKey(r); !handled || identity == "" {
+					t.Fatal("native setup lacks identity")
+				}
+				hmc233ReplaceNote(&r, key, "modified")
+				if identity, handled := TraceObservationIOPublicationKey(r); !handled || identity != "" {
+					t.Fatal("modified display fact retained an original publication receipt")
+				}
+			})
+		}
+	})
 }

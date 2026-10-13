@@ -70,9 +70,60 @@ func TestTraceQueryBusinessRefPublicCarrierMatrix(t *testing.T) {
 				if strings.Contains(result.Summary, "business_span_ref=") {
 					t.Fatal("empty carrier invented a visible reference")
 				}
+				type requestIdentity struct {
+					key     string
+					handled bool
+				}
+				identities := make([]requestIdentity, len(result.Observations))
+				requestCount := 0
+				for i, original := range result.Observations {
+					key, handled := types.TraceObservationIOPublicationKey(original)
+					identities[i] = requestIdentity{key, handled}
+					if handled && key != "" {
+						requestCount++
+					}
+					if original.IORequestEndpoints != nil && original.Unit == "ms" && (!handled || key == "") {
+						t.Fatalf("native request premise has no pre-memo identity: %s", original.ID)
+					}
+				}
+				if (tc.params["view"] == "critical_blocking_calls" || tc.params["recipe_name"] == "binder_wait") && requestCount == 0 {
+					t.Fatal("IO-bearing fixture must exercise authenticated identity before memo replay")
+				}
 				repeat := businessRefTestQuery(t, ctx, p)
-				if !repeat.Success || !repeat.ReusedFromRunMemo || repeat.RawRef != result.RawRef || !reflect.DeepEqual(repeat.Observations, result.Observations) {
+				if !repeat.Success || !repeat.ReusedFromRunMemo || repeat.RawRef != result.RawRef || len(repeat.Observations) != len(result.Observations) {
 					t.Fatal("non-navigation query lost its existing verbatim pure-memo behavior")
+				}
+				for i, original := range result.Observations {
+					memo := repeat.Observations[i]
+					key, request := identities[i].key, identities[i].handled
+					if currentKey, currentHandled := types.TraceObservationIOPublicationKey(original); currentKey != key || currentHandled != request {
+						t.Fatalf("memo revocation mutated the original result: %s", original.ID)
+					}
+					if !request || key == "" {
+						if !reflect.DeepEqual(memo, original) {
+							t.Fatalf("memo changed unrelated observation %s", original.ID)
+						}
+						continue
+					}
+					// A pure memo retains every fact, but does not re-authenticate
+					// an original request against possibly replaced current bytes.
+					before, err := json.Marshal(original)
+					if err != nil {
+						t.Fatal(err)
+					}
+					after, err := json.Marshal(memo)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if string(before) != string(after) || !reflect.DeepEqual(original.IORequestEndpoints, memo.IORequestEndpoints) {
+						t.Fatalf("memo lost native request facts: %s", original.ID)
+					}
+					if memoKey, handled := types.TraceObservationIOPublicationKey(memo); !handled || memoKey != "" {
+						t.Fatalf("memo re-authorized request identity: %s", original.ID)
+					}
+					if originalKey, _ := types.TraceObservationIOPublicationKey(result.Observations[i]); originalKey != key {
+						t.Fatal("memo revocation mutated the original result")
+					}
 				}
 				return
 			}

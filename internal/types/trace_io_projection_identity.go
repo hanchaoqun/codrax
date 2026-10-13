@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strings"
 )
 
 // A request identity is minted only alongside the native source-read receipt.
@@ -39,7 +38,6 @@ func (p TraceIORequestEndpoints) valid() bool {
 func traceIORequestRecord(record ObservationRecord) bool {
 	return record.ioRequestIdentity != nil || record.IORequestEndpoints != nil || record.Predicate == "io_latency" ||
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType) == "io_latency" ||
-		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOEndpointFamily) != "" ||
 		NormalizeTraceIOValueCaliber(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOValueCaliber)) != ""
 }
 
@@ -76,36 +74,10 @@ func stampTraceIORequestIdentities(result *ToolResult, ref TraceQuerySourceReadR
 		// when a view clips its numeric window. Optional device/request fields
 		// constrain compatibility but are never required to exist.
 		parts := []any{path, ref.identity.CacheToken(), fmt.Sprintf("%p", ref.generation), r.IORequestEndpoints}
-		for _, key := range []string{TraceNoteKeyIOEndpointFamily, TraceNoteKeyDev, "op", TraceNoteKeyIOSector, TraceNoteKeyIOLength, TraceNoteKeyIOIssueTS, TraceNoteKeyIOCompleteTS} {
-			_, valid := traceIORequestUniqueNote(r.RichNotes, key)
-			if !valid {
-				ok = false
-				break
-			}
-		}
-		if !ok {
-			continue
-		}
 		data, _ := json.Marshal(parts)
 		sum := sha256.Sum256(data)
 		r.ioRequestIdentity = &traceIORequestIdentity{physical: hex.EncodeToString(sum[:]), snapshot: traceIORequestRecordSnapshot(*r)}
 	}
-}
-
-func traceIORequestUniqueNote(notes []string, key string) (string, bool) {
-	value, found := "", false
-	for _, note := range notes {
-		k, v, ok := strings.Cut(note, "=")
-		if !ok || strings.TrimSpace(k) != key {
-			continue
-		}
-		v = strings.TrimSpace(v)
-		if found && value != v {
-			return "", false
-		}
-		value, found = v, true
-	}
-	return value, true
 }
 
 // TraceObservationIOPublicationKey returns an exact native publication key.

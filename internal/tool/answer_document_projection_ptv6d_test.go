@@ -404,8 +404,11 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// HMC §164: four legacy IO rows gain a precise unknown-ruler
 			// label; the existing 100-cell packing adds four continuation
 			// lines, with the same rows, values, evidence and relationships.
-			lines: 35, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
-			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5(+1)]", "[E6]", "[E7(+2)]", "[E8(+4)]", "[E9(+1)]", "[E10(+1)]"},
+			// HMC §233: cb-11/12/13 have no authenticated request identity.
+			// Their near values retain three rows, not one E7(+2) request;
+			// two extra three-line rows explain 35→41, with the same width cap.
+			lines: 41, tree: 1, adjacent: 2, background: 9, beforeLines: 46,
+			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5(+1)]", "[E6]", "[E7]", "[E8]", "[E9]", "[E10(+4)]", "[E11]", "[E12(+2)]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.
@@ -421,6 +424,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				"IO观测时长（口径未明确）(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO观测时长（口径未明确）(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
 				"IO观测时长（口径未明确）(对端 udk-irq-4-67)",
+				"1.383ms  46%  [E7]", "1.382ms  46%  [E8]", "1.354ms  45%  [E9]",
 				// R9 (§29.93.2): the fold row's member sink line.
 				// RUN2FIX-A 件2 (2026-07-20, 刻意更新非静默): the sink line now names
 				// the fold's MAX member with its value (成员最大 线程·状态·值 form;

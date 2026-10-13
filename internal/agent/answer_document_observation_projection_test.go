@@ -240,12 +240,22 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 			records[i].RichNotes = append(records[i].RichNotes, "selected_window=13762.791708..13763.024898")
 		}
 	}
+	// Matching display notes do not prove that two publications describe the
+	// same physical request. Only native source-read identity may deduplicate.
+	for _, r := range []types.ObservationRecord{records[1], records[2]} {
+		if key, handled := types.TraceObservationIOPublicationKey(r); !handled || key != "" {
+			t.Fatalf("unverified display fixture acquired physical identity: %q, %v", key, handled)
+		}
+	}
+	if answerDocBoundedRuntimeFactPhysicalKey(records[1]) == answerDocBoundedRuntimeFactPhysicalKey(records[2]) {
+		t.Fatal("unknown physical requests must retain their separate publication IDs")
+	}
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
 	got := renderAnswerDocBoundedRuntimeFactAuthority(ctx, types.ObservationLedger{Records: records})
 	for _, want := range []string{
 		"### Requested Runtime Fact Authority",
 		"requested_family=`io_latency`",
-		"target_owned_request_rows_rendered=`1`",
+		"target_owned_request_rows_rendered=`2`",
 		"global `io_latency_coverage` row's emitted/total/overflow values MUST NOT be attributed to the named target",
 		"request_residence=`1.347`",
 		"request_clock_scope=`single_request_elapsed_wall_clock_not_target_blocking`",
@@ -253,7 +263,7 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 		"issuer_blocked_clock_scope=`target_blocking_elapsed_wall_clock`",
 		"overflow_request_ms=`41.329`",
 		"IO measurement relation bridge",
-		"Single-request device elapsed time: 1 target-owned request witness(es), largest visible 1.347ms",
+		"Single-request device elapsed time: 2 target-owned request witness(es), largest visible 1.347ms",
 		"IS elapsed wall clock for that one request",
 		"MUST NOT be labelled non-wall-clock",
 		"Target completion-closed blocking time: 1 proven interval(s), union=1.337ms, including interruptible S-state waits",
@@ -268,8 +278,8 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 			t.Fatalf("requested finite IO authority missing %q:\n%s", want, got)
 		}
 	}
-	if count := strings.Count(got, "request_residence=`1.347`"); count != 1 {
-		t.Fatalf("same physical request from two deterministic calls must render once, got %d:\n%s", count, got)
+	if count := strings.Count(got, "request_residence=`1.347`"); count != 2 {
+		t.Fatalf("two requests without native identity must remain separately visible, got %d:\n%s", count, got)
 	}
 }
 
