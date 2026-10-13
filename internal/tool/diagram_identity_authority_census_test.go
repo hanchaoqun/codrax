@@ -53,6 +53,15 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	// Shared window repair diagnoses the same quote-vs-current-request check;
 	// it does not inspect entity or endpoint membership inside that quote.
 	{"emit_analysis_runtime_window_source.go", "runtimeWindowSourceQuoteIssue"}: true,
+	// Numeric-query repair checks only where the quoted condition came from.
+	// It neither validates the value nor grants identity membership authority.
+	{"trace_query_event_selection_source.go", "traceQueryEventSelectionSourceRepair"}: true,
+}
+
+// Keep this new non-diagram owner quote-only: replacing SourceQuote by Value
+// would silently turn provenance into a value/identity substring hard gate.
+var diagramIdentityCensusQuoteOnlyArguments = map[diagramIdentityCensusKey][2]string{
+	{"trace_query_event_selection_source.go", "traceQueryEventSelectionSourceRepair"}: {"rm.RawRequest", "strings.TrimSpace(filter.SourceQuote)"},
 }
 
 var diagramIdentityCensusHardArms = map[string]bool{
@@ -108,6 +117,17 @@ func diagramIdentityAuthorityCensus(files map[string]string) (offenders []string
 					}
 					if diagramIdentityCensusHardArms[fn.Name.Name] && diagramIdentityCensusHasIdentityArg(fset, call) {
 						offenders = append(offenders, name+":"+fn.Name.Name+" passes an identity to "+callee)
+					}
+					if expected, quoteOnly := diagramIdentityCensusQuoteOnlyArguments[key]; quoteOnly {
+						for i, want := range expected {
+							var argument strings.Builder
+							if i < len(call.Args) {
+								_ = printer.Fprint(&argument, fset, call.Args[i])
+							}
+							if len(call.Args) != len(expected) || argument.String() != want {
+								offenders = append(offenders, name+":"+fn.Name.Name+" uses a non-provenance argument with "+callee)
+							}
+						}
 					}
 				case "strings.Contains", "strings.Index", "strings.HasPrefix", "strings.HasSuffix":
 					if diagramIdentityCensusHardArms[fn.Name.Name] && diagramIdentityCensusHasIdentityArg(fset, call) {
@@ -196,5 +216,24 @@ func TestDiagramIdentityAuthorityCensus(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("census must flag the reverted hard arm, got %v", offenders)
+	}
+	// Self-red for the new owner: approved quote provenance is not permission
+	// to match a normalized number or an application identity in request text.
+	const queryOwner = "trace_query_event_selection_source.go"
+	mutated = map[string]string{queryOwner: strings.Replace(files[queryOwner],
+		"strings.TrimSpace(filter.SourceQuote)", "strings.TrimSpace(filter.Value)", 1)}
+	if mutated[queryOwner] == files[queryOwner] {
+		t.Fatal("quote-only self-red did not mutate the registered call")
+	}
+	offenders, _, err = diagramIdentityAuthorityCensus(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, offender := range offenders {
+		found = found || strings.Contains(offender, "traceQueryEventSelectionSourceRepair uses a non-provenance argument")
+	}
+	if !found {
+		t.Fatalf("quote-only owner acquired value/identity matching permission: %v", offenders)
 	}
 }
