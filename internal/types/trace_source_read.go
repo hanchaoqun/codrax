@@ -21,6 +21,7 @@ type TraceQuerySourceReadRef struct {
 
 type traceSourceReadGeneration struct {
 	businessSpanIssued atomic.Uint32
+	eventSelections    traceEventSelectionLedger
 }
 
 func (r TraceQuerySourceReadRef) Path() string { return r.path }

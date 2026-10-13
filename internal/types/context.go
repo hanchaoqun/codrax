@@ -2672,6 +2672,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	if m == nil {
 		return
 	}
+	m.registerTraceEventSelectionAcquisition(r)
 	r = cloneTraceBusinessSpanToolResult(AttachToolHandoffCarrier(r))
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -8000,6 +8001,8 @@ type ToolResult struct {
 	// Current native effective parameters for bounded same-source window repair.
 	// Historical JSON never grants permission to repeat an old query.
 	TraceQueryWindowReplay TraceQueryWindowReplayRef `json:"-"`
+	// Investigation-local native execution/repair identity; never model-restorable.
+	TraceEventSelectionAcquisition TraceEventSelectionAcquisitionRef `json:"-"`
 	// Native statistical availability, not answer completeness or source rights.
 	// Immutable private payload and run-local source ticket survive Go copies,
 	// but never JSON/model output, including historical tool-result snapshots.

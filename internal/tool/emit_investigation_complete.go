@@ -2136,6 +2136,12 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if resultKind == "resolved" || resultKind == "absence" {
+		if repair := ctx.Mutable.PendingTraceEventSelectionRepair(ctx.Mutable.DispatchToolResults()); repair != nil {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Timestamp: time.Now(), Repair: repair,
+				Summary: "emit_investigation_complete rejected: " + repair.Hint}, nil
+		}
+	}
 	aggregateStart := time.Now()
 	earlyDowngradeConverged := false
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()

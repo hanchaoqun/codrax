@@ -299,6 +299,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var catalogTickets []traceCatalogQueryTicket
 	var windowReplayParams json.RawMessage
 	var intervalNavigationParams json.RawMessage
+	var eventSelectionParams json.RawMessage
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
@@ -324,6 +325,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			traceQueryAppendBusinessRefs(&out)
 		}
 		traceQueryFinalizeMeasurementSources(&out)
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.StampTraceEventSelectionAcquisition(sourceRead, &out, eventSelectionParams)
+		}
 		traceCatalogFinishQuery(ctx, catalogTickets, &out, executeErr)
 	}()
 
@@ -371,9 +375,6 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if err := tracequery.ValidateEventFieldFilters(p.View, p.EventFieldFilters); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false,
 			Summary: "trace_query rejected event_field_filters: " + err.Error(), Timestamp: time.Now()}, nil
-	}
-	if repair := traceQueryEventSelectionSourceRepair(ctx, p); repair != nil {
-		return *repair, nil
 	}
 	p.Patterns, patternErr = tracequery.NormalizeEventSearchPatterns(p.View, p.Patterns)
 	if patternErr != nil {
@@ -497,6 +498,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// consume.
 	var requestWindowCaveat string
 	p, requestWindowCaveat = traceQueryApplyRequestWindow(ctx, p, path, sourceLabel)
+	if tracequery.CanonicalViewName(p.View) == "event_search" {
+		eventSelectionParams = traceQueryEventSelectionScopeParams(p)
+	}
+	if repair := traceQueryEventSelectionSourceRepair(ctx, p); repair != nil {
+		return *repair, nil
+	}
 	if err := traceCatalogBindQuery(ctx, catalogTickets, p, path, material); err != nil {
 		return traceQueryPreparedMaterialFailure(path, p.View, err), nil
 	}

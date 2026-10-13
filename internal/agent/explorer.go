@@ -8935,6 +8935,10 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	if discoverySelectionPending {
 		missingFaces = append(missingFaces, "runtime target selection")
 	}
+	if e.pendingTraceEventSelectionRepair(toolResults) != nil {
+		hasEnough = false
+		missingFaces = append(missingFaces, "runtime population query execution")
+	}
 
 	return explorerCompletionReadiness{
 		HasEnough:                 hasEnough,
@@ -10198,7 +10202,14 @@ func (e *explorerEvaluator) externalObservationSufficiency(toolResults []types.T
 }
 
 func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObservation) LoopSignal {
-	if e == nil || e.midLoopCompletionReadySent || e.investigationComplete {
+	if e == nil {
+		return LoopSignal{}
+	}
+	if repair := e.pendingTraceEventSelectionRepair(obs.AllToolResults); repair != nil {
+		e.midLoopCompletionReadySent = false
+		return LoopSignal{HintRequested: true, HintKey: "explorer.mid-loop.runtime-population-query-pending", Hint: repair.Hint, BypassThrottle: true}
+	}
+	if e.midLoopCompletionReadySent || e.investigationComplete {
 		return LoopSignal{}
 	}
 	if len(obs.AllMCPResponses) > 0 {
@@ -13981,6 +13992,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
 			readiness.ToolDiversity, readiness.FileCoverage, readiness.EvidenceQuality)
 		readiness.HasEnough = true
+	}
+	if e.pendingTraceEventSelectionRepair(toolResults) != nil {
+		readiness.HasEnough = false
 	}
 	signals := &types.ExecutionSignals{HasEnoughFacts: readiness.HasEnough}
 	readSet := cvReadSet
