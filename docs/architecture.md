@@ -1469,6 +1469,12 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
+**无损采样树（HMC-09.4）**：`perf_sampling_tree`与旧`perf_stats/window_stats/trace_perf_bundle/perf_timeline`复用完整准入样本与原生树交接。物理来源代次、producer、event、unit和线程代次分别成cohort；完整分母包含缺栈样本，展开/折叠与展示预算只省略显示，不改变总体。symbol/DSO/IP及字面帧边界保留，不按分号拆合法符号、不删系统栈、不以占比乘窗口生成耗时。原始引用、缺失与省略量明确披露；显示父子只有采样路径含义，不生成直接调用或Trace根因证据。
+
+采样选择在查询引擎与工具来源坐标中共享规范化，保留原始`ThreadInput`供诊断。已支持的数值、名称和带TID写法归一到同一PID/name；显式身份载体相互冲突时返回带来源的unavailable，不能复制结果目标来洗白查询。消费者只接受规范坐标及全部cohort的一致线程/来源代次，不把规范comm末尾数字再解释成第二TID，不让同名多线程借首条身份。严格decoder仍逐项校验来源、窗口、角色及目标；名称搜索、空窗、缺栈和未支持筛选不回退其它线程或全窗口。此规则只影响采样展示选择，不扩大调度、唤醒、因果投影或自动补齐权限。
+
+直接`perf_sampling_tree`仅以时间窗及线程身份选择总体，展开/深度/条数只控制显示；实际携带不支持的内容/事件/行过滤且原生明确返回`requires_time_and_thread_selectors_only`时，流式与索引出口共用`trace_query_sampling_selector_unsupported`修复合同，工具失败但保原始unavailable载荷、原件和范围。修复字段来自同一typed选择器合同，不扫描问题或答案；不得静默删过滤、换窗或将不可用写成零样本。线程选择应显式改用pid/thread后同源同窗重试，用户确需内容过滤则保留兼容查询，不能用其过滤后行集冒充完整树分母。旧四view仍允许各自合法过滤，其伴生树不可用不使主统计失败；取消、预算、未知身份、缺帧及合法空结果保持既有语义。schema和共享提示复用唯一教学源，不新增JSON字段或全局完成门。
+
 **系统事件可逆观察（HMC-05.1/17.7）**：所有SQL HiSys行统一使用版本化观察载体，保原SQL纳秒时间、nullable source TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补执行线程、进程TGID、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。名称已解析且普通单行TEXT也不再造`tid=TGID/CPU0`的print头，字段是否可解析不改变来源角色。既有文本print解析兼容仍保留，不删除输入中已有的物理头。共享时间扫描、流式/索引查询与载体注册识别结构化格式；一源行仅一个语义观察，不额外输出一份print而双计。普通systrace viewer可能忽略这些注释记录，转换覆盖收据明确披露；未声称通用viewer全部兼容。原件只读、输入/输出事务与SQL全表保真不变（HMC §194）。
 
 HiSys观察的可选`source_rowid`以精确signed-int64字符串保原物理行，语义投影为`source.table/source.row_id`；仅在同一源文件代次及表内定位，不替代声明id/seq，不授线程/执行/因果身份。SQL按ts与已证明的hidden rowid稳定展示，同刻同内容不合并；无可证rowid仍保观察并披露未知。共用hidden-rowid探测使用`table_xinfo`检查普通、generated及hidden声明列的全部遮蔽，不能凭样本恰好为INTEGER判身份。三别名全部遮蔽时既有全表保真拒绝门不降；WITHOUT ROWID不造扫描序号。ParserVersion v51淘汰旧索引，旧明确导出文本保兼容及身份未知；准备缓存只在当前Run复用，未引入跨代次或在线一致快照保证。
