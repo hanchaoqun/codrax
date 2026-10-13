@@ -25,8 +25,14 @@ func samplingSelectionPublicRecord(t *testing.T, selectors map[string]any) types
 	}
 	raw, _ := json.Marshal(params)
 	result, err := (&TraceQuery{}).Execute(ctx, raw)
-	if err != nil || !result.Success {
+	// A direct tree now rejects unsupported selectors with an actionable
+	// invocation failure while retaining the native unavailable receipt.
+	expectsRepair := params["view"] == "perf_sampling_tree" && params["pattern"] != nil
+	if err != nil || result.Success == expectsRepair {
 		t.Fatalf("public sampling query: %v %+v", err, result)
+	}
+	if expectsRepair && (result.Repair == nil || result.Repair.Code != "trace_query_sampling_selector_unsupported" || len(result.Repair.Fields) != 1 || result.Repair.Fields[0] != "pattern") {
+		t.Fatalf("unsupported selector lost precise repair: %+v", result.Repair)
 	}
 	for _, record := range result.Observations {
 		if record.Predicate == TracePerfSamplingTreePredicate {

@@ -59,7 +59,7 @@ func (t *TraceQuery) streamPerfSamplingTree(ctx *types.BusContext, p traceQueryP
 		rawRef = payloadRef
 	}
 	now := time.Now()
-	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q), TraceQuerySourceRead: traceQuerySourceReadCandidate(result)}, true
+	return traceQuerySamplingTreeRepairResult(types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q), TraceQuerySourceRead: traceQuerySourceReadCandidate(result)}, result, q), true
 }
 
 func boundedPerfSamplingTree(p tracequery.PerfSamplingTreeResult) tracequery.PerfSamplingTreeResult {

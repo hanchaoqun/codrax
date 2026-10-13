@@ -654,7 +654,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now, q); ok {
 			observations = append(observations, coverage)
 		}
-		return types.ToolResult{
+		return traceQuerySamplingTreeRepairResult(types.ToolResult{
 			ToolName:                    t.Name(),
 			Success:                     true,
 			Summary:                     preview,
@@ -669,7 +669,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 			EnumerationAuthority:        traceQueryEnumerationAuthority(result),
 			Timestamp:                   now,
-		}, nil
+		}, result, q), nil
 	}
 	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok && !t.skipNativeMeasurementMemo {
 		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {

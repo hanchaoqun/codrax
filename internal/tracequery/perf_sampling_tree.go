@@ -12,7 +12,7 @@ import (
 )
 
 const ViewPerfSamplingTree = "perf_sampling_tree"
-const PerfSamplingTreeTeaching = "perf_sampling_tree builds lossless root-to-leaf sampling prefix trees from exact producer frames, retaining system/UI frames, DSO/IP and source references. Independent source/generation/event/unit cohorts retain their original denominator including missing/legacy stacks. sampling_depth, sampling_root and limit only expand/collapse display; omitted nodes and references remain counted. Inclusive and self weights are sampling quantities, never projected wall-clock milliseconds, source-code call edges, or root-cause authority. Legacy semicolon strings have unavailable frame boundaries. Reader-facing trees use function/library labels; opaque node/cohort IDs are selectors, not prose labels."
+const PerfSamplingTreeTeaching = "perf_sampling_tree builds lossless root-to-leaf sampling prefix trees from exact producer frames, retaining system/UI frames, DSO/IP and source references. Population selectors are time_start/time_end and pid/thread (thread scope); time windows are supported. Content/event/line filters are unsupported for this full-population tree. Direct calls return a typed repair for explicit same-source/window retry; legacy views retain valid filters and may have an unavailable companion tree. Never silently drop an intentional filter or treat unavailable as measured zero. Independent source/generation/event/unit cohorts retain their original denominator including missing/legacy stacks. sampling_depth, sampling_root and limit only expand/collapse display; omitted nodes and references remain counted. Inclusive and self weights are sampling quantities, never projected wall-clock milliseconds, source-code call edges, or root-cause authority. Legacy semicolon strings have unavailable frame boundaries. Reader-facing trees use function/library labels; opaque node/cohort IDs are selectors, not prose labels."
 
 type PerfSamplingTreeResult struct {
 	SourcePath     string               `json:"source_path"`
@@ -116,7 +116,7 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 	if !isFiniteTraceNumber(q.TimeStart) || !isFiniteTraceNumber(q.TimeEnd) || q.TimeEnd < q.TimeStart || q.TimeEnd == q.TimeStart && !q.timeEndBackfilled {
 		return fail("requires_finite_window")
 	}
-	if q.LineStart != 0 || q.LineEnd != 0 || q.Pattern != "" || len(q.Patterns) != 0 || q.SpanName != "" || len(q.EventTypes) != 0 || len(q.EventNames) != 0 || len(q.EventFieldFilters) != 0 || len(q.TraceMarkActions) != 0 || p.TargetScope != TargetScopeThread {
+	if len(PerfSamplingTreeUnsupportedSelectors(q)) != 0 {
 		return fail("requires_time_and_thread_selectors_only")
 	}
 	depth := q.SamplingDepth
