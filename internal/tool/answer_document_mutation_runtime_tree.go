@@ -3208,6 +3208,12 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 // (subject equality is the caller's bucket key). Periodic/undrillable
 // mismatches never merge (their grammars would chimera).
 func runtimeTraceProjTrunkSameStateOccurrencePair(main, extra types.TraceCausalProjectionNode) bool {
+	// A request measurement is not a scheduler-state occurrence. Even equal
+	// physical requests are republished facts to deduplicate, not occurrences
+	// whose durations this display-only SUM arm may add.
+	if _, handled := types.TraceCausalProjectionIOPublicationMatch(main, extra); handled {
+		return false
+	}
 	if !runtimeTraceProjTrunkPlainStateOccurrence(main) || !runtimeTraceProjTrunkPlainStateOccurrence(extra) {
 		return false
 	}
@@ -8469,6 +8475,12 @@ func runtimeTraceProjAdjacentNodesForDisplay(nodes []types.TraceCausalProjection
 //     on either leg carries no identity for the "one republished measurement"
 //     assertion).
 func runtimeTraceProjSameAdjacentMeasurement(a, b types.TraceCausalProjectionNode) bool {
+	// Use the projection compiler's exact request and ruler identity. The
+	// generic overlap/near-value lane below is only a legacy scheduler rule;
+	// two storage requests can have the same issuer, peer and duration.
+	if same, handled := types.TraceCausalProjectionIOPublicationMatch(a, b); handled {
+		return same
+	}
 	if runtimeTraceCausalProjectionCanonicalNode(a.Subject) != runtimeTraceCausalProjectionCanonicalNode(b.Subject) ||
 		runtimeTraceCausalProjectionCanonicalNode(a.Object) != runtimeTraceCausalProjectionCanonicalNode(b.Object) ||
 		runtimeTraceCausalProjectionCanonicalNode(a.TypeToken) != runtimeTraceCausalProjectionCanonicalNode(b.TypeToken) {

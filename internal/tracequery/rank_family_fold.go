@@ -1360,6 +1360,11 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged := base
+	if len(members) != 1 {
+		// A family value cannot inherit its representative's request identity,
+		// even when MAX happens to equal one member's duration.
+		merged.IORequestEndpoints = nil
+	}
 	merged.IOValueCaliber = ""
 	if rootCauseCumulativeImpactMs(base) > 0 {
 		merged.IOValueCaliber = types.NormalizeTraceIOValueCaliber(base.IOValueCaliber)

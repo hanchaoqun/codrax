@@ -200,18 +200,17 @@ func TestRuntimeIOCaliberFacetUnionKeepsPublishedRuler(t *testing.T) {
 	}
 }
 
-func TestRuntimeIOCaliberAdjacentDuplicateRetainsNumericDonor(t *testing.T) {
+func TestRuntimeIOCaliberAdjacentDifferentRulersStayIndependent(t *testing.T) {
 	for _, tc := range []struct {
 		name                          string
 		impact, cumulative, effective float64
 		dupImpact, dupCumulative      float64
-		want                          string
 	}{
-		{"both_from_duplicate", 35, 35, 0, 35.1, 35.1, types.TraceIOValueCaliberIssuerBlocked},
-		{"impact_from_duplicate_cumulative_retained", 35, 36, 0, 35.1, 35.1, types.TraceIOValueCaliberMixed},
-		{"cumulative_from_duplicate_impact_retained", 35.1, 35, 0, 35, 35.1, types.TraceIOValueCaliberMixed},
-		{"effective_retained", 35, 35, 1, 35.1, 35.1, types.TraceIOValueCaliberMixed},
-		{"exact_tie", 35, 35, 0, 35, 35, types.TraceIOValueCaliberRQResidence},
+		{"both_axes_larger", 35, 35, 0, 35.1, 35.1},
+		{"only_impact_larger", 35, 36, 0, 35.1, 35.1},
+		{"only_cumulative_larger", 35.1, 35, 0, 35, 35.1},
+		{"effective_retained", 35, 35, 1, 35.1, 35.1},
+		{"exact_tie", 35, 35, 0, 35, 35},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := types.TraceCausalProjectionNode{EvidenceID: "a", Subject: "issuer-42", Object: "worker-99", TypeToken: "io_latency", LineStart: 10, LineEnd: 20, ImpactMS: tc.impact, CumulativeImpactMS: tc.cumulative, EffectiveImpactMS: tc.effective, IOValueCaliber: types.TraceIOValueCaliberRQResidence}
@@ -219,11 +218,10 @@ func TestRuntimeIOCaliberAdjacentDuplicateRetainsNumericDonor(t *testing.T) {
 			b.EvidenceID, b.ImpactMS, b.CumulativeImpactMS, b.IOValueCaliber = "b", tc.dupImpact, tc.dupCumulative, types.TraceIOValueCaliberIssuerBlocked
 			input := []types.TraceCausalProjectionNode{a, b}
 			out := runtimeTraceProjAdjacentNodesForDisplay(input)
-			if len(out) != 1 || out[0].DuplicatePublications != 2 || out[0].ImpactMS != max(tc.impact, tc.dupImpact) || out[0].CumulativeImpactMS != max(tc.cumulative, tc.dupCumulative) || out[0].EffectiveImpactMS != tc.effective {
-				t.Fatalf("existing fold admission/value/count changed: %+v", out)
-			}
-			if out[0].IOValueCaliber != tc.want {
-				t.Fatalf("measurement did not follow surviving numeric axes: got %q want %q", out[0].IOValueCaliber, tc.want)
+			// Request residence and issuer blocked time are distinct rulers, not
+			// duplicate numeric donors, even when all coordinates/values match.
+			if !reflect.DeepEqual(out, input) {
+				t.Fatalf("independent rulers changed their own values or identities: got %+v, want %+v", out, input)
 			}
 			if !reflect.DeepEqual(input, []types.TraceCausalProjectionNode{a, b}) {
 				t.Fatal("display fold mutated source nodes")

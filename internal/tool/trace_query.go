@@ -9873,6 +9873,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// (there rank == i+1 held by construction).
 				ID:                 fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
 				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
+				IORequestEndpoints: item.IORequestEndpoints,
 				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 				Producer:           "trace_query",
 				Role:               role,
@@ -10411,13 +10412,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				}
 			}
 			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#critical_blocking:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#critical_blocking:%d", scope, i+1),
+				IORequestEndpoints: item.IORequestEndpoints,
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy:    types.ClaimGroundingHard,
+				ProvenanceLane:     types.ObservationProvenanceObservedDirectCause,
+				SourceRef:          ref,
 				// P1-1 (SMR-1 修复轮, 2026-07-13): the row's own typed wall-clock
 				// segment rides the span — the display-side NEW-3/G2/B1 arms
 				// judge on StartTs/EndTs (行号包络连通判被禁), and the emission
@@ -13565,13 +13567,14 @@ func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref type
 				io.IssuerBlockedState, io.CausalWaitCaliber, io.IssuerBlockedMs)
 		}
 		out = append(out, types.ObservationRecord{
-			ID:              fmt.Sprintf("trace_query:%s#io_latency:%d", scope, i+1),
-			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:        "trace_query",
-			Role:            types.AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: types.ClaimGroundingHard,
-			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-			SourceRef:       ref,
+			ID:                 fmt.Sprintf("trace_query:%s#io_latency:%d", scope, i+1),
+			IORequestEndpoints: io.RequestEndpoints(),
+			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:           "trace_query",
+			Role:               types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy:    types.ClaimGroundingHard,
+			ProvenanceLane:     types.ObservationProvenanceArtifactSpan,
+			SourceRef:          ref,
 			Span: types.ObservationSpan{
 				LineStart: io.IssueLine,
 				LineEnd:   io.CompleteLine,

@@ -361,6 +361,8 @@ func reconcileAdjacentIOFacetFamilySeats(rank *RootCauseRankResult) {
 		plan := planned[key]
 		lead := active[plan.lead]
 		fam := lead
+		// This union/roster is not the lead's single physical request.
+		fam.IORequestEndpoints = nil
 		// Only union members contribute this value. Roster-only evidence must
 		// neither lend its ruler nor change the published measurement's ruler.
 		caliberSet := false

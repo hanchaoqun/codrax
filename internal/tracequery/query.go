@@ -16308,6 +16308,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// credential for the on-chain lane; pure overlap demotes to ◇.
 		item.ResourceCompletionClosure = completionClosed
 		item.IOValueCaliber = valueCaliber
+		item.IORequestEndpoints = io.RequestEndpoints()
 		// This native request's closure was evaluated above independently of
 		// dependency-anchor availability. A target-only/anchor-less chain must
 		// not treat its false result as an unevaluated legacy request and spend
@@ -23323,6 +23324,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			Confidence:                0.86,
 			ResourceCompletionClosure: io.CompletionWokeIssuer && io.CausalWaitCaliber == BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked,
 			IOValueCaliber:            valueCaliber,
+			IORequestEndpoints:        io.RequestEndpoints(),
 			Summary:                   fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s)=%.3fms%s", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, ioLatencyRequestResidenceCaliber(io), io.DurationMs, wakeDetail),
 		})
 	}

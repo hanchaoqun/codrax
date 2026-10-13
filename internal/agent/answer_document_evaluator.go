@@ -6679,25 +6679,8 @@ func answerDocRuntimeFactAuthorityRowsByKey(records []types.ObservationRecord, f
 // not use fuzzy text or proximity: an incomplete identity falls back to the
 // exact record id and remains separately visible.
 func answerDocBoundedRuntimeFactPhysicalKey(record types.ObservationRecord) string {
-	if strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") {
-		artifact := types.TraceCausalProjectionRecordArtifactIdentity(record)
-		parts := []string{
-			artifact,
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOEndpointFamily),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyDev),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOSector),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOLength),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOIssueTS),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOCompleteTS),
-			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOIssueThread),
-		}
-		complete := true
-		for _, part := range parts {
-			complete = complete && part != ""
-		}
-		if complete {
-			return "io_request\x00" + strings.Join(parts, "\x00")
-		}
+	if key, handled := types.TraceObservationIOPublicationKey(record); handled && key != "" {
+		return "io_request\x00" + key
 	}
 	return "record\x00" + strings.TrimSpace(record.ID)
 }
@@ -23726,7 +23709,7 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 	seen := map[string]bool{}
 	entries := make([]supplementEntry, 0, len(ledger.Records))
 	zeroBlockedCount := 0
-	for _, record := range ledger.Records {
+	for ordinal, record := range ledger.Records {
 		order := traceQueryObservationSupplementOrder(record)
 		if order == 0 {
 			continue
@@ -23734,6 +23717,11 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 		key := traceQueryObservationSupplementKey(record)
 		if key == "" {
 			key = strings.TrimSpace(record.ID)
+		}
+		if key == "" {
+			if _, io := types.TraceObservationIOPublicationKey(record); io {
+				key = fmt.Sprintf("unidentified-request-row:%d", ordinal)
+			}
 		}
 		if key == "" || seen[key] {
 			continue
@@ -23887,7 +23875,11 @@ func traceQueryObservationSameValueFoldKey(record types.ObservationRecord, base,
 	if value == "" {
 		return ""
 	}
-	return strings.Join([]string{
+	ioKey, ioHandled := types.TraceObservationIOPublicationKey(record)
+	if ioHandled && ioKey == "" {
+		return "" // unknown request identity is not a repeated measurement
+	}
+	parts := []string{
 		types.TraceCausalProjectionRecordArtifactIdentity(record),
 		base,
 		strings.TrimSpace(record.ClaimKey),
@@ -23899,7 +23891,11 @@ func traceQueryObservationSameValueFoldKey(record types.ObservationRecord, base,
 		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber),
 		traceQueryObservationSupplementNotes(record, zh),
 		outsideNote,
-	}, "\x00")
+	}
+	if ioHandled {
+		parts = append([]string{ioKey}, parts...)
+	}
+	return strings.Join(parts, "\x00")
 }
 
 // traceQueryObservationSameValueFoldNote renders the counted note appended
@@ -24132,6 +24128,13 @@ func traceQueryObservationElectedBranchPathHead(record types.ObservationRecord, 
 }
 
 func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
+	ioKey, ioHandled := types.TraceObservationIOPublicationKey(record)
+	if ioHandled && ioKey == "" {
+		if strings.TrimSpace(record.ID) == "" {
+			return "" // the caller keeps unidentified rows by occurrence ordinal
+		}
+		ioKey = "unresolved_request\x00" + strings.TrimSpace(record.ID)
+	}
 	parts := []string{
 		strings.TrimSpace(record.ClaimKey),
 		strings.TrimSpace(record.Subject),
@@ -24146,6 +24149,9 @@ func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
 		strconv.FormatBool(record.SourceRef.ClockCalibrated),
 		answerDocumentOptionalFloatKey(record.SourceRef.ClockOffsetSec),
 		answerDocumentOptionalFloatKey(record.SourceRef.ClockSlope),
+	}
+	if ioHandled {
+		parts = append([]string{ioKey}, parts...)
 	}
 	return strings.Join(parts, "\x00")
 }

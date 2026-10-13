@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -157,18 +158,59 @@ func TestB1618IORelationBridgeKeepsOneExactCaptureAndWindow(t *testing.T) {
 }
 
 func TestB1618IOPhysicalKeyUsesCaptureNotChannelLabel(t *testing.T) {
-	a := b1618IOCaptureWait("a", "/capture/A/trace.ftrace", 1)
-	a.RichNotes = append(a.RichNotes, "io_endpoint_family=block_rq", "dev=12,80", "io_sector=77", "io_len=64",
-		"io_issue_ts=10.001000", "io_complete_ts=10.002000", "io_issue_thread=target-41")
-	b := a
-	b.ID, b.SourceRef.Path = "b", "/capture/a/trace.ftrace"
+	dir := t.TempDir()
+	bus := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("Describe the observed storage requests")}
+	query := func(name string) types.ObservationRecord {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		body := "target-41 (41) [004] .... 10.001000: block_rq_issue: 12,80 R 32768 () 77 + 64 [target]\n" +
+			"irq-2 (2) [004] .... 10.002000: block_rq_complete: 12,80 R () 77 + 64 [0]\n"
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "window_stats", "pid": 41, "time_start": 10, "time_end": 10.01})
+		result, err := (&tool.TraceQuery{}).Execute(bus, params)
+		if err != nil || !result.Success {
+			t.Fatalf("native trace query: %v; %s", err, result.Summary)
+		}
+		for _, record := range result.Observations {
+			if record.Predicate == "io_latency" && record.Unit == "ms" {
+				if key, handled := types.TraceObservationIOPublicationKey(record); !handled || key == "" {
+					t.Fatalf("native paired request must carry source-backed identity: %+v", record)
+				}
+				return record
+			}
+		}
+		t.Fatal("native query did not publish the paired request")
+		return types.ObservationRecord{}
+	}
+	a, b := query("first.ftrace"), query("second.ftrace")
 	if answerDocBoundedRuntimeFactPhysicalKey(a) == answerDocBoundedRuntimeFactPhysicalKey(b) {
-		t.Fatal("identical event coordinates in distinct case-sensitive capture paths were deduplicated")
+		t.Fatal("identical event coordinates in distinct captures were deduplicated")
 	}
 	c := a
 	c.ID, c.SourceRef.ArtifactID = "later-publication", "attached_trace"
 	if answerDocBoundedRuntimeFactPhysicalKey(a) != answerDocBoundedRuntimeFactPhysicalKey(c) {
 		t.Fatal("same physical capture acquired a different identity from a channel marker")
+	}
+	changedPath := a
+	changedPath.ID, changedPath.SourceRef.Path = "changed-path", strings.ToUpper(a.SourceRef.Path)
+	if answerDocBoundedRuntimeFactPhysicalKey(a) == answerDocBoundedRuntimeFactPhysicalKey(changedPath) {
+		t.Fatal("case-changed source coordinates inherited the original receipt")
+	}
+	// Public endpoint fields and notes describe a request but cannot establish
+	// that two publications came from the same source-backed request.
+	wire, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var untrusted types.ObservationRecord
+	if err := json.Unmarshal(wire, &untrusted); err != nil {
+		t.Fatal(err)
+	}
+	untrusted.ID = "untrusted-publication"
+	if answerDocBoundedRuntimeFactPhysicalKey(a) == answerDocBoundedRuntimeFactPhysicalKey(untrusted) {
+		t.Fatal("JSON endpoint fields minted the private request identity")
 	}
 }
 

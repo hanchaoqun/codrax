@@ -4527,6 +4527,10 @@ type RootCauseRankItem struct {
 	// IOValueCaliber identifies the ruler of this row's published IO value,
 	// independently of its completion proof and target-chain membership.
 	IOValueCaliber string `json:"io_value_caliber,omitempty"`
+	// Native paired request identity is independent of the displayed ruler.
+	// Source-read authentication happens after publication; never expose this
+	// internal bridge as a model-authored credential.
+	IORequestEndpoints *types.TraceIORequestEndpoints `json:"-"`
 	// resourceClosureEvaluated (unexported): true when the native IO producer
 	// evaluated its closure independently of dependency anchors, or the existing
 	// anchor-backed resource stamp evaluated the row. The M-IO demotion arm
@@ -5742,7 +5746,8 @@ type CriticalBlockingCandidate struct {
 	// source-scoped edge admits the row to the target-self causal lane.
 	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
 	// IOValueCaliber describes DurationMs, not the existence of a wakeup edge.
-	IOValueCaliber string `json:"io_value_caliber,omitempty"`
+	IOValueCaliber     string                         `json:"io_value_caliber,omitempty"`
+	IORequestEndpoints *types.TraceIORequestEndpoints `json:"-"`
 	// ChainCredentialLaneDemoted (RNB-1 B-4, §29.88 R4, 2026-07-14): the
 	// interval-less chain-lane D/IO VIEW row of a non-target chain pid whose
 	// census family account proves ZERO anchored credential (D-IO decision
