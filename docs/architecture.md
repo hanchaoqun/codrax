@@ -1509,6 +1509,8 @@ HiSys观察的可选`source_rowid`以精确signed-int64字符串保原物理行�
 
 **事件清单成文交接（B1714及后续共享展示）**：所有`event_search`查询通过producer-owned `ObservationRecord.EventSearchInventory`保留独立查询条件、来源与QueryScopeID、引擎scope/enumeration/count、精确行字段和原样caveat。它不是模型聚合，也没有因果权限；原生纳秒以JSON字符串传递。生产交接最多40行、原文4096字节；当前成文预算为32查询/32共享对象/128KiB，原文预览512字节，采用上文“重叠库存展示共享”而非历史4查询×8行。各层省略数明确，与完整匹配总数分离，零匹配不消失；不依赖general top5，不按新旧查询拼总数，展示顺序不决定作用域。未展示全清单时如实说明，不暗示finalizer可新增查询。Jank原生时间按上文同源时钟合同，复合轴只消费独立已声明映射；不扫描用户/答案关键词，不改显式窗、链上根因或补齐。
 
+**有界数值取数的出处与执行（HMC §234）**：仅当接受合同为bounded fact且要求全部/计数时，`event_field_filters[].source_quote`须逐字来自本次请求；预览appid/条数及待输出列不产生选择条件。quote只证明出处，不证明字段/比较/数值语义，中文数字及合法身份解析不因此被禁。真实source-required拒收后，当前调查私有取数票据统一阻止充分性提示、HasEnoughFacts及resolved/absence完成；同物理来源代次、相同归一化时间/行范围的后续原生完整event census才解除执行修复。轻量有序票据保在现有来源epoch中，explorer fork共用、同请求自动续查不丢失，新调查换epoch不继承；重复交接不构成新调用，成功来源在消费时仍须有效。零匹配可以有效，分页count完整不代表成员全已展示；所有过滤条件仍可修，解除不认证模型aggregate真值。准备成功、预览、旧成功、JSON/memo或换源缩窗不能替代真实重试，已有部分事实继续传递。该票据不是全局统计强制路由或可从磁盘恢复的授权，不授因果、读取及恢复权限；无结构化枚举合同的直接工具调用、非枚举及系统Trace补齐保持原路径。
+
 **源码名称诊断的来源边界（EVAL-B36-SYSAUTH1）**：枚举名称接地、提炼清单对照、名称存在性、图端点名称及行内标识符这五类源码诊断共用块级适用域：有效的 `CurrentSourceLaneExcluded`，或该块仅声明外部观测时，不借当前仓库的符号表质疑运行时指标。没有有效排除凭证、普通源码及混合来源块仍保留原检查。历史 advisory 的补充显示也使用同一边界，记录本身不删除。此规则只控制源码名称诊断，不跳过 Trace 关系凭证、源码调用边、引用、参与者或根因资格检查，不改模型正文和图。
 
 **原始证据有界回读（B1697）**：native查询实际发布单物理capture的硬观测后，本轮explorer可用显式有限页`read_file`核对该原文件；不授予grep、其它文件、bundle虚拟行或派生结果以相同权限。单物理资格与读取凭据仅存于不序列化的ToolResult私有票据，不改变观测/频率事实JSON。票据绑定查询前后的强文件身份和本轮代次，穿过工具门直到持有文件句柄的读取完成；替换、链接改指、跨轮、终止状态及历史JSON/memo均不能重授或降为普通源码读取。dispatch/fork仅在同代次继承，Q5-A已发布结果别名优先保持。新escape要求显式页上限，原生直接ReadFile保原分页/展开策略；二者均保整文件字节上限，原文件回读仍是运行时资料，不生成源码覆盖/机制证明。此能力不更改PID/时间窗继承、不补因果结论；超大capture仍使用同文件有界trace_query，无额外整文件哈希，也不是密码学内容快照。
@@ -2061,6 +2063,8 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 顺序多阶段语义由 controller batch 体系承载：`WorkflowSeedFromWriteAnalysis` 把 `WriteAnalysisIR.PhaseProposal`（split=sequential/parallel）的每个 phase 转成一个 planned batch,controller 按 batch 推进（每 batch 独立 plan→apply→verify attempt 记录、retry 预算、canonical attempt state、finish 硬门、失败证据落盘）。
 
 有durable run时，planner投递当前唯一ActiveBatchID对应批次及`DeriveBatchAttemptState`派生阶段，不再每轮把初始分析seed当next_batch；缺失/歧义主动批次显式不可用，不挑历史目标替代。context-pack头同样用当前批次目标，并单列历史pack来源；既有条目作用域、历史证据与权限均不变。独立无run规划仍沿原seed入口。补证目标只要求当前授权形态的新执行凭证，不强制探针；只有当次原生测试登记私有授权存在时，教学才允许只读既有测试登记，且必须完整读取并重新执行。持久化恢复/历史文字不重建授权，修复代码仍须独立typed失败或impact路径。
+
+context-pack逻辑`PackID`与存储`ArtifactID`分离。存储引用由run身份及完整规范化包内容（排除ArtifactID自身）生成版本化SHA-256地址，文件名不截断逻辑ID；同内容重复保存不新增文件/引用，内容更新保旧产物并精确迁移batch/slice引用。未知旧引用保留，旧截断碰撞作为不透明歧义记录，不猜剥前缀、不任选一个旧包覆盖。PackID/itemID/SourceID保精确大小写与内部空白，BatchID/SliceID沿既有workflow作用域空白归一化；身份/作用域均不使用正文240字符裁剪，正文预算保持。ArtifactID只定位产物，不能授予来源、执行或因果资格。保存失败不修改调用方快照，先检查已有产物冲突再发布workflow；已经写成但尚未被workflow引用的新版本可保留，不宣称多文件事务回滚，后置events发布失败也不代表已发布workflow回滚。
 
 **遗留 PlanGroup 工件兼容**：早期版本以 `PlanGroup` 调度多阶段,其 per-phase LLM acceptance verdict 曾作为阶段推进硬门——按 §1.5 噪声信号不得驱动硬门,该模型已被 batch 体系取代；acceptance criteria 以 `ChangePlan.AcceptanceTests` 渲染进 verifier prompt 并喂给 reflector。磁盘上的 `.codrax/plans/groups/` 工件保持可读：`/phase show [<group-id>]` 只读展示（带提示横幅）,`/merge group` 与 `/reject group` 可结算/清理；执行队列动词 `next/rollback/resume/skip` 不再可用（输出会指引到 `/workflow`）。`PhaseGroupID`/`PhaseIndex` 字段保留（/history 分组、单 pending 豁免照常）。controller 探索子流程（`runWriteExplorationSubflow` 一族）位于 `write_exploration_subflow.go`。
 

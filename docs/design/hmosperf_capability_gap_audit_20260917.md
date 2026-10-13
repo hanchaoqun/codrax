@@ -7571,3 +7571,71 @@ display-coalesce-red-v2为实际产品RED，同时复现旧want4→1、新实际
 相关公开链、既有量尺/自动补齐及非IO正负、wire/hash/结构/L1、skill整包、类型和展示race正式收据全部保留；新增语义没有进入用户问题或模型JSON必填项。真实输入12份SHA-256在启动前及完成后均一致，包括capture、case、登记测试和eval runner/oracle。原始FAIL、完整全仓两轮、实际工具payload、准备产物、成文/旁路和登记原件按字节复制校验到`eval/results/hmc_request_identity_terminal_20261012/`；逐件来源/哈希见`evidence-sha256-index.txt`，发布凭证为`verification-receipts/codrax-hmc233-push-code-v1.log`。大原件本地留存，统一账本、任务入口和两份人工/机器摘要随文档提交。
 
 最终重算79唯一ID、重复0；21实现已交付、58开放，分布仍36待实施/16部分实施/2待验收/3验收中/1持续执行。完整能力新增0，新增已交付子能力按原生请求身份、跨展示量尺复用、失效身份隔离三组报告。本批仍未通过的人工验收项是二进制范围/声明交接，其余历史开放缺陷保持原账；context-pack碰撞是同次审计新增的已证系统缺口，按原ID保P1，不推翻登记终态PASS，也不销其完整父项。
+
+## 234. 上下文包持久化稳定身份与二进制范围交接（2026-10-12—13，代码已交付、人工1/2）
+
+### 234.1 起点、范围与退出条件
+
+起点`0c12f0990`工作区干净；79唯一稳定任务=21实现已交付+58开放，重复0。双轨：18.4/18.5逻辑包ID被存储文件名覆盖、截断碰撞和重复保存引用累积；01.3/16.4/18.3/18.4二进制准备后观察值不应冒充用户选择条件。其余采样、完整CLI/controller、历史人工失败继续原ID开放，不在本批扩轨。
+
+固定真实双例为新增多appid的`trace_gzip_sqlite_jank_multiapp_inventory`及`native_registration_restored_terminal`，各一次并行2；前者阈值、应用数与匹配行数各不相同，后者增加生产持久化Load/Save稳定性检查。自然问题只表达目标，完整oracle独立维护。确定性公开回归、必要相邻/结构/race、冻结后完整回归及人工过程/成文审计分别记账，不因代码修复倒签旧FAIL。
+
+### 234.2 参考设计与原始证据校正
+
+实际对照参考仓`core/session_disk.py`：session/step身份固定、每步大产物只写一次，状态单独原子更新；`core/session_output.py`统一session产物根。借鉴逻辑身份与产物存储分层，不照搬仅按文件存在跳过（本仓包会增补）及其不fsync的不同耐久性取舍。本仓拟分离精确逻辑PackID与可选ArtifactID，内容地址排除自身引用、保存先规划映射、批次/slice沿精确旧引用迁移；旧不透明ID不猜剥前缀，歧义不任选。
+
+范围交接对照`core/skill_executor.py:_execute_step`的resolve→展开→缺省参数→显式override及`core/query_engine.py`的参数分层、最终base范围注入和`params_used`回执：准备结果、选择条件与观察总体是不同层次。后者的执行分支还把`indicators`和逐项`errors`独立返回，截断前数量与显示行数分开；可借鉴失败不能被其它成功输出掩盖的设计，不照搬suffix-only格式判断或把参考文档优先链当实际代码。保本仓原件只读准备、原生纳秒时轴、精确用户窗、查询覆盖及因果资格边界。
+
+更正§233故障定位，不改其原始审计verdict：两次模型草稿确实捏造`declared_count=2/source_quote=共两条`，但已接受的`emit_analysis`结果明确记录忽略该枚举边界，现有归一化也校验source_quote。因此不能声称虚构数量已进入接受合同；保留模型草稿错误记录，优先修实际原生查询额外添加appid的范围收缩，避免修复已有防线已挡的问题。上批只读登记终态PASS仍成立，包碰撞/引用累积是独立系统缺口，尚无本次事实内容丢失证据。
+
+### 234.3 实施、公开反例与验收边界
+
+首轮三笔提交：`af0d3e8d7`为有界全部/计数查询的请求出处交接；`7e130bf02`为逻辑包身份/内容版本分离；`a76d7fb12`为多应用压缩输入及独立恢复持久化oracle。它们组成真实双例使用的首轮冻结；后继确定性补救、末版全仓及普通推送另见234.5–6，不倒签首轮答案。
+
+持久化公开RED见`/tmp/codrax-hmc234-pack-red-v1.log`；旧长共同前缀3/11条事实包经连续Save→Load会改逻辑ID并累积引用。新版本以`ctx-v2-`加完整SHA-256作为存储地址，PackID不回写文件名；预先完成精确别名映射，batch/slice受管引用更新不追加旧版本，未知旧引用保留，历史外置文件不覆盖。旧同名异内容发出歧义告警，运行时upsert不任选首包；同内容重试不重复追加。逻辑key改可比较元组，消除分隔符及fallback命名空间碰撞。逻辑包/条目/来源ID保大小写及内部空白，批次/切片/到期作用域复用既有workflow空白规范化而不再240字符裁剪；正文预算不变。
+
+持久化验收覆盖五轮保存/恢复、顺序变化、内容更新、旧真实布局、长batch/slice作用域及空白归一化、消费可达、冲突/不可写/发布失败保调用方和旧workflow原件、重启upsert及歧义重试。存储不是多文件事务：失败可留下尚未被workflow引用的新产物，后置events失败也不代表已发布workflow回滚。更下游exploration evidence引用仍有独立文本/定位合同，未宣称所有来源坐标均已无损；历史已经截断的ID不猜测还原。相关、结构/L1及末版race-v2均正式exit0。
+
+范围RED为`/tmp/codrax-hmc234-scope-red-v2.log`：真实TraceQuery在跨3个appid、阈值2而匹配5条的范围中，接受无用户出处的appid过滤，仅返回2条且查询自身enumeration_complete=true。v1是测试fixture类型编译错误，保留但不作为产品语义反例。新可选`source_quote`随filter及分页/refinement原样传递；仅在已接受bounded fact + all/count合同下逐字验证当前请求出处，缺失或虚构返回typed可修复错误，不执行查询、不静默删条件。无结构化枚举合同的直接工具调用、非枚举、因果及系统补齐保持原路径；无扫描问题或答案关键词的意图硬门。
+
+移除共享JSON教学中固定appid示例，明确输出列、预览身份及预览数量不等于用户筛选或请求数量；字段schema与教学一致。不增加“数字必须原样出现在请求”硬门：中文数词、科学记数法、应用名解析仍可用。逐字quote只证明请求片段来源，不证明field/operator/value语义正确；真实但错引的quote仍是人工验收范围，不能称彻底解决范围幻觉。公开EmitAnalysis→RequestModel→TraceQuery、旧枚举strip、阈值/全应用计数、显式零/零结果/时间窗、分页、脚本及因果补齐正反回归、相关/race正式exit0；范围相关tool/tracequery/skill为7.279/3.356/1.435秒，race为5.258秒。
+
+登记新增五快照oracle（child内存、durable原JSON、正式Load、两次重复保存恢复），检查逻辑包集合/内容hash、当前存储文件及引用集合；未知外部引用不伪装当前受管产物。成功receipt前必须持久化审计通过，失败仍留审计。公开独立进程恢复及缺source/合同变更/缺run凭证负控通过（5.649秒）。它仍是实际planner+脚本controller+独立子进程，不是完整CLI/LLM controller验收。
+
+集成快检`/tmp/codrax-hmc234-integration-fast-v1.log`正式exit0：types/orchestrator/agent/tool/skill，含copylocks、L1/hot-file、字段/prompt登记、新旧Jank及新公开矩阵。构建正式exit0，代码`a76d7fb12fcb`，dirty仅文档。固定双例在本机23:37并行启动、各一次；结果与同批补救分开记录如下。
+
+### 234.4 固定双例与人工结论
+
+机器1/2、完整人工1/2，原件见`eval/results/hmc_context_identity_scope_20261012/`及[人工审计](../../eval/parallel_selected_summary_hmc_context_identity_scope_20261012_manual_audit.md)。二进制CLI运行正常退出但答案FAIL（87秒）；登记测试PASS（20.90秒、package21.680秒）。9份问题/原件/oracle/登记入口及runner在启动前后SHA-256一致。不追加第三例求绿，也不以确定性补救改写原始verdict。
+
+二进制真实gzip→只读SQLite→完整systrace准备没有丢数据，源与导出均有6条marker，要求的窗内至少3帧为4条、2个appid。唯一`trace_query`把合成的`start_ts >= 1000000000`等条件当逐字source_quote，新边界正确返回失败并明确没有执行、没有count。随后共享充分性提示仅凭3条可定位预览发出completion-ready，模型用2条appid27599预览提交resolved/principal aggregate，完成门接受且最终答案误报共2条，漏appid41002的4/7帧两条。新防线命中不能抵消最终全量统计错误；这是查询修复义务、预览事实资格和完成判定的共享缺口，挂01.3/16.4/18.3/18.4 P1，不称已证明的模型波动。
+
+只读登记实际planner完整读取源码2行/测试4行，零修改、零probe，登记1条真实assertion_ref并绑定合同`increment-result`（合同名不是断言身份，精确引用见人工摘要）；新子进程PID43906（父42589）以新invocation重新执行，断言1/失败0、source与补证三批及整体verified，HEAD/hash/diff/status均核验只读，成功receipt落盘。5快照均6个包、6个作用域逻辑身份及6个存储身份，56条内容一致，4份durable快照完全相等，引用始终2/2/2。独立人工审计`/tmp/codrax-hmc234-registration-manual-v1.md`保全部指纹；child最后包仍携旧存储地址、保存后迁到新内容地址是非变异Save预期，不是事实漂移。本例没有slice/未知外部引用，不把单测覆盖冒充live；仍非完整CLI/LLM controller、非多文件事务，18.5不永久销账。
+
+非阻断教学债：当前只读proof实际工具只有发射与read_file，通用探索提示仍提repo_map/grep，模型首轮请求未暴露repo_map被schema门拒绝后恢复。按01.3/16.4保留实际工具能力与教学一致性缺口，不为一条模型措辞添加关键词门，也不阻塞存储子能力交付。完整父能力新增0，仍21已交付/58开放；当前人工未通过的二进制范围交接仍留原ID，不另加一个重复父项。
+
+### 234.5 同批确定性补救：失败取数不能被预览完成
+
+公开`TraceQuery→AppendDispatchToolResult→EmitInvestigationComplete`反例实际让未执行查询的2条预览成为principal count并置complete，原件`scope-repair-red-v1.log`保留。补救将真实source-required错误和后续完整原生event census关联到当前物理来源代次与归一化时间/行范围；私有票据不入模型JSON。探索充分性提示、就绪判断、ParseOutput和完成门共用状态，不能只关一条提示而让单源/ERM/已有complete分支重新升权。已有预览事实和HasEnoughFacts=false的诚实缺证交接继续可用；生产完成枚举原本只支持resolved/absence，本批不借机扩枚举。
+
+同一窗的零匹配可解除执行修复，分页仍区分完整计数与未全展示成员；字段过滤条件全部允许修正，因为旧quote有效不等于旧field/op/value正确。解除仅证明真实取数已经执行，不认证模型选择语义、计数或根因。缩窗、换源/换代、假success、JSON/memo、取消和未完整库存均不能代签；不同范围分别保留未闭环状态。显式0与缺省端点分开，单位等价窗归一后可重试，不把`TraceSecond`私有结构误序列化成空对象。原生量测的补充来源/时钟完成后才固定结果快照，保二进制未知时间量测与event inventory合法共存。
+
+独立复核沿实际自动续查路径发现首版仅查dispatch buffer仍可被`HasEnough=false→MissingFacts→requeueExploreWindowForFactRetry→BaseAgent.Execute.ResetDispatchToolResults`绕过：工具记录清空，PerfTrace仍在。新增`scope-repair-lifecycle-red-v1.log`公开复现，不把首版GREEN冒称全部闭环。末版复用既有`traceSourceReadGeneration`承载轻量有序私有票据，不保存大ToolResults；fork共享、dispatch reset保留，新的调查epoch才隔离。实际调用序号区分新失败与旧结果重放，重复Append不增加事件；消费时仍核成功原件/准备来源，成功后源失效不能永远销掉旧义务。不是另造可从磁盘恢复的授权账本。
+
+中间失败如实保留：green-v3误把严格schema不支持的payload包装视为合法；related-v1是新测试复制带锁BusContext，改用既有ShallowClone；related-v2的SQLite正控漏注入真实preparer，未进入查询，补生产coordinator后才验证末端归一化。它们不冒充线上产品缺陷，不放宽schema/锁门或用stub转换追绿。相关/race/结构收据与最终冻结结果在发布节统一记录；本批没有追加第三次真实评测，A原人工FAIL保持。
+
+### 234.6 末版冻结与发布收据
+
+补救分片`a5f7f9dfe4ab`完成上述共享执行义务。最终`scope-repair-lifecycle-related-v1.log`正式exit0：tool2.111s、agent2.741s、types23.874s、orchestrator4.171s，包含连续dispatch、新请求/fork隔离、真实二次修复、已成功后源换代、旧回执重放与Info/Copylocks/hot-file/Prompt及来源票据相邻正负。末版race正式exit0：tool7.776s、agent2.850s；skill整包0.940s通过。此前related-v3和race-v2通过收据保留，但不拿它们代替新增生命周期末版。
+
+`build-v2.log`正式exit0，revision=`a5f7f9dfe4ab-dirty`、build=`2026-10-13T07:10:14Z`，dirty仅本批文档、Go与HEAD一致。该冻结的`full-v1.jsonl`于本机2026-10-13 00:21:18正式exit1：89测试包PASS、13无测试包、tool一包FAIL。全量Action=fail收齐，唯一根为`TestDiagramIdentityAuthorityCensus`：新增`traceQueryEventSelectionSourceRepair`的quote出处调用尚未登记精确owner，并非图身份检查已被放宽。不能用89包绿掩盖失败或重签二进制live。
+
+末审确认该调用仅检查`rm.RawRequest`与`filter.SourceQuote`，不读取字段/比较/数值作membership判断。`a8668b5f3`精确登记file+function，固定quote-only参数并用把SourceQuote替成Value的自红验证，保原diagram hard arms及全部身份检查；census及全部HMC234EventSelection定向1.889s正式exit0。这里补的是测试职责登记，不放宽生产门、不修改真实问题或答案。其后再次冻结，完整`full-v2`收据单列；同版`build-v3`正式exit0，revision=`a8668b5f3f0c-dirty`、build=`2026-10-13T07:27:39Z`，dirty仅文档，未重跑live。本批当前原件已先归档58份字节一致的工具载荷/准备/答案/验证收据，以及19份登记原件，完整日志结束后再追加，索引`eval/results/hmc_context_identity_scope_20261012/evidence-sha256-index.txt`。
+
+后继按ROI保持双轨：完整能力09.4的采样线程选择身份与无损树剩余验收，复用已交付来源/分母，不围绕某个栈帧名加规则；已证缺陷轨01.3/16.4/18.3/18.4验收本次二进制修后自然续查，确认真实筛选、完整成员及正文/表同源，再根据原件决定剩余语义修复。只读登记的存储窄片本批人工通过，后续轮换完整CLI/controller与多来源/slice，不重复相同小场景追绿。工具教学与实际开放能力不一致已入原ID，但不扩成本批第三实现轨；五项稳定待验收/验收中及17.6/17.7其它格式、持续写入等旧退出范围均保留。
+
+末版`full-v2.jsonl`在同一冻结上于本机2026-10-13 00:38:11正式exit0：90测试包PASS、13无测试包、零Action=fail；tool561.626秒，首轮唯一失败根在同次末版正式PASS。完整汇总`full-summary-v2.json`与首轮失败汇总分别保存，没有用部分包绿拼接。`build-v3`与末版同代码，9份输入/oracle/runner最终SHA-256全部OK；所有Go文件与HEAD一致，后续只改文档。
+
+五笔代码/测试已普通推送origin/main：`af0d3e8d7`、`7e130bf02`、`a76d7fb12`、`a5f7f9dfe4ab`、`a8668b5f3`，正式exit0，HEAD与origin/main均`a8668b5f3f0c3c8ee93ccfcd905848cede12fd31`。发布前已归档66份字节一致的工具载荷、准备/答案、原始失败、全仓两轮及推送收据，另19份登记live原件登记SHA；索引仍为上述结果根的`evidence-sha256-index.txt`，文档发布收据继续追加。大原件保留本地，统一账本/任务入口/架构及机器人工摘要按批提交。
+
+最终复算79唯一任务、重复0，21实现已交付、58开放；36待实施/16部分实施/2待验收/3验收中/1持续执行不变。完整任务本批新增0；已交付子能力按三组报告：逻辑包与不可变存储版本分离、引用迁移/重复保存幂等及旧歧义保留；原生数值筛选的请求出处交接；失败取数跨fork/自动续查的执行义务保留。前一组真实登记人工PASS；后两组有公开正负/生命周期/race回归，二进制修后自然答案尚未复验，原人工FAIL仍在，不能说范围交接已整体闭环。五项既有稳定验收父项与当批缺陷交叉挂账，不重复加到58。
