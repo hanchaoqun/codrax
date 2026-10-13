@@ -125,8 +125,9 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			return types.AnswerBlock{}, err
 		}
 		blk.RuntimeMeasurement = &types.AnswerRuntimeMeasurementReceipt{
-			ObservationID: raw.RuntimeMeasurement.ObservationID,
-			View:          raw.RuntimeMeasurement.View,
+			ObservationID:  raw.RuntimeMeasurement.ObservationID,
+			View:           raw.RuntimeMeasurement.View,
+			EventSelection: raw.RuntimeMeasurement.EventSelection.Clone(),
 		}
 	}
 	if raw.RuntimeWorkRelation != nil {
@@ -280,7 +281,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			return types.AnswerBlock{}, fmt.Errorf("%s: diagram.body is empty — set diagram.body to the raw Mermaid source (the part inside the ```mermaid fences; the renderer adds the fences itself). diagram.body is the only place the diagram source lives — do not put it in the block-level text field", fieldPath)
 		}
 		blk.Diagram = diag
-	} else if blk.Kind == types.BlockDiagram {
+	} else if blk.Kind == types.BlockDiagram && !runtimeEventSelectorSurface(blk.Kind, blk.RuntimeMeasurement) {
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {

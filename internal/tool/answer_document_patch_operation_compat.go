@@ -219,8 +219,9 @@ func emitAnswerBlockFromTyped(block types.AnswerBlock) emitAnswerBlockV2 {
 	}
 	if block.RuntimeMeasurement != nil {
 		out.RuntimeMeasurement = &types.AnswerRuntimeMeasurementReceipt{
-			ObservationID: block.RuntimeMeasurement.ObservationID,
-			View:          block.RuntimeMeasurement.View,
+			ObservationID:  block.RuntimeMeasurement.ObservationID,
+			View:           block.RuntimeMeasurement.View,
+			EventSelection: block.RuntimeMeasurement.EventSelection.Clone(),
 		}
 	}
 	if block.ConceptualTerminalResolution != nil {

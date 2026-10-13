@@ -184,6 +184,9 @@ func RenderAnswerDocumentWithAttachmentSurfaces(doc *types.AnswerDocumentV2, att
 // every block has a valid kind, so this branch is a defensive
 // no-op only.
 func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	if renderV2RuntimeEventMeasurement(b, blk, lang) {
+		return
+	}
 	switch blk.Kind {
 	case types.BlockSummary:
 		renderV2BlockSummary(b, blk, lang)

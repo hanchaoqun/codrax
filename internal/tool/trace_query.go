@@ -4717,6 +4717,7 @@ func traceQueryAnnotateLookupWindowContract(records []types.ObservationRecord, w
 			"matching_window_policy=lookup_only_boundary_tolerance",
 			"metric_denominator_window=requested_window",
 		)
+		traceQueryPublishEventInventoryDisplay(&records[i])
 	}
 }
 

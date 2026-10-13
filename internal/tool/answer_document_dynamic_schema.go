@@ -623,15 +623,17 @@ func projectKindPayloadConditionals(blockItems map[string]any, view *types.Answe
 		if !ok {
 			continue
 		}
+		payloadSchema := map[string]any{"required": []string{"id", "kind", payload}}
+		if runtimeEventChoicesAvailable(view) && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
+			payloadSchema = map[string]any{"if": runtimeEventSelectorRequiredSchema(), "then": runtimeEventSelectorRequiredSchema(), "else": payloadSchema}
+		}
 		conditionals = append(conditionals, map[string]any{
 			"if": map[string]any{
 				"properties": map[string]any{
 					"kind": map[string]any{"const": k},
 				},
 			},
-			"then": map[string]any{
-				"required": []string{"id", "kind", payload},
-			},
+			"then": payloadSchema,
 		})
 	}
 	if len(conditionals) > 0 {

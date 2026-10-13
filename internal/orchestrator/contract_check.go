@@ -2678,6 +2678,15 @@ func shouldReviewConsistencyV2(doc *types.AnswerDocumentV2) bool {
 	bodyItems := 0
 	hasSection := false
 	for _, blk := range doc.Blocks {
+		if blk.RuntimeMeasurement.IsBound() {
+			switch blk.Kind {
+			case types.BlockSummary:
+				summaryRunes += len([]rune(strings.TrimSpace(renderReviewerNativeFactBlock(blk, "en"))))
+			case types.BlockTable:
+				bodyItems += len(blk.RuntimeMeasurement.BoundTable.Rows)
+			}
+			continue
+		}
 		switch blk.Kind {
 		case types.BlockSummary:
 			summaryRunes += len([]rune(strings.TrimSpace(blk.Text)))
@@ -2738,22 +2747,36 @@ func buildReviewerAnswerSurface(doc *types.AnswerDocumentV2, attachments []types
 	var summaryText strings.Builder
 	for _, blk := range doc.Blocks {
 		if blk.Kind == types.BlockSummary {
-			summaryText.WriteString(blk.Text)
+			if blk.RuntimeMeasurement != nil {
+				summaryText.WriteString(renderReviewerNativeFactBlock(blk, lang))
+			} else {
+				summaryText.WriteString(blk.Text)
+			}
 		}
 	}
 	return reviewerAnswerSurface{
 		Summary:      render.StripAuthorityArtifacts(summaryText.String()),
-		Body:         render.StripAuthorityArtifacts(renderReviewBodyV2(doc, includeDiagrams)),
+		Body:         render.StripAuthorityArtifacts(renderReviewBodyV2WithLanguage(doc, includeDiagrams, lang)),
 		FullMarkdown: render.StripAuthorityArtifacts(render.RenderAnswerDocumentWithAttachments(doc, attachments, lang)),
 	}
 }
 
 func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) string {
+	return renderReviewBodyV2WithLanguage(doc, includeDiagrams, "en")
+}
+
+func renderReviewBodyV2WithLanguage(doc *types.AnswerDocumentV2, includeDiagrams bool, lang string) string {
 	if doc == nil {
 		return ""
 	}
 	var b strings.Builder
 	for _, blk := range doc.Blocks {
+		if blk.RuntimeMeasurement != nil {
+			if blk.Kind != types.BlockSummary && (blk.Kind != types.BlockDiagram || includeDiagrams) {
+				b.WriteString(renderReviewerNativeFactBlock(blk, lang))
+			}
+			continue
+		}
 		switch blk.Kind {
 		case types.BlockSummary:
 			continue
@@ -2811,6 +2834,12 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 		}
 	}
 	return b.String()
+}
+
+// Reuse the customer renderer, including its unavailable-binding disclosure.
+// Reviewer fields must not hide native facts or reconstruct them from prose.
+func renderReviewerNativeFactBlock(block types.AnswerBlock, lang string) string {
+	return render.RenderAnswerDocument(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{block}}, lang)
 }
 
 func itemBodyTextWithCitation(it types.AnswerBlockItem, doc *types.AnswerDocumentV2) string {

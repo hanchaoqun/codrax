@@ -709,7 +709,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 			Body:     block.Diagram.Body,
 		}
 	}
-	if blk.Kind == types.BlockDiagram && blk.Diagram == nil {
+	if blk.Kind == types.BlockDiagram && blk.Diagram == nil && !runtimeEventSelectorSurface(blk.Kind, blk.RuntimeMeasurement) {
 		if att, ok := displayAttachmentFromText(blk.Text); ok {
 			blk.Diagram = &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: att.Language, Body: att.Body}
 			blk.Text = ""

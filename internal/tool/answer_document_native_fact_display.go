@@ -3,6 +3,7 @@ package tool
 import (
 	"crypto/sha256"
 	"fmt"
+	"reflect"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -21,27 +22,44 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 		rm = ctx.Mutable.RequestModel()
 	}
 	retained := make([]types.AnswerBlock, 0, len(doc.Blocks))
-	used, selected := map[string]bool{}, map[string]bool{}
+	used := map[string]bool{}
+	selected := map[string][]types.RuntimeMeasurementTable{}
 	for _, block := range doc.Blocks {
 		if block.SystemGeneratedKind == types.AnswerSystemGeneratedNativeFacts {
 			continue
 		}
 		retained = append(retained, block)
 		used[block.ID] = true
-		if block.RuntimeMeasurement != nil {
+		if block.Kind == types.BlockTable && block.RuntimeMeasurement != nil {
 			receipt := *block.RuntimeMeasurement
 			if types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) {
-				selected[types.RuntimeMeasurementDisplayKey(receipt, view.RuntimeMeasurementContract)] = true
+				// Group counts and other surfaces cannot replace the complete
+				// member table. Match an ungrouped projection to its exact native
+				// population below; a subset/field selection is not full coverage.
+				if receipt.EventSelection != nil && len(receipt.EventSelection.GroupBy) > 0 {
+					continue
+				}
+				canonical := receipt
+				canonical.EventSelection = nil
+				key := types.RuntimeMeasurementDisplayKey(canonical, view.RuntimeMeasurementContract)
+				selected[key] = append(selected[key], *receipt.BoundTable)
 			}
 		}
 	}
 	doc.Blocks = retained
 	for _, receipt := range types.RuntimeNativeFactDisplaySelections(rm, view.RuntimeMeasurementContract) {
 		key := types.RuntimeMeasurementDisplayKey(receipt, view.RuntimeMeasurementContract)
-		if selected[key] {
+		if !types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) {
 			continue
 		}
-		if !types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) {
+		covered := false
+		for _, table := range selected[key] {
+			if reflect.DeepEqual(table.Columns, receipt.BoundTable.Columns) && reflect.DeepEqual(table.Rows, receipt.BoundTable.Rows) {
+				covered = true
+				break
+			}
+		}
+		if covered {
 			continue
 		}
 		digest := sha256.Sum256([]byte(receipt.ObservationID + "\x00" + string(receipt.View)))
@@ -50,7 +68,8 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 		for n := 1; used[id]; n++ {
 			id = fmt.Sprintf("%s-%d", base, n)
 		}
-		used[id], selected[key] = true, true
+		used[id] = true
+		selected[key] = append(selected[key], *receipt.BoundTable)
 		doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: id, Kind: types.BlockTable, RuntimeMeasurement: &receipt,
 			SystemGeneratedKind: types.AnswerSystemGeneratedNativeFacts})
 	}

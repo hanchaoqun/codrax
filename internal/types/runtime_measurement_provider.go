@@ -21,10 +21,16 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
+	if predicate == TraceEventSearchInventoryPredicate {
+		return true
+	}
 	return predicate == TraceBusinessSpanPredicate || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
+	if predicate == TraceEventSearchInventoryPredicate {
+		return view == RuntimeMeasurementMembers
+	}
 	if !RuntimeMeasurementPredicateIsRegistered(predicate) {
 		return false
 	}
@@ -80,6 +86,22 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	}
 	seen := map[RuntimeMeasurementView]bool{}
 	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
+	if r.Predicate == TraceEventSearchInventoryPredicate {
+		if !uniqueMembers || !runtimeEventPublicationMatches(r, p) {
+			return RuntimeMeasurementPublication{}, false
+		}
+		for i := range p.Tables {
+			p.Tables[i].nativeEventData = true
+			p.Tables[i].nativeEventSelectionKey = runtimeEventSelectionKey(nil)
+			p.Tables[i].nativeEventScopeNoteIndex = len(p.Tables[i].Notes) - 1
+		}
+	} else {
+		for _, table := range p.Tables {
+			if table.EventData != nil {
+				return RuntimeMeasurementPublication{}, false
+			}
+		}
+	}
 	for i, table := range p.Tables {
 		if !table.IsValid() || !runtimeMeasurementPredicateAllowsView(r.Predicate, table.View) || table.ObservationID != r.ID || seen[table.View] ||
 			(r.Predicate == "unpositioned_measurements_observation" && table.MemberSet != nil) ||

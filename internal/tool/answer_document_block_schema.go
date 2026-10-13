@@ -61,7 +61,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
 		"table (when runtime_measurement is published, that selector alone may own a trusted measured table; otherwise use a complete markdown table inside text, OR preferably structured rows with columns[] + items[].cells[] where label/text are omitted and each row has exactly one cell per column. " + answerStructuredTableHeaderTeaching + " Legacy label-first rows remain accepted only when label deliberately owns the first visible column and cells[]/text supply every remaining column; columns[] may omit only that synthetic label header. Use label/text without columns only for the legacy two-column fallback), " +
-		"diagram (kind=diagram plus diagram{kind, language, body}), caveat (text only). Never attach a payload owned by an omitted kind to another block kind. " +
+		"diagram (kind=diagram plus diagram{kind, language, body}), caveat (text only). When the projected schema publishes native event_selection, that runtime_measurement selector instead owns an available summary/table/diagram payload: omit competing text/items/columns/diagram. Never attach a payload owned by an omitted kind to another block kind. " +
 		"\n\n" +
 		"Each block has an `id` (any non-empty string the LLM picks; load-bearing — your retry hints reference it back to you) and `kind` " +
 		"(text for prose blocks, items[] for list blocks, flexible text/columns/items carriers for table blocks, diagram for diagram blocks). " +

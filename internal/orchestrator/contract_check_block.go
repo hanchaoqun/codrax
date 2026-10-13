@@ -245,7 +245,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	plan := view.DiagramPlan
 	var diagramBlock *types.AnswerBlock
 	for i := range doc.Blocks {
-		if doc.Blocks[i].Kind == types.BlockDiagram {
+		if doc.Blocks[i].Kind == types.BlockDiagram && !isBoundNativeEventFactDiagram(doc.Blocks[i]) {
 			diagramBlock = &doc.Blocks[i]
 			break
 		}
@@ -414,7 +414,7 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 			continue
 		}
 		copyDoc.Blocks = append(copyDoc.Blocks, block)
-		if block.Kind == types.BlockDiagram {
+		if block.Kind == types.BlockDiagram && !isBoundNativeEventFactDiagram(block) {
 			hasRemainingDiagram = true
 		}
 	}

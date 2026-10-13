@@ -85,7 +85,13 @@ func qualifyRuntimeMeasurementFactIdentity(p *RuntimeMeasurementPublication, ori
 // does not alter selectors, source records, member coverage or replay rights.
 // An unqualified table retains the original observation/view identity.
 func RuntimeMeasurementDisplayKey(receipt AnswerRuntimeMeasurementReceipt, contract *RuntimeMeasurementContract) string {
-	if BindRuntimeMeasurementReceipt(&receipt, contract) && receipt.BoundTable.nativeFactIdentity != "" {
+	bound := BindRuntimeMeasurementReceipt(&receipt, contract)
+	if bound && receipt.BoundTable.EventData != nil && receipt.EventSelection != nil {
+		// A selected set/group cannot suppress the default full record table.
+		// This is exact display identity only, never an enumeration witness.
+		return receipt.ObservationID + "\x00" + string(receipt.View) + "\x00event-selection:" + runtimeEventSelectionKey(receipt.EventSelection)
+	}
+	if bound && receipt.BoundTable.nativeFactIdentity != "" {
 		return "native-population:" + receipt.BoundTable.nativeFactIdentity + "\x00" + string(receipt.View)
 	}
 	return receipt.ObservationID + "\x00" + string(receipt.View)

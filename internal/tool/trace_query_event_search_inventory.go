@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -122,5 +123,25 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 	if !types.IsValidTraceEventSearchInventoryRecord(r) {
 		return nil
 	}
+	traceQueryPublishEventInventoryDisplay(&r)
 	return []types.ObservationRecord{r}
+}
+
+// Refresh at the producer boundary after any exact lookup-window annotation;
+// presentation must retain those bounds without changing query membership.
+func traceQueryPublishEventInventoryDisplay(r *types.ObservationRecord) {
+	if r == nil || r.Predicate != types.TraceEventSearchInventoryPredicate {
+		return
+	}
+	if publication, ok := types.BuildTraceEventRuntimeMeasurementPublication(*r); ok {
+		if data, err := json.Marshal(publication); err == nil {
+			notes := make([]string, 0, len(r.RichNotes)+1)
+			for _, note := range r.RichNotes {
+				if !strings.HasPrefix(note, types.TraceNoteKeyRuntimeMeasurement+"=") {
+					notes = append(notes, note)
+				}
+			}
+			r.RichNotes = append(notes, types.TraceNoteKeyRuntimeMeasurement+"="+string(data))
+		}
+	}
 }

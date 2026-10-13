@@ -37,7 +37,13 @@ type RuntimeMeasurementTable struct {
 	// DisplayPopulation describes the native rows matched by this one query.
 	// It is not a capture roster or investigation-completion certificate.
 	DisplayPopulation *RuntimeMeasurementDisplayPopulation `json:"display_population,omitempty"`
-	coverageScope     *runtimeMeasurementCoverageScope
+	// EventData is a native event query's field pool. Public transport alone
+	// cannot grant selection authority; the decoder rechecks the inventory.
+	EventData                 *RuntimeEventData `json:"event_data,omitempty"`
+	nativeEventData           bool
+	nativeEventSelectionKey   string
+	nativeEventScopeNoteIndex int
+	coverageScope             *runtimeMeasurementCoverageScope
 	// Native log query population is fully retained and every source read is
 	// healthy. This private display credential never grants completion.
 	nativeLogDisplayPopulation   bool
@@ -77,6 +83,9 @@ func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
+	if t.EventData != nil && !t.nativeEventData {
+		return false
+	}
 	if strings.TrimSpace(t.ObservationID) == "" || !t.View.IsValid() || len(t.Columns) == 0 {
 		return false
 	}
@@ -95,6 +104,7 @@ func (t RuntimeMeasurementTable) IsValid() bool {
 
 func (t RuntimeMeasurementTable) Clone() RuntimeMeasurementTable {
 	out := t
+	out.EventData = t.EventData.Clone()
 	out.MemberSet = t.MemberSet.clone()
 	if t.DisplayPopulation != nil {
 		population := *t.DisplayPopulation
@@ -174,14 +184,16 @@ func (c *RuntimeMeasurementContract) Clone() *RuntimeMeasurementContract {
 // binds the exact published table; neither values nor a causal conclusion are
 // model inputs. BoundTable stays outside the model JSON surface.
 type AnswerRuntimeMeasurementReceipt struct {
-	ObservationID string                   `json:"observation_id"`
-	View          RuntimeMeasurementView   `json:"view"`
-	BoundTable    *RuntimeMeasurementTable `json:"-"`
+	ObservationID  string                   `json:"observation_id"`
+	View           RuntimeMeasurementView   `json:"view"`
+	EventSelection *RuntimeEventSelection   `json:"event_selection,omitempty"`
+	BoundTable     *RuntimeMeasurementTable `json:"-"`
 }
 
 func (r *AnswerRuntimeMeasurementReceipt) IsBound() bool {
 	return r != nil && r.BoundTable != nil && r.BoundTable.IsValid() &&
-		r.ObservationID == r.BoundTable.ObservationID && r.View == r.BoundTable.View
+		r.ObservationID == r.BoundTable.ObservationID && r.View == r.BoundTable.View &&
+		(r.BoundTable.EventData != nil && r.BoundTable.nativeEventSelectionKey == runtimeEventSelectionKey(r.EventSelection) || r.BoundTable.EventData == nil && r.EventSelection == nil)
 }
 
 func (r *AnswerRuntimeMeasurementReceipt) Clone() *AnswerRuntimeMeasurementReceipt {
@@ -189,6 +201,7 @@ func (r *AnswerRuntimeMeasurementReceipt) Clone() *AnswerRuntimeMeasurementRecei
 		return nil
 	}
 	out := *r
+	out.EventSelection = r.EventSelection.Clone()
 	if r.BoundTable != nil {
 		table := r.BoundTable.Clone()
 		out.BoundTable = &table
@@ -203,6 +216,15 @@ func BindRuntimeMeasurementReceipt(r *AnswerRuntimeMeasurementReceipt, c *Runtim
 	r.BoundTable = nil // A stale successful binding cannot survive a failed rebind.
 	for _, table := range c.Choices() {
 		if r.ObservationID == table.ObservationID && r.View == table.View {
+			if table.EventData != nil {
+				selected, ok := selectRuntimeEventTable(table, r.EventSelection)
+				if !ok {
+					return false
+				}
+				table = selected
+			} else if r.EventSelection != nil {
+				return false
+			}
 			r.BoundTable = &table
 			return true
 		}
