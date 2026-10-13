@@ -128,7 +128,7 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	}
 	// The rank row's E# stays reachable: its evidence-index entry carries the
 	// reader-facing rank detail; the lossless block carries the 根因排序 line.
-	if !strings.Contains(md, "根因排序第 2 位") || strings.Contains(md, "rank=2") {
+	if !strings.Contains(md, "根因排序 #2") || strings.Contains(md, "rank=2") {
 		t.Fatalf("the folded rank row's reader-facing detail must stay on the evidence index:\n%s", md)
 	}
 	if !strings.Contains(despaced, "已并入本行,数值不重复计入") {

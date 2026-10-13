@@ -24310,7 +24310,7 @@ func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord
 	case "root_cause_unattributed":
 		return label("未归因支撑观测", "unattributed supporting observation")
 	}
-	if tier == types.TraceCausalTierCaliberSide || record.Role == types.AnswerAggregateRoleSupportingCoverage {
+	if tier == types.TraceCausalTierCaliberSide {
 		return label("分析支撑观测", "analysis supporting observation")
 	}
 	// A historical root_cause prefix and a rank do not prove a chain seat.
@@ -24318,6 +24318,12 @@ func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord
 	// never elect an unqualified row from its name or measurement magnitude.
 	if relevance == "on_chain" || causality == "on_wakeup_chain" || causality == "self_deterministic" {
 		return ""
+	}
+	// The answer's display role is not a negative causal qualification. Keep
+	// explicitly proved legacy rows even when published in a support appendix;
+	// only use the role as a fallback after precise causal-position signals.
+	if record.Role == types.AnswerAggregateRoleSupportingCoverage {
+		return label("分析支撑观测", "analysis supporting observation")
 	}
 	return label("未归因支撑观测", "unattributed supporting observation")
 }

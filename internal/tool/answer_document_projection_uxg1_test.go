@@ -582,7 +582,9 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// −1 zh/en (2026-08-01, EVAL-B22-SEMAXIS1): the optimization-table
 		// intro now describes separate raw/effective axes instead of repeating
 		// the action-word noun; the typed table header remains authoritative.
-		"根因排序": 4, "root-cause rank": 1, "优化点": 2, "optimization point": 3,
+		// −1 zh/en (2026-10-12, HMC-232): evidence-index rank wording now
+		// comes from the shared typed RootCauseRankDisplayChannel owner.
+		"根因排序": 3, "root-cause rank": 0, "优化点": 2, "optimization point": 3,
 		"确定性优化点": 7, "Deterministic Optimization Points": 1, "证据索引": 2,
 	},
 	"answer_document_mutation_runtime_rcm.go": {

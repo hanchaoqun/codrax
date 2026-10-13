@@ -68,7 +68,7 @@ func TestPTV7SpnSupplementPerOrderFloor(t *testing.T) {
 		Object:          "trace_span",
 		Value:           "9.169",
 		Unit:            "ms",
-		RichNotes:       []string{"type=trace_span", "span_name=H:ReceiveVsync"},
+		RichNotes:       []string{"type=trace_span", "span_name=H:ReceiveVsync", "chain_relevance=on_chain"},
 		SupportRefs:     []string{"berlin.systrace:1013562-1016996"},
 		Confidence:      0.75,
 	}
