@@ -372,6 +372,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return types.ToolResult{ToolName: t.Name(), Success: false,
 			Summary: "trace_query rejected event_field_filters: " + err.Error(), Timestamp: time.Now()}, nil
 	}
+	if repair := traceQueryEventSelectionSourceRepair(ctx, p); repair != nil {
+		return *repair, nil
+	}
 	p.Patterns, patternErr = tracequery.NormalizeEventSearchPatterns(p.View, p.Patterns)
 	if patternErr != nil {
 		return types.ToolResult{

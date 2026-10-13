@@ -12,7 +12,7 @@ func traceQueryEventFieldFilterSchema() string {
 	fields, _ := json.Marshal(tracequery.EventFieldFilterFields())
 	ops, _ := json.Marshal(tracequery.EventFieldFilterOps())
 	description, _ := json.Marshal(skill.TraceJankQueryContract)
-	return fmt.Sprintf(`{"type":"array","maxItems":%d,"items":{"type":"object","additionalProperties":false,"required":["field","op","value"],"properties":{"field":{"type":"string","enum":%s},"op":{"type":"string","enum":%s},"value":{"oneOf":[{"type":"string","pattern":"^-?[0-9]+$"},{"type":"integer"}],"description":"Exact decimal int64; prefer a string for native nanosecond timestamps. Missing, fractional and overflowing values are rejected."}}},"description":%s}`,
+	return fmt.Sprintf(`{"type":"array","maxItems":%d,"items":{"type":"object","additionalProperties":false,"required":["field","op","value"],"properties":{"field":{"type":"string","enum":%s},"op":{"type":"string","enum":%s},"value":{"oneOf":[{"type":"string","pattern":"^-?[0-9]+$"},{"type":"integer"}],"description":"Exact decimal int64; prefer a string for native nanosecond timestamps. Missing, fractional and overflowing values are rejected."},"source_quote":{"type":"string","description":"For bounded all/count questions, one verbatim current-request phrase stating this filter condition. A displayed field, preview identity, result count or artifact quotation is not a user selection. Omit unsupported extra filters, not requested conditions. The quote proves request provenance, not field/operator/value semantics; retain legitimate number normalization and independently grounded application-name resolution."}}},"description":%s}`,
 		tracequery.EventFieldFilterLimit, fields, ops, description)
 }
 

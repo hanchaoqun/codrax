@@ -33,6 +33,9 @@ type EventFieldFilter struct {
 	Field string          `json:"field" yaml:"field"`
 	Op    string          `json:"op" yaml:"op"`
 	Value EventFieldValue `json:"value" yaml:"value"`
+	// SourceQuote is optional request provenance carried through tool paging.
+	// The engine never interprets it and matches only Field, Op and Value.
+	SourceQuote string `json:"source_quote,omitempty" yaml:"source_quote,omitempty"`
 }
 
 func EventFieldFilterFields() []string { return []string{"start_ts", "end_ts", "jank_frames", "appid"} }
