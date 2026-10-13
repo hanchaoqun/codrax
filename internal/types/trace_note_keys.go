@@ -1451,7 +1451,10 @@ const (
 	// population from workload-hotspot and temporal-coverage inference. It is
 	// consumed only as finalizer guidance; it never gates or rewrites prose.
 	TraceNoteKeyPerfStatisticalCaliber = "perf_statistical_caliber"
-	TraceNoteKeyDSO                    = "dso"
+	// Display-only: flat sampled fields do not imply prefix-node weights or
+	// causal authority. Keep this compact qualifier before optional labels.
+	TraceNoteKeyPerfValueBasis = "perf_value_basis"
+	TraceNoteKeyDSO            = "dso"
 )
 
 // 路径族 (chain-path family — emit_investigation_complete parses the chain
@@ -2203,6 +2206,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPerfQuality, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfQualityCaveats, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfStatisticalCaliber, "perf", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyPerfValueBasis, "perf", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyDSO, "perf", TraceNoteCarrierSoftConsumer},
 	{"perf_context", "perf", TraceNoteCarrierDisplayOnly},
 	{"perf_contexts", "perf", TraceNoteCarrierDisplayOnly},

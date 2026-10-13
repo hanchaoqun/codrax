@@ -42,3 +42,18 @@ func traceQueryPerfCohortDenominatorLabel(cohort tracequery.PerfCohort) string {
 	// denominator and producer before optional long paths or display names.
 	return fmt.Sprintf("denominator_weight=%d denominator_samples=%d producer=%s event=%s weight_unit=%s cohort_id=%s ", cohort.TotalPeriod, cohort.SampleCount, sanitizeForBanner(cohort.Scope.Producer), sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), cohort.Scope.ID)
 }
+
+func traceQueryPerfCallchainCaliber(hot tracequery.PerfHotspot) string {
+	identity := hot.CallchainIdentity
+	if identity == nil {
+		return " callchain_form=opaque_flat_label frame_reason=frame_identity_unavailable"
+	}
+	text := " callchain_form=" + sanitizeForBanner(identity.Form)
+	if identity.Reason != "" {
+		text += " frame_reason=" + sanitizeForBanner(identity.Reason)
+	}
+	if identity.Form == "exact_frames" {
+		text += fmt.Sprintf(" path_id=%s exact_frame_count=%d", sanitizeForBanner(identity.ID), identity.FrameCount)
+	}
+	return text
+}

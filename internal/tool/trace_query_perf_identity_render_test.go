@@ -570,7 +570,7 @@ func TestWriteTracePerfContextLegacyOutputFailsClosedWithoutFabricatingIdentity(
 	var b strings.Builder
 	writeTracePerfContext(&b, ctx)
 	want := "- perf_samples sample_count=1 total_sample_weight=9 thread_identity_count_at_least=0 thread_identity_count_exact=false thread_identities_omitted=unknown\n" +
-		"- perf_top_symbol symbol=hot dso=lib.so event= weight_unit= source= symbolization_status= sample_weight=9 samples=1 percent=0.00 cpus=[] threads=[legacy-42] thread_identity_count_at_least=0 thread_identity_count_exact=false thread_identities_omitted=unknown lines=0-0 example=\n" +
+		"- perf_top_symbol symbol=hot dso=lib.so event= weight_unit= source= symbolization_status= sample_weight=9 samples=1 percent=0.00 cpus=[] threads=[legacy-42] thread_identity_count_at_least=0 thread_identity_count_exact=false thread_identities_omitted=unknown lines=0-0 example= value_basis=recorded_sample_fields not_prefix_node_weight=true\n" +
 		"- perf_top_thread thread=legacy-42 sample_weight=9 samples=1 percent=0.00 cpus=[] lines=0-0 example=\n"
 	if got := b.String(); got != want {
 		t.Fatalf("legacy perf coverage disclosure drifted:\n--- got ---\n%s--- want ---\n%s", got, want)

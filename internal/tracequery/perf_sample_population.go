@@ -218,9 +218,20 @@ func perfHotspotEvidenceSummary(cohort PerfCohort, hot PerfHotspot, callchain bo
 	}
 	// The compact observation face preserves only a short prefix. Put the
 	// independent denominator/producer domain before potentially long labels.
-	summary := fmt.Sprintf("perf sample_weight=%d denominator=%d producer=%s event=%s weight_unit=%s samples=%d percent=%.2f%%", hot.Period, cohort.TotalPeriod, firstNonEmpty(producer, "unknown"), cohort.Event, cohort.WeightUnit, hot.SampleCount, hot.Percent)
+	caliber := "value_basis=" + PerfRecordedFieldsValueBasis
 	if callchain {
-		summary += " callchain_form=opaque_flat_label callchain=" + firstNonEmpty(hot.Callchain, "unknown")
+		caliber = "callchain_form=opaque_flat_label"
+		if hot.CallchainIdentity != nil {
+			caliber = "callchain_form=" + hot.CallchainIdentity.Form
+		}
+	}
+	summary := fmt.Sprintf("perf sample_weight=%d denominator=%d %s producer=%s event=%s weight_unit=%s samples=%d percent=%.2f%%", hot.Period, cohort.TotalPeriod, caliber, firstNonEmpty(producer, "unknown"), cohort.Event, cohort.WeightUnit, hot.SampleCount, hot.Percent)
+	if callchain {
+		reason, id := "frame_identity_unavailable", ""
+		if hot.CallchainIdentity != nil {
+			reason, id = hot.CallchainIdentity.Reason, hot.CallchainIdentity.ID
+		}
+		summary += " frame_reason=" + reason + " path_id=" + id + " raw_callchain=" + firstNonEmpty(hot.Callchain, "unknown")
 	} else {
 		summary += " symbol=" + firstNonEmpty(hot.Symbol, "unknown") + " dso=" + firstNonEmpty(hot.DSO, "unknown")
 	}

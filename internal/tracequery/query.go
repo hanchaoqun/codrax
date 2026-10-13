@@ -3960,6 +3960,7 @@ type perfQualityAcc struct {
 	clocks                map[string]*perfValueCountAcc
 	clockConfidences      map[string]*perfValueCountAcc
 	callchainStatuses     map[string]*perfValueCountAcc
+	frameStatuses         map[string]*perfValueCountAcc
 	cpuKnownCount         int
 	cpuUnknownCount       int
 	callchainKnownCount   int
@@ -4077,8 +4078,9 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 		}
 		// Global quality is sample-count inventory only. Weighted quality is
 		// published inside the event/unit cohort that owns its denominator.
-		globalQuality.add(ev, 0)
-		cohort.quality.add(ev, period)
+		frames, frameReason := perfSampleFrameData(pf)
+		globalQuality.add(ev, 0, frameReason)
+		cohort.quality.add(ev, period, frameReason)
 		cpu := -1
 		if executionCPU, ok := perfSampleOnCPUExecutionCPU(ev); ok {
 			cpu = executionCPU
@@ -4099,10 +4101,12 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
 		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
-		addPerfHotspot(cohort.byCallchain, perfHotspotDimensionKey(pf.DSO, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown")), PerfHotspot{
+		callchainKey, callchainIdentity := perfCallchainIdentity(pf, frames, frameReason)
+		addPerfHotspot(cohort.byCallchain, callchainKey, PerfHotspot{
 			Symbol:              pf.Symbol,
 			DSO:                 pf.DSO,
 			Callchain:           pf.Callchain,
+			CallchainIdentity:   callchainIdentity,
 			Event:               cohortKey.event,
 			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
@@ -4533,10 +4537,11 @@ func newPerfQualityAcc() *perfQualityAcc {
 		clocks:                map[string]*perfValueCountAcc{},
 		clockConfidences:      map[string]*perfValueCountAcc{},
 		callchainStatuses:     map[string]*perfValueCountAcc{},
+		frameStatuses:         map[string]*perfValueCountAcc{},
 	}
 }
 
-func (acc *perfQualityAcc) add(ev Event, period int64) {
+func (acc *perfQualityAcc) add(ev Event, period int64, frameReason string) {
 	if acc == nil {
 		return
 	}
@@ -4562,12 +4567,13 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	addPerfValueCount(acc.clocks, firstNonEmpty(pf.Clock, "unknown"), period)
 	addPerfValueCount(acc.clockConfidences, firstNonEmpty(pf.ClockConfidence, "unknown"), period)
 	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(pf.CallchainStatus, "unknown"), period)
+	addPerfValueCount(acc.frameStatuses, firstNonEmpty(frameReason, "exact_frames"), period)
 	if perfSampleHasKnownCPU(ev) {
 		acc.cpuKnownCount++
 	} else {
 		acc.cpuUnknownCount++
 	}
-	if perfCallchainKnownForQuality(pf.CallchainStatus) {
+	if frameReason == "" {
 		acc.callchainKnownCount++
 	} else {
 		acc.callchainUnknownCount++
@@ -4600,6 +4606,7 @@ func (acc *perfQualityAcc) summary(total int64, weighted bool) *PerfQualitySumma
 		Clocks:                sortedPerfValueCounts(acc.clocks, total, weighted),
 		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total, weighted),
 		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total, weighted),
+		FrameStatuses:         sortedPerfValueCounts(acc.frameStatuses, total, weighted),
 		CPUKnownCount:         acc.cpuKnownCount,
 		CPUUnknownCount:       acc.cpuUnknownCount,
 		CallchainKnownCount:   acc.callchainKnownCount,
@@ -4719,6 +4726,9 @@ func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64, weight
 
 func perfQualityCaveats(q PerfQualitySummary) []string {
 	var out []string
+	if len(q.FrameStatuses) > 0 {
+		out = append(out, PerfCallchainIntegrityTeaching)
+	}
 	if len(q.InputIntegrityIssues) > 0 {
 		out = append(out, "perf_text_integrity_degraded=true issues="+perfIntegrityIssueLabels(q.InputIntegrityIssues, 8)+"; affected typed thread/CPU/weight/sample-kind dimensions were withdrawn rather than inferred")
 	}
@@ -4786,15 +4796,6 @@ func perfValueCountsContain(values []PerfValueCount, want string) bool {
 		}
 	}
 	return false
-}
-
-func perfCallchainKnownForQuality(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "symbolized", "partial":
-		return true
-	default:
-		return false
-	}
 }
 
 func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, threadKey perfThreadKey, identity PerfThreadIdentity, identityOK bool, cpu int, line int, period int64, example string, total *int64) {
@@ -27924,6 +27925,9 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 	}
 	if callchain := perfQualityTopValue(q.CallchainStatuses); callchain != "" {
 		parts = append(parts, "callchain_status="+callchain)
+	}
+	if len(q.FrameStatuses) > 0 {
+		parts = append(parts, fmt.Sprintf("exact_frames=%d,unknown_frames=%d", q.CallchainKnownCount, q.CallchainUnknownCount))
 	}
 	return strings.Join(parts, ",")
 }

@@ -6205,8 +6205,8 @@ func writeTracePerfContextRole(b *strings.Builder, role string, ctx *tracequery.
 	}
 	if len(ctx.TopCallchains) > 0 {
 		hot := ctx.TopCallchains[0]
-		fmt.Fprintf(b, "  %s_top_callchain callchain=%s symbol=%s dso=%s weight_unit=%s sample_weight=%d samples=%d lines=%d-%d\n",
-			role, sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.WeightUnit), hot.Period, hot.SampleCount, hot.LineStart, hot.LineEnd)
+		fmt.Fprintf(b, "  %s_top_callchain%s raw_callchain=%s symbol=%s dso=%s weight_unit=%s sample_weight=%d samples=%d lines=%d-%d\n",
+			role, traceQueryPerfCallchainCaliber(hot), sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.WeightUnit), hot.Period, hot.SampleCount, hot.LineStart, hot.LineEnd)
 	}
 	if len(ctx.TopThreads) > 0 {
 		thread := ctx.TopThreads[0]
@@ -6253,8 +6253,9 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 		writeTracePerfContextIdentityDetails(b, "    ", "rank_perf_context_thread_identity", role.PerfContext)
 		if len(role.PerfContext.TopCallchains) > 0 {
 			hot := role.PerfContext.TopCallchains[0]
-			fmt.Fprintf(b, "    rank_perf_top_callchain role=%s callchain=%s symbol=%s dso=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d lines=%d-%d\n",
+			fmt.Fprintf(b, "    rank_perf_top_callchain role=%s%s raw_callchain=%s symbol=%s dso=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d lines=%d-%d\n",
 				sanitizeForBanner(role.Role),
+				traceQueryPerfCallchainCaliber(hot),
 				sanitizeForBanner(hot.Callchain),
 				sanitizeForBanner(hot.Symbol),
 				sanitizeForBanner(hot.DSO),
@@ -6436,16 +6437,16 @@ func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
 		return
 	}
 	for _, hot := range item.TopSymbols {
-		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s value_basis=recorded_sample_fields not_prefix_node_weight=true\n",
 			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopDSO {
-		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s value_basis=recorded_sample_fields not_prefix_node_weight=true\n",
 			sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopCallchains {
-		fmt.Fprintf(b, "- perf_top_callchain callchain=%s symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_callchain%s raw_callchain=%s symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+			traceQueryPerfCallchainCaliber(hot), sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, thread := range item.TopThreads {
 		fmt.Fprintf(b, "- perf_top_thread thread=%s sample_weight=%d samples=%d percent=%.2f cpus=%v lines=%d-%d example=%s\n",
@@ -6472,13 +6473,13 @@ func writeTracePerfCohort(b *strings.Builder, cohort tracequery.PerfCohort) {
 		return
 	}
 	for _, hot := range cohort.TopSymbols {
-		fmt.Fprintf(b, "  perf_cohort_top_symbol event=%s weight_unit=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+		fmt.Fprintf(b, "  perf_cohort_top_symbol event=%s weight_unit=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d value_basis=recorded_sample_fields not_prefix_node_weight=true\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
 	}
 	for _, hot := range cohort.TopDSO {
-		fmt.Fprintf(b, "  perf_cohort_top_dso event=%s weight_unit=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+		fmt.Fprintf(b, "  perf_cohort_top_dso event=%s weight_unit=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d value_basis=recorded_sample_fields not_prefix_node_weight=true\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
 	}
 	for _, hot := range cohort.TopCallchains {
-		fmt.Fprintf(b, "  perf_cohort_top_callchain event=%s weight_unit=%s callchain=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+		fmt.Fprintf(b, "  perf_cohort_top_callchain event=%s weight_unit=%s%s raw_callchain=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), traceQueryPerfCallchainCaliber(hot), sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
 	}
 	for _, thread := range cohort.TopThreads {
 		fmt.Fprintf(b, "  perf_cohort_top_thread event=%s weight_unit=%s thread=%s sample_weight=%d samples=%d percent=%.2f cpus=%v lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), traceQueryPerfThreadSummaryLabel(thread), thread.Period, thread.SampleCount, thread.Percent, thread.CPUs, thread.LineStart, thread.LineEnd)
@@ -6700,7 +6701,7 @@ func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQ
 	if b == nil || q == nil {
 		return
 	}
-	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s weight_status=%s callchain_known=%d callchain_unknown=%d sources=%s input_integrity=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
+	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s weight_status=%s callchain_known=%d callchain_unknown=%d frame_statuses=%s sources=%s input_integrity=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
 		label,
 		q.CPUKnownCount,
 		q.CPUUnknownCount,
@@ -6708,6 +6709,7 @@ func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQ
 		traceQueryPerfQualityWeightStatus(q),
 		q.CallchainKnownCount,
 		q.CallchainUnknownCount,
+		traceQueryPerfValueCountsCompact(q.FrameStatuses, q.WeightStatus),
 		traceQueryPerfValueCountsCompact(q.Sources, q.WeightStatus),
 		traceQueryPerfValueCountsCompact(q.InputIntegrityIssues, q.WeightStatus),
 		traceQueryPerfValueCountsCompact(q.SymbolizationStatuses, q.WeightStatus),
@@ -6731,6 +6733,9 @@ func traceQueryPerfQualityCompact(q *tracequery.PerfQualitySummary) string {
 		fmt.Sprintf("cpu_unknown=%d", q.CPUUnknownCount),
 		"sample_cpu_scope=" + perfQualitySampleCPUScope(q),
 		"weight_status=" + traceQueryPerfQualityWeightStatus(q),
+	}
+	if len(q.FrameStatuses) > 0 {
+		parts = append(parts, fmt.Sprintf("exact_frames=%d,unknown_frames=%d", q.CallchainKnownCount, q.CallchainUnknownCount))
 	}
 	if len(q.Sources) > 0 {
 		parts = append(parts, "source="+sanitizeForBanner(q.Sources[0].Value))
@@ -14699,6 +14704,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 					Unit:            "sample_weight",
 					Summary:         traceQueryPerfCohortDenominatorLabel(cohort) + fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(cohort.Quality), hot.Period, hot.SampleCount, hot.Percent),
 					RichNotes: traceQueryTypedKVNotes([][2]string{
+						{types.TraceNoteKeyPerfValueBasis, tracequery.PerfRecordedFieldsValueBasis},
 						{"symbol", hot.Symbol},
 						{types.TraceNoteKeyDSO, hot.DSO},
 						{"event", hot.Event},

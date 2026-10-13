@@ -1943,25 +1943,26 @@ type PerfCohort struct {
 }
 
 type PerfHotspot struct {
-	Symbol                           string               `json:"symbol,omitempty"`
-	DSO                              string               `json:"dso,omitempty"`
-	Callchain                        string               `json:"callchain,omitempty"`
-	Event                            string               `json:"event,omitempty"`
-	WeightUnit                       string               `json:"weight_unit,omitempty"`
-	Source                           string               `json:"source,omitempty"`
-	SymbolizationStatus              string               `json:"symbolization_status,omitempty"`
-	SampleCount                      int                  `json:"sample_count,omitempty"`
-	Period                           int64                `json:"period,omitempty"`
-	Percent                          float64              `json:"percent,omitempty"`
-	ThreadIdentityCount              int                  `json:"thread_identity_count,omitempty"`
-	ThreadIdentityCountExact         *bool                `json:"thread_identity_count_exact,omitempty"`
-	ThreadIdentityUnknownSampleCount int                  `json:"thread_identity_unknown_sample_count,omitempty"`
-	ThreadIdentities                 []PerfThreadIdentity `json:"thread_identities,omitempty"`
-	Threads                          []ThreadRef          `json:"threads,omitempty"`
-	CPUs                             []int                `json:"cpus,omitempty"`
-	LineStart                        int                  `json:"line_start,omitempty"`
-	LineEnd                          int                  `json:"line_end,omitempty"`
-	Example                          string               `json:"example,omitempty"`
+	Symbol                           string                 `json:"symbol,omitempty"`
+	DSO                              string                 `json:"dso,omitempty"`
+	Callchain                        string                 `json:"callchain,omitempty"`
+	CallchainIdentity                *PerfCallchainIdentity `json:"callchain_identity,omitempty"`
+	Event                            string                 `json:"event,omitempty"`
+	WeightUnit                       string                 `json:"weight_unit,omitempty"`
+	Source                           string                 `json:"source,omitempty"`
+	SymbolizationStatus              string                 `json:"symbolization_status,omitempty"`
+	SampleCount                      int                    `json:"sample_count,omitempty"`
+	Period                           int64                  `json:"period,omitempty"`
+	Percent                          float64                `json:"percent,omitempty"`
+	ThreadIdentityCount              int                    `json:"thread_identity_count,omitempty"`
+	ThreadIdentityCountExact         *bool                  `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                    `json:"thread_identity_unknown_sample_count,omitempty"`
+	ThreadIdentities                 []PerfThreadIdentity   `json:"thread_identities,omitempty"`
+	Threads                          []ThreadRef            `json:"threads,omitempty"`
+	CPUs                             []int                  `json:"cpus,omitempty"`
+	LineStart                        int                    `json:"line_start,omitempty"`
+	LineEnd                          int                    `json:"line_end,omitempty"`
+	Example                          string                 `json:"example,omitempty"`
 }
 
 type PerfQualitySummary struct {
@@ -1975,11 +1976,13 @@ type PerfQualitySummary struct {
 	Clocks                []PerfValueCount `json:"clocks,omitempty"`
 	ClockConfidences      []PerfValueCount `json:"clock_confidences,omitempty"`
 	CallchainStatuses     []PerfValueCount `json:"callchain_statuses,omitempty"`
+	FrameStatuses         []PerfValueCount `json:"frame_statuses,omitempty"`
 	CPUKnownCount         int              `json:"cpu_known_count,omitempty"`
 	CPUUnknownCount       int              `json:"cpu_unknown_count,omitempty"`
-	CallchainKnownCount   int              `json:"callchain_known_count,omitempty"`
-	CallchainUnknownCount int              `json:"callchain_unknown_count,omitempty"`
-	Caveats               []string         `json:"caveats,omitempty"`
+	// Known means exact producer frame boundaries, not a symbolized label or complete unwinding.
+	CallchainKnownCount   int      `json:"callchain_known_count,omitempty"`
+	CallchainUnknownCount int      `json:"callchain_unknown_count,omitempty"`
+	Caveats               []string `json:"caveats,omitempty"`
 }
 
 type PerfValueCount struct {

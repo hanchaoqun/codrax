@@ -179,16 +179,7 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 		} else {
 			c.TotalWeight += weight
 		}
-		frames, ok := tracewire.DecodePerfFrames(pf.FramesV1)
-		reason := ""
-		switch {
-		case pf.FramesV1 == "":
-			reason = "legacy_frame_boundaries_unavailable"
-		case !ok:
-			reason = "malformed_frame_carrier"
-		case frames.Status != "available":
-			reason = frames.Status
-		}
+		frames, reason := perfSampleFrameData(pf)
 		if reason != "" {
 			c.UnavailableSampleCount++
 			c.UnavailableReasons[reason]++

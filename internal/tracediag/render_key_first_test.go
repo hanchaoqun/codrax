@@ -224,6 +224,11 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 			sum := sha256.Sum256([]byte(previous))
 			got = hex.EncodeToString(sum[:])
 		}
+		if item.typ == reflect.TypeOf(tracequery.PerfQualitySummary{}) {
+			previous := perfQualitySchemaBeforeFrameStatuses(t, schema)
+			sum := sha256.Sum256([]byte(previous))
+			got = hex.EncodeToString(sum[:])
+		}
 		want := nonEventPrioritySchemaPins[item.typ]
 		if got != want {
 			t.Errorf("%s schema drift: got=%s want=%s\ncurrent_schema=%s", item.name, got, want, schema)
