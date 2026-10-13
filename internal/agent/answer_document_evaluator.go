@@ -7774,8 +7774,10 @@ func answerDocReaderAuthorityShadowedObservationIDs(ctx *types.AgentContext, led
 // observation ledger, causal projection, report appendix, and audit output;
 // they are removed only from the principal answer-writing pool so a broad
 // drilldown cannot masquerade as selected-window evidence. Records without a
-// typed selected_window retain legacy behavior outside comparison. Independent
-// inputs require current source ownership and their own query/local ruler;
+// typed selected_window retain legacy behavior outside comparison, except that
+// verified point-event mirrors in bounded fact lists share the native half-open
+// member roster; this does not change causal or aggregate interval semantics.
+// Independent inputs require current source ownership and their own query/local ruler;
 // non-runtime/non-deterministic rows remain unchanged.
 // No request text, model narrative, or final prose is inspected.
 func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) ([]types.ObservationRecord, int) {
@@ -7788,9 +7790,14 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 		return records, 0
 	}
 	scopes := types.BuildRuntimeObservationDisplayScopes(types.ObservationLedgerInputFromAgentContext(ctx, 0))
+	eventMembers := answerDocEventMemberWindowRoster(ctx)
 	out := make([]types.ObservationRecord, 0, len(records))
 	omitted := 0
 	for _, record := range records {
+		if eventMembers.excludes(record) {
+			omitted++
+			continue
+		}
 		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			out = append(out, record)
