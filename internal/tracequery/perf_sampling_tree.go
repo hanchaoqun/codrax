@@ -110,6 +110,9 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 	if idx.Windowed || idx.RelationScoped {
 		return fail("requires_complete_source_scan")
 	}
+	if _, _, valid := NormalizePerfSamplingSelector(q.PID, perfSamplingSelectorInput(q)); !valid {
+		return fail("invalid_thread_selector")
+	}
 	if !isFiniteTraceNumber(q.TimeStart) || !isFiniteTraceNumber(q.TimeEnd) || q.TimeEnd < q.TimeStart || q.TimeEnd == q.TimeStart && !q.timeEndBackfilled {
 		return fail("requires_finite_window")
 	}

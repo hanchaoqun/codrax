@@ -1453,7 +1453,9 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if strings.TrimSpace(q.ThreadInput) == "" {
 		q.ThreadInput = q.Thread
 	}
-	if sel := parseThreadSelector(q.ThreadInput); strings.TrimSpace(sel.Raw) != "" {
+	if perfSamplingSelectionView(q.View) {
+		q = normalizePerfSamplingQuerySelector(q)
+	} else if sel := parseThreadSelector(q.ThreadInput); strings.TrimSpace(sel.Raw) != "" {
 		if q.PID <= 0 && sel.HasPID {
 			q.PID = sel.PID
 			q.ThreadPIDInferred = true
@@ -5252,6 +5254,9 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		return PerfTimelineResult{Window: queryResultTimeWindow(q)}
 	}
 	population := newPerfSamplePopulation(idx, q)
+	if !population.selectorValid {
+		return PerfTimelineResult{Window: queryResultTimeWindow(q), Caveats: []string{"invalid_thread_selector; conflicting or out-of-range typed selection cannot define a sampling population"}}
+	}
 	ledger := population.ledger
 	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindow(idx, q, ledger)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}

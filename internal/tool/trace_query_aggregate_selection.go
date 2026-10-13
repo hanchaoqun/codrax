@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/threadidentity"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -32,7 +33,7 @@ func TraceQueryAggregateSelectionSubject(record types.ObservationRecord) (string
 	if identity == nil || identity.Generation <= 0 || identity.TGID < 0 || identity.TGID > types.RuntimeTargetMaxPID {
 		return "", false
 	}
-	subject, selected := traceQueryAggregateSelectedThread(record.SourceRef, identity.TID, identity.DisplayComm)
+	subject, selected := traceQuerySamplingSelectedThread(record.SourceRef, identity.TID, identity.DisplayComm)
 	if !selected {
 		return "", false
 	}
@@ -42,11 +43,24 @@ func TraceQueryAggregateSelectionSubject(record types.ObservationRecord) (string
 			current.TID != identity.TID || current.Generation != identity.Generation || current.TGID != identity.TGID || current.DisplayComm != identity.DisplayComm {
 			return "", false
 		}
-		if selectedSubject, ok := traceQueryAggregateSelectedThread(record.SourceRef, current.TID, current.DisplayComm); !ok || selectedSubject != subject {
+		if selectedSubject, ok := traceQuerySamplingSelectedThread(record.SourceRef, current.TID, current.DisplayComm); !ok || selectedSubject != subject {
 			return "", false
 		}
 	}
 	return subject, true
+}
+
+func traceQuerySamplingSelectedThread(ref types.ObservationSourceRef, tid int, comm string) (string, bool) {
+	pid, name, valid := tracequery.NormalizePerfSamplingSelector(ref.QueryTargetPID, ref.QueryTargetThread)
+	if !valid || pid != ref.QueryTargetPID || name != ref.QueryTargetThread {
+		return "", false // a native sampling receipt must already be canonical
+	}
+	if pid > 0 {
+		// Its validated numeric selection is authoritative. The canonical comm
+		// may end in a number and must not be parsed again as a second TID.
+		ref.QueryTargetThread = ""
+	}
+	return traceQueryAggregateSelectedThread(ref, tid, comm)
 }
 
 // The caller must first decode a source/window/role-bound native aggregate.

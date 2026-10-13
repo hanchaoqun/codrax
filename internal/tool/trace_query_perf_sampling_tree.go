@@ -103,6 +103,9 @@ func traceQueryPerfSamplingTreeObservations(p *tracequery.PerfSamplingTreeResult
 	ref.QueryWindowKnown = true
 	ref.QueryWindowStartTs = p.Window.StartTs
 	ref.QueryWindowEndTs = p.Window.EndTs
+	if pid, thread, valid := tracequery.NormalizePerfSamplingSelector(ref.QueryTargetPID, ref.QueryTargetThread); valid {
+		ref.QueryTargetPID, ref.QueryTargetThread = pid, thread
+	}
 	return []types.ObservationRecord{{ID: "trace_query:" + scope + "#perf_sampling_tree", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, Span: types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs}, ClaimKey: TracePerfSamplingTreePredicate, Predicate: TracePerfSamplingTreePredicate, Subject: "sampled prefix tree", Object: p.Status, Summary: "Source-bound sampled prefixes and independent cohort weights; not invocation or causal evidence", RichNotes: []string{types.TraceNoteKeyPerfSamplingTree + "=" + string(data)}, ObservedAt: at, Confidence: 1}}
 }
 

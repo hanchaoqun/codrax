@@ -34,12 +34,17 @@ type perfSamplePopulation struct {
 	selector          threadSelector
 	identityAddressed bool
 	selectorWithheld  bool
+	selectorValid     bool
 	generations       map[string]string
 }
 
 func newPerfSamplePopulation(idx *Index, q Query) *perfSamplePopulation {
 	selector, addressed := perfTimelineThreadSelector(q)
 	p := &perfSamplePopulation{idx: idx, q: q, ledger: ensurePerfIdentityLedger(idx), selector: selector, identityAddressed: addressed, generations: map[string]string{}}
+	p.selectorValid = true
+	if perfSamplingSelectionView(q.View) {
+		_, _, p.selectorValid = NormalizePerfSamplingSelector(q.PID, perfSamplingSelectorInput(q))
+	}
 	return p
 }
 
@@ -54,6 +59,9 @@ func (p *perfSamplePopulation) admit(ordinal int, filter perfSampleFilter) (perf
 	key, identity, known := p.ledger.identityForEventOrdinalBorrowed(ordinal)
 	if filter != nil {
 		return key, identity, known, filter(ev, key, identity, known)
+	}
+	if !p.selectorValid {
+		return key, identity, known, false
 	}
 	if !perfSampleQueryBase(ev, p.q) {
 		return key, identity, known, false
