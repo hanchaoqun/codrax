@@ -7444,3 +7444,63 @@ display-coalesce-red-v2为实际产品RED，同时复现旧want4→1、新实际
 58开放项继续按原ID：能力轨09.4原生输入/树查询和共享总体已补子能力，但decorated selector规范化及自然最终答案待验；缺陷轨12.5/16.4/18.4优先统一各surface因果资格、IO量尺和等待实例。只读凭证登记18.5与二进制18.3不再被同一采样/业务题无限挤占。第一候选为现有`trace_gzip_sqlite_jank_inventory`，真实gzip→SQLite和[1,1.2)显式窗、两条卡顿20/60ms；它不覆盖完整尾部/REPL/sample-only，不能销18.3全部。
 
 第二候选需新增`native_registration_restored_terminal`自然验收：复用`TestNativeRegistrationLiveRestoredFollowup`入口，但按`TestNativeRegistrationSourceTerminalPublic`先取得真实source verify收据，再登记补证、独立恢复、新验证并核整体终态。现有live故意缺source terminal，只证明overall unverified负控；没有精确覆盖正向整体verified的现成自然case，旧commandless也不能代替。本批只读确认，不冒称已新增/运行。真实BRBE大夹具尚需独立定窗/样本核对，已有RMQ协议合成测试不能冒充实机捕获验收。
+
+## 232. 同源事实资格、IO量尺与等待实例（2026-10-12，代码已交付，真实人工验收仍未通过）
+
+### 232.1 起点、参考设计与退出范围
+
+起点`c8182941c82268fd383d9f6601b16b7dbcd4d860`与origin/main一致且工作区干净。重新复算79唯一ID=21已交付+58开放、重复0；37待实施/15部分实施/2待验收/3验收中/1持续执行。§231两份完整人工FAIL不倒签；本轮三处确定性系统缺陷沿12.5/16.4/18.4交叉登记，不新增重复任务，不以旁路修复代签整题成功。
+
+再次对照参考`core/preprocess/sleep_ops.py:535–585`：以当前blocked thread和等待窗口寻找直接waker，拒绝窗前点，再递归各S/D段；其设计意图是等待实例配对，不是同名线程或最近事件推因果。当前已有`RuntimeWakeupEvent`的source/query、From/To、branch/segment和物理点可用于精确配对，无需另造证据协议。缺完整实例的旧数据可保导航提示，但不能获已证闭合时间。
+
+参考`core/llm_contract.py:110–143`按已分析成员和真实字段定位证据的意图适用于统一事实展示；不照搬原文数字扫描或相似文本硬门。本项目复用`RootCauseRankDisplayChannel`与`IOValueCaliber`：因果资格和量尺是独立维度，链外rank位置不叫根因排名，请求issue→complete不等同提交线程阻塞，未知量尺不补为等待。修共享正文补充、证据索引及图/表展示，而不改rank计算、原生查询数值或已验证因果链。
+
+验证先真实公开路径RED及正负回归，再相关/race和登记快检；全部Go冻结后只跑一套完整回归并同版构建。真实评测恰好两例并行各一次：现有自然问题`trace_gzip_sqlite_jank_inventory`覆盖gzip→SQLite显式窗；新增`native_registration_restored_terminal`覆盖先取得实际来源验证收据、真实planner登记、独立进程恢复、新验证及overall verified。保留原缺来源终态负控。后者属于真实planner阶段验收，不冒充完整CLI或真实controller模型全过程；18.3其余二进制平台/尾部及18.5其它范围不被本批代销。每份失败证据独立文件名保留，不追跑第三例求绿。
+
+### 232.2 实现、公开反例与保留范围
+
+正文补充、证据索引、模型事实交接和对账附页复用已存在的因果资格及IO量尺。背景/邻近/无归因清单保原排序数字，但不贴根因或修复优先级；链上调度、供给、确定性语义和已证IO因果资格不减。RQ/BIO/MMC/F2FS请求驻留、提交线程阻塞、未知及混合口径分别显示，普通调度器`io_wait`状态仍是IO等待。实际公共TraceQuery→Emit→ParseOutput和no-op patch同时保护中英文及背景/闭合issuer正反例，系统对账仍复用原链上筛选器，不改模型正文作关键词硬门。
+
+睡眠节点的闭合点从线程级唯一waker导航改为当前原生等待实例配对：完整状态库存、精确区间、物理行、线程代次、分支、每个来源/query收据和事件点均须匹配；导航和原始已证链不因缺点而删除。发现仅以舍入后的running/runnable零值仍可能把两个睡眠段当一个，遂将原`state_account:v2`算法字节等价提取为共用函数，对照单个`s_sleep`区间库存身份，而不新造协议或仅信hash。真实31ms等待保1.040010唤醒，后续5.5ms尾段不借前点；200ns非sleep间隙、同坐标异来源/代次和冲突事件负控均覆盖。重复发布的局部分支编号不一致时保守不授点，原生事实/导航/链保留，未宣称跨query编号已可自动对齐。
+
+只读登记新增独立正向终态入口，先通过生产controller的source verify/post-hook取得真实来源终态，再由默认真实planner读取既存测试、登记零修改计划，保存后以新进程恢复执行。原missing-source-terminal负控不改：补证PASS不能倒签来源批。`8a70b9341`先提交入口与说明，来源准备/恢复阶段不调用额外模型，固定双例仍只占一席。
+
+已保留的RED包括背景根因标签、请求量尺丢失、尾睡眠误绑、登记缺来源终态、对账附页IO量尺丢失，以及同值RQ/BIO补充记录被去重。中间测试夹具错误、旧文案pin及共享helper迁移期间编译失败也单独留存，不混称生产缺陷；定向/race通过不倒签这些原件。
+
+同值RQ/BIO公共反例还暴露独立剩余接缝：两条原生记录在ledger都保留，`CompileTraceCausalProjectionSet`的BackgroundCauses进入renderer前已只留RQ量尺。补充正文的两处去重键已保IO量尺及critical-blocking type注释，但**既有投影聚合的独立量尺保留未闭环**，归12.5/16.4/18.4，不以补充区GREEN宣称全部树/表PASS。旧聚合还承担跨view去重及数值所有权，须单独按物理请求身份与异量尺验证后修改，避免为本例破坏既有计量；本轮不扩第三实现轨。
+
+补读参考`config/skills/io_analysis.yaml`与`config/indicators/io/io_latency.yaml`：前者把概况、时延、大小、并发、页缓存与优先级分步骤组合，后者明确从filesystem_io的start/end/duration取请求时延，设计上并非每项都等于线程阻塞。可复用的是“同一准备原件/范围下分别取各类度量再组合”的思路；固定500MB/s、p99阈值或高并发直接称竞争、请求起点BETWEEN双闭等细节不能照搬成本项目的因果或窗口契约。剩余RQ/BIO同值合并要以各自物理请求身份保度量边界，不以字符串长度、数值接近或模型用词判同一事实。
+
+二进制轮换再次对照`server.py:547–720`及`core/hiperf_converter.py:1–145`：设计意图是一次准备后复用同一数据库和明确时间范围；本项目保持内容探测、真实原件与准备收据，不照搬后缀授权、mtime唯一缓存或源旁覆盖。该真实gzip/SQLite例不是外部转换器stub，但仍是合成可核对数据，不能代替实机BRBE/SPE、全尾部和其它平台验收。
+
+### 232.3 首次冻结与双例人工结论（失败不倒签）
+
+首次冻结含`8a70b9341`登记入口、`12af52264`展示资格/量尺和`e93c5040619b`等待实例配对。`build-v1`exit0，revision=`e93c5040619b-dirty`、build=`2026-10-13T01:33:39Z`，dirty仅文档。本机18:34固定两例并行各一次，工具/题目/输入冻结；二进制机器PASS（104s），登记机器FAIL（18.744s包耗时），完整人工0/2，见[人工审计](../../eval/parallel_selected_summary_hmc_fact_caliber_terminal_20261012_manual_audit.md)。本批不再追加第三例求绿，后续确定性补救不改写首次冻结的真实结论。
+
+二进制gzip→SQLite→原生查询链真实成功，两个appid27599成员的2/4帧、起止点与20/60ms均正确，原始时钟未转换，查询回执完整。正文却把规范化`start_ts_ns/end_ts_ns`称为原始marker字段，耗时公式遗漏纳秒到毫秒的除数；上游把阈值“2帧”填成声明条数，调查理由把全捕获15事件说成窗内15事件。两条结果恰好等于阈值不能证明泛化边界通过。原生结果充足，尚未证明模型波动；这些语义/交接债留18.3/18.4，不为此扫描问答关键词或追补单题硬门。跨窗卡顿、实机采样与全尾部不在本次覆盖内。
+
+只读登记真实planner合法读取`value.py`及`test_value.py`后提交零修改和精确assertion_ref；来源批已通过真实验证，子进程证明账本也为verified，但共享工作流将新增只读源码观察误当必须重新定位owner的义务，以`localization_observed_without_owner`把补证批/整体降为unverified。属于已证系统接缝，不是模型误用。子进程在后续fresh invocation、HEAD/diff和结果落盘断言前失败，原目录没有receipt.json，现有workflow.json是父进程恢复前快照；不能冒称已取得完整子进程终态或全部只读检查通过。后续修复须只让经过认证且来源终态真实完成的登记复用来源资格，普通verify-only、缺来源终态、不同run/HEAD及真实owner缺陷仍保负控。
+
+首轮`full-v1`本机18:44:43正式exit1，88测试包PASS、2包FAIL、13无测试包。全量JSONL收齐五根失败：`TestTraceObservationSupportingLabelActualParseOutput`揭示真实退化，展示位置SupportingCoverage不应否定精确链上资格；`TestPTV7SpnSupplementPerOrderFloor`旧正例缺它期望的链上资格；`TestProjectionAdjacentRolePreservesKnownWakeupWithoutDenyingEdge`把真实事件与累计sleep行闭合混为一体；RNB与UXG1两测试仍固定已退役的分散根因标签文案/数量。收齐正式终态后才修改Go，保留原FAIL，不把此轮当完整PASS。
+
+同批补救将显示角色放在精确因果位置之后兜底，明确background/adjacent/context/data-gap/target-state/unproven仍优先，不改变旧proved正例。实际ParseOutput覆盖3种展示角色×15种资格/冲突×中英文90格，并核文档、ledger、投影不变；PTV7仅补原正例的on_chain，原配额/省略数量全保。RNB只迁移共享标签，UXG1只登记减少的旧字面量，不放松证据/排名/覆盖率断言。
+
+### 232.4 同批补救与失败产物保留
+
+`8fd994a47`收口首轮五根回归：display-regression相关/race均PASS；adjacent-green-v2及race-v1的tool/types均PASS；RNB/UXG1定向PASS。原生唤醒事件、精确点和图关系独立验证，累计邻近sleep统计保17/14ms及导航、但不借独立事件作为行闭合；实际31ms单等待正例和200ns微间隔负例保留。adjacent-green-v1/diagnostic-v1是新测试把实际root_cause_context_only误写成root_cause_adjacent的定位错误，原件保留，生产分级不为测试修改。registry-v3四包PASS，覆盖提示快照、typed notes、hot-file等原约束。
+
+登记公开source+test读取→真实planner调度（测试adapter）→独立进程恢复的RED-v3精确复现原live缺陷；末版将纯只读补证与新增源码定位义务分开。仅在独立run登记回执与密封plan/delivery一致、唯一unsliced来源具有实际apply/commit及最新passed verify/report/verified终态、没有额外交付范围或未知applied历史时，当前补证不产生新owner义务。原read anchors保持observed，不改成owner_supported，不改证明账本/来源终态，也不替代每次原生执行的物理HEAD/字节重验。普通verify-only、伪登记、错误root/run/batch/commit、缺来源终态/真实owner缺陷、新修改、额外scope和未决slice均走原保守路径。
+
+独立复核补上active/source悬挂slice、其它批slice-only apply和孤立ApplyRef边界；仅收紧新登记分支，未改全工作流history算法。末版35格（含valid）公共身份/定位矩阵及真实恢复正例通过；另刻意让source owner未验证，子进程仍失败且原生证明已verified，证明二者不可互相代签。失败前defer保存实际子进程plan/report/workflow、PID、当前invocation和只读核对，父进程按独立文件名保留；读失败保error/checked=false，不填假hash。该负控验证失败原件能留下，但不能补造本次历史live已丢的子进程产物。
+
+登记red-v1包含真实终态失败及skeleton教学配置问题，red-v2仍含后者，red-v3仅保实际emit_change_plan公开复现。末版不额外追skeleton自然场景，原两入口兼容测试继续运行。末版related-v1与race-v1的loopkernel/writeflow/truth/orchestrator四包全部正式exit0（orchestrator24.637s/48.982s），包含旧NativeRegistration/WriteNativeBindingPublic、定位/Truth/Completion及结构门。所有确定性补救均发生在首轮live/full结束后，不改两份人工FAIL。
+
+### 232.5 末版冻结、计数与后继范围
+
+末版代码`b8f2ffabc2a4`完成只读登记收口，五笔代码分片已提交。`build-v2`正式exit0，revision=`b8f2ffabc2a4-dirty`、build=`2026-10-13T01:57:53Z`，dirty仅两份文档与两份eval摘要；Go与HEAD一致。`full-v2`在该冻结上完整重跑，本机19:08:51正式exit0：90测试包PASS、13无测试包，全量Action=fail为空，tool563.989s；不是首轮部分PASS拼接。两例live仍属于`e93c5040619b`。六份二进制问题/数据/oracle在末版再次SHA-256全部OK；live启动时九份输入均核对，后续两个登记harness文件的失败留档补救是已提交的明确版本变化，不声称九份全部未改。
+
+五笔代码已普通推送，origin/main从`c8182941c82268fd383d9f6601b16b7dbcd4d860`前进到`b8f2ffabc2a4c416d298899c03406e7912cf463e`；正式exit0，HEAD与origin/main完整SHA一致，无force。87份工具载荷/准备原件/验证与发布收据逐件与源字节比较并SHA-256归档，另对13份登记live原件登记hash；索引为`eval/results/hmc_fact_caliber_terminal_20261012/evidence-sha256-index.txt`，发布收据继续追加。初次归档因日志非UTF-8在读取阶段停止，改为二进制逐行读取后成功；失败收据保留，未转码或重写日志。大产物留本地结果目录，两份统一文档与机器/人工摘要按本批单独提交。
+
+完整父项新增0，仍21项已交付、58开放；18.3由待实施准确更正为部分实施，末版开放状态36待实施/16部分实施/2待验收/3验收中/1持续执行。已交付子能力按四组：同源资格及IO量尺展示；等待实例闭合与原生关系分离；认证只读登记复用已验证来源；失败子进程真实终态留档。第三/四组以确定性公开测试验，未补签本轮live。原五个稳定验收父项与本批两份人工FAIL交叉记账，不重复加到58。
+
+后继双轨按ROI：先补同物理事实的独立IO请求身份/量尺与投影去重（12.5/16.4/18.4），不再仅修单一正文标签；能力轨推进09.4剩余采样来源/分母及字面栈帧展示，既有树和Trace因果投影继续复用。18.3/18.5继续轮换真实二进制尾部/自然登记终态，35格登记回归不代替修后自然模型验收。二进制阈值/声明数量、全局/窗内总体、原始/规范化字段交接留01.3/16.4/18.4；未经重复证据不称模型波动，但不让一次成文误述触发无限局部规则。多来源/有slice登记与其它平台未覆盖范围继续按原任务ID保存。
