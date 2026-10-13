@@ -15,7 +15,7 @@ import (
 func b1626PublicMemberBus(t *testing.T, scope string) *types.BusContext {
 	t.Helper()
 	ctx := suppCoreContext(t)
-	const request = "Analyze worker in 3..3.035 and 3.04..3.08 seconds in this trace."
+	const request = "Analyze worker-200 in 3..3.035 and 3.04..3.08 seconds in this trace."
 	ctx.Mutable = types.NewMutableState(request)
 	ctx.AttachedHitrace = "trace fixture"
 	const windows = `[{"time_start":3,"time_end":3.035,"source_quote":"3..3.035"},{"time_start":3.04,"time_end":3.08,"source_quote":"3.04..3.08"}]`
@@ -25,8 +25,9 @@ func b1626PublicMemberBus(t *testing.T, scope string) *types.BusContext {
 		t.Fatal(err)
 	}
 	payload["entities"] = []string{"worker"}
+	// This exact-target fixture must name its ID; a name-only quote cannot prove PID 200.
 	payload["runtime_targets"] = []map[string]any{{"kind": "thread", "pid": 200, "thread": "worker", "source": "user_explicit", "confidence": 1}}
-	payload["runtime_target_profile"] = map[string]any{"declaration": "named_target", "source_quote": "worker", "confidence": 1}
+	payload["runtime_target_profile"] = map[string]any{"declaration": "named_target", "source_quote": "worker-200", "confidence": 1}
 	raw, _ = json.Marshal(payload)
 	result, err := (&EmitAnalysis{}).Execute(ctx, raw)
 	if err != nil || !result.Success {
