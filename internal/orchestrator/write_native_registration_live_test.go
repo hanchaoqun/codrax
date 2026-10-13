@@ -23,7 +23,18 @@ import (
 // mock PASS. Public emit/apply + real Git/native execution prepare the source;
 // only controller dispatch can mint registration or execution authority.
 func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
-	out := os.Getenv("CODRAX_LIVE_REGISTRATION_EVAL_DIR")
+	runNativeRegistrationLiveEvaluation(t, os.Getenv("CODRAX_LIVE_REGISTRATION_EVAL_DIR"), false)
+}
+
+// This is the positive terminal counterpart, not a replacement for the
+// missing-source-terminal control above. The distinct opt-in prevents a
+// broad test selection from accidentally spending a second live-eval slot.
+func TestNativeRegistrationLiveRestoredTerminal(t *testing.T) {
+	runNativeRegistrationLiveEvaluation(t, os.Getenv("CODRAX_LIVE_REGISTRATION_TERMINAL_EVAL_DIR"), true)
+}
+
+func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTerminal bool) {
+	t.Helper()
 	if out == "" {
 		t.Skip("explicit live evaluation not requested")
 	}
@@ -63,7 +74,11 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 		t.Fatal(err)
 	}
 	const question = "实现已修好，请运行保留的现有测试，确认返回值正确。不要再修改源码、测试、配置或依赖。"
-	save("evaluation.json", map[string]any{"kind": "restored_native_registration_planner", "model": adapter.ModelID(), "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": "scripted_verify_then_finish"})
+	kind := "restored_native_registration_planner"
+	if sourceTerminal {
+		kind = "native_registration_restored_terminal"
+	}
+	save("evaluation.json", map[string]any{"kind": kind, "model": adapter.ModelID(), "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": "scripted_verify_then_finish", "source_terminal_verification": sourceTerminal})
 	f := newControllerRegistrationFixture(t)
 	o, mu := f.o, f.o.busCtx.Mutable
 	mu.SetObjective(question)
@@ -109,24 +124,36 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 			}
 		}
 	}()
-	steps := 0
-	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "proof", Purpose: "verification_proof_followup", ExpectedPaths: []string{"value.py"}}, &steps); err != nil {
-		t.Fatal(err)
+	if sourceTerminal {
+		runNativeRegistrationTerminalPlanning(t, f, planner, planningSkill, func(report *types.ChangeReport, run *types.WriteWorkflowRun) {
+			if report == nil || !report.Passed || report.PlanID != f.source.ID {
+				t.Fatal("source controller terminal report is unavailable")
+			}
+			save("source-verify-report.json", report)
+			save("source-verified-workflow.json", run)
+		})
+	} else {
+		steps := 0
+		if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "proof", Purpose: "verification_proof_followup", ExpectedPaths: []string{"value.py"}}, &steps); err != nil {
+			t.Fatal(err)
+		}
+		plan := mu.ChangePlan()
+		if steps != 1 || !types.IsPersistedNativeTestRegistrationPlan(plan) || len(plan.Changes) != 0 || mu.NativeTestRegistrationAuthorization() != nil || mu.ChangeReport() != nil {
+			t.Fatalf("planner did not return an independent read-only registration: plan=%+v", plan)
+		}
+		run := mu.WriteWorkflowRun()
+		o.stampWorkflowPlanForActiveBatch(plan, run)
+		updateWorkflowRunBatchPlan(run, run.ActiveBatchID, plan, f.source)
+		o.stampCumulativeVerificationScope(plan, run, f.source)
+		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
+		promoteActiveProofProbeOnlyBatchToVerifyOnly(run)
+		mu.SetWriteWorkflowRun(run)
 	}
 	plan := mu.ChangePlan()
-	if steps != 1 || !types.IsPersistedNativeTestRegistrationPlan(plan) || len(plan.Changes) != 0 || mu.NativeTestRegistrationAuthorization() != nil || mu.ChangeReport() != nil {
-		t.Fatalf("planner did not return an independent read-only registration: plan=%+v", plan)
-	}
 	run := mu.WriteWorkflowRun()
-	o.stampWorkflowPlanForActiveBatch(plan, run)
-	updateWorkflowRunBatchPlan(run, run.ActiveBatchID, plan, f.source)
-	o.stampCumulativeVerificationScope(plan, run, f.source)
-	updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
-	promoteActiveProofProbeOnlyBatchToVerifyOnly(run)
-	mu.SetWriteWorkflowRun(run)
 	save("before-restart-plan.json", plan)
 	save("before-restart-workflow.json", run)
-	report := f.restart(t)
+	report := f.restartExpectingSourceTerminal(t, sourceTerminal)
 	plan = o.busCtx.Mutable.ChangePlan()
 	if report == nil || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
 		t.Fatal("fresh execution did not prove the original required behavior")
@@ -142,5 +169,5 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 		t.Fatal("registration changed retained source/tests")
 	}
 	completedRun := o.busCtx.Mutable.WriteWorkflowRun()
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true})
+	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal})
 }
