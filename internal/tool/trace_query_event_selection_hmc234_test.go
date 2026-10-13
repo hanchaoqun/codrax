@@ -91,12 +91,18 @@ func TestHMC234EventSelectionExactQuoteMatrix(t *testing.T) {
 	}
 }
 
-func TestHMC234EventSelectionPreservesNonEnumerationAndCausalQueries(t *testing.T) {
+func TestHMC234EventSelectionPreservesCausalQueriesButProtectsBoundedListings(t *testing.T) {
 	for _, scope := range []types.RuntimeQuestionScope{types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeBoundedFactSet} {
 		ctx := hmc234SelectionContext(t, "analyze the captured work")
 		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = scope
 		ctx.AnalysisIR.RequestModel.Predicates.IsCountQuestion = false
 		got := hmc234SelectionQuery(t, ctx, `[{"field":"appid","op":"eq","value":"42"}]`)
+		if scope == types.RuntimeQuestionScopeBoundedFactSet {
+			if got.Success || got.Repair == nil || got.Repair.Code != types.ToolRepairCodeTraceEventSelectionSourceRequired {
+				t.Fatalf("bounded listing bypassed the population check through count=false: %+v", got)
+			}
+			continue
+		}
 		if !got.Success || !strings.Contains(got.Summary, "matched_total=3") {
 			t.Fatalf("non-enumeration query changed: %+v", got)
 		}
