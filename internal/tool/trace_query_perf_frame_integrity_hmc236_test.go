@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,4 +51,31 @@ func TestPerfFrameIntegrityPublicHandoffHMC236(t *testing.T) {
 	if evidenceFound == 0 {
 		t.Fatal("public generic evidence path was not exercised")
 	}
+}
+
+func TestPerfQualityCaptureIssueSurvivesPromptBudgetHMC236(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture-quality.perftrace")
+	body := "worker-11 (10) [000] .... 1.1: perf_sample: pid=10 tid=11 cpu=0 cpu_known=true sample_kind=on_cpu sample_weight=99 event=cycles symbol=work dso=a.so callchain=\"root;work\" source=raw callchain_status=symbolized parser_caveats=\"lost_events_status=aggregate_overflow; lost_samples=5\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, _, _ := hmc17NamedPathContext(t)
+	r := hmc17NamedQuery(t, ctx, map[string]any{"source": "path", "path": path, "view": "perf_stats", "pid": 11, "time_start": 1, "time_end": 2})
+	if !r.Success {
+		t.Fatal(r.Summary)
+	}
+	for _, observation := range r.Observations {
+		if observation.Predicate != "perf_sample_top_symbol" || observation.Value != "99" {
+			continue
+		}
+		projected := types.ProjectObservationPromptRecords([]types.ObservationRecord{observation}, nil, nil, types.DefaultObservationPromptProjectionOptions(1))
+		if len(projected) != 1 || !strings.Contains(strings.Join(projected[0].Notes, " "), "lost_events_status=aggregate_overflow") {
+			t.Fatalf("generic frame teaching consumed the capture-quality note budget: %+v", projected)
+		}
+		if !strings.Contains(strings.Join(observation.RichNotes, " "), "not proof of exact frames or complete unwinding") {
+			t.Fatal("reordering must retain native frame-boundary teaching")
+		}
+		return
+	}
+	t.Fatal("public sampling quality observation was not emitted")
 }

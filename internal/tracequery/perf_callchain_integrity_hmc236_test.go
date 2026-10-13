@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -154,5 +155,50 @@ func TestPerfCallchainIntegrityFailureKindsHMC236(t *testing.T) {
 		if r.PerfSamplingTree.Cohorts[0].UnavailableReasons[tc.reason] != 1 {
 			t.Fatalf("tree/flat failure classification diverged for %s", tc.reason)
 		}
+	}
+}
+
+func TestPerfQualityObservedFailuresPrecedeFrameTeachingHMC236(t *testing.T) {
+	for _, withIntegrity := range []bool{false, true} {
+		q := PerfQualitySummary{
+			FrameStatuses: []PerfValueCount{{Value: "exact_frames", SampleCount: 1}},
+			ParserCaveats: []PerfValueCount{
+				{Value: "lost_events_status=aggregate_overflow", SampleCount: 1},
+				{Value: "capture_metadata_unavailable", SampleCount: 1},
+			},
+		}
+		if withIntegrity {
+			q.InputIntegrityIssues = []PerfValueCount{{Value: "cpu_duplicate_conflict", SampleCount: 1}}
+		}
+		caveats := perfQualityCaveats(q)
+		parserIndex := 0
+		if withIntegrity {
+			parserIndex++
+			if !strings.HasPrefix(caveats[0], "perf_text_integrity_degraded=true") {
+				t.Fatalf("generic teaching displaced observed input corruption: %v", caveats)
+			}
+		}
+		if !strings.Contains(caveats[parserIndex], "lost_events_status=aggregate_overflow") ||
+			!strings.Contains(caveats[parserIndex+1], "2 distinct bounded caveat set(s)") ||
+			caveats[len(caveats)-1] != PerfCallchainIntegrityTeaching {
+			t.Fatalf("observed capture facts must precede but not discard frame teaching: %v", caveats)
+		}
+	}
+}
+
+func TestPerfQualityFrameTeachingPreservesAllExistingCaveatPrefixHMC236(t *testing.T) {
+	q := PerfQualitySummary{
+		CPUUnknownCount:       1,
+		SymbolizationStatuses: []PerfValueCount{{Value: "unsymbolized", SampleCount: 1}},
+		SampleKinds:           []PerfValueCount{{Value: "off_cpu", SampleCount: 1}, {Value: "unknown", SampleCount: 1}},
+		CallchainStatuses:     []PerfValueCount{{Value: "missing", SampleCount: 1}},
+		ClockConfidences:      []PerfValueCount{{Value: "assumed", SampleCount: 1}},
+		WeightUnits:           []PerfValueCount{{Value: "sample_count_unweighted", SampleCount: 1}},
+	}
+	before := perfQualityCaveats(q)
+	q.FrameStatuses = []PerfValueCount{{Value: "missing", SampleCount: 1}}
+	after := perfQualityCaveats(q)
+	if len(before) < 8 || len(after) != len(before)+1 || !reflect.DeepEqual(after[:len(before)], before) || after[len(before)] != PerfCallchainIntegrityTeaching {
+		t.Fatalf("new general teaching displaced an existing native quality boundary: before=%v after=%v", before, after)
 	}
 }

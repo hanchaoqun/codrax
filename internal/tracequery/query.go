@@ -4726,9 +4726,6 @@ func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64, weight
 
 func perfQualityCaveats(q PerfQualitySummary) []string {
 	var out []string
-	if len(q.FrameStatuses) > 0 {
-		out = append(out, PerfCallchainIntegrityTeaching)
-	}
 	if len(q.InputIntegrityIssues) > 0 {
 		out = append(out, "perf_text_integrity_degraded=true issues="+perfIntegrityIssueLabels(q.InputIntegrityIssues, 8)+"; affected typed thread/CPU/weight/sample-kind dimensions were withdrawn rather than inferred")
 	}
@@ -4764,6 +4761,11 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 		out = append(out, "perf samples with invalid or missing sample_weight contribute unweighted sample-count inventory only")
 	}
 	out = append(out, "perf period/sample_weight values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
+	// Preserve the complete ordered prefix of existing quality boundaries;
+	// new general guidance must not displace them in bounded display lanes.
+	if len(q.FrameStatuses) > 0 {
+		out = append(out, PerfCallchainIntegrityTeaching)
+	}
 	return out
 }
 
