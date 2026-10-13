@@ -17,13 +17,14 @@ func renderAnswerDocScopedTraceEventInventories(ctx *types.AgentContext, accepte
 }
 
 func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accepted, principal types.ObservationLedger) (string, map[string]bool) {
+	bridge := buildTraceEventPublicationBridge(ctx)
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return renderAnswerDocTraceEventInventoryView(principal)
+		return renderAnswerDocTraceEventInventoryPublicationView(principal, bridge)
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	p := rm.RuntimeQuestionProfile
 	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !answerDocHasUserRuntimeTarget(rm) {
-		return renderAnswerDocTraceEventInventoryView(principal)
+		return renderAnswerDocTraceEventInventoryPublicationView(principal, bridge)
 	}
 	// Unlike whole-window aggregates, inventories contain individual events.
 	// Project those points below instead of rejecting an entire receipt whose
@@ -35,7 +36,7 @@ func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accep
 			view.Records = append(view.Records, row)
 		}
 	}
-	return renderAnswerDocTraceEventInventoryView(view, rm)
+	return renderAnswerDocTraceEventInventoryPublicationView(view, bridge, rm)
 }
 
 type traceInventoryScopeProjection struct {

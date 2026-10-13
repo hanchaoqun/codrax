@@ -16,8 +16,8 @@ type traceEventSelectorMembers struct {
 	rows   map[string][]string
 }
 
-func traceEventInventorySelectorMembers(record types.ObservationRecord) *traceEventSelectorMembers {
-	publication, valid := traceEventInventoryVerifiedPublication(record)
+func traceEventInventorySelectorMembers(record types.ObservationRecord, bridges ...traceEventPublicationBridge) *traceEventSelectorMembers {
+	publication, valid := traceEventInventoryVerifiedPublication(record, bridges...)
 	if !valid || len(publication.Tables) != 1 {
 		return nil
 	}

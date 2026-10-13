@@ -27,6 +27,10 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 // Complete metadata IDs let the enclosing prompt avoid printing the same
 // accepted inventory envelope twice. The audit ledger remains untouched.
 func renderAnswerDocTraceEventInventoryView(ledger types.ObservationLedger, requests ...*types.RequestModel) (string, map[string]bool) {
+	return renderAnswerDocTraceEventInventoryPublicationView(ledger, nil, requests...)
+}
+
+func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationLedger, bridge traceEventPublicationBridge, requests ...*types.RequestModel) (string, map[string]bool) {
 	var records []types.ObservationRecord
 	seen := make(map[string]bool)
 	for _, record := range ledger.Records {
@@ -69,8 +73,8 @@ func renderAnswerDocTraceEventInventoryView(ledger types.ObservationLedger, requ
 	for n, record := range records {
 		// Validate against the complete accepted inventory before the separate
 		// request-scoped display projection changes its retained row list.
-		producerNotes[n] = traceEventInventoryPromptNotes(record)
-		selectorMembers[n] = traceEventInventorySelectorMembers(record)
+		producerNotes[n] = traceEventInventoryPromptNotes(record, bridge)
+		selectorMembers[n] = traceEventInventorySelectorMembers(record, bridge)
 		originalRows[n] = len(record.EventSearchInventory.Rows)
 	}
 	if len(requests) == 1 && requests[0] != nil {

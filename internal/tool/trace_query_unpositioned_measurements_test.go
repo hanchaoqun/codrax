@@ -125,8 +125,30 @@ func TestUnpositionedMeasurementsPublicScopeAndNoPopulationAuthority(t *testing.
 	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{result}, RequestModel: &types.RequestModel{RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
 		RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, SourceQuote: "explicit interval"}}}
 	choices := types.BuildRuntimeMeasurementContract(input).Choices()
-	if len(choices) != 1 || choices[0].DefaultPresentation || choices[0].MemberSet != nil {
-		t.Fatalf("scan scope promoted unknown source time or completion: %+v", choices)
+	if len(choices) != 2 {
+		t.Fatalf("expected native event inventory and unpositioned measurement display, got %d", len(choices))
+	}
+	var unpositioned, inventory bool
+	for _, choice := range choices {
+		if choice.DefaultPresentation || choice.MemberSet != nil || choice.DisplayPopulation != nil || choice.HasCompleteNativeDisplayPopulation() || choice.CoversMemberSet(input.RequestModel) {
+			t.Fatalf("scan scope promoted unknown source time or completion: %+v", choice)
+		}
+		if choice.ObservationID == record.ID {
+			unpositioned = true
+			if len(choice.Rows) != 1 || choice.Rows[0][8] != "未知（NULL）" || !strings.Contains(choice.Label, "time scope unverified") {
+				t.Fatalf("unpositioned source time gained a query coordinate: %+v", choice)
+			}
+		} else if choice.EventData != nil {
+			inventory = true
+			if len(choice.Rows) != len(native.Events) || !strings.Contains(choice.Rows[0][0], "trace_time_unpositioned") {
+				t.Fatalf("event display lost members or promoted an ordering coordinate: %+v", choice)
+			}
+		} else {
+			t.Fatalf("unexpected measurement display: %+v", choice)
+		}
+	}
+	if !unpositioned || !inventory {
+		t.Fatal("missing original or native event display")
 	}
 	p, _ := types.DecodeRuntimeMeasurementPublication(record)
 	p.Tables[0].MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "invented", RowIDs: []string{"9"}, TotalRows: 1, Complete: true}
