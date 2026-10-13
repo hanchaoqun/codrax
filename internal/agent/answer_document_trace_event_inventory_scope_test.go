@@ -117,6 +117,9 @@ func TestTraceEventInventoryScopeActualFinalizerKeepsNamedTargetBusinessFields(t
 		t.Fatalf("named-target actual finalizer lost its three eligible business rows: views=%+v", views)
 	}
 	view := views[0]
+	if !reflect.DeepEqual(view.SelectorRowIDs, []string{"event-2", "event-5", "event-6"}) {
+		t.Fatalf("scope projection renumbered original native selectors: %v", view.SelectorRowIDs)
+	}
 	if !reflect.DeepEqual(view.Source, original.SourceRef) || !reflect.DeepEqual(view.Inventory.Query, original.EventSearchInventory.Query) ||
 		!reflect.DeepEqual(view.Inventory.Coverage, original.EventSearchInventory.Coverage) {
 		t.Fatal("prompt projection rewrote original source/query/coverage")

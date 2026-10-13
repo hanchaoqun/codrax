@@ -12,13 +12,18 @@ import (
 // waker, destination or text. Retain a separate, row-owned writing view rather
 // than admitting the whole inventory into the principal observation pool.
 func renderAnswerDocScopedTraceEventInventories(ctx *types.AgentContext, accepted, principal types.ObservationLedger) string {
+	text, _ := renderAnswerDocScopedTraceEventInventoryView(ctx, accepted, principal)
+	return text
+}
+
+func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accepted, principal types.ObservationLedger) (string, map[string]bool) {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return renderAnswerDocTraceEventInventories(principal)
+		return renderAnswerDocTraceEventInventoryView(principal)
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	p := rm.RuntimeQuestionProfile
 	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !answerDocHasUserRuntimeTarget(rm) {
-		return renderAnswerDocTraceEventInventories(principal)
+		return renderAnswerDocTraceEventInventoryView(principal)
 	}
 	// Unlike whole-window aggregates, inventories contain individual events.
 	// Project those points below instead of rejecting an entire receipt whose
@@ -30,7 +35,7 @@ func renderAnswerDocScopedTraceEventInventories(ctx *types.AgentContext, accepte
 			view.Records = append(view.Records, row)
 		}
 	}
-	return renderAnswerDocTraceEventInventories(view, rm)
+	return renderAnswerDocTraceEventInventoryView(view, rm)
 }
 
 type traceInventoryScopeProjection struct {

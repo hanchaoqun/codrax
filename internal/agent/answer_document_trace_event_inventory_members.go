@@ -15,6 +15,9 @@ import (
 type traceInventoryMembers struct {
 	rows []types.TraceEventSearchInventoryRow
 	refs [][]string
+	// Positions address each query's projected rows before display clipping.
+	// They retain multiplicity when several members share a display object.
+	positions [][]int
 }
 
 type traceInventoryDisplayKey struct{ source, row [sha256.Size]byte }
@@ -42,7 +45,7 @@ func traceEventInventoryMembers(records []types.ObservationRecord) traceInventor
 		}
 	}
 	selected := make(map[traceInventoryDisplayKey]string)
-	out := traceInventoryMembers{refs: make([][]string, len(records))}
+	out := traceInventoryMembers{refs: make([][]string, len(records)), positions: make([][]int, len(records))}
 	// Fairness is by query and original row order, not a heuristic relevance
 	// score. Previously selected objects do not consume another display slot.
 	for row := 0; row < maxRows && len(out.rows) < traceEventInventoryPromptRowLimit; row++ {
@@ -61,9 +64,10 @@ func traceEventInventoryMembers(records []types.ObservationRecord) traceInventor
 	// an earlier query. Never infer membership from source/time proximity.
 	for n := range records {
 		out.refs[n] = []string{}
-		for _, key := range keys[n] {
+		for position, key := range keys[n] {
 			if id := selected[key]; id != "" {
 				out.refs[n] = append(out.refs[n], id)
+				out.positions[n] = append(out.positions[n], position)
 			}
 		}
 	}

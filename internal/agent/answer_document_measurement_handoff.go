@@ -42,8 +42,17 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- For measured summaries, members, distributions or changes over time, prefer the optional runtime_measurement selector instead of retyping numbers. It renders all retained producer rows, including source/window, units, unknown values and omissions. Choose only views needed for the question. Reuse those same source-bound event points and state intervals in prose and diagrams; a wakeup point is not a switch-in, and a window endpoint is not a proven event. Preserve every relevant frequency interval and its published unit rather than reconstructing a timeline from totals or the final sample. Keep interpretation in adjacent prose; this is not a dependency or root-cause proof. No source evidence_items are needed for these runtime tables.\n")
 	b.WriteString("- JSON shape: {\"kind\":\"table\",\"runtime_measurement\":{\"observation_id\":\"<published ID>\",\"view\":\"summary\"}}. Choose only published observation_id/view combinations: members lists the producer's accepted interval or endpoint witnesses; distribution uses its labeled measure and denominator (event sizes and time spent at a thread count are different populations); timeline shows its labeled quantity over declared intervals/buckets, respecting its endpoint policy. Bucket peaks, duration-weighted means and endpoint rates are distinct. Omit text/items/columns/diagram/runtime_work_relation on that table; these are alternative payloads, not extra required fields. The system fills data. Never reconstruct members from thread-name resemblance or depth alone.\n")
+	for _, table := range choices {
+		if table.EventData != nil {
+			b.WriteString("- Native event facts additionally accept event_selection on an available summary/table/diagram. Example: {\"kind\":\"summary\",\"runtime_measurement\":{\"observation_id\":\"<published event ID>\",\"view\":\"members\",\"event_selection\":{\"row_ids\":[\"<published row ID>\"],\"field_keys\":[\"<published field key>\"]}}}. Reuse this selector for each needed surface instead of copying app/process identities or numbers. For counts, replace field_keys with group_by; the system counts exactly those retained rows. Omitted row_ids means all retained rows, not all matches beyond a display limit. Empty selection uses all retained rows and fields. Choose fields that answer the business question. Omit text/items/columns/diagram and causal metadata; if a principal summary requires trace_causal_claim_caliber, use only no_causal_conclusion. A fact diagram has no causal edges and cannot replace a required relationship diagram. Keep interpretation in a separate block.\n")
+			b.WriteString("- Event selectors reuse their own query's selector_row_ids aligned with row_refs in Trace Event Search Inventories; display_rows supplies the native fields. IDs are local to observation_id, not event identity across queries. Omit row_ids for every retained row; never reconstruct unseen values. Each scope_ref resolves an exact note below and applies only to the table referencing it; shared text never merges sources, windows or populations.\n")
+			break
+		}
+	}
 	seen := map[string]bool{}
 	previewed := map[string]bool{}
+	eventCatalogs := map[string]string{}
+	eventNotes := map[string]string{}
 	previewRows := 0
 	for i, table := range choices {
 		count := previewCounts[i]
@@ -51,6 +60,27 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 			previewed[table.ObservationID] = true
 		}
 		seen[table.ObservationID] = true
+		if table.EventData != nil {
+			fields, _ := json.Marshal(table.EventData.Fields)
+			catalog := eventCatalogs[string(fields)]
+			if catalog == "" {
+				catalog = fmt.Sprintf("event-fields-%d", len(eventCatalogs)+1)
+				eventCatalogs[string(fields)] = catalog
+				fmt.Fprintf(&b, "- native_event_fields %s=%s\n", catalog, fields)
+			}
+			var scopeRefs []string
+			for _, note := range table.Notes {
+				ref := eventNotes[note]
+				if ref == "" {
+					ref = fmt.Sprintf("event-scope-%d", len(eventNotes)+1)
+					eventNotes[note] = ref
+					fmt.Fprintf(&b, "- %s: %s\n", ref, note)
+				}
+				scopeRefs = append(scopeRefs, ref)
+			}
+			fmt.Fprintf(&b, "- observation_id=%q view=%q; field_catalog=%s; retained_rows=%d; scope_refs=%s\n", table.ObservationID, table.View, catalog, len(table.Rows), strings.Join(scopeRefs, ","))
+			continue
+		}
 		rows := table.Rows[:count]
 		previewRows += count
 		preview, _ := json.Marshal(struct {
@@ -111,6 +141,9 @@ func runtimeMeasurementHandoffPreviewRows(tables []types.RuntimeMeasurementTable
 			priority = 0
 		}
 		groups[i] = types.PresentationRowGroup{Key: table.ObservationID + ":" + string(table.View), ParentKey: table.ObservationID, Rows: len(table.Rows), Priority: priority}
+		if table.EventData != nil {
+			groups[i].Rows = 0 // Already shared through the inventory's row_refs.
+		}
 	}
 	return types.AllocatePresentationRows(groups, 128)
 }

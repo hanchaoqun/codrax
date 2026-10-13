@@ -20,6 +20,13 @@ const traceEventInventoryPromptByteLimit = 128 * 1024
 // an answer generator. Keep each producer query's count and members together;
 // neither the general top-observation budget nor a model aggregate owns them.
 func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, requests ...*types.RequestModel) string {
+	text, _ := renderAnswerDocTraceEventInventoryView(ledger, requests...)
+	return text
+}
+
+// Complete metadata IDs let the enclosing prompt avoid printing the same
+// accepted inventory envelope twice. The audit ledger remains untouched.
+func renderAnswerDocTraceEventInventoryView(ledger types.ObservationLedger, requests ...*types.RequestModel) (string, map[string]bool) {
 	var records []types.ObservationRecord
 	seen := make(map[string]bool)
 	for _, record := range ledger.Records {
@@ -41,7 +48,7 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 		records = append(records, record)
 	}
 	if len(records) == 0 {
-		return ""
+		return "", nil
 	}
 	var b strings.Builder
 	b.WriteString("### Trace Event Search Inventories\n\n")
@@ -56,6 +63,16 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 		records = records[:traceEventInventoryPromptQueryLimit]
 	}
 	projections := make([]*traceInventoryScopeProjection, len(records))
+	producerNotes := make([][]string, len(records))
+	selectorMembers := make([]*traceEventSelectorMembers, len(records))
+	originalRows := make([]int, len(records))
+	for n, record := range records {
+		// Validate against the complete accepted inventory before the separate
+		// request-scoped display projection changes its retained row list.
+		producerNotes[n] = traceEventInventoryPromptNotes(record)
+		selectorMembers[n] = traceEventInventorySelectorMembers(record)
+		originalRows[n] = len(record.EventSearchInventory.Rows)
+	}
 	if len(requests) == 1 && requests[0] != nil {
 		for n := range records {
 			request := *requests[0]
@@ -71,6 +88,7 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 		b.WriteString("- " + skill.TraceResourceObservationContract + "\n")
 	}
 	b.WriteString("- Each inventory.row_refs lists its members in original order; resolve each ID in display_rows below. Identical full rows under the same source/clock envelope share display storage only: a shared ID is not a unique-event identity or a reason to merge counts, scopes, generations or causes. There are at most 32 display objects, selected round-robin across queries; repeated references cost no extra object. prompt_metadata_omission identifies omitted fields and the SHA-256/byte length of their original JSON, not replacement values. Omitted metadata is not an exact source/filter reference. Full accepted receipts remain in the ledger.\n")
+	b.WriteString("- When inventory.selector_row_ids is present, zip it with inventory.row_refs in order: each selector ID addresses that exact original-query member for runtime_measurement.event_selection.row_ids. IDs remain local to observation_id, even when different queries share a display object. Absent IDs offer no selector correspondence; shared display storage does not combine membership or counts.\n")
 	members := traceEventInventoryMembers(records)
 	// Reserve half the remaining bytes for all query summaries before any
 	// member consumes space. The remainder is shared by the selected rows.
@@ -99,7 +117,7 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 			PromptRowsShown   int                              `json:"prompt_rows_shown"`
 			PromptRowsOmitted int                              `json:"prompt_rows_omitted"`
 			ScopeProjection   *traceInventoryScopeProjection   `json:"prompt_scope_projection,omitempty"`
-		}{record.ID, record.ObservedAt, record.SourceRef, inventory, record.RichNotes, count, inventory.Coverage.Emitted - count, projections[n]}
+		}{record.ID, record.ObservedAt, record.SourceRef, inventory, producerNotes[n], count, inventory.Coverage.Emitted - count, projections[n]}
 		views[n] = traceEventInventoryBoundedPromptObject(view, summaryBudget)
 		projected := views[n]["inventory"].(map[string]any)
 		// Only rename the legacy envelope on the model-facing copy. Durable
@@ -114,6 +132,9 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 		}
 		delete(projected, "rows")
 		projected["row_refs"] = members.refs[n]
+		if ids := selectorMembers[n].selectIDs(record, members.positions[n]); ids != nil {
+			projected["selector_row_ids"] = ids
+		}
 		data, _ := json.Marshal(views[n])
 		remaining -= len(data) + 3 // '- ' and newline
 	}
@@ -151,7 +172,17 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 	b.Write(data)
 	b.WriteByte('\n')
 	fmt.Fprintf(&b, "- query_receipts_shown=%d; prompt_member_rows=%d/%d; objects_with_metadata_omissions=%d; inventory_section_byte_limit=%d. Preview omissions never change the original query counts, completeness or causal authority.\n\n", len(records), rowCount, traceEventInventoryPromptRowLimit, metadataOmissions, traceEventInventoryPromptByteLimit)
-	return b.String()
+	complete := map[string]bool{}
+	if metadataOmissions == 0 {
+		for n, record := range records {
+			// Only a verified publication whose entire original member list is
+			// displayed can replace the generic inventory metadata paragraph.
+			if selectorMembers[n] != nil && len(members.refs[n]) == originalRows[n] {
+				complete[record.ID] = true
+			}
+		}
+	}
+	return b.String(), complete
 }
 
 // Prefer producer-parsed fields, including rows whose raw preview is truncated.

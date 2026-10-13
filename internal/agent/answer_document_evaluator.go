@@ -5750,7 +5750,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	outsideSelectedWindowRecords += outsideIOQueryWindows
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
-	inventoryPrompt := renderAnswerDocScopedTraceEventInventories(ctx, ledger, promptLedger)
+	inventoryPrompt, publishedInventoryMetadata := renderAnswerDocScopedTraceEventInventoryView(ctx, ledger, promptLedger)
 	// Independent completion-closed waits keep their established causal and
 	// blocking rulers even when the query's statistical population is unknown.
 	// This separate pool must never feed requested facts or occupancy totals.
@@ -5900,6 +5900,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 	}
 	for _, record := range records {
+		if publishedInventoryMetadata[record.ID] && record.Claim == types.TraceEventSearchInventoryPredicate {
+			continue // Same verified envelope already displayed in full above.
+		}
 		fmt.Fprintf(&b,
 			"- `%s`: origin=`%s`; producer=`%s`; source=`%s`; role=`%s`; policy=`%s`",
 			record.ID,

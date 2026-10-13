@@ -81,7 +81,7 @@ func TestTraceEventInventoryActualFinalizerKeepsMainQueryAfterNarrowDrilldowns(t
 		view, found := byScope[record.SourceRef.QueryScopeID]
 		original := record.EventSearchInventory
 		if !found || !reflect.DeepEqual(view.Source, record.SourceRef) || !reflect.DeepEqual(view.Inventory.Query, original.Query) ||
-			view.ObservedAt != record.ObservedAt || !reflect.DeepEqual(view.ProducerNotes, record.RichNotes) ||
+			view.ObservedAt != record.ObservedAt || !reflect.DeepEqual(view.ProducerNotes, traceEventInventoryPromptNotes(record)) ||
 			!reflect.DeepEqual(view.Inventory.Coverage, original.Coverage) || !reflect.DeepEqual(view.Inventory.Rows, original.Rows) || !view.Inventory.RowsComplete || view.PromptRowsOmitted != 0 {
 			t.Fatalf("actual model request lost source, original/matched window, exact event-name filter or member detail: %+v", view)
 		}
@@ -154,7 +154,7 @@ func TestTraceEventInventoryActualFinalizerKeepsWindowAndSourceGuards(t *testing
 			}
 		}
 		if original.EventSearchInventory == nil || !reflect.DeepEqual(view.Source, original.SourceRef) || !reflect.DeepEqual(view.Inventory, original.EventSearchInventory) ||
-			view.ObservedAt != original.ObservedAt || !reflect.DeepEqual(view.ProducerNotes, original.RichNotes) || view.Source.Path != path {
+			view.ObservedAt != original.ObservedAt || !reflect.DeepEqual(view.ProducerNotes, traceEventInventoryPromptNotes(original)) || view.Source.Path != path {
 			t.Fatalf("lookup query %d changed its own source/window/generation: %+v", n, view)
 		}
 		notes := strings.Join(view.ProducerNotes, "\n")

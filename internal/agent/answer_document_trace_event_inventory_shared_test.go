@@ -55,9 +55,37 @@ func TestTraceEventInventoryOverlappingPublicQueriesKeepCompletionEndpoints(t *t
 			!reflect.DeepEqual(view.Inventory, original.EventSearchInventory) || view.PromptRowsOmitted != 0 || view.PromptRowsShown != 14 {
 			t.Fatalf("overlap lost complete member list / completion endpoint: %+v", view)
 		}
+		for n := range view.Inventory.Rows {
+			if len(view.SelectorRowIDs) != len(view.Inventory.Rows) || view.SelectorRowIDs[n] != fmt.Sprintf("event-%d", n+1) {
+				t.Fatalf("shared display lost original query-local member selector: %v", view.SelectorRowIDs)
+			}
+		}
 	}
-	if !strings.Contains(prompt, "prompt_member_rows=14/32") || len(prompt) > traceEventInventoryPromptByteLimit {
-		t.Fatal("repeated members consumed display budget")
+	// This budget belongs to the inventory section, not the full finalizer
+	// instruction (which also contains independent measurement and schema views).
+	sectionStart := strings.Index(prompt, "### Trace Event Search Inventories\n")
+	const sectionTrailer = "Preview omissions never change the original query counts, completeness or causal authority.\n\n"
+	sectionEnd := strings.Index(prompt, sectionTrailer)
+	if sectionStart < 0 || sectionEnd < sectionStart {
+		t.Fatal("actual finalizer lost the bounded inventory section")
+	}
+	section := prompt[sectionStart : sectionEnd+len(sectionTrailer)]
+	t.Logf("bounded prompt bytes=%d; inventory bytes=%d", len(prompt), len(section))
+	if !strings.Contains(section, "prompt_member_rows=14/32") || len(section) > traceEventInventoryPromptByteLimit {
+		t.Fatalf("repeated members consumed display budget: section_bytes=%d", len(section))
+	}
+	if len(prompt) > traceEventInventoryPromptByteLimit {
+		var sections strings.Builder
+		heading, size := "initial", 0
+		for _, line := range strings.SplitAfter(prompt, "\n") {
+			if strings.HasPrefix(line, "##") {
+				fmt.Fprintf(&sections, "%s: %d bytes\n", heading, size)
+				heading, size = strings.TrimSpace(line), 0
+			}
+			size += len(line)
+		}
+		fmt.Fprintf(&sections, "%s: %d bytes\n", heading, size)
+		t.Fatalf("selector roster repeated shared facts outside inventory: total_prompt_bytes=%d\n%s", len(prompt), sections.String())
 	}
 	afterLedger := answerDocObservationLedger(ctx)
 	after, _ := json.Marshal([]any{afterLedger, types.CompileTraceCausalProjectionSet(afterLedger)})

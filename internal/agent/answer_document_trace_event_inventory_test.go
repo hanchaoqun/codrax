@@ -106,6 +106,7 @@ type traceEventInventoryPromptView struct {
 	ProducerNotes     []string                         `json:"producer_notes,omitempty"`
 	PromptRowsShown   int                              `json:"prompt_rows_shown"`
 	PromptRowsOmitted int                              `json:"prompt_rows_omitted"`
+	SelectorRowIDs    []string                         `json:"-"`
 }
 
 func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInventoryPromptView {
@@ -155,13 +156,15 @@ func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInv
 		}
 		var membership struct {
 			Inventory struct {
-				Refs []string `json:"row_refs"`
+				Refs           []string `json:"row_refs"`
+				SelectorRowIDs []string `json:"selector_row_ids"`
 			} `json:"inventory"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &membership); err != nil {
 			t.Fatal(err)
 		}
 		refs = append(refs, membership.Inventory.Refs)
+		view.SelectorRowIDs = membership.Inventory.SelectorRowIDs
 		views = append(views, view)
 	}
 	for n := range views {
