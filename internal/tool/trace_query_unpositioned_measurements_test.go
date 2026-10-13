@@ -118,10 +118,9 @@ func TestUnpositionedMeasurementsPublicScopeAndNoPopulationAuthority(t *testing.
 	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_dual_measurements/current.data")
 	result, native := unpositionedMeasurementQuery(t, path, "event_search")
 	record := unpositionedMeasurementRecord(t, result)
-	start, end, known := types.TraceObservationContinuousQueryWindow(record.SourceRef)
-	if !known {
-		start, end = 0, 5
-	}
+	// All nine known source timestamps are inside this requested window;
+	// the independent NULL-timestamp row must remain in its unpositioned view.
+	start, end := 0.0, 5.0
 	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{result}, RequestModel: &types.RequestModel{RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
 		RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, SourceQuote: "explicit interval"}}}
 	choices := types.BuildRuntimeMeasurementContract(input).Choices()
@@ -140,8 +139,13 @@ func TestUnpositionedMeasurementsPublicScopeAndNoPopulationAuthority(t *testing.
 			}
 		} else if choice.EventData != nil {
 			inventory = true
-			if len(choice.Rows) != len(native.Events) || !strings.Contains(choice.Rows[0][0], "trace_time_unpositioned") {
-				t.Fatalf("event display lost members or promoted an ordering coordinate: %+v", choice)
+			if len(native.Events) != 10 || len(choice.Rows) != 9 || choice.EventData.Coverage.MatchedTotal != 10 || choice.EventData.HandoffRowsOmitted != 0 {
+				t.Fatalf("window selection rewrote source population or lost known-time members: %+v", choice)
+			}
+			for _, row := range choice.Rows {
+				if row[0] == "0" || strings.Contains(row[0], "trace_time_unpositioned") {
+					t.Fatalf("unknown ordering coordinate entered timed facts: %+v", row)
+				}
 			}
 		} else {
 			t.Fatalf("unexpected measurement display: %+v", choice)

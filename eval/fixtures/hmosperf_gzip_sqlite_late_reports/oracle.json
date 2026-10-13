@@ -1,0 +1,19 @@
+{
+  "window": {"start_seconds": 1.0, "end_seconds": 1.5, "right_open": true, "coordinate": "report_emission"},
+  "minimum_jank_frames": 3,
+  "rows": [
+    {"report_ts_ns": 1000000000, "appid": 27599, "jank_frames": 3, "start_ts_ns": 920000000, "end_ts_ns": 980000000, "duration_ms": 60},
+    {"report_ts_ns": 1081000000, "appid": 41002, "jank_frames": 4, "start_ts_ns": 980000000, "end_ts_ns": 1080000000, "duration_ms": 100},
+    {"report_ts_ns": 1161000000, "appid": 27599, "jank_frames": 5, "start_ts_ns": 1100000000, "end_ts_ns": 1160000000, "duration_ms": 60},
+    {"report_ts_ns": 1421000000, "appid": 41002, "jank_frames": 7, "start_ts_ns": 1320000000, "end_ts_ns": 1420000000, "duration_ms": 100},
+    {"report_ts_ns": 1499000000, "appid": 41002, "jank_frames": 6, "start_ts_ns": 1430000000, "end_ts_ns": 1470000000, "duration_ms": 40}
+  ],
+  "application_counts": [{"appid": 27599, "count": 2}, {"appid": 41002, "count": 3}],
+  "excluded": [
+    {"report_ts_ns": 999000000, "jank_frames": 9, "reason": "before_report_window"},
+    {"report_ts_ns": 1301000000, "jank_frames": 2, "reason": "below_frame_threshold"},
+    {"report_ts_ns": 1500000000, "jank_frames": 8, "reason": "right_boundary_report"},
+    {"report_ts_ns": 1501000000, "jank_frames": 10, "reason": "after_report_window"}
+  ],
+  "unrequested_payload_start_filter_count": 3
+}

@@ -1,0 +1,19 @@
+ID="trace_gzip_sqlite_late_jank_reports"
+NAME="compressed SQLite capture — late jank reports and application totals"
+QUESTION="请列出这份压缩采集在 [1.0, 1.5) 秒内上报的所有至少3帧的卡顿，用表格给出 appid、卡顿帧数、原始纳秒起止时间和毫秒耗时，并按 appid 汇总条数，再画一张记录概览图。"
+HTRACE_FILE="eval/fixtures/hmosperf_gzip_sqlite_late_reports/capture.transport"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="27599
+41002"
+EXPECT_PRIMARY_MATCHES_REGEX="920[,.]?000[,.]?000
+980[,.]?000[,.]?000
+1[,.]?080[,.]?000[,.]?000
+1[,.]?100[,.]?000[,.]?000
+1[,.]?160[,.]?000[,.]?000
+1[,.]?320[,.]?000[,.]?000
+1[,.]?420[,.]?000[,.]?000
+1[,.]?430[,.]?000[,.]?000
+1[,.]?470[,.]?000[,.]?000
+(毫秒|ms)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

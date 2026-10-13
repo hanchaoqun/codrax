@@ -129,8 +129,14 @@ func TestRuntimeEventKnownZeroAndSourceScopeHMC236(t *testing.T) {
 	in := measurementProviderInput(r)
 	start, end := 1.1, 1.5
 	in.RequestModel = &RequestModel{RuntimeArtifactScopeProfile: &RuntimeArtifactScopeProfile{RequestedScope: RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, Confidence: 1, SourceQuote: "1.1 to 1.5"}}
-	if BuildRuntimeMeasurementContract(in).Active() {
-		t.Fatal("broader event query became current narrow-window facts")
+	projected := BuildRuntimeMeasurementContract(in)
+	if !projected.Active() || len(projected.Tables) != 1 {
+		t.Fatal("point-based empty event lookup lost display availability")
+	}
+	table := projected.Tables[0]
+	if len(table.Rows) != 0 || table.EventData.Query.TimeStart != 1 || table.EventData.Query.TimeEnd != 2 ||
+		table.MemberSet != nil || table.DisplayPopulation != nil || table.coverageScope != nil || table.HasCompleteNativeDisplayPopulation() {
+		t.Fatal("event projection rewrote the broader query or acquired narrow-window population authority")
 	}
 	var restored RuntimeMeasurementTable
 	tableRaw, _ := json.Marshal(p.Tables[0])

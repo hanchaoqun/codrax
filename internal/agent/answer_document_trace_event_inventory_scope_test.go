@@ -260,10 +260,12 @@ func TestTraceEventInventoryScopeActualFinalizerLeavesUnboundedAndCausalLanesUnc
 			switch lane {
 			case "no-target":
 				ctx.AnalysisIR.RequestModel.RuntimeTargets = nil
+				ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeFullArtifact, SourceQuote: "whole capture"}
 			case "causal":
 				ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
 			case "exploration-cursor":
 				ctx.AnalysisIR.RequestModel.RuntimeTargets[0].Source = types.RuntimeTargetSourceExplicitToolCall
+				ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeFullArtifact, SourceQuote: "whole capture"}
 			}
 			original := traceInventoryScopeReceipt(t, ctx)
 			before := traceInventoryScopeAuthority(t, ctx)

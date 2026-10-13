@@ -23,7 +23,9 @@ func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accep
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	p := rm.RuntimeQuestionProfile
-	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !answerDocHasUserRuntimeTarget(rm) {
+	scope := rm.RuntimeArtifactScopeProfile
+	hasDisplayScope := answerDocHasUserRuntimeTarget(rm) || scope.HasExplicitTimeWindows() || scope != nil && scope.Comparison != nil
+	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !hasDisplayScope {
 		return renderAnswerDocTraceEventInventoryPublicationView(principal, bridge)
 	}
 	// Unlike whole-window aggregates, inventories contain individual events.
@@ -55,17 +57,12 @@ func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *type
 	i := types.CloneTraceEventSearchInventory(record.EventSearchInventory)
 	out := &traceInventoryScopeProjection{InputRows: len(i.Rows), Basis: "observed_emitter_and_request_window_only_not_pairing_or_causality"}
 	rows := make([]types.TraceEventSearchInventoryRow, 0, len(i.Rows))
-	windows := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindows()
 	for _, row := range i.Rows {
 		if !traceEventInventoryRowMatchesTarget(row, rm) {
 			out.OwnerRowsExcluded++
 			continue
 		}
-		inside := len(windows) == 0
-		for _, window := range windows {
-			inside = inside || row.TraceTimeSeconds >= *window.TimeStart && row.TraceTimeSeconds < *window.TimeEnd
-		}
-		if !inside {
+		if !types.TraceEventRowWithinRequestedWindows(row, rm.RuntimeArtifactScopeProfile) {
 			out.WindowRowsExcluded++
 			continue
 		}
@@ -80,6 +77,11 @@ func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *type
 }
 
 func traceEventInventoryRowMatchesTarget(row types.TraceEventSearchInventoryRow, rm *types.RequestModel) bool {
+	// A time-scoped inventory need not name an owner. Exploration cursors do
+	// not select an application or narrow the user's all-owner population.
+	if !answerDocHasUserRuntimeTarget(rm) {
+		return true
+	}
 	for _, target := range rm.RuntimeTargets {
 		if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
 			continue

@@ -162,11 +162,21 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				if !qualified {
 					continue
 				}
-				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
+				// Event receipts own individual points. A wider lookup envelope
+				// must be projected row-by-row, not discard legitimate members or
+				// count its right boundary as part of the user's half-open window.
+				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate {
 					continue
 				}
+				validTables := true
 				for i, table := range p.Tables {
 					table = table.Clone()
+					var valid bool
+					table, valid = scopeRuntimeEventTable(table, r, requested)
+					if !valid {
+						validTables = false
+						break
+					}
 					table = qualifyRuntimeMeasurementNativeDisplay(table, r.SourceRef, original != "", requested)
 					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
 						table.coverageScope = nil
@@ -175,6 +185,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 						table = runtimeMeasurementUnverifiedWindowTable(table)
 					}
 					p.Tables[i] = table
+				}
+				if !validTables {
+					continue
 				}
 				if !result.ReusedFromRunMemo {
 					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)

@@ -43,7 +43,9 @@ type RuntimeMeasurementTable struct {
 	nativeEventData           bool
 	nativeEventSelectionKey   string
 	nativeEventScopeNoteIndex int
-	coverageScope             *runtimeMeasurementCoverageScope
+	// Request-window exclusions are display selection, not source omissions.
+	nativeEventRequestExcluded int
+	coverageScope              *runtimeMeasurementCoverageScope
 	// Native log query population is fully retained and every source read is
 	// healthy. This private display credential never grants completion.
 	nativeLogDisplayPopulation   bool
