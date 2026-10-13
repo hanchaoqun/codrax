@@ -1106,6 +1106,10 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 **原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，调度并发支持 `summary/members/distribution/timeline`；未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。调度并发只计同来源已确认闭合状态区间，按同TID并集得到全窗均值、各线程数量持续时间及独立桶内峰值/均值；缺尾不补窗末，零贡献不证明系统空闲。三者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览复用`AllocatePresentationRows`，先覆盖各来源/查询组及其视图，剩余预算优先摘要和可完整展示的小表，再公平补齐，取消独立每表4行上限。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
 
+**原生事件同源展示（HMC §236）**：有效 `event_search_inventory` 可发布 `members` 视图。`runtime_measurement.event_selection` 只选同一查询的 `row_ids`、`field_keys`，或以互斥的 `group_by` 对保留选集计数；不接受替换值、任意表达式、跨查询合并。已验证原生字段、源窗口、精确整数、未知/无效/缺失/省略及覆盖说明共用一次绑定，供可用的 summary/table/无边事实 diagram 渲染和 reviewer 复用。选择变化使旧绑定失效；保存恢复仍须当前供给重绑。分组不是完整查询总数（除非确实完整且未选子集），事件选择不授完整成员、配对、等待或根因权限；事实图不能替代必需关系图，也不能遮蔽后续普通图校验。新事件宽表默认不自动追加，避免与已选字段重复；既有事实自动补齐不变。交接以库存 `row_refs` 共用去重记录，选择器只给逐查询对应行 ID 和字段目录，不重复塞入整个 publication。普通量测仍 table-only，Trace 因果图与链上候选保持原合同。
+
+事件提示中的原始publication与preflight归一化后的ledger使用只读精确桥：先验证原件，再窄重放既有编译器的事件库存，完整记录等值才供selector行ID与去重；保工具顺序、捕获身份、时钟、窗口和全部成员。无效原件对应显式空桥，不能通过撤回来源字段使其重新合格。此桥不修改ledger、不代替答案绑定、不新增因果权限；字段目录/相同范围说明仅显示一次，query仍精确引用所属目录与范围。
+
 调度并发的成员展示16条、深度档32条、时间桶32条，与既有16段精确时序上限相互独立；全部统计先于展示截断，完整成员数=展示+上限省略+端点见证不可用。成员保留物理来源行和实际端点，窗口内贡献另列；行选择仍能统计真实成员/线程数，但不推定连续时间分母。`bucket_ms`与IO活动共享精确十进制轴（默认100、正数限1..60000ms），保零贡献桶及短尾实宽。分位数按完整窗口持续时间累计，浮点比较处于舍入不确定范围时用十进制端点精确复核，不用容差抹去1ns差异，也不从展示桶峰值或成员名称反推总体。
 
 CPU状态×频率同样注册`summary/distribution/timeline`，不支持`members`。在工具16项预览截断前，由已经完整校验的原生结果生成数值表：逐核已知/未知、状态码×频率组合、精确起止段/来源行；遵守查询原有64核/组/段上限并披露省略，不把预览页当全集。每核完整窗口、全核CPU-ms、频率kHz和未知分别说明；源idle码释义未核实时不猜状态。模型只选择当前observation_id/view，普通自定义表/解释仍由模型创作。负观察、来源/窗口/载荷冲突或过期供给不授绑定资格；该表不授线程执行或根因权威。
@@ -1470,6 +1474,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
 **无损采样树（HMC-09.4）**：`perf_sampling_tree`与旧`perf_stats/window_stats/trace_perf_bundle/perf_timeline`复用完整准入样本与原生树交接。物理来源代次、producer、event、unit和线程代次分别成cohort；完整分母包含缺栈样本，展开/折叠与展示预算只省略显示，不改变总体。symbol/DSO/IP及字面帧边界保留，不按分号拆合法符号、不删系统栈、不以占比乘窗口生成耗时。原始引用、缺失与省略量明确披露；显示父子只有采样路径含义，不生成直接调用或Trace根因证据。
+
+旧`top_callchains`与树共享`frames_v1`验证：`callchain_identity.form=exact_frames`按完整Kind/Symbol/DSO/IP序列区分路径，原始行坐标不是路径身份；`opaque_flat_label`保原字符串及未知原因，不与已验证路径合并。`quality.frame_statuses`及`callchain_known/unknown_count`指已验证帧边界（不承诺完整unwind），`callchain_statuses`仍是生产者原始声明。平面`top_symbols/top_dso`仍统计全部记录的对应字段，不能当作前缀节点inclusive/self权重；缺栈记录不从分母或平面热点消失。工具完整/紧凑展示均保这个量尺区别，不靠模型正文关键词纠错。
 
 采样选择在查询引擎与工具来源坐标中共享规范化，保留原始`ThreadInput`供诊断。已支持的数值、名称和带TID写法归一到同一PID/name；显式身份载体相互冲突时返回带来源的unavailable，不能复制结果目标来洗白查询。消费者只接受规范坐标及全部cohort的一致线程/来源代次，不把规范comm末尾数字再解释成第二TID，不让同名多线程借首条身份。严格decoder仍逐项校验来源、窗口、角色及目标；名称搜索、空窗、缺栈和未支持筛选不回退其它线程或全窗口。此规则只影响采样展示选择，不扩大调度、唤醒、因果投影或自动补齐权限。
 

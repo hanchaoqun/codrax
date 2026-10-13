@@ -7697,3 +7697,77 @@ B唯一tree调用额外携pattern，原生诚实unavailable，但工具Success=t
 两笔代码`b9f689018e11`、`0285ff251e51`已普通推送origin/main，正式exit0，代码发布时HEAD与origin/main均`0285ff251e51e6e33374e999b7c05da84647aed4`。文档发布前归档79份字节一致原件：30工具载荷、4准备文件、8答案产物、37验证/失败/审计/提交推送收据，SHA索引为`eval/results/hmc_sampling_query_handoff_20261013/evidence-sha256-index.txt`；文档发布收据后续追加。大原件按既有规则本地保留，统一账本、任务入口、架构和机器/人工摘要按批提交。
 
 完整能力本批新增0，累计21；已交付子能力2组（五入口采样选择与来源一致、直接tree不可用的显式修复合同）。本批剩余人工验收缺陷两组：A正确原生成员到普通表/正文的appid与分组错配；B修后自然调用重试、独立分母和原始帧完整成文尚未验收。两组均交叉挂原01.3/09.4/16.4/18.3/18.4，不另加到58。A这次证明完整成员没有被预览替代，不证明所有失败查询live重试；B确定性bad→good通过不证明模型自然重试通过。下一双轨优先交付共享原生事件字段/分组复用并验收09.4，随后继续轮换只读登记终态及二进制其余边界，不让单次错误无限追加局部规则。
+
+## 236. 原生事件同源选集与采样自然验收（2026-10-13，子能力已交付、人工1/2）
+
+### 236.1 起点与泛化设计边界
+
+起点`d7ad61958`干净，复算79唯一ID、21实现已交付/58开放、重复0。原§235两份人工FAIL及09.4完整能力待验收保留。本批双轨只做共享原生事件展示及采样修后自然验收，不新增第三条实现线。
+
+参考`core/query_engine.py`逐指标执行的完整rows、先统计后截断、独立errors，以及`item_data`向后继算子传同次实际结果，意图是共享已执行事实而非从展示反推。其最终白名单丢params_used、object取首行后重置truncated不能照搬为完整覆盖。本仓事件库存已经保正确字段/范围，但未注册到既有`RuntimeMeasurementPublication→BoundTable`，最终仍需自由抄写。拟直接适配已验证inventory和固定字段描述符，不重parse raw，不为appid造专用答案器；同一查询的行/字段选择与分组计数共享确定性绑定，正文/表/事实节点图复用相同绑定结果。保留行最多40，不把预览/部分保留行的分组伪装全量，不引入任意筛选/算式语言。
+
+采样再核参考`perf_calltree_ops.py`精确thread/time及完整根叶路径的意图，继续不复制缺栈后重算分母、同名栈合并、占比乘墙钟或错窗回退。既有自然问题保持原样；只有实际typed failure→修正调用→成功树及正确最终独立分母/字面帧才能称自然重试通过，没有触发的分支不伪称覆盖。固定双例按每批2并行×1保原问句和输入，并完整人工审计，不追第三例求绿。
+
+### 236.2 原生事件展示与消费闭包
+
+代码`543635bca`将原生事件库存接入既有measurement publication、精确选择器与绑定表。`event_selection`只接受当前同一observation公开的row_ids/field_keys或group_by；省略行选择为全部保留行，分组次数始终基于所选保留成员，显式披露查询匹配/返回/交接省略及完整性。字段描述、值、单位、缺测/无效/省略来自typed inventory，发布与接收均重建比对，不重解析raw、不接受替换值/任意表达式、不按appid关键词判断。注册ns字段统一提供精确ms投影，原ns整数保留；未知排序替代零不显示为观测零。
+
+同一绑定结果用于摘要正文、表格及无因果边的事实节点图。选择器更改、旧来源、伪造行/字段、重复成员、错query、group与field并用均精确拒绝；不取得MemberSet、完整总体或因果权限，不取代必需关系图。原生事实图不能遮蔽后续普通图的验证。recovery、patch、reviewer使用同一原生可见事实，完整默认表只有被同源同列同行的完整table替换，子集/分组/摘要/图不能吞掉它。新事件默认不自动追加宽表；旧自动补齐和Trace投影保持。
+
+另发现真实producer时序缺口：lookup请求窗/匹配窗注释在publication之后追加。现在注释完成后刷新唯一原生事件publication，四个精确窗口note随三种展示保留；不更改原query或成员，不从匹配包络推用户窗。principal摘要若旧Trace合同要求caliber，仅允许no_causal_conclusion，schema与实际教学一致。没有新增问答原文门、放宽因果条件或替用户写结论。
+
+验证原件`/tmp/codrax-hmc236-*`保留：新单位/坐标RED、公开schema子集与fixture错误、handoff重复预算失败均不删除。公开全payload选择器、emit/patch、旧量测、渲染/恢复/reviewer、普通关系图兼容定向正式exit0（tool9.282s/types0.884s/render0.958s/orchestrator2.379s）；该正则未命中skill包，不能记为skill验收。types此前含copylocks回归22.033s通过，后置窗专项tool1.294s/types2.669s通过。独立审查未发现生产阻断，修正appid篡改测试从数组末尾猜索引为精确字段键，9变体1.436s通过。此阶段仅代码本地提交，真实双例与全仓收据在后续各节独立登记，不提前销账。
+
+### 236.3 上下文降噪与精确成员交接
+
+新原生publication若当普通RichNote重复投递，会占据事件库存的metadata预算，挤掉真实窗口说明。另一个接缝是ledger补入空缺ToolCallID后导致原publication全等校验不再匹配。仅在显示副本撤回这一补入值并重做完整producer校验，其它来源/窗口/成员/重复publication不能放宽；验证在请求范围投影之前进行，不让投影后的行子集重新冒充原publication。
+
+`inventory.selector_row_ids`与已有row_refs严格一一对应，从原生完整row JSON队列映射后再按实际共享预算选位，保同一查询重复出现次数。相同行号但不同appid、raw尾部、查询或来源不可借用ID。字段目录和逐字相同scope note只显示一次，每个query显式引用所属目录/说明；原生成员值复用既有display_rows，避免另起宽表预览重复占预算。通用ledger元说明仅在同一已验证query的完整元数据与原始成员已在专用区展示时去重，投影排除、预算或metadata省略保留旧fallback，权威账本不变。
+
+重叠9查询压力样例保14/32共享成员和全部结束事件，实际总prompt由143,388B降为127,100B，inventory44,109B，原128KiB断言未提高；这只是该固定样例的量测，不称全局所有请求上限。公开真实finalizer、全部scope/来源/单位/选择器交接定向3.993s通过；后置精确窗负控保留。完整skill/glossarylint另外正式exit0（0.975s/2.345s），结构检查三包正式exit0（orchestrator3.369s/types5.607s/tool65.677s），race四包正式exit0（types2.550s/tool8.021s/render3.286s/orchestrator2.538s）。全仓及自然评测另列，不把这些确定性结果替代模型验收。
+
+### 236.4 固定双例：机器2/2，最终答案人工1/2
+
+两例各一次并行正式exit0，A二进制82s、B采样152s，使用`6619a532ceb2`代码快照。原题和输入不改、不追第三例。[完整人工审计](../../eval/parallel_selected_summary_hmc_event_fact_reuse_20261013_manual_audit.md)记录工具参数、原生载荷、实际finalizer上下文及全部答案surface；本次两例都未生成图，不声称真实图验收。原始结果根`eval/results/hmc_event_fact_reuse_20261013/`。
+
+A实际完成gzip→只读SQLite→完整文本→原生查询，最终4条全部appid/帧数/纳秒/毫秒元组正确，两appid各2条，无此前末行错抄。没有选择新原生selector、分组或事实图，不能以自由表单次正确销新能力。也未自然触发查询失败重试，内部格式准备回退不算模型重试。真实上下文暴露§236.3未覆盖preflight来源装饰：除ToolCallID，ledger还把attached_trace改为runtime_artifact身份并加CaptureIdentityPath，导致selector_row_ids缺失及publication仍重复入notes；同批补救见下节。
+
+A还暴露范围准入缺口：接受profile为bounded_fact_set，但count/completeness均未启用，模型附加的payload start_ts范围及编造英文source_quote未被出处门检查。当前四条起点均在窗口内，因此最终答案仍PASS；同范围确定性overlay反例加入发报窗内、payload起点0.98s的记录，合法阈值结果2条，加额外载荷起点条件降为1条仍成功。该反例PASS是风险复现，不是修复。挂原01.3/16.4/18.4为P1，后继从用户窗/发报坐标/业务载荷坐标与选择条件出处的typed交接修复，不加问答关键词门。本批不扩第三条实现线。
+
+B原生树与实际finalizer上下文完整保留raw cycles35（完整栈30/未知5）、simpleperf cycles7、raw instructions100；字面sys;root未再拆分，3秒900正确排除。模型却把合法flat A15写成完整A路径15/35，称全部样本都是两层，遗漏未知5，并从不同计数器分布推断未经证明的周期/指令密度原因，人工FAIL。定位发现旧top_callchains也按opaque字符串合并精确A10与缺帧5，旧known_count按producer状态而非帧边界；共显口径矛盾是系统缺口，不能把flat A15改成10，也不能归为已证模型波动。唯一perf_stats成功携available树，未触发采样typed repair；analyzer的pid/tid冲突重试不代替采样自然重试。原始FAIL保持，补救不倒签。
+
+### 236.5 原生来源归一化的精确展示桥及首轮全仓
+
+代码`bd6b624d7`先严格Decode原始成功工具的publication，再用既有纯ledger编译器窄重放同序事件库存及相同preflight，以完整compiled ObservationRecord JSON等值关联原publication。保原工具槽、补充边界及来源补齐顺序，不复刻另一套来源规则、不清空ArtifactID/capture/window/clock/成员。只给展示去重及selector IDs，不写权威账本、不授原生绑定/完整总体/因果权限；原始凭证无效时显式空bridge阻止旧回退“洗白”。成本限已保留typed inventories线性编译，不读取trace、不重编其它carrier/summary/source证据。
+
+真实附加trace→preflight→ledger→finalizer的`preflight-repro-v1.log`保原RED；修后`preflight-bridge-v5.log`4.324s正式exit0。负控包括capture/artifact/path/clock/window/query/member/notes/tool顺序，以及原始不合法但归一化后恰可匹配的凭证；全部拒绝选择器、未静默丢原notes。原始tool/ledger/Trace投影前后字节相同；窄重放与完整编译记录逐字段一致；128KiB压力不放宽，127,100B不变。独立复审通过；这不是修后新live。
+
+首轮完整`full-v1.jsonl`正式exit1，89测试包PASS/13无测试包/1包FAIL；逐条提取全部Action=fail，唯一根为`TestUnpositionedMeasurementsPublicScopeAndNoPopulationAuthority`。新通用事件选择器增加第二张独立表，旧用例将总数钉为1；实际旧未知时间表未升权。兼容修订按精确ObservationID检查原表未知时间，并对两表全部检查无DefaultPresentation/MemberSet/DisplayPopulation/完整总体权限，额外验证事件原始未知坐标未补零；所有原来源/成员负控不删。`unpositioned-compat-v1.log`1.873s正式exit0。首轮FAIL完整保留；最终全仓待采样补救冻结后统一取得，不用本轮部分通过拼接最终成功。
+
+### 236.6 旧采样统计与无损树的共享帧资格
+
+代码`cf272924e`共享一次明确的frame carrier分类：缺旧帧、损坏载体、生产者声明不可用各保原因；available精确帧也不承诺完整unwind。旧`top_callchains`采用完整Kind/Symbol/DSO/IP有序序列的JSON分段SHA256身份，来源行是发生坐标而非路径key；同名不同IP、合法分号帧与不同边界不会合并。opaque标签原文、DSO/IP和未知原因仍可查，但没有精确path ID，不与精确路径同桶。未改树的节点累计、同源/代次/producer/event/unit分母或根因权限。
+
+`top_symbols/top_dso`保原始记录字段统计：A仍15，完整A路径10、B20、根前缀30，完整分母35，未知5不丢失。quality新增FrameStatuses；CallchainKnown/Unknown现在描述验证后的帧边界，producer原CallchainStatuses原样保留。工具完整摘要、角色/排名里的采样支撑、直接观测及generic evidence_fact都带一致口径；后者把量尺放在数字/分母旁、长路径之前，公开140字摘要预算负控仍保留限定。新`perf_value_basis`仅display-only，不作因果或完成硬门；无问答原文关键词规则。
+
+公开五入口保树总体与独立分母，三个有旧flat统计的入口分别验证精确A10/未知5不合并；同文字不同IP/帧边界变体分别得到5/7/11，缺帧/损坏/缺深度/预算不足保未知量；partial及IP-only精确帧正例保生产者原状态、不推完整unwind。初始产品RED/第一组GREEN的工具输出保留在协作调用记录，补存转录时明确标为转录，不伪称原始磁盘日志。实际登记RED原件`sampling-compat-red-v1.log`保两根失败：PerfQualitySummary新增FrameStatuses未登记、value_basis未注册。
+
+登记修后旧schema hash不改，只剥离一个已审新增optional字段证明旧字段不变；新增FrameStatuses hash、CallchainIdentity四叶、JSON absent/present及通用detail不隐藏均有精确见证。旧输出snapshot仅增加flat量尺注记，身份未知负控不改。末版`sampling-compat-green-attempt-v1.log`四包正式exit0（tracequery1.896s/tool5.455s/tracediag0.583s/types18.882s），独审未发现新阻断。Go已冻结至`cf272924e`，最终全仓/race/构建另列；本次真实B仍FAIL，修后的自然重试及完整成文待后继验收。
+
+### 236.7 全仓揭示的质量事实排序回归
+
+第二轮完整`full-v2.jsonl`正式exit1，88测试包PASS/13无测试包/2包FAIL。唯一断言根为`TestPrependRawPerfRecordQualityCaveatKeepsOverflowInBoundedViews`：新通用帧教学被放到实际InputIntegrity/ParserCaveats之前；原始`lost_events_status=aggregate_overflow`及typed计数没有消失，但质量摘要首位已被长教学占据，后继紧凑note存在裁掉更重要采集缺陷的风险。这是本批引入的真实排序回归，不按旧断言失配处理，不放宽原失败测试。主审扩到同类CPU未知、clock assumed及量尺边界，修复保全部旧caveat原有序前缀，通用帧解释追加末尾；不加字段、不改变分母或因果权限。
+
+另一FAIL是tool包在累计10分钟触发Go默认test timeout；当时`TestPythonProbeWorkingDirPublicEmitApplyExecution`根测试约2秒，`nested_lib_package`仅约0.3秒，此前各子例仍连续正常完成。原完整JSONL和panic堆栈保留，不将尚未跑完的测试记PASS。后继全仓验证命令显式使用`-timeout=20m`收齐结果，只有test runner累计预算变化，产品timeout、活跃流保护、性能断言和其它门不变；不并跑重复全仓。
+
+补救代码`1dd3b0e3f`仅移动共享教学到旧caveat末尾，原转换器失败断言完全不改。新增真实工具结果→默认160字符note投影保溢出告警，以及9类旧提示完整有序前缀DeepEqual负控。末版`quality-priority-green-v2.log`五包正式exit0（hitraceconv0.944s/tracequery1.549s/tool1.692s/tracediag0.550s/agent2.620s）；原RED、中间GREEN和补强RED分开留存，独立复审通过。末版相关race正式exit0（tracequery1.798s/tool10.619s）；构建正式exit0，revision=`1dd3b0e3fe64-dirty`、build=`2026-10-13T12:20:38Z`，dirty仅文档，Go与HEAD一致。最终完整回归及发布收据另列。
+
+### 236.8 最终验证、发布与未闭环范围
+
+冻结`1dd3b0e3f`后的`go test -json -timeout=20m ./...`于本机05:33:00收齐最后包级终态，驱动正式exit0。`full-summary-v3.json`逐条提取90测试包PASS、13无测试包，全部Action=fail及非JSON错误行为空；tool测试输出耗时590.942s，JSON包级终态Elapsed=670.809s，不能在驱动退出前仅凭PASS文本记完整成功。前两轮所有失败未删改，不并跑重复全仓、不调整产品/单测验收门。质量补救末版race及构建见上节，其余同源绑定、来源桥、采样独立分母/字段登记race与相关收据按代码阶段保留。10份固定问题/输入/oracle/runner末次SHA全部通过，Go工作树与验证HEAD一致。
+
+5笔代码`543635bca`、`6619a532c`、`bd6b624d7`、`cf272924e`、`1dd3b0e3f`已普通推送origin/main，正式exit0；代码发布时HEAD与origin/main均`1dd3b0e3fe64edba7e9c867ebf38d99928cb40b4`。文档发布前归档125份字节一致原件：25工具载荷、4准备文件、8答案产物、88验证/失败/审计/设计/提交推送收据。索引`eval/results/hmc_event_fact_reuse_20261013/evidence-sha256-index.txt`保每项SHA及原始路径，两个完整逐步人工审计另做cmp相同；后续文档发布收据只追加。大原件依既有规则本地留存，统一账本、任务入口、架构及机器/人工摘要入库发布。
+
+最终再算79唯一任务=21实现已交付+58开放，重复0；36待实施/16部分实施/2待验收/3验收中/1持续执行不变。完整能力本批新增0，已交付子能力2组：原生事件字段/分组跨正文表图复用及真实来源桥，旧统计/无损树共享帧资格与质量口径。剩余本批验收/修复3组仍挂原01.3/09.4/16.4/18.3/18.4：新原生selector/分组/事实图自然选用；采样修后正确成文与实际失败→自然重试；额外数值条件出处/时间属性误绑。A最终PASS不证明所有新surface已验，B原人工FAIL不倒签，未触发的repair不算失败重试通过；本批无真实图输出，不冒称像素审计。
+
+后继优先已证跨事件的条件出处漏校验，保持时间窗自动补齐与因果投影；准备设计已归档为`verification-receipts/codrax-hmc236-next-scope-design-v1.md`，只是只读方案，非实现。真实引文仍可能绑定错字段、按业务起点查询仍可能被附加上报窗，不得把出处修复等同全部时间语义修复；Jank载荷ns默认与trace同一轴，无需时区/domain转换。同批另一轨验收共享采样口径或轮换只读登记/二进制完整尾部能力；遵守两例并行、不追第三例求绿，不让未命中的模型路径无限阻塞其余高ROI能力。
