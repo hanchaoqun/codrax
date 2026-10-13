@@ -66,7 +66,10 @@ type WriteContextItem struct {
 // persisted as typed items while allowing each consumer to render only its
 // relevant Top-N view.
 type WriteContextPack struct {
-	PackID      string             `json:"pack_id,omitempty"`
+	PackID string `json:"pack_id,omitempty"`
+	// ArtifactID locates a persisted content revision. It is not the logical
+	// pack identity, a source proof, or an authorization to reuse old results.
+	ArtifactID  string             `json:"artifact_id,omitempty"`
 	BatchID     string             `json:"batch_id,omitempty"`
 	Goal        string             `json:"goal,omitempty"`
 	SourceStage string             `json:"source_stage,omitempty"`
@@ -86,10 +89,11 @@ type WriteContextView struct {
 }
 
 func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
-	in.PackID = trimWriteContextText(in.PackID)
-	in.BatchID = trimWriteContextText(in.BatchID)
+	in.PackID = normalizeWriteContextIdentity(in.PackID)
+	in.ArtifactID = normalizeWriteContextIdentity(in.ArtifactID)
+	in.BatchID = normalizeWriteContextScopeID(in.BatchID)
 	in.Goal = trimWriteContextText(in.Goal)
-	in.SourceStage = trimWriteContextText(in.SourceStage)
+	in.SourceStage = normalizeWriteContextIdentity(in.SourceStage)
 	seenIndex := map[string]int{}
 	items := make([]WriteContextItem, 0, len(in.Items))
 	for _, item := range in.Items {
@@ -120,7 +124,7 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) WriteContextPack {
 	out := WriteContextPack{
 		PackID:  "merged",
-		BatchID: trimWriteContextText(batchID),
+		BatchID: normalizeWriteContextScopeID(batchID),
 		Goal:    trimWriteContextText(goal),
 	}
 	rebasedPlanContracts := false
@@ -277,8 +281,8 @@ func (p WriteContextPack) ViewForScope(consumer WriteContextConsumer, limit int,
 
 func (p WriteContextPack) ViewForScopeWithBudget(consumer WriteContextConsumer, limit int, batchID, sliceID string, costBudget int) WriteContextView {
 	p = NormalizeWriteContextPack(p)
-	batchID = trimWriteContextText(batchID)
-	sliceID = trimWriteContextText(sliceID)
+	batchID = normalizeWriteContextScopeID(batchID)
+	sliceID = normalizeWriteContextScopeID(sliceID)
 	items := make([]WriteContextItem, 0, len(p.Items))
 	for _, item := range p.Items {
 		if writeContextItemVisibleTo(item, consumer) && writeContextItemVisibleInScope(item, batchID, sliceID) {
@@ -319,8 +323,8 @@ func (p WriteContextPack) ViewForScopeWithBudget(consumer WriteContextConsumer, 
 
 func (p WriteContextPack) ForScope(batchID, sliceID string) WriteContextPack {
 	p = NormalizeWriteContextPack(p)
-	batchID = trimWriteContextText(batchID)
-	sliceID = trimWriteContextText(sliceID)
+	batchID = normalizeWriteContextScopeID(batchID)
+	sliceID = normalizeWriteContextScopeID(sliceID)
 	out := WriteContextPack{
 		PackID:      p.PackID,
 		BatchID:     batchID,
@@ -339,10 +343,10 @@ func (p WriteContextPack) ForScope(batchID, sliceID string) WriteContextPack {
 }
 
 func (p WriteContextPack) WithScope(batchID, sliceID string) WriteContextPack {
-	originalBatchID := trimWriteContextText(p.BatchID)
+	originalBatchID := normalizeWriteContextScopeID(p.BatchID)
 	p = NormalizeWriteContextPack(p)
-	batchID = trimWriteContextText(batchID)
-	sliceID = trimWriteContextText(sliceID)
+	batchID = normalizeWriteContextScopeID(batchID)
+	sliceID = normalizeWriteContextScopeID(sliceID)
 	if batchID != "" {
 		p.BatchID = batchID
 	}
@@ -543,7 +547,7 @@ func WriteContextPackFromApprovalRecord(batchID, goal string, approval *WriteApp
 	}
 	pack := WriteContextPack{
 		PackID:      "approval",
-		BatchID:     trimWriteContextText(batchID),
+		BatchID:     normalizeWriteContextScopeID(batchID),
 		Goal:        trimWriteContextText(goal),
 		SourceStage: "approval",
 	}
@@ -1063,7 +1067,7 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 	}
 	pack := WriteContextPack{
 		PackID:      "plan-context-coverage",
-		BatchID:     trimWriteContextText(batchID),
+		BatchID:     normalizeWriteContextScopeID(batchID),
 		Goal:        trimWriteContextText(goal),
 		SourceStage: "plan_context",
 	}
@@ -1123,7 +1127,7 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 	}
 	pack := WriteContextPack{
 		PackID:      "planner-observations",
-		BatchID:     trimWriteContextText(batchID),
+		BatchID:     normalizeWriteContextScopeID(batchID),
 		Goal:        trimWriteContextText(goal),
 		SourceStage: "planner_observation",
 	}
@@ -1159,9 +1163,9 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 			}
 			item := writeContextItem("localization_anchor", priority, text, "planner_observation",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
-			item.SourceID = trimWriteContextText(obs.ID)
+			item.SourceID = normalizeWriteContextIdentity(obs.ID)
 			if item.SourceID == "" {
-				item.SourceID = trimWriteContextText(result.RawRef)
+				item.SourceID = normalizeWriteContextIdentity(result.RawRef)
 			}
 			anchorCopy := anchor
 			refCopy := ref
@@ -1196,8 +1200,8 @@ func writeContextItemsFromToolHandoffCarrier(batchID string, carrier ToolHandoff
 		consumers = []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner}
 	}
 	item := writeContextItem(kind, priority, text, "planner_observation", consumers...)
-	item.BatchID = trimWriteContextText(batchID)
-	item.SourceID = trimWriteContextText(carrier.ToolName)
+	item.BatchID = normalizeWriteContextScopeID(batchID)
+	item.SourceID = normalizeWriteContextIdentity(carrier.ToolName)
 	item.ID = writeContextStableID(kind, carrier.ToolName, carrier.ReasonCode, carrier.RepairCode, strings.Join(toolHandoffContextJSONFields(carrier), ","), toolHandoffContextRefinementKey(carrier), strconv.Itoa(len(carrier.AcceptedEvidence)), strconv.Itoa(len(carrier.ObservationRefs)))
 	return []WriteContextItem{item}
 }
@@ -1308,7 +1312,7 @@ func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverag
 	}
 	pack := WriteContextPack{
 		PackID:      "repo-map-navigation-coverage",
-		BatchID:     trimWriteContextText(batchID),
+		BatchID:     normalizeWriteContextScopeID(batchID),
 		Goal:        trimWriteContextText(goal),
 		SourceStage: "planner_observation",
 		Items: []WriteContextItem{
@@ -1317,7 +1321,7 @@ func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverag
 		},
 	}
 	item := &pack.Items[0]
-	item.SourceID = trimWriteContextText(coverage.ReasonCode)
+	item.SourceID = normalizeWriteContextIdentity(coverage.ReasonCode)
 	item.ID = writeContextStableID("repo_map_navigation_coverage", string(coverage.State), strings.Join(repoMapNavigationRoutesToStrings(coverage.MissingRoutes), ","), strings.Join(repoMapNavigationRoutesToStrings(coverage.CoveredRoutes), ","))
 	coverageCopy := coverage
 	item.NavigationCoverage = &coverageCopy
@@ -1382,7 +1386,7 @@ func writePlannerObservationLocalizationAnchor(result ToolResult, obs Observatio
 		priority = WriteContextP1
 	}
 	ref := WriteExplorationEvidenceRef{
-		ID:           trimWriteContextText(obs.ID),
+		ID:           normalizeWriteContextIdentity(obs.ID),
 		Kind:         string(obs.EvidenceKind),
 		Source:       p,
 		LineStart:    obs.Span.LineStart,
@@ -1967,9 +1971,9 @@ func writeContextItemKindIsMustCarryDisclosure(kind string) bool {
 }
 
 func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
-	in.ID = trimWriteContextText(in.ID)
-	in.BatchID = trimWriteContextText(in.BatchID)
-	in.SliceID = trimWriteContextText(in.SliceID)
+	in.ID = normalizeWriteContextIdentity(in.ID)
+	in.BatchID = normalizeWriteContextScopeID(in.BatchID)
+	in.SliceID = normalizeWriteContextScopeID(in.SliceID)
 	in.Priority = normalizeWriteContextPriority(in.Priority)
 	in.Kind = trimWriteContextText(in.Kind)
 	if writeContextItemKindKeepsWholeText(in.Kind) {
@@ -1982,12 +1986,12 @@ func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	} else {
 		in.Text = trimWriteContextText(in.Text)
 	}
-	in.SourceStage = trimWriteContextText(in.SourceStage)
-	in.SourceID = trimWriteContextText(in.SourceID)
+	in.SourceStage = normalizeWriteContextIdentity(in.SourceStage)
+	in.SourceID = normalizeWriteContextIdentity(in.SourceID)
 	in.StaleReason = trimWriteContextText(in.StaleReason)
-	in.ExpiresWithBatchID = trimWriteContextText(in.ExpiresWithBatchID)
-	in.ExpiresWithSliceID = trimWriteContextText(in.ExpiresWithSliceID)
-	in.Fingerprint = trimWriteContextText(in.Fingerprint)
+	in.ExpiresWithBatchID = normalizeWriteContextScopeID(in.ExpiresWithBatchID)
+	in.ExpiresWithSliceID = normalizeWriteContextScopeID(in.ExpiresWithSliceID)
+	in.Fingerprint = normalizeWriteContextIdentity(in.Fingerprint)
 	if in.EvidenceRef != nil {
 		ref := normalizeWriteExplorationEvidenceRef(*in.EvidenceRef)
 		in.EvidenceRef = &ref
@@ -2098,8 +2102,8 @@ func writeContextItemVisibleInScope(item WriteContextItem, batchID, sliceID stri
 	if item.Stale && item.Priority != WriteContextP0 {
 		return false
 	}
-	batchID = trimWriteContextText(batchID)
-	sliceID = trimWriteContextText(sliceID)
+	batchID = normalizeWriteContextScopeID(batchID)
+	sliceID = normalizeWriteContextScopeID(sliceID)
 	if batchID == "" {
 		return true
 	}
@@ -2514,6 +2518,28 @@ func writeContextItemCostUnits(item WriteContextItem) int {
 func writeContextItemFingerprint(item WriteContextItem) string {
 	sum := sha1.Sum([]byte(writeContextItemKey(item)))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+// Logical pack/item identities must not inherit advisory-text truncation or
+// whitespace folding. Filenames are independently bounded by the store.
+func normalizeWriteContextIdentity(raw string) string { return strings.TrimSpace(raw) }
+
+// Batch/slice coordinates share the workflow's established whitespace contract,
+// but never the advisory-text length limit. Keep producers and scope readers on
+// this same canonicalizer so persistence cannot orphan a pack from its batch.
+func normalizeWriteContextScopeID(raw string) string { return trimWriteWorkflowRunText(raw) }
+
+func dedupWriteContextPackRefs(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, ref := range in {
+		ref = normalizeWriteContextIdentity(ref)
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func trimWriteContextText(raw string) string {

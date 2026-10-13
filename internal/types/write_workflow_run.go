@@ -485,7 +485,7 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 		if batch.Status == WriteWorkflowBatchComplete && batch.Completion == nil {
 			batch.Completion = inferWriteWorkflowCompletionFromAttempts(batch.Attempts)
 		}
-		batch.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(batch.ContextPackIDs)
+		batch.ContextPackIDs = dedupWriteContextPackRefs(batch.ContextPackIDs)
 		batch.Attempts = normalizeWriteWorkflowAttempts(batch.Attempts)
 		batch.ActiveSliceID = trimWriteWorkflowRunText(batch.ActiveSliceID)
 		batch.Slices = normalizeWriteWorkflowSlices(batch.Slices)
@@ -614,7 +614,7 @@ func normalizeWriteWorkflowSlices(in []WriteWorkflowSlice) []WriteWorkflowSlice 
 		slice.ApprovalRef = trimWriteWorkflowRunText(slice.ApprovalRef)
 		slice.Checkpoint = normalizeWriteWorkflowCheckpointPtr(slice.Checkpoint)
 		slice.Restore = normalizeWriteWorkflowRestorePtr(slice.Restore)
-		slice.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(slice.ContextPackIDs)
+		slice.ContextPackIDs = dedupWriteContextPackRefs(slice.ContextPackIDs)
 		slice.Completion = normalizeWriteWorkflowCompletionPtr(slice.Completion)
 		if slice.Status != ChangePlanSliceVerified &&
 			slice.Status != ChangePlanSliceUnverified &&

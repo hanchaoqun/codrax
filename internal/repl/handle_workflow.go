@@ -1044,6 +1044,10 @@ func writeWorkflowPacksForBatch(run types.WriteWorkflowRun, batchID string) []ty
 		}
 		if _, ok := ids[pack.PackID]; ok {
 			out = append(out, pack)
+			continue
+		}
+		if _, ok := ids[pack.ArtifactID]; ok {
+			out = append(out, pack)
 		}
 	}
 	return out

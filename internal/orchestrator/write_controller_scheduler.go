@@ -5225,6 +5225,15 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 		return run
 	}
 	key := workflowContextPackKey(pack)
+	matches := 0
+	for _, existing := range run.ContextPacks {
+		if workflowContextPackKey(existing) == key {
+			matches++
+		}
+	}
+	if matches > 1 {
+		return retainAmbiguousWorkflowContextPack(run, pack, matches)
+	}
 	for i := range run.ContextPacks {
 		if workflowContextPackKey(run.ContextPacks[i]) == key {
 			existing := types.NormalizeWriteContextPack(run.ContextPacks[i])
@@ -5235,6 +5244,7 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 				// plan's semantic context. Verify reports/exploration use separate
 				// packs and remain available; merging two plan generations would
 				// expose contradictory acceptance tests to the model.
+				pack.ArtifactID = existing.ArtifactID // replace the old storage reference on the next save
 				run.ContextPacks[i] = pack
 				return types.NormalizeWriteWorkflowRun(run)
 			}
@@ -5247,6 +5257,7 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 				goal = strings.TrimSpace(pack.Goal)
 			}
 			merged := types.MergeWriteContextPacks(batchID, goal, existing, pack)
+			merged.ArtifactID = existing.ArtifactID // storage provenance only; never a generation/source proof
 			if strings.TrimSpace(existing.PackID) != "" {
 				merged.PackID = strings.TrimSpace(existing.PackID)
 			} else if strings.TrimSpace(pack.PackID) != "" {
@@ -5289,11 +5300,16 @@ func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.
 	return upsertWorkflowRunContextPack(run, pack)
 }
 
-func workflowContextPackKey(pack types.WriteContextPack) string {
+type workflowContextLogicalKey struct {
+	identity                           bool
+	packID, batchID, sourceStage, goal string
+}
+
+func workflowContextPackKey(pack types.WriteContextPack) workflowContextLogicalKey {
 	if pack.PackID != "" || pack.BatchID != "" {
-		return pack.PackID + "|" + pack.BatchID
+		return workflowContextLogicalKey{identity: true, packID: pack.PackID, batchID: pack.BatchID}
 	}
-	return pack.SourceStage + "|" + pack.Goal
+	return workflowContextLogicalKey{sourceStage: pack.SourceStage, goal: pack.Goal}
 }
 
 func updateWorkflowRunBatchStatus(run *types.WriteWorkflowRun, batchID string, status types.WriteWorkflowBatchStatus) {

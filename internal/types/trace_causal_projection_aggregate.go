@@ -65,12 +65,11 @@ const (
 	// band (PTV6 批② #4, 2026-07-06): duplicate publications of ONE wall-clock
 	// measurement re-carve its boundary as adjacent samples land, so the
 	// republished values drift by the tail-sampling delta instead of matching
-	// bit-for-bit. Real specimen (single-thread io_latency, window 2.992ms):
-	// 1.354/1.382/1.383ms over pairwise-overlapping line spans 2908-3094 /
-	// 2911-3114 / 2913-3120 — max pairwise drift 2.10% — escaped the exact
-	// lane by 0.03ms and R2-SUMMED into a 4.119ms phantom (138% of the window,
-	// physically impossible for one thread). 3% covers that observed
-	// boundary-refinement drift with margin and stays deliberately narrow:
+	// bit-for-bit. This legacy heuristic applies only to non-IO publications:
+	// IO request publications now require producer-minted exact request identity
+	// and compatible semantic/role/window/caliber before any fold. Neither near
+	// values nor overlapping evidence ranges identify an IO request. The 3%
+	// boundary-refinement band stays deliberately narrow for the legacy lane:
 	// genuinely additive same-(subject,object) segments inside one wide
 	// enclosing evidence range differ by far more than 3% (heterogeneous
 	// magnitudes), so they keep the R2 SUM path; the residual risk — two REAL
@@ -109,11 +108,10 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	// V4 duplicate-publication dedup MUST run before R2: three same-value
 	// overlapping publications would otherwise reach the ≥3 threshold and SUM
 	// into a 3× phantom total (customer revisit 2026-07-03: three 35.350ms
-	// irq_activity rows over overlapping spans published as 106.05ms; PTV6
-	// 批② #4: three near-value 1.354/1.382/1.383ms io_latency republications
-	// escaped the exact lane by 0.03ms and summed into a 4.119ms/138%-of-window
-	// phantom — the near lane folds those too). After the fold the survivor
-	// count is what R2 legitimately sees.
+	// irq_activity rows over overlapping spans published as 106.05ms).
+	// IO publications use exact native request identity instead of this legacy
+	// near-value lane, and never enter scheduler-style SUM aggregation. After
+	// the fold the survivor count is what R2 legitimately sees.
 	out.PrimaryRootCauses = traceCausalProjectionDedupDuplicatePublications(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionDedupDuplicatePublications(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionDedupDuplicatePublications(out.AdjacentCauses)
