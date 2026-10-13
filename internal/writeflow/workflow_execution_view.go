@@ -134,6 +134,13 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 		// when its context pack is absent; it cannot take the no-context bypass.
 		view.LocalizationGateEligible = true
 	}
+	if loopkernel.WorkflowRegistrationReusesVerifiedSource(run, activePlan) {
+		// This exact read-only registration has no new source-owner obligation.
+		// Do not invent owner_supported or discard the retained read anchors.
+		// The empty authority also keeps truth projection from reopening it.
+		view.Localization = loopkernel.LocalizationAuthorityView{}
+		view.LocalizationGateEligible = false
+	}
 	view.Navigation = types.RepoMapNavigationCoverageFromWriteContextPacks(run.ContextPacks, types.WriteConsumerController, view.BatchID, view.ActiveSliceID)
 	if latestVerify := latestAttemptOfKind(batch, "verify"); latestVerify != nil {
 		view.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)

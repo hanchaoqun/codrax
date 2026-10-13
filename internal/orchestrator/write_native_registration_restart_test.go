@@ -1,7 +1,9 @@
 package orchestrator
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,6 +139,9 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 		t.Fatalf("not an independent process: %v", err)
 	}
 	mu := types.NewMutableState(input.Objective)
+	// Preserve the independent process's actual state even if an assertion
+	// below fails before the success-only report/receipt publication.
+	defer saveRegistrationRestartAudit(t, input, mu)
 	calls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
@@ -232,4 +237,74 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("pid=%d parent=%d new_invocation=%s retained_head=%s", os.Getpid(), input.ParentPID, invocation, input.Head)
+}
+
+var registrationRestartAuditFiles = []string{"restart-child-plan.json", "restart-child-report.json", "restart-child-workflow.json", "restart-child-audit.json"}
+
+func preserveRegistrationRestartAudit(t *testing.T, workDir, out string) {
+	t.Helper()
+	for _, name := range registrationRestartAuditFiles {
+		if data, err := os.ReadFile(filepath.Join(workDir, name)); err == nil {
+			if err := os.WriteFile(filepath.Join(out, name), data, 0600); err != nil {
+				t.Errorf("preserve child audit %s: %v", name, err)
+			}
+		}
+	}
+}
+
+func saveRegistrationRestartAudit(t *testing.T, input registrationRestartInput, mu *types.MutableState) {
+	t.Helper()
+	gitRead := func(args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = input.Root
+		body, err := cmd.Output()
+		return strings.TrimSpace(string(body)), err
+	}
+	head, headErr := gitRead("rev-parse", "HEAD")
+	diff, diffErr := gitRead("diff", "HEAD", "--")
+	status, statusErr := gitRead("status", "--porcelain")
+	testBytes, testErr := os.ReadFile(filepath.Join(input.Root, "test_value.py"))
+	sourceBytes, sourceErr := os.ReadFile(filepath.Join(input.Root, "value.py"))
+	checked := headErr == nil && diffErr == nil && statusErr == nil && testErr == nil && sourceErr == nil
+	readonly := checked && head == input.Head && diff == "" && status == "" && string(testBytes) == controllerRegistrationTestSource && string(sourceBytes) == "def increment(value):\n    return value + 1\n"
+	invocations := []string{}
+	if report := mu.ChangeReport(); report != nil {
+		for _, command := range report.ExecutedCommands {
+			if command.InvocationID != "" {
+				invocations = append(invocations, command.InvocationID)
+			}
+		}
+	}
+	audit := map[string]any{
+		"pid": os.Getpid(), "parent_pid": input.ParentPID, "independent_process": os.Getpid() != input.ParentPID,
+		"test_failed": t.Failed(), "readonly_checked": checked, "readonly": readonly, "head": head, "expected_head": input.Head,
+		"git_status": status, "git_diff": diff,
+		"current_invocations": invocations, "old_invocation": input.OldInvocation, "prior_source_invocations": input.PriorInvocations,
+	}
+	if testErr == nil {
+		audit["test_sha256"] = fmt.Sprintf("%x", sha256.Sum256(testBytes))
+	}
+	if sourceErr == nil {
+		audit["source_sha256"] = fmt.Sprintf("%x", sha256.Sum256(sourceBytes))
+	}
+	checkErrors := map[string]string{}
+	for name, err := range map[string]error{"head": headErr, "diff": diffErr, "status": statusErr, "test": testErr, "source": sourceErr} {
+		if err != nil {
+			checkErrors[name] = err.Error()
+		}
+	}
+	if len(checkErrors) != 0 {
+		audit["check_errors"] = checkErrors
+	}
+	values := []any{mu.ChangePlan(), mu.ChangeReport(), mu.WriteWorkflowRun(), audit}
+	for i, name := range registrationRestartAuditFiles {
+		body, err := json.MarshalIndent(values[i], "", "  ")
+		if err == nil {
+			err = os.WriteFile(filepath.Join(input.WorkDir, name), body, 0600)
+		}
+		if err != nil {
+			t.Errorf("preserve independent child audit %s: %v", name, err)
+		}
+	}
+	t.Logf("independent child audit saved: pid=%d parent=%d failed=%t readonly_checked=%t readonly=%t", os.Getpid(), input.ParentPID, t.Failed(), checked, readonly)
 }
