@@ -98,6 +98,12 @@ func (m *MutableState) StampTraceQuerySourceRead(ref TraceQuerySourceReadRef, re
 	}
 	ref.physicalSource = result.TraceQuerySourceRead.physicalSource
 	result.TraceQuerySourceRead = TraceQuerySourceReadRef{}
+	// A failed/memo/stale stamp cannot leave an earlier request identity.
+	// Clone the slice so revocation does not mutate a sibling publication.
+	result.Observations = append([]ObservationRecord(nil), result.Observations...)
+	for i := range result.Observations {
+		result.Observations[i].ioRequestIdentity = nil
+	}
 	// The existing memo key does not pin inode identity. A memo hit may keep
 	// already registered permission, but must not grant the current file the
 	// identity of bytes queried before a same-size/mtime file replacement.
@@ -108,6 +114,7 @@ func (m *MutableState) StampTraceQuerySourceRead(ref TraceQuerySourceReadRef, re
 	defer m.mu.RUnlock()
 	if ref.generation == m.traceSourceReadGeneration {
 		result.TraceQuerySourceRead = ref
+		stampTraceIORequestIdentities(result, ref)
 	}
 }
 

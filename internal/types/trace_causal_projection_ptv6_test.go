@@ -164,15 +164,15 @@ func TestTraceCausalProjectionCriticalBlockingSeatMatrix(t *testing.T) {
 // sentinel carries no identity on either leg of the "one republished
 // measurement" assertion.
 func TestTraceCausalProjectionNearLaneSubjectSentinelGate(t *testing.T) {
-	record := func(id, subject string, impact float64, ls, le int) ObservationRecord {
-		r := ptv6HopRecord(id, "critical_blocking", "critical_blocking:io_latency",
-			subject, impact, ls, le, "type=io_latency", "chain_relevance=background")
+	record := func(id, subject, kind string, impact float64, ls, le int) ObservationRecord {
+		r := ptv6HopRecord(id, "critical_blocking", "critical_blocking:"+kind,
+			subject, impact, ls, le, "type="+kind, "chain_relevance=background")
 		r.Object = "udk-irq-1-63"
 		return r
 	}
 	got := TraceCausalProjectionFromObservationRecords([]ObservationRecord{
-		record("s1", "unknown-thread", 1.354, 2908, 3094),
-		record("s2", "unknown-thread", 1.383, 2913, 3120),
+		record("s1", "unknown-thread", "runnable", 1.354, 2908, 3094),
+		record("s2", "unknown-thread", "runnable", 1.383, 2913, 3120),
 	})
 	rows := 0
 	for _, node := range got.BackgroundCauses {
@@ -184,13 +184,28 @@ func TestTraceCausalProjectionNearLaneSubjectSentinelGate(t *testing.T) {
 	if rows != 2 {
 		t.Fatalf("sentinel-subject near pair must stay two rows, got %d: %+v", rows, got.BackgroundCauses)
 	}
-	// Control arm: the same pair under a REAL subject folds (the band is live).
+	// Ordinary scheduler measurements keep the real-subject near-lane control.
 	folded := TraceCausalProjectionFromObservationRecords([]ObservationRecord{
-		record("r1", "sysevent_store-47924", 1.354, 2908, 3094),
-		record("r2", "sysevent_store-47924", 1.383, 2913, 3120),
+		record("r1", "sysevent_store-47924", "runnable", 1.354, 2908, 3094),
+		record("r2", "sysevent_store-47924", "runnable", 1.383, 2913, 3120),
 	})
 	if len(folded.BackgroundCauses) != 1 || folded.BackgroundCauses[0].DuplicatePublications != 2 {
 		t.Fatalf("real-subject near pair must fold with a publication count: %+v", folded.BackgroundCauses)
+	}
+	// A known issuer and near values are not a physical IO-request identity.
+	for _, subject := range []string{"unknown-thread", "sysevent_store-47924"} {
+		requests := TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+			record("i1", subject, "io_latency", 1.354, 2908, 3094),
+			record("i2", subject, "io_latency", 1.383, 2913, 3120),
+		})
+		if len(requests.BackgroundCauses) != 2 {
+			t.Fatalf("unidentified IO requests must remain separate for %s: %+v", subject, requests.BackgroundCauses)
+		}
+		for _, node := range requests.BackgroundCauses {
+			if node.DuplicatePublications > 1 || node.MergedCount > 1 {
+				t.Fatalf("unidentified request acquired merge semantics: %+v", node)
+			}
+		}
 	}
 }
 

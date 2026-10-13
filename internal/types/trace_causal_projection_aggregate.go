@@ -267,6 +267,12 @@ func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
 // line range. Empty when the node lacks a line span or a positive projected
 // value — such rows are never merged.
 func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
+	if key, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+		if key == "" {
+			return ""
+		}
+		return "io-request\x00" + key
+	}
 	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
 		return ""
 	}
@@ -927,6 +933,9 @@ func traceCausalProjectionMergePeerAliases(nodes []TraceCausalProjectionNode) []
 }
 
 func traceCausalProjectionPeerAliasPair(a, b *TraceCausalProjectionNode) (named, pidVariant *TraceCausalProjectionNode, ok bool) {
+	if !traceCausalProjectionIOFoldGuard(*a, *b) {
+		return nil, nil, false
+	}
 	if traceCausalProjectionCanonicalNode(a.Subject) != traceCausalProjectionCanonicalNode(b.Subject) {
 		return nil, nil, false
 	}
@@ -1091,6 +1100,9 @@ func traceCausalProjectionDedupDuplicatePublications(nodes []TraceCausalProjecti
 // — the former "near lane lives here only" fork is gone, and the band constant
 // still has exactly one home.
 func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNode) bool {
+	if same, handled := TraceCausalProjectionIOPublicationMatch(a, b); handled {
+		return same && a.EvidenceID != b.EvidenceID
+	}
 	// Different positively bound native event-line filters are different
 	// measurement populations. Equality/near-value and envelope overlap cannot
 	// erase that contradiction; absence leaves every existing rule intact.
@@ -1386,6 +1398,9 @@ func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionN
 				continue
 			}
 			candidate := nodes[j]
+			if !traceCausalProjectionIOFoldGuard(marker, candidate) {
+				continue
+			}
 			if candidate.ImpactMS <= 0 && candidate.CumulativeImpactMS <= 0 {
 				continue // valueless hosts never absorb (no account to disclose on)
 			}
@@ -1564,6 +1579,11 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 	groups := map[string]*group{}
 	order := make([]string, 0, len(nodes))
 	for i, node := range nodes {
+		// Request elapsed times may overlap and are not thread wall-clock
+		// accounts. Keep independent requests; exact publications fold above.
+		if _, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+			continue
+		}
 		subject := traceCausalProjectionCanonicalNode(node.Subject)
 		object := traceCausalProjectionCanonicalNode(node.Object)
 		if subject == "" || object == "" {
@@ -2841,6 +2861,9 @@ func traceCausalProjectionSameValueFoldMembers(members []TraceCausalProjectionNo
 func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	var unknown []int
 	for i, node := range nodes {
+		if _, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+			continue
+		}
 		if node.MergedCount > 1 {
 			continue
 		}

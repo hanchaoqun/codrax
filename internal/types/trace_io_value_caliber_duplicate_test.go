@@ -47,40 +47,47 @@ func TestTraceIOValueCaliberDuplicatePublicationSelectedAxes(t *testing.T) {
 	}
 }
 
-func TestTraceIOValueCaliberPublicDuplicatePublicationValueOwners(t *testing.T) {
+func TestTraceIOValueCaliberPublicUnknownRequestIdentityPreservesValueOwners(t *testing.T) {
 	for _, mode := range []string{"max", "split_axes", "unknown_max"} {
 		t.Run(mode, func(t *testing.T) {
 			plain := []ObservationRecord{
 				nearDedupRecord("a", 1, 2908, 3094),
 				nearDedupRecord("b", 1.03, 2911, 3114),
 			}
-			want, cumulative := TraceIOValueCaliberIssuerBlocked, 1.03
 			if mode == "split_axes" {
-				// The existing sort selects the larger cumulative estimate first;
-				// V4 then adopts the other publication's larger Impact, not its ruler.
+				// Different axes must remain attached to their own measurements.
 				plain[0].RichNotes[1] = "cumulative_impact_ms=2.000"
-				want, cumulative = TraceIOValueCaliberMixed, 2
 			}
 			baseline := TraceCausalProjectionFromObservationRecords(plain)
 			records := append([]ObservationRecord(nil), plain...)
 			rulers := []string{TraceIOValueCaliberRQResidence, TraceIOValueCaliberIssuerBlocked}
 			if mode == "unknown_max" {
-				rulers[1], want = "", ""
+				rulers[1] = ""
 			}
 			for i := range records {
 				records[i].RichNotes = append(append([]string(nil), records[i].RichNotes...), "io_value_caliber="+rulers[i])
 			}
 			got := TraceCausalProjectionFromObservationRecords(records)
-			if len(got.AdjacentCauses) != 1 || len(baseline.AdjacentCauses) != 1 {
-				t.Fatalf("native IO publication pair did not fold: %+v", got)
+			if len(baseline.AdjacentCauses) != 1 {
+				t.Fatalf("ordinary measurement near-merge control changed: %+v", baseline)
 			}
-			node := got.AdjacentCauses[0]
-			if node.DuplicatePublications != 2 || node.ImpactMS != 1.03 || node.CumulativeImpactMS != cumulative || node.IOValueCaliber != want {
-				t.Fatalf("wrong value owner for %s: %+v", mode, node)
+			if len(got.AdjacentCauses) != 2 {
+				t.Fatalf("unidentified IO measurements were merged: %+v", got)
 			}
-			node.IOValueCaliber = ""
-			if !reflect.DeepEqual(node, baseline.AdjacentCauses[0]) {
-				t.Fatal("public projection changed fields beyond the IO ruler")
+			want := map[string]TraceCausalProjectionNode{}
+			for _, record := range records {
+				single := TraceCausalProjectionFromObservationRecords([]ObservationRecord{record})
+				if len(single.AdjacentCauses) != 1 {
+					t.Fatalf("individual measurement disappeared: %+v", single)
+				}
+				want[record.ID] = single.AdjacentCauses[0]
+			}
+			for _, node := range got.AdjacentCauses {
+				original, ok := want[node.EvidenceID]
+				if !ok || !reflect.DeepEqual(node, original) {
+					t.Fatalf("public projection changed an independent measurement: got %+v, want %+v", node, original)
+				}
+				delete(want, node.EvidenceID)
 			}
 		})
 	}
@@ -155,6 +162,7 @@ func TestTraceIOValueCaliberFoldPublishedSecondaryAxes(t *testing.T) {
 				}
 			case "background_target", "background_target_same":
 				rows[0].Object, rows[1].Object = "unknown-thread", "unknown-thread"
+				rows[0].IORequestMeasurement, rows[1].IORequestMeasurement = true, true
 				rows[0].TargetImpactMS = 2
 				if mode == "background_target_same" {
 					rows[1].TargetImpactMS, want = 3, TraceIOValueCaliberIssuerBlocked
@@ -164,13 +172,10 @@ func TestTraceIOValueCaliberFoldPublishedSecondaryAxes(t *testing.T) {
 					kept[i] = TraceCausalProjectionNode{Object: "unknown-thread", ImpactMS: 100}
 				}
 				rows = append(kept, rows...)
-				merge = func(in []TraceCausalProjectionNode) TraceCausalProjectionNode {
-					out := traceCausalProjectionFoldUnknownBackground(in)
-					if len(out) != len(kept)+1 {
-						t.Fatalf("missing background fold: %d", len(out))
-					}
-					return out[len(out)-1]
+				if got := traceCausalProjectionFoldUnknownBackground(rows); !reflect.DeepEqual(got, rows) {
+					t.Fatalf("background fold changed independent request axes: got %+v, want %+v", got, rows)
 				}
+				return
 			}
 			plain := append([]TraceCausalProjectionNode(nil), rows...)
 			for i := range plain {

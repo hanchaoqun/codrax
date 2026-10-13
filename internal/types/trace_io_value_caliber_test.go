@@ -173,6 +173,7 @@ func TestTraceIOValueCaliberBackgroundValueOwners(t *testing.T) {
 				rows[0].ImpactMS, value = 12, 12
 			case "overflow_max", "overflow_tie", "overflow_unknown_owner":
 				rows[0].Object, rows[1].Object = "unknown-thread", "unknown-thread"
+				rows[0].IORequestMeasurement, rows[1].IORequestMeasurement = true, true
 				if mode == "overflow_tie" {
 					rows[1].ImpactMS = rows[0].ImpactMS
 				}
@@ -184,13 +185,12 @@ func TestTraceIOValueCaliberBackgroundValueOwners(t *testing.T) {
 					kept[i] = TraceCausalProjectionNode{Subject: fmt.Sprint(i), Object: "unknown-thread", ImpactMS: 100}
 				}
 				rows = append(kept, rows...)
-				merge = func(in []TraceCausalProjectionNode) TraceCausalProjectionNode {
-					out := traceCausalProjectionFoldUnknownBackground(in)
-					if len(out) != len(kept)+1 {
-						t.Fatalf("did not reach unknown background fold: %d", len(out))
-					}
-					return out[len(out)-1]
+				// Even an unknown ruler remains a request measurement; no
+				// source identity is available to collapse the two requests.
+				if got := traceCausalProjectionFoldUnknownBackground(rows); !reflect.DeepEqual(got, rows) {
+					t.Fatalf("overflow changed independent request values/rulers: got %+v, want %+v", got, rows)
 				}
+				return
 			}
 			plain := append([]TraceCausalProjectionNode(nil), rows...)
 			for i := range plain {

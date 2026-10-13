@@ -223,6 +223,8 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // evidence remains the only lane that may become repo citations. The ledger
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
+	ioRequestIdentity    *traceIORequestIdentity
+	IORequestEndpoints   *TraceIORequestEndpoints          `json:"-"`
 	EventSearchInventory *TraceEventSearchInventory        `json:"event_search_inventory,omitempty"`
 	MeasurementSources   *TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	StateAccounting      []TraceSchedulerStateAccounting   `json:"state_accounting,omitempty"`
@@ -677,6 +679,10 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
 		record.StateAccounting = CloneTraceSchedulerStateAccounts(record.StateAccounting)
 		record.EventSearchInventory = CloneTraceEventSearchInventory(record.EventSearchInventory)
+		if record.IORequestEndpoints != nil {
+			endpoints := *record.IORequestEndpoints
+			record.IORequestEndpoints = &endpoints
+		}
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)

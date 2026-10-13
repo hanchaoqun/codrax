@@ -526,6 +526,9 @@ func (p TraceCausalProjection) Active() bool {
 }
 
 type TraceCausalProjectionNode struct {
+	ioRequestIdentity string
+	// Descriptive isolation survives JSON; positive identity does not.
+	IORequestMeasurement bool `json:"io_request_measurement,omitempty"`
 	// Compile-local eligibility, never restored from a rendered projection.
 	// A native sleep inventory is required before an event may close it.
 	sleepDrilldownNativeRecord bool
@@ -4034,7 +4037,10 @@ func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
 }
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
+	ioIdentity, ioMeasurement := TraceObservationIOPublicationKey(record)
 	node := TraceCausalProjectionNode{
+		ioRequestIdentity:    ioIdentity,
+		IORequestMeasurement: ioMeasurement,
 		sleepDrilldownNativeRecord: record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
 			RuntimeObservationProducerIsDeterministicQuery(record.Producer) && record.GroundingPolicy == ClaimGroundingHard &&
 			!record.Negative,
@@ -6185,6 +6191,12 @@ func traceCausalProjectionSemanticPublication(node TraceCausalProjectionNode) bo
 }
 
 func traceCausalProjectionDedupeBaseKey(node TraceCausalProjectionNode) string {
+	if key, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+		if key == "" {
+			key = "unknown:" + node.EvidenceID
+		}
+		return "io-request\x00" + key + "\x00" + node.Role
+	}
 	// B344: timed semantic rows have a physical event identity independent of
 	// attachment filenames/line locators. Use that exact typed identity here as
 	// well as in the lossless alias fold above; otherwise this older generic

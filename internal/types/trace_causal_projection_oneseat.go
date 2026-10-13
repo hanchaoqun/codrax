@@ -170,6 +170,9 @@ func traceCausalProjectionOneSeatKeeperEligible(node TraceCausalProjectionNode) 
 // exact engine line span), byte-isomorphic to the display layer's
 // runtimeTraceProjSameSegmentTwinKey so the retirement diff is provable.
 func traceCausalProjectionOneSeatTwinKey(node TraceCausalProjectionNode) string {
+	if key, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+		return key
+	}
 	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
 		return ""
 	}
@@ -578,6 +581,9 @@ func traceCausalProjectionConvergeRawMemberReissues(out *TraceCausalProjection) 
 		ambiguous := false
 		for _, keeperID := range keeperOrder {
 			keeper := keepers[keeperID]
+			if !traceCausalProjectionIOFoldGuard(raw, keeper) {
+				continue
+			}
 			if traceCausalProjectionCanonicalNode(keeper.Subject) !=
 				traceCausalProjectionCanonicalNode(raw.Subject) {
 				continue
@@ -622,6 +628,9 @@ func traceCausalProjectionConvergeRawMemberReissues(out *TraceCausalProjection) 
 // extrema at 3 decimals + the typed query window. Isomorphic to the display
 // WO-D3 fingerprint. Empty for non-merged / fold / unknown-subject rows.
 func traceCausalProjectionMergedTwinFingerprint(node TraceCausalProjectionNode) string {
+	if _, handled := TraceCausalProjectionIOPublicationKey(node); handled {
+		return ""
+	}
 	if node.MergedCount <= 1 || node.OnChainOverflowFold {
 		return ""
 	}
