@@ -7849,3 +7849,55 @@ B现成入口为真实planner、公开工具与独立新进程恢复，但contro
 文档发布前已按字节及SHA核对归档154份原件：66工具载荷、4准备文件、8答案产物、76失败/测试/设计/人工审计及发布收据。目录`eval/results/hmc_event_time_scope_20261013/`，索引`evidence-sha256-index.txt`保每项原路径和SHA。真实机器PASS和人工FAIL、三轮全仓、所有开发失败均在，不覆盖§236或本批原问题；后续发布收据仅续入索引。大原件按已有规则本地留存，统一任务清单/差距账本/架构及机器/人工摘要入库。
 
 本批代码六笔为`672c36da4`、`5208adf19`、`8db257e81`、`fbb11cf64`、`f1b997c00`、`c9576d81e`，分片普通提交；前三笔已在§237.5推送，后三笔在末版回归后发布。完整能力新增0、累计21，79唯一任务仍58开放，重复0；状态36待实施/16部分实施/2待验收/3验收中/1持续执行。交付子能力按两组而非提交数重复计算：时间条件/同源成员交接，目标身份出处与正常自动采样取数。固定两例机器2/2、原人工0/2，不因后续确定性通过倒签；自然采样retry、完整采样答案、原生字段/分组/请求图与混合叙述一致性继续开放。下一轮按§237.7轮换二进制REPL完整尾部和限定只读登记终态，不用重复局部评测掩盖未交付的入口能力。
+
+## 238. 真实 REPL 完整材料入口与采样选择回执（2026-10-13）
+
+### 238.1 核账、参考意图与本批边界
+
+起点`d768245f1`工作区干净，79唯一任务、21实现已交付、58开放，重复0；36待实施/16部分实施/2待验收/3验收中/1持续执行。父项只按原退出条件销账，§237两份人工FAIL及未覆盖范围不撤销。双轨为真实REPL二进制完整尾部入口，以及完整采样树遗漏选择状态这一已证系统缺口；轮换只读登记新进程终态，不继续围绕同一份终稿追绿。
+
+参考`server.py::convert_hitrace_to_sqlite`把完整材料路径与trace_meta交回后续工具，意图是准备一次、多工具复用，而非让用户手动转换。本仓复用已有内容探测、完整受管理材料、有界预览和源代次校验，新增真正CLI REPL验收；不复制仅后缀/mtime/旁邻DB信任。参考`core/query_engine.py::_run_pipeline`保实际参数及params_used，适配为同一个typed主体选择回执跨查询路径交接，不增加第二份schema。参考`perf_calltree_in_interval.yaml`及`perf_calltree_ops.py`先选线程/窗口再建路径树；保本仓独立事件权重、未知栈、DSO/IP和系统完整帧，不照搬首个同名线程、空窗全量回退、未知栈丢弃、应用裁剪或采样比例换算墙钟时间。只读登记不是参考仓的同名原生能力，不虚称逐项功能等价。
+
+### 238.2 采样共用选择回执
+
+`a35c6c5b9`在完整可用的流式`perf_sampling_tree`结果中复用旧`threadSelectorResolutionForQuery`/`ThreadSelection`。错误TID10+document-worker现在与旧统计同样给出已观测的身份不匹配和TID11候选，但数值选择仍为10、样本仍0；显式修为11后仍使用原窗，5样本及35/7/100独立分母、未知5、完整路径不变。真实空窗保已知线程身份；同名多候选只供发现，不自动重定向。
+
+诊断仅覆盖流式保留的采样及被采样线程生命周期元数据，不声明全采集不存在某线程。溢出、已有typed identity不成立、不可用树不发布选择回执；没有任何已观测名称/候选时也不凭头部复建身份。不新增模型字段、硬门、关键字扫描或重试次数，不改变Trace因果投影/补齐和原始库存。公开工具摘要及结构化Observation使用同一结果。
+
+公开RED/GREEN、索引/流式4视图对照、完整公开工具和相邻回归通过，采样两包race通过（tracequery1.845s/tool2.855s），skill整包及orchestrator/agent/tracediag相邻保护通过。新测试首版类型/身份假设错误与行为RED分别留证，不能混称生产失败。此前自然采样未正确重试/成文仍开放；尤其source-only `thread_identity_known=false`未归属样本仍可能得到available/0，本片仅保证不授头部身份回执，不声称已修总体可用性。已有`population.selectorWithheld`→`typed_identity_unproven`路径已存在，后继应补共享身份准入的缺口，不能重做或关闭整棵树能力。
+
+### 238.3 新真实入口与零模型失败闭环
+
+`6cfe04b4f`新增`eval/repl_binary_tail`显式opt-in入口：真正构建的CLI子进程读取`/htrace`、自然问题与排队`/exit`；没有模型adapter、stub runner或预生成答案注入。复用12页RMQ生产格式构造数据，完整49,740字节/12条事件，1,024字节预览不含最后的tail-target/424242。操作员oracle在子工作区外，机器审计只读子进程自己的准备、快照、query payload、模型/工具日志及绑定Markdown哈希的answer surfaces。机器元组检查只是smoke，不能代替主体/时间/遗漏/因果和所有答案表面的人工审计；合成输入不冒充新实机采集。
+
+A1与B第一次入口并行启动。A1在0.916秒因harness使用内部`--mode=read`退出，LLM=0/tool=0/答案=0，原件保存在`repl_rmq_binary_tail`，结论是启动FAIL而非模型或解析FAIL。改合法`--mode=code`后，新增实际CLI零模型正负控又发现生产`cmd.runREPL`没有给`Config.In`接管道stdin，错误寻找`/dev/tty`。这不是现有script owner自身的EOF/取消缺陷，也不能以直接构造REPL的测试替代真实接线。
+
+`b867f533e`仅在真实stdin非TTY时把原descriptor借给既有脚本reader；TTY保持nil进入原生交互，不提前读取、不额外缓冲、不关闭借入文件、不改写权限。文件/pipe/TTY/nil/关闭读取错误、旧script owner取消/排队/EOF及write kill switch回归通过；真实CLI使用与live完全相同参数，只输入`/exit`，本地拒绝端点计数为0、日志无LLM/tool/答案，正控正常退出，非法read模式仍拒绝。全harness6项8.229s通过；cmd/repl相关race2.253s/3.615s，L1/hot-file结构回归通过。旧名字为`green-v1`的日志实际FAIL按内容记账，后续green-v2不覆盖。
+
+A1没有模型运行，不占已完成的真实模型例。修后A2使用新目录`repl_rmq_binary_tail_fixed`补齐同一问题的首次真实模型运行，原fixture/oracle不变，B不重复；不得声称A2与已结束B在时间上并行。两个实际模型案例机器2/2、人工1/2（B为限定流程），A1零模型启动FAIL单列不删除。
+
+### 238.4 B 只读登记恢复终态：限定路径 PASS
+
+B一次真实planner、生产工具/持久化及独立新进程执行，机器与人工限定PASS；controller的verify/finish决策仍scripted，不是完整CLI/真实controller模型或最终自然语言回答验收。两次模型请求均first attempt，完整读取2行源码/4行测试后一次精确登记，无失败或自然重试。父进程49558、子进程50451，新调用`native:c513:18de405ce2ba38a0:1`与旧调用/来源调用不同；原合同increment(4)==5、完整suite/assertion和命令SHA均精确匹配。
+
+来源、补证、整轮三层分别verified，旧unverified attempt保留，批级依赖仅在有效后继到达后闭合；执行后授权回收。源码/测试SHA及HEAD不变；五个context-pack快照各6包，身份、内容及引用无增长。原始耐久临时目录已按测试生命周期清理，人工核对保存的全workflow和inventory/hash审计，不冒称重新读取已删除文件。父子final-plan/report原字节一致。详细20份原件哈希及逐阶段定位见本批`codrax-hmc238-registration-manual-audit-v1.md`。
+
+仍欠完整自然controller修后回放、跨框架/多来源等范围；18.5本身是持续执行项，不能因一例限定PASS关闭。实际prompt中的部分重复合同教学和通用探索提示与proof-only工具表不完全贴合留作低优先优化，不以这次执行正确推定其无影响，也不为此加跑第三例或扩大本批修复。
+
+### 238.5 A2 完整材料贯通与主体语义残余
+
+A2正式exit0、65.620秒，机器8/8，输入子路径人工PASS、完整答案人工FAIL。真实子进程从原始RMQ准备完整systrace，快照schema2明确保原件与重新附加要求，1,024字节预览没有tail-target/424242。模型实际`trace_query`在1.0105–1.012秒返回唯一1.011000秒唤醒记录，完整材料第23行、目标tail-target/424242；原件SHA不变，输出Markdown/HTML/answer-surfaces同源且hash匹配。operator-oracle没有替代child取数；正常排队`/exit`等待答案后执行，未因EOF提前取消。
+
+终稿把目标称“被唤醒的线程”却把其编号称“进程编号（PID）”。原生JSON有`wakee_comm/wakee_pid`，仅发起者有pid/tgid=12，没有目标TGID，不能把载荷字段名pid解释成进程证明。finalizer的同源display_rows/native_event_fields只暴露emitter.tid/tgid，目标名称/编号仍经raw与独立关系交接；同时当前上下文已有scheduler_wakeup_event及受信thread关系，因此不能笼统说线程证据全丢或模型必然只能猜。应补共享多端点事实的角色/字段投递，而非为这句中文扫描关键词设门。原工具日志只保存文本前2000/6928字节，完整原生JSON和finalizer消息另可复核，不把日志截断尾部假称完整可见输出。另有截断预览名称head-w进入analysis exact_targets的噪声，实际查询未使用它，不扩大本例FAIL范围，仍在原上下文质量任务留案。
+
+窗口、数量、唤醒方向和数值正确，无链外根因结论，无图请求/输出，不宣称图像验收；主体角色错误仍使整答FAIL，共挂已存在01.3/16.4，不声称已证模型波动或新建重复任务。详见`codrax-hmc238-repl-manual-audit-v2.md`。本批不再重跑普通RMQ或按单句写死术语，优先09.4共享身份不可判定边界与18.3无调度sample-only自然入口；完整采样自然答案、owner同scope、真实controller、活动SQLite快照等保各自原范围。
+
+### 238.6 末版验证、归档与发布
+
+第一次full-v1在发现CLI启动缺口后中止，正式exit143，JSONL和取消说明保留。80测试包PASS/13无测试包、10包因确认的INT/TERM中断出现fail；不是全仓PASS，也不能当作产品断言失败。没有与末版叠跑；修复、真实CLI零模型回归及两笔代码冻结后，以`b867f533e`标准make成功重建（dirty只来自文档），A2实际进入模型后才启动唯一末版full-v2。最终全量Action=fail、race、输入SHA与正式退出结果另记，不以最后一行ok提前宣告通过。
+
+full-v2已正式exit0：91测试包PASS、13无测试包，全量Action=fail为空、非JSON错误行为空。tool输出测试耗时631.282秒，正式package pass在709.293秒，收齐驱动退出后才签全仓；新增harness包已含实际CLI零模型启动正负控。采样tracequery/tool两包race、CLI cmd/repl两包race、相关公开/skill/相邻及L1/hot-file回归均通过。14份冻结输入/runner/生产文件末次SHA全不变；A1/A2原件字节和自然问句/预期元组相同，oracle收据仅preview SHA因各自运行路径不同而变化，不声称两份oracle.json逐字节相等。
+
+发布前归档逐字节核对69份复制收据，总索引126份原件，根目录`eval/results/hmc_repl_terminal_20261013/`，含A1/A2、B独立复制、全仓中止/末版、开发失败、审计与输入清单。`evidence-sha256-index.txt`逐项保原路径/SHA；原始A2机器human_pending不改写，人工FAIL另存。第一次归档脚本因本机Ruby没有filter_map失败，改兼容v2脚本后成功；两个脚本及失败日志保留，不是产品测试失败，不覆盖已复制原件。后续构建/推送收据只追加归档，不为文档变动重跑全仓。
+
+本批三笔代码分片为`a35c6c5b9`（采样选择回执）、`6cfe04b4f`（真实REPL评测入口）、`b867f533e`（实际CLI脚本输入及启动回归）；账本/任务入口和机器/人工摘要同批汇总。完整任务新增0、累计21，58开放及各状态不变；两组子能力不按提交数重复计功。发布以普通push和远端SHA核验收据为准，后继优先队列见任务清单及`codrax-hmc238-next-roi-v1.md`，不将一次限定PASS改写为全能力完成。
