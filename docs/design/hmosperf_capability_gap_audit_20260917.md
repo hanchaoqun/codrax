@@ -8073,3 +8073,57 @@ B正文仍把离散命中写成CPU0“持续执行”、CPU1“持续占用”�
 A上下文首轮83373估算tokens/4消息，末轮129718/37消息，增46345；前13轮回复正文88355字节、6次midloop注入56413字节，约占增量78%（尚不含参数/结果）。初始system/user/dynamic合计281983字节，故总成本不能全归历史；需要初始事实预算与重试历史同时减噪。临时request-only tool-surface指引不等于每轮持久累积。详细只读收据`codrax-hmc241-next-roi-v1.md`，不以该诊断冒充已实施或公开RED已通过。
 
 完整原件归档`eval/results/hmc_sampling_member_bridge_20261014/`：两份原机器verdict/独立manual-verdict、全部子进程blob、最终MD/HTML/sidecar、实际准备目录、完整30,062,585字节二进制采集、A原始fixture/自然case/独立oracle、完整独立采样oracle及红绿/末版验证收据。首个完整归档189份复制逐字节一致、270份产物入`evidence-sha256-index.txt`；后续发布收据只追加并重建索引，不覆盖不一致原件，也不把本地忽略目录说成已推远端。汇总`batch-audit.md`及`verification-receipts/codrax-hmc241-verification-status-v1.json`分别记录实现、真实失败和未触发分支；文档/远端最终SHA另追加发布收据。独立代码及文档复核没有新增发布阻断，不替代人工0/2判定。
+
+## 242. 合法过滤采样的独立来源与请求参与者精确绑定（2026-10-14，子能力已交付、人工0/2）
+
+### 242.1 核账、参考意图和本批边界
+
+起点`b4fe085482d369da0c4e5ec6ad6ea14c599b245e`干净；79唯一任务=21已交付+58开放，重复0，开放状态36待实施/16部分实施/2待验收/3验收中/1持续执行。§241机器1/2、人工0/2及所有原始失败保持不变。
+
+参考`perf_calltree_ops.py`先按线程和实际时间选择总体再聚合的设计，以及`query_engine.py`区分原生data、摘要和truncated/empty的交接；采用当前查询自身的来源与总体，不复制缺栈排除、名称合并、空窗全量fallback或权重换毫秒。`wakeup_chain_index.py`保留内部线程实例、对外公开真实TID而不丢实例，用于本仓已验证请求选择与原生线程端点的精确交接，不将公共TID/名称当作跨来源或跨代次身份。
+
+两条实施轨：09.4合法过滤的原生flat热点独立选择/发布凭证；16.4请求参与者→已选原生线程实例的共享绑定及有序图局部修复。现有PerfCohort.Scope已保存实际内容/事件/行/字段过滤及独立分母，优先补消费者交接，不重写解析器或更换取数条件。先公开EmitAnalysis→TraceQuery→actual finalizer/emit/当前ParametersFor修复反例，保正反矩阵；不扫原始问答关键词、不修改原始观测或因果权限。全局重复事实/历史预算、活动SQLite及新BRBE语义不夹带；新增发现挂原编号，未验收不销账。
+
+### 242.2 公开反例、实现边界与验收安排
+
+采样公开反例在直接文件和准备清单两支都复现：实际合法过滤返回原生热点，但 companion tree 为 `requires_time_and_thread_selectors_only`，旧成文交接因依赖树的发布资格而漏掉热点专用展示。补齐方向是执行后冻结实际筛选总体、物理成员来源代次和各自分母，再为每条热点签发独立显示凭证；范围筛选必须先发生，另有条数/字节预算，不让有效但错窗、错目标的原生数据混入。此能力限现有实际产出 flat 热点的 `window_stats` / `perf_stats` / `trace_perf_bundle`；`perf_timeline` 仍是桶统计，直接 tree 仍拒绝不支持的内容过滤。公开 schema 原先不支持的字段过滤没有因此开放；无过滤路径继续使用原有树选择资格。
+
+图公开反例使用接受后的请求参与者和原生三次唤醒，精确关系仍被误报 `missing_unproven_boundary`。补齐方向是把已验证请求引文中的唯一显式数字线程选择，与当前原生关系的相同端点对应；保留原始事件实例和节点，不根据显示名称、业务角色或 lookup 猜测映射。当前端点载体只有 TID/TGID/comm，不能宣称补出了未记录的线程生命周期；同查询出现冲突身份保持不绑定。coverage、显示修复和成文说明复用同一临时绑定，不持久化新因果证据。额外复现了倒序事件虽被拒绝，却无可执行局部修复载体的问题，沿现有精确事件位置与局部编辑闭环，不解除时序校验。
+
+本批固定两例并行各一次：新增自然过滤问题 `trace_filtered_sampling_hotspots` 与原 `trace_event_participant_inventory`；旧无损树、sample-only 案例及历史 FAIL 不改、不增加第三例追绿。新问题只表达线程、窗口、库/热点和统计目标，不把系统约束写给用户；独立 `FILTERED_ORACLE.md` 不附给模型。raw cycles 2/15、raw instructions 1/100、simpleperf cycles 1/7 分开，过滤后15/15与全窗15/35不能混称；无完整栈的5不能进入精确A路径10。若实际未触发过滤交接，新通道记未覆盖；不能用这例代签09.4完整前缀树原退出条件。完整回归、实际上下文及正文/表/图/恢复稿人工验收结果在冻结后追加，当前不改完成数。
+
+### 242.3 冻结双例：机器2/2，完整人工0/2
+
+真实模型固定代码`4e21da1a01ec8ddd6c2f82f7b75058eca5ccb0a2`，标准make exit0；冻结二进制SHA256 `7716855ab80c4e13493ad590e927a00421187ff23179a37d6f1a2dc36d3bc345`。初始脏路径只有两份本批中央文档；全部Go/build输入、两case/fixture/oracle有SHA清单并在首轮全仓退出后复核。原件目录`eval/results/hmc_filtered_sampling_identity_20261014/`，两例并行各一次，机器2/2、完整人工0/2，不追第三例。这里是构造fixture上的真实模型验收，不冒充本批再次经过设备二进制准备。
+
+**采样例：机器PASS，人工FAIL，153秒。** 实际唯一`perf_stats`带合法`pattern=work`、TID11和`[1,2)`；四条`perf_filtered_member`在真实finalizer专用字段段完整出现，带各自原生源/代次/查询/过滤/分母与质量分布，companion tree保持`requires_time_and_thread_selectors_only`而非假零或假完整。新独立交接已自然命中。原生过滤匹配本fixture全部work记录，未下推A.so，所以raw分母35合理；A.so专属15/15只保确定性回归证据，本例不代签。最终三行2/15、1/7、1/100及42.86%/100%/100%正确，但正文合计误写5次（应4），把全部sample_kind未知混成只有1个（1实际是raw帧边界未知样本数），又把样本质量计数当栈帧数量；“明显CPU密集型”和instructions100%“垄断整条路径”超过现有证据。这些不被末尾正确附录或空root-causes sidecar抵销。原生字段没有被预算截断；旧triage的18%/82%、跨producer22及错误调查叙述未进入actual finalizer，不能错归因于旧摘要仍污染。没有失败采样query后的自然retry，也没有完整树展示；analyzer先错TID后恢复及表格行形状修复不能冒充该覆盖。
+
+**唤醒例：机器PASS，人工FAIL，460秒。** 正文与最终三箭头的1.003/1.009/1.017、loader11/10与worker13/30→target42/20均正确，顺序正确，other99及右边界未误计。真正失败是7个声明泳道代替3个线程：原生target、独立target和T重复，Note挂T而三箭头落原生target；末尾又声明target请求关系未证明。actual analyzer合法短identity=`target`配完整quote=`target 线程（tid 42）`，named-target profile同quote且唯一PID42，但本批bridge额外要求identity==整quote，造成`missing_unproven_boundary`。这是确认的系统接缝，不是模型波动。最终仍有同一9段状态表重复3遍，17轮finalizer/16次拒绝、峰值156001估算tokens（78%）；不能把全部成本都归身份桥。原生时序冲突局部事务本次未触发，图顺序正确不等于该修复已live覆盖。
+
+两份独立人工报告及原始分析、取数、成文消息、失败patch、MD/HTML/primary/principal/sidecar全部保留。Trace因果投影和自动补采实际保留running6/runnable3/sleep11ms，背景other99未升主因；不得为降低噪声删除链上调度/语义/阻塞能力。旧trace_gap计数“已证关系数”语义债继续留原16.4，不因本例碰巧有相同条数的唤醒关系而销账。未做浏览器像素验收，不能把HTML含合法图源称为完整视觉通过。
+
+### 242.4 首轮全仓与同批补救
+
+初版相关五包、actual finalizer与展示预算/请求范围负控、动态图schema/registry/身份普查/L1/hot-file快检、skill整包和构建通过；定向race的tracequery/tool/agent及另跑types native-order原子性通过。源码局部修复保持精确事件数量，旧body/位置ref拒绝；可选整图删除只沿既有显式授权，必需图仍不允许删除。直接受信过滤记录经过promptLedger/request scope后才可展示，不用全ledger绕过范围筛选。
+
+`full-v1`正式exit1：91包PASS、13包SKIP、1包FAIL，唯一失败根`TestAnswerDocumentPatchBaseCensus_NormalizationPrecedesAtomicEdits`仍要求Execute直调旧`WithParticipantsAndBoundaries`，新入口已为`WithNativeParticipants`。完整失败全部收齐后才解冻，不并跑第二套全仓、不改旧收据。补救同步精确入口名，仍要求normalizer恰好一次、先于两个编辑执行器且每个执行器恰好一次；不是降低census或改变执行时序。
+
+同批公开复现合法短显示名接缝：复用已接受typed source_quote上的既有`entityNamedInQuote`，而非显示名等于整段引文；继续要求与target profile逐字相同引文、唯一user_explicit数字线程选择、当前原生来源/时钟/窗口/实例；同一引文含其它已接受participant时不推断归属。不得把别名匹配原生comm、业务角色或lookup当身份证据。该补救只闭环精确桥接前提，不声称解决全部显示泳道与Note共同身份，也不倒签本批人工FAIL。末版验证与发布状态另记。
+
+独立只读复核再发现“图清单漏掉引文中的另一个主体”负控缺口：实际`EmitAnalysis`接受entities=[target, observer]、唯一target42、共用引文，却只保observer图参与者。临时overlay公开query→emit证明三条target唤醒被桥给observer且答案成功，正式RED保留`codrax-hmc242-omitted-actor-public-red-v1.log`及完整canonical RequestModel。已有“图清单同时含两主体”负控不足以证明唯一性；该精确错误身份升权作为同批发布阻断，不能归模型波动或只补一条问句规则。full-v2运行期间仓内Go不改，正式收齐后统一补救；实际模型仍只有原两例，不倒签其FAIL。
+
+`full-v2`在代码`c8f56c6cda10406120d0856441d3fbf3bfc6fd32`正式exit0：92包PASS、13包SKIP、0个Action=fail、0非JSON行，tool包640.482秒；冻结build-inputs与两例输入在退出后逐项hash通过。但独立审计的公开错误绑定不在旧测试矩阵内，仍阻断发布，不能拿这份全绿覆盖安全反例。补救回到分析入口的原始冻结实体名单，只对本会获得原生别名绑定的精确候选判引文歧义；不依赖下游会变化的Entities/PrimaryEntities，也不以RuntimeTarget.Thread名字作正向权限。末版须先完成独立复核，再冻结全仓，避免把尚未收齐的审计与昂贵末版验证同时开始。
+
+### 242.5 冻结名单补救与最终验收边界
+
+第二次补救复用原有分析入口冻结名单，在Trace提前返回及保存RequestModel之前检查本来会进入精确原生桥的候选：同一引文中的不同原始主体不能共享唯一线程坐标；整段引文包含两个已声明主体也不能借整段identity绕过。纯数字或规范tid选择仍按精确坐标工作，名称加同一tid不重复算两个主体；显式命名selector里的不同tid直接拒绝。RuntimeTarget.Thread只有在该引文中确实出现时才可否决冲突，绝不因名字相同产生正向身份权限。使用既有完整身份与typed selector解析，不扫用户问题或答案关键词、不解析任意自然语言来造新角色。
+
+公共回归覆盖原错误声明被拒、原生观测未改、无效声明不能编译为实际IR，以及保持原始双实体名单、仅收窄typed quote后重新走EmitAnalysis→IR→TraceQuery→actual finalizer成功且仍保三次原生唤醒。非必需图、多目标、不同quote、context_only和name-only不获得新绑定，也不继承这项完整主体义务。结构普查固定唯一冻结调用点和只读消费，防止晚期实体扩充/裁剪、原文读取或子串匹配替代精确检查。本修复没有新增JSON字段或提示词特例。
+
+本批剩余人工验收按四组留在09.4/16.4/16.5/18.4原编号：①选中采样总体的合计、质量单位和正文语义；②图中泳道/Note统一主体复用；③同源事实重复展示与重试上下文预算；④数据缺口计数误称已证关系。这些不是新增四个稳定任务；完整前缀树、sample-only二进制和只读登记原退出条件也未销账。下一批优先沿typed已选总体复用正文/表/图，并轮换真实只读登记；未触发的自然查询重试不无限阻塞高ROI交付。历史两例人工FAIL不改签。
+
+最终三联口径：**完整能力本批新增0（累计21/79），交付3组子能力，保留4组本批人工验收缺陷；开放仍58项**。三组分别为合法过滤flat独立来源交接、请求与原生端点绑定、精确时序局部修复。代码`4e21da1a01ec`、`c8f56c6cda10`、`f745c100b437`已普通推送`origin/main`并核远端HEAD；未新增第三例模型运行。冻结名单补救的定向exit0（tool4.355/agent1.564秒）、race exit0（tool20.258/agent5.681秒）和独立复核v2通过；原v1 BLOCKED不覆盖，末版关键生产hash可追溯。
+
+末版`full-v3`在`f745c100b43781dfd3778680a1af07ca114f4e7e`正式exit0：92包PASS、13包SKIP、0失败事件/0非JSON行，tool637.295秒。仅验证命令使用20m包预算，产品timeout不变。运行期间Go/测试冻结，正式退出后6192个Go/build输入及6个case/fixture/oracle逐项hash全通过；标准make exit0，末版二进制SHA256 `716e9434e6793030cd8548482dbbc6a94f555c06e8d0304f5f070ee4413abd54`。两例真实模型使用的是较早冻结`4e21da1a01ec`，不能将末版全绿与早期机器PASS拼接成修后人工PASS。
+
+原件目录`eval/results/hmc_filtered_sampling_identity_20261014/`已归档两份机器verdict/独立manual-verdict、完整阶段日志/blob、最终MD/HTML/sidecar、原case/fixture/oracle，以及所有开发RED/中间失败/full-v1 FAIL/full-v2与v3收据。首轮185份复制逐字节一致、272份产物入`evidence-sha256-index.txt`；后续发布收据仅追加并重建索引，不覆盖不一致原件。归档Go探针改扩展名`.go.txt`但原字节不改；二进制/凭据不入归档。`batch-audit.md`与`verification-receipts/codrax-hmc242-verification-status-v1.json`记录实现、整答失败和未覆盖分支，最终文档/远端SHA另附发布收据。本地忽略的结果目录不宣称已推远端，中央文档记录可复核入口。
