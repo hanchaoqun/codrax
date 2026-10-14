@@ -91,7 +91,7 @@ func boundedPerfSamplingTree(p tracequery.PerfSamplingTreeResult) tracequery.Per
 	}
 }
 
-func traceQueryPerfSamplingTreeObservations(p *tracequery.PerfSamplingTreeResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+func traceQueryPerfSamplingTreeObservations(p *tracequery.PerfSamplingTreeResult, ref types.ObservationSourceRef, scope, at string, native ...tracequery.Result) []types.ObservationRecord {
 	if p == nil || !tracequery.ValidPerfSamplingTree(*p) {
 		return nil
 	}
@@ -106,7 +106,13 @@ func traceQueryPerfSamplingTreeObservations(p *tracequery.PerfSamplingTreeResult
 	if pid, thread, valid := tracequery.NormalizePerfSamplingSelector(ref.QueryTargetPID, ref.QueryTargetThread); valid {
 		ref.QueryTargetPID, ref.QueryTargetThread = pid, thread
 	}
-	return []types.ObservationRecord{{ID: "trace_query:" + scope + "#perf_sampling_tree", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, Span: types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs}, ClaimKey: TracePerfSamplingTreePredicate, Predicate: TracePerfSamplingTreePredicate, Subject: "sampled prefix tree", Object: p.Status, Summary: "Source-bound sampled prefixes and independent cohort weights; not invocation or causal evidence", RichNotes: []string{types.TraceNoteKeyPerfSamplingTree + "=" + string(data)}, ObservedAt: at, Confidence: 1}}
+	notes := []string{types.TraceNoteKeyPerfSamplingTree + "=" + string(data)}
+	if len(native) == 1 && native[0].PerfSamplingTree == p {
+		if binding := traceQuerySamplingSourceBindingNote(native[0], ref, data); binding != "" {
+			notes = append(notes, binding)
+		}
+	}
+	return []types.ObservationRecord{{ID: "trace_query:" + scope + "#perf_sampling_tree", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, Span: types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs}, ClaimKey: TracePerfSamplingTreePredicate, Predicate: TracePerfSamplingTreePredicate, Subject: "sampled prefix tree", Object: p.Status, Summary: "Source-bound sampled prefixes and independent cohort weights; not invocation or causal evidence", RichNotes: notes, ObservedAt: at, Confidence: 1}}
 }
 
 func DecodeTracePerfSamplingTree(r types.ObservationRecord) (tracequery.PerfSamplingTreeResult, bool) {

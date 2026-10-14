@@ -37,8 +37,14 @@ func TestRuntimeWakeupSearchEnvelopeAndThreadLanes(t *testing.T) {
 				t.Fatalf("lost event envelope endpoint: want %d got %+v", tc.count, rows)
 			}
 			if tc.count == 4 {
-				if rows[0].ToNode != rows[1].ToNode || rows[1].ToNode != rows[2].ToNode || rows[2].ToNode != rows[3].FromNode {
-					t.Fatalf("thread lane duplicated: %+v", rows)
+				if rows[0].ToNode != rows[1].ToNode || rows[1].ToNode != rows[2].ToNode {
+					t.Fatalf("same independently observed identity duplicated: %+v", rows)
+				}
+				// The first three row-local wakees have no process field. The
+				// later emitter has an independently recorded TGID. A shared TID
+				// is not permission to fill the earlier missing endpoint field.
+				if rows[2].ToNode == rows[3].FromNode {
+					t.Fatalf("unknown process borrowed later emitter identity: %+v", rows)
 				}
 				if rows[0].ToIdentity == rows[1].ToIdentity {
 					t.Fatal("shared lane merged event credentials")

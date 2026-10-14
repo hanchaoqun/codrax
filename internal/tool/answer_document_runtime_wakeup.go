@@ -43,7 +43,7 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 		to := fmt.Sprintf("runtime_instance_%x", sha256.Sum256(append(append([]byte(nil), coordinates...), []byte("\x00to\x00"+string(data))...)))
 		row := RuntimeDiagramRelation{Kind: types.DiagramRelWakeup, FromIdentity: from, ToIdentity: to,
 			FromNode: runtimeWakeupDisplayNode(r, tracequery.ThreadRef(f.Waker), from), ToNode: runtimeWakeupDisplayNode(r, tracequery.ThreadRef(f.Wakee), to), FromLabel: r.Subject, ToLabel: r.Object,
-			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), strings.Join(r.SupportRefs, "; ")),
+			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；%s；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), types.RuntimeWakeupProcessDisplay(f.Waker, f.Wakee), strings.Join(r.SupportRefs, "; ")),
 			SupportRefs: append([]string(nil), r.SupportRefs...)}
 		row.eventOrder = runtimeWakeupDiagramEventOrder(r, f)
 		// Physical point + exact typed event fields distinguish repeated events,

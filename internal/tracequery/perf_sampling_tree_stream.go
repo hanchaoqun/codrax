@@ -124,7 +124,7 @@ func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLim
 		}
 		for _, source := range idx.TraceArtifacts {
 			tracker := newThreadIncarnationTracker()
-			_, err := resourceStackScanSource(ctx, sel, source.SourcePath, q.TraceFlavorHint, func(ev Event) bool {
+			_, err := samplingScanSource(ctx, sel, source.SourcePath, q.TraceFlavorHint, func(ev Event) bool {
 				if overflow || len(candidates) == 0 {
 					return true
 				}
@@ -154,7 +154,7 @@ func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLim
 				events = append(events, ev)
 				bytes += cost
 				return true
-			})
+			}, nil)
 			if err != nil {
 				return Result{}, err
 			}
@@ -262,7 +262,17 @@ func samplingScanSource(ctx context.Context, selection *traceIndexSelection, pat
 	if err != nil {
 		return nil, err
 	}
-	idx, err := streamScanReader(ctx, path, info, io.NewSectionReader(f, 0, identity.Size()), flavor, observe, lineObserver, false, 0, false)
+	// Both sampling passes use the same manifest capability admission as the
+	// indexed lane. A verified child digest is not proof of thread identity or
+	// permission to import scheduler/lifecycle rows from a perf companion.
+	admitted := observe
+	if spec, found := selection.traceArtifactSpec(path); found && spec.source.Kind == "perftrace" {
+		admitted = func(ev Event) bool {
+			rows, _ := applyPerfBundleAdmission([]Event{ev}, spec.perfCapability)
+			return len(rows) == 0 || observe(rows[0])
+		}
+	}
+	idx, err := streamScanReader(ctx, path, info, io.NewSectionReader(f, 0, identity.Size()), flavor, admitted, lineObserver, false, 0, false)
 	if err != nil {
 		return nil, traceReadErrorAfterIdentity(f, identity, "sampling scan", err)
 	}

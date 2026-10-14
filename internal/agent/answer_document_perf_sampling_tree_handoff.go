@@ -40,6 +40,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	// the key. A different view or outer payload ID is not a different tree.
 	seenFacts := map[string]bool{}
 	publishedFacts := map[string]bool{}
+	selectedFacts := map[string]bool{}
 	accepted, shown := 0, 0
 	for _, r := range ledger.Records {
 		p, ok := tool.DecodeTracePerfSamplingTree(r)
@@ -53,6 +54,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		k := keyOf(r)
 		if conflict[k] {
 			publication.observe(r, false)
+			publication.observeSamplingSelection(r, false)
 			continue
 		}
 		if seen[k] {
@@ -62,6 +64,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		fact := contents[k]
 		if p.Status == "available" && seenFacts[fact] {
 			publication.observe(r, publishedFacts[fact])
+			publication.observeSamplingSelection(r, selectedFacts[fact])
 			continue
 		}
 		if p.Status == "available" {
@@ -70,6 +73,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		accepted++
 		if shown >= 4 {
 			publication.observe(r, false)
+			publication.observeSamplingSelection(r, false)
 			continue
 		}
 		var query strings.Builder
@@ -80,9 +84,13 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		query.WriteString(tool.TracePerfSamplingTreeText(p))
 		if b.Len()+query.Len() > 63<<10 {
 			publication.observe(r, false)
+			publication.observeSamplingSelection(r, false)
 			continue
 		}
 		b.WriteString(query.String())
+		selected := p.Status == "available" && p.OmittedCohorts == 0
+		selectedFacts[fact] = selected
+		publication.observeSamplingSelection(r, selected)
 		complete := p.Status == "available" && p.OmittedCohorts == 0 && p.DisplayRoot == ""
 		for _, cohort := range p.Cohorts {
 			complete = complete && cohort.OmittedNodes == 0

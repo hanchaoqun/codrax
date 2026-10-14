@@ -98,13 +98,14 @@ const rejectExitAcceptLaneResolver = "resolveTraceRootCauseSelectionForEmit"
 // literal, so the live sibling failStrictDecodeWithError or an extracted
 // fail-prefixed helper could not be rostered at all.
 var rejectExitFailCallees = map[string]int{
-	"failEmit":                         2,
-	"failEmitWithRepair":               3,
-	"failStrictDecode":                 -1,
-	"failStrictDecodeWithError":        -1,
-	"failStrictDecodeWithErrorSchema":  -1,
-	"failStrictDecodeMessage":          5,
-	"failStrictDecodeWithErrorMessage": 5,
+	"failEmit":                            2,
+	"failEmitWithRepair":                  3,
+	"failStrictDecode":                    -1,
+	"failStrictDecodeWithError":           -1,
+	"failStrictDecodeWithErrorSchema":     -1,
+	"failStrictDecodeMessage":             5,
+	"failStrictDecodeWithErrorMessage":    5,
+	"failAnswerDocumentPatchStrictDecode": -1,
 }
 
 // rejectExitExecutors are the executor functions the census walks, keyed by
@@ -163,7 +164,7 @@ var rejectExitRoster = map[string][]rejectExitRow{
 		{"failEmitWithRepair", "answer_document patch placed a block operation in replace_snippets", rejectExitLaneRaw},
 		{"failEmitWithRepair", "block_field_edits_v1[%d] does not match any exact field-edit branch", rejectExitLaneRaw},
 		{"failEmitWithRepair", "block_receipt_edits_v1[%d] does not match any exact receipt-edit branch", rejectExitLaneRaw},
-		{"failStrictDecode", "", rejectExitLaneRaw},
+		{"failAnswerDocumentPatchStrictDecode", "", rejectExitLaneRaw},
 	},
 }
 
@@ -961,7 +962,7 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 			rawResolveV2+"\n\t\treturn failStrictDecode(", "return failStrictDecode(")
 		expect(t, rejectExitCensusOver(t, src), "emit_answer_document_v2.go", "reject exit is not dominated")
 		src = mutate(t, "emit_answer_document_patch.go",
-			rawResolvePatch+"\n\t\treturn failStrictDecode(", "return failStrictDecode(")
+			rawResolvePatch+"\n\t\treturn failAnswerDocumentPatchStrictDecode(", "return failAnswerDocumentPatchStrictDecode(")
 		expect(t, rejectExitCensusOver(t, src), "emit_answer_document_patch.go", "reject exit is not dominated")
 	})
 	t.Run("self_red_new_exit_before_the_decode", func(t *testing.T) {

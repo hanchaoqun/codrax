@@ -3830,28 +3830,12 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			// edge_anchors, no exact-absence → no exact_resolution,
 			// etc.) so the LLM only sees the surface its contract
 			// actually uses.
-			params := t.Parameters()
+			params := toolParametersForDispatch(t, ctx)
 			if ead, ok := t.(*tool.EmitAnswerDocument); ok {
-				params = ead.ParametersFor(ctx)
 				desc = ead.DescriptionFor(ctx)
 			}
 			if patch, ok := t.(*tool.EmitAnswerDocumentPatch); ok {
-				params = patch.ParametersFor(ctx)
 				desc = patch.DescriptionFor(ctx)
-			}
-			// emit_write_workflow_decision projects its action enum by
-			// typed mode (ModePlan drops apply/verify actions) so the
-			// controller never sees actions the scheduler would reject.
-			if ewd, ok := t.(*tool.EmitWriteWorkflowDecision); ok {
-				params = ewd.ParametersFor(ctx)
-			}
-			// Registration selectors belong only to the current authorized
-			// planner dispatch; ordinary plan schemas remain unchanged.
-			if plan, ok := t.(*tool.EmitChangePlan); ok {
-				params = plan.ParametersFor(ctx)
-			}
-			if skeleton, ok := t.(*tool.EmitPlanSkeleton); ok {
-				params = skeleton.ParametersFor(ctx)
 			}
 			// The classification step hard-rejects line-level grep
 			// (evidence-lite boundary); surface the requirement on the
@@ -3866,11 +3850,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 				desc += " NOTE: " + analyzerListFilesShallowOnlyRule
 			}
 			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
-				params = writePlannerRunTestsParameters(params)
 				desc += " While preparing a write plan this tool is available only with dry_run=true and a typed verification_probe object."
 			}
 			if _, ok := t.(*tool.RunTests); ok && writeVerifierDefaultRunTestsOnly(ctx) {
-				params = writeVerifierRunTestsParameters(params)
 				desc += " During write verification, call this with {}. Deterministic run_tests selection owns TestSurface ranking, plan-touched preference, probes, fallback, and escalation."
 			}
 			schemas = append(schemas, llm.ToolSchema{
@@ -4070,7 +4052,8 @@ func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, 
 func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.RawMessage, cfg types.ToolParamCompatConfig) (llm.ToolCall, bool) {
 	// Keep the original alternatives for the execution/answer owner. Even a
 	// local metadata/default repair must not map-decode away this ambiguity.
-	if toolparam.InspectRawToolArgumentEnvelope(call.Params, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous ||
+	envelope := toolparam.InspectRawToolArgumentEnvelope(call.Params, schema)
+	if envelope.Status == toolparam.RawToolArgumentEnvelopeAmbiguous ||
 		toolparam.InspectSchemaConsumedArgumentEnvelopes(call.Params, schema).HasAmbiguity() {
 		return call, false
 	}
@@ -4082,6 +4065,16 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	var changed bool
 	var summaries []string
 	var schemaReport toolparam.Report
+	if restoreRootCauseParams != nil && (envelope.Status == toolparam.RawToolArgumentEnvelopeUnique || envelope.Status == toolparam.RawToolArgumentEnvelopeEquivalent) {
+		// Preparing a proven transport is itself a repair, even for a native
+		// body. The opaque selector is restored only after that body is ready.
+		if mode == types.ToolParamCompatAudit {
+			logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: proven argument transport with opaque selector", b.name, call.Name)
+			return call, false
+		}
+		changed = true
+		summaries = append(summaries, "$ admitted_transport->argument_object via optional_selector_integrity")
+	}
 	if len(schema) > 0 {
 		normalized, report := toolparam.Normalize(current, schema, cfg)
 		if report.Changed() {
@@ -4469,7 +4462,7 @@ func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
 	return types.ToolParamCompatConfig{}
 }
 
-func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.ToolCall, bool) {
+func (b *BaseAgent) normalizeToolCallParamsFromRegistry(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
 	if b == nil || b.deps == nil {
 		return tc, false
 	}
@@ -4478,7 +4471,7 @@ func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.To
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return tc, false
 	}
-	if schema, ok := b.toolParamSchemaFromRegistry(tc.Name); ok {
+	if schema, ok := b.toolParamSchemaFromRegistry(ctx, tc.Name); ok {
 		if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
 			return tc, false
 		}
@@ -4487,13 +4480,34 @@ func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.To
 	return tc, false
 }
 
-func (b *BaseAgent) toolParamSchemaFromRegistry(name string) (json.RawMessage, bool) {
+// Keep schema display, execution fallback, and argument-envelope inspection on
+// the same current dispatch. A registry's broad Parameters() can omit actions
+// owned by a live repair lease or expose actions hidden by a typed write mode.
+func toolParametersForDispatch(t tool.Tool, ctx *types.AgentContext) json.RawMessage {
+	params := t.Parameters()
+	if projected, ok := t.(interface {
+		ParametersFor(*types.AgentContext) json.RawMessage
+	}); ok {
+		params = projected.ParametersFor(ctx)
+	}
+	if _, ok := t.(*tool.RunTests); ok {
+		if writePlannerDryRunOnly(ctx) {
+			params = writePlannerRunTestsParameters(params)
+		}
+		if writeVerifierDefaultRunTestsOnly(ctx) {
+			params = writeVerifierRunTestsParameters(params)
+		}
+	}
+	return params
+}
+
+func (b *BaseAgent) toolParamSchemaFromRegistry(ctx *types.AgentContext, name string) (json.RawMessage, bool) {
 	if b == nil || b.deps == nil {
 		return nil, false
 	}
 	if b.deps.Tools != nil {
 		if tl, err := b.deps.Tools.Get(name); err == nil && tl != nil {
-			return tl.Parameters(), true
+			return toolParametersForDispatch(tl, ctx), true
 		}
 	}
 	if b.deps.MCPServers != nil {
@@ -4793,14 +4807,14 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		b.observeToolRejected(ctx, tc, "tool_params_markup_sentinel", "tool_param_integrity")
 		return toolParamsMarkupSentinelResult(tc, sentinel), nil
 	}
-	if schema, ok := b.toolParamSchemaFromRegistry(tc.Name); ok {
+	if schema, ok := b.toolParamSchemaFromRegistry(ctx, tc.Name); ok {
 		if err := tool.ToolArgumentEnvelopeIntegrityError(tc.Name, tc.Params, schema); err != nil {
 			b.observeSchemaRejected(ctx, tc, "tool_params_schema_rejected", "ambiguous_argument_envelope")
 			b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", "ambiguous_argument_envelope")
 			return toolParamsSchemaInvalidResult(tc, err.Error()), nil
 		}
 	}
-	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
+	if normalized, ok := b.normalizeToolCallParamsFromRegistry(ctx, tc); ok {
 		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")
 		tc = normalized
 	}

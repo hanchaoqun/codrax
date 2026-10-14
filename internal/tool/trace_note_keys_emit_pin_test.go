@@ -1316,6 +1316,11 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		t.Fatalf("sampling registry fixture: %v %+v", samplingErr, samplingResult)
 	}
 	records = append(records, samplingResult.Observations...)
+	// A manifest/member display bridge requires the producer's private frozen
+	// source witness; exercise real V2 admission instead of fabricating JSON.
+	samplingBundle, _ := samplingSourceBundleHMC241(t)
+	samplingBoundResult, _ := samplingIdentityQueryHMC239(t, samplingBundle, "perf_sampling_tree", map[string]any{"pid": 11})
+	records = append(records, samplingBoundResult.Observations...)
 	businessPath, _ := filepath.Abs("../../eval/fixtures/hmosperf_business_io_chain/events.systrace")
 	businessParams, _ := json.Marshal(map[string]any{"source": "path", "path": businessPath, "view": "window_stats", "time_start": .999, "time_end": 1.051})
 	businessResult, businessErr := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir()}, businessParams)

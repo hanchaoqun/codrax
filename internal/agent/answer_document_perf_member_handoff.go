@@ -8,7 +8,7 @@ import (
 )
 
 // Flat recorded-symbol weights include samples without verified stack frames;
-// a complete prefix tree cannot certify their publication. Its already
+// a prefix tree cannot certify their publication. Its already
 // scope-qualified query can route same-query native flat fields here, but those
 // fields receive their own receipt only after they actually survive this budget.
 func renderAnswerDocPerfMemberFacts(ledger types.ObservationLedger, publication *answerDocNativePresentationReceipt) string {
@@ -19,7 +19,7 @@ func renderAnswerDocPerfMemberFacts(ledger types.ObservationLedger, publication 
 		if r.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 			!types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) ||
 			r.Predicate != "perf_sample_top_symbol" || publication == nil ||
-			!publication.queries["perf_sampling:"+nativePresentationQueryKey(r)] {
+			!publication.samplingSelections[nativePresentationQueryKey(r)] {
 			continue
 		}
 		data, err := json.Marshal(struct {

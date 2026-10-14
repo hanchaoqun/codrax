@@ -147,7 +147,7 @@ func (p *perfSamplePopulation) cohortKey(ev Event, thread perfThreadKey, known b
 	key.scope.sourcePath = source.SourcePath
 	generation, cached := p.generations[source.SourcePath]
 	if !cached {
-		generation = samplingID(source.SourcePath, source.sourceIdentity.CacheToken(), source.SourceSHA256, fmt.Sprint(source.SourceBytes), fmt.Sprint(source.SourceModUnixNano))
+		generation = perfSamplingSourceGeneration(source)
 		p.generations[source.SourcePath] = generation
 	}
 	key.scope.generation = generation

@@ -29,6 +29,9 @@ func TraceQueryAggregateSelectionSubject(record types.ObservationRecord) (string
 	// every cohort before offering a subject to the display-only matcher.
 	// Missing or omitted identities cannot borrow the first cohort's name.
 	first := tree.Cohorts[0]
+	if first.SourcePath != tree.SourcePath && !traceQuerySamplingSourceBindingMatches(record, tree) {
+		return "", false
+	}
 	identity := first.ThreadIdentity
 	if identity == nil || identity.Generation <= 0 || identity.TGID < 0 || identity.TGID > types.RuntimeTargetMaxPID {
 		return "", false
@@ -39,7 +42,7 @@ func TraceQueryAggregateSelectionSubject(record types.ObservationRecord) (string
 	}
 	for _, cohort := range tree.Cohorts {
 		current := cohort.ThreadIdentity
-		if cohort.SourcePath != tree.SourcePath || cohort.SourceGeneration != first.SourceGeneration || current == nil ||
+		if cohort.SourcePath != first.SourcePath || cohort.SourceGeneration != first.SourceGeneration || current == nil ||
 			current.TID != identity.TID || current.Generation != identity.Generation || current.TGID != identity.TGID || current.DisplayComm != identity.DisplayComm {
 			return "", false
 		}

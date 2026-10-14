@@ -2,6 +2,9 @@ package tool
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -111,6 +114,10 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(currentFile)
+	patchHelper, err := os.ReadFile(filepath.Join(dir, "answer_document_patch_strict_decode.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range structuredPayloadContractFiles() {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -119,9 +126,89 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		src := string(raw)
 		if !strings.Contains(src, "failStrictDecode") &&
 			!strings.Contains(src, "decodeStrictToolParams(") &&
-			!strings.Contains(src, "decodeStrictNormalizedToolParams(") {
+			!strings.Contains(src, "decodeStrictNormalizedToolParams(") &&
+			!structuredPatchTypedDecodeRepairWired(raw, patchHelper) {
 			t.Fatalf("%s must attach typed ToolRepair metadata on structured JSON decode failures", name)
 		}
+	}
+}
+
+// Only the registered patch wrapper uses this delegated branch. Exact AST
+// calls exclude comments, string literals, lookalikes and methods, while the
+// historical direct repair paths retain their existing coverage checks.
+func structuredPatchTypedDecodeRepairWired(src, patchHelper []byte) bool {
+	file, err := parser.ParseFile(token.NewFileSet(), "emit.go", src, 0)
+	if err != nil {
+		return false
+	}
+	const patchCallee = "failAnswerDocumentPatchStrictDecode"
+	if !structuredPayloadHasExactCall(file, patchCallee, nil) {
+		return false
+	}
+	helperFile, err := parser.ParseFile(token.NewFileSet(), "helper.go", patchHelper, 0)
+	if err != nil {
+		return false
+	}
+	for _, decl := range helperFile.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name.Name != patchCallee {
+			continue
+		}
+		return structuredPayloadHasExactCall(fn.Body, "failStrictDecode", nil) &&
+			structuredPayloadHasExactCall(fn.Body, "attachToolJSONSurfaceMetadataForSchema", func(call *ast.CallExpr) bool {
+				if len(call.Args) != 3 {
+					return false
+				}
+				schema, ok := call.Args[1].(*ast.Ident)
+				return ok && schema.Name == "schema"
+			})
+	}
+	return false
+}
+
+func structuredPayloadHasExactCall(node ast.Node, callee string, check func(*ast.CallExpr) bool) bool {
+	if node == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name, ok := call.Fun.(*ast.Ident)
+		if ok && name.Name == callee && (check == nil || check(call)) {
+			found = true
+		}
+		return true
+	})
+	return found
+}
+
+func TestStructuredPatchTypedDecodeRepairCensusRejectsLookalikesAndIncompleteDelegate(t *testing.T) {
+	patch := []byte(`package tool; func execute() { failAnswerDocumentPatchStrictDecode() }`)
+	helper := `package tool; func failAnswerDocumentPatchStrictDecode(schema []byte) {
+		failStrictDecode(); attachToolJSONSurfaceMetadataForSchema(name, schema, repair)
+	}`
+	for _, tc := range []struct {
+		name, src, helper string
+		want              bool
+	}{
+		{"comment", `package tool; /* failAnswerDocumentPatchStrictDecode() */`, helper, false},
+		{"string", `package tool; const misleading = "failAnswerDocumentPatchStrictDecode()"`, helper, false},
+		{"suffix", `package tool; func execute() { failAnswerDocumentPatchStrictDecodePretend() }`, helper, false},
+		{"method", `package tool; func execute() { other.failAnswerDocumentPatchStrictDecode() }`, helper, false},
+		{"registered_delegate", string(patch), helper, true},
+		{"missing_delegate", string(patch), "package tool", false},
+		{"missing_typed_failure", string(patch), strings.Replace(helper, "failStrictDecode();", "", 1), false},
+		{"missing_metadata", string(patch), strings.Replace(helper, "attachToolJSONSurfaceMetadataForSchema(name, schema, repair)", "", 1), false},
+		{"static_schema", string(patch), strings.Replace(helper, "name, schema, repair", "name, nil, repair", 1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := structuredPatchTypedDecodeRepairWired([]byte(tc.src), []byte(tc.helper)); got != tc.want {
+				t.Fatalf("typed decode wiring=%v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

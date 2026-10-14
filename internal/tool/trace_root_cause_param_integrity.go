@@ -32,17 +32,14 @@ func PrepareTraceRootCauseParamsForCompatibility(toolName string, raw, schema js
 		return prepared, restore
 	}
 	inspection := toolparam.InspectRawToolArgumentEnvelope(raw, schema)
-	if inspection.Status == toolparam.RawToolArgumentEnvelopeEquivalent && len(inspection.Candidates) > 0 {
-		// Every admitted wrapper has this exact object. Detach once from the
-		// common object, not from just the first occurrence of its raw path.
-		return prepareDirectTraceRootCauseParams(inspection.Candidates[0].Object)
-	}
-	if inner, path, ok := toolparam.RawToolArgumentEnvelope(raw, schema); ok {
-		preparedInner, restoreInner := prepareDirectTraceRootCauseParams(inner)
-		if restoreInner != nil {
-			if preparedEnvelope, replaced := replaceTraceRootCauseEnvelopeObject(raw, path, preparedInner); replaced {
-				return preparedEnvelope, restoreInner
-			}
+	if (inspection.Status == toolparam.RawToolArgumentEnvelopeUnique || inspection.Status == toolparam.RawToolArgumentEnvelopeEquivalent) && len(inspection.Candidates) > 0 {
+		// Normalize and restore at the same proven argument object. Repacking
+		// a stripped body into its string transport could leave an outer
+		// arguments/function object after one Normalize pass; restoring the
+		// selector there would hide the independent body from its owner.
+		prepared, restore := prepareDirectTraceRootCauseParams(inspection.Candidates[0].Object)
+		if restore != nil || inspection.Status == toolparam.RawToolArgumentEnvelopeEquivalent {
+			return prepared, restore
 		}
 	}
 	return raw, nil
@@ -114,45 +111,6 @@ func (l *optionalCarrierLedger) captureTraceRootCauseParamIntegrity(raw json.Raw
 
 func (l *optionalCarrierLedger) traceRootCauseParamIntegrityError() error {
 	return l.traceRootCauseParamAmbiguity
-}
-
-// The path comes only from the normalizer's existing envelope admission.
-// Preserve metadata and its string/object carrier shape until Normalize does
-// the actual unwrap; no arbitrary JSON descent or new envelope is accepted.
-func replaceTraceRootCauseEnvelopeObject(raw json.RawMessage, path []string, replacement json.RawMessage) (json.RawMessage, bool) {
-	var encoded string
-	if json.Unmarshal(raw, &encoded) == nil {
-		decoded, _, ok := toolparam.DecodeJSONStringAsRaw(encoded, "object")
-		if !ok {
-			return raw, false
-		}
-		value, replaced := replaceTraceRootCauseEnvelopeObject(decoded, path, replacement)
-		if !replaced {
-			return raw, false
-		}
-		out, err := json.Marshal(string(value))
-		return out, err == nil
-	}
-	if len(path) == 0 {
-		return replacement, true
-	}
-	properties, ok := traceRootCauseRawProperties(raw)
-	if !ok {
-		return raw, false
-	}
-	for index, property := range properties {
-		if property.key != path[0] {
-			continue
-		}
-		value, replaced := replaceTraceRootCauseEnvelopeObject(property.value, path[1:], replacement)
-		if !replaced {
-			return raw, false
-		}
-		prefix := property.wire[:len(property.wire)-len(property.value)]
-		properties[index].wire = append(append(json.RawMessage(nil), prefix...), value...)
-		return traceRootCausePropertyObject(properties), true
-	}
-	return raw, false
 }
 
 func traceRootCausePropertiesAmbiguity(properties []traceRootCauseRawProperty) error {

@@ -131,6 +131,7 @@ package context
 // fields carry the old partition protections without historical-case prose.
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -433,6 +434,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	}
 	type wakeupEdge struct {
 		waker, wakee, ts, latency, latencyCaliber string
+		processDisplay                            string
 		wakerCPU, wakeeTargetCPU, cpuRelation     string
 		tsValue                                   float64
 		targetCPUPlacementDegraded                bool
@@ -504,6 +506,15 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 				continue
 			}
 			key := subject + "->" + wakee + "@" + ts
+			processDisplay := ""
+			if event, valid := types.DecodeRuntimeWakeupEvent(record); valid {
+				// Same labels/time are not a cross-source identity. Preserve the
+				// exact source and independently observed endpoint processes;
+				// legacy rows without a verified carrier keep their old format.
+				identity, _ := json.Marshal([]any{record.SourceRef, event})
+				key = string(identity)
+				processDisplay = types.RuntimeWakeupProcessDisplay(event.Waker, event.Wakee)
+			}
 			if seenEdges[key] {
 				continue // identical republications collapse
 			}
@@ -514,7 +525,8 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			}
 			edge := wakeupEdge{
 				waker: subject, wakee: wakee, ts: ts,
-				latency: strings.TrimSpace(notes["latency"]), latencyCaliber: caliber,
+				processDisplay: processDisplay,
+				latency:        strings.TrimSpace(notes["latency"]), latencyCaliber: caliber,
 				wakerCPU:                   strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakerCPU]),
 				wakeeTargetCPU:             strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakeeTargetCPU]),
 				cpuRelation:                strings.TrimSpace(notes[types.TraceNoteKeyWakeupCPURelation]),
@@ -1147,6 +1159,9 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			}
 			if edge.latency != "" {
 				line += " (" + types.TraceWakeupPreWaitDisplay(edge.wakee, edge.latency) + "; latency_caliber=" + edge.latencyCaliber + ")"
+			}
+			if edge.processDisplay != "" {
+				line += " [" + edge.processDisplay + "]"
 			}
 			if edge.wakerCPU != "" || (!edge.targetCPUPlacementDegraded && (edge.wakeeTargetCPU != "" || edge.cpuRelation != "")) {
 				var topology []string

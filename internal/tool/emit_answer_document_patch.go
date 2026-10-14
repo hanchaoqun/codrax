@@ -2966,7 +2966,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// Block payloads share the V2 vocabulary, while patch-only atomic
 		// operations have additional nested homes. Keep the hint in the live
 		// operation grammar instead of redirecting a patch retry to full emit.
-		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, fieldEditSchema)
+		dispatchSchema := t.parametersForContext(types.BuildAnswerSemanticViewForBusContext(ctx), ctx.Mutable, ctx)
+		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, dispatchSchema)
 		// §40.43 round-seven #2: the strict-decode reject exit resolves the
 		// selector from the raw object too — a sibling-field type mismatch
 		// (replace_caveats objects, replace_exact_resolution string,
@@ -2974,7 +2975,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// top-level selector the raw resolver reads; the only carve-out is a
 		// payload that is not a JSON object.
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
-		return failStrictDecode(t.Name(), now, err, hints, params)
+		return failAnswerDocumentPatchStrictDecode(t.Name(), now, err, hints, params, dispatchSchema)
 	}
 	// §40.44 G-emit-faces fold-in #1: resolve the optional selector
 	// immediately after the strict decode, BEFORE any staged reject or

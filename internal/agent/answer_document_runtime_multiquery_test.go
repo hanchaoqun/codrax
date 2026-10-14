@@ -71,8 +71,46 @@ func TestRuntimeMultiQueryRecipesKeepDistinctEvents(t *testing.T) {
 			t.Fatal("recipe created authority not in producer pool")
 		}
 	}
-	if len(nodes) != 5 {
-		t.Fatalf("query-coherent selection split the five thread lanes: %d", len(nodes))
+	// Row-local event_search knows each emitter's TGID, not the wakee's.
+	// dep2 therefore has two observed identities; matching TID/comm alone
+	// must not borrow the emitter's process into the earlier receiving lane.
+	expectedLabels := map[string]int{"dep3-300": 1, "dep4-400": 1, "dep5-500": 1, "dep2-200": 2, "app-100": 1}
+	labelCounts := make(map[string]int)
+	for _, label := range nodes {
+		labelCounts[label]++
+	}
+	if len(nodes) != 6 || len(labelCounts) != len(expectedLabels) {
+		t.Fatalf("row-local process identities lost or conflated: nodes=%v labels=%v", nodes, labelCounts)
+	}
+	for label, count := range expectedLabels {
+		if labelCounts[label] != count {
+			t.Fatalf("observed identity lanes for %s: got %d, want %d", label, labelCounts[label], count)
+		}
+	}
+	var dep2Known, dep2Unknown string
+	for _, anchor := range anchors {
+		for _, row := range authority {
+			if row.FromIdentity != anchor.FromIdentity || row.ToIdentity != anchor.ToIdentity {
+				continue
+			}
+			wakerTGID := map[string]int{"dep3-300": 300, "dep4-400": 400, "dep5-500": 500, "dep2-200": 200}[row.FromLabel]
+			want := types.RuntimeWakeupProcessDisplay(types.RuntimeWakeupThread{PID: wakerTGID, TGID: wakerTGID}, types.RuntimeWakeupThread{})
+			if wakerTGID == 0 || !strings.Contains(row.ScopeLabel, want) {
+				t.Fatalf("process display differs from exact producer/wakee identity: %+v", row)
+			}
+			if row.FromLabel == "dep2-200" {
+				dep2Known = row.FromNode
+			}
+			if row.ToLabel == "dep2-200" {
+				if dep2Unknown != "" && dep2Unknown != row.ToNode {
+					t.Fatal("identical unknown-process receiver split across one producer query")
+				}
+				dep2Unknown = row.ToNode
+			}
+		}
+	}
+	if dep2Known == "" || dep2Unknown == "" || dep2Known == dep2Unknown {
+		t.Fatal("known and unobserved dep2 process identities must remain distinct")
 	}
 	var body strings.Builder
 	body.WriteString("sequenceDiagram\n")
@@ -96,7 +134,7 @@ func TestRuntimeMultiQueryRecipesKeepDistinctEvents(t *testing.T) {
 		t.Fatalf("multi-query public emit: %v %+v", err, result)
 	}
 	markdown := render.RenderAnswerDocument(ctx.Mutable.AnswerDocumentV2(), "zh")
-	if strings.Count(markdown, "participant ") != 5 || strings.Count(markdown, "->>") != 4 || strings.Contains(render.RenderMermaidBlocks(markdown), "# ⚠") {
+	if strings.Count(markdown, "participant ") != 6 || strings.Count(markdown, "->>") != 4 || strings.Contains(render.RenderMermaidBlocks(markdown), "# ⚠") {
 		t.Fatalf("accepted graph malformed: %s", markdown)
 	}
 	t.Logf("accepted multi-query diagram:\n%s", markdown)

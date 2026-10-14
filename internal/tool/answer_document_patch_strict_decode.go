@@ -4,7 +4,31 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// failAnswerDocumentPatchStrictDecode keeps dispatch-specific repair metadata
+// inside one registered reject helper. The executor resolves the raw selector
+// before calling it, preserving the directly auditable reject-exit contract.
+func failAnswerDocumentPatchStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, schema json.RawMessage) (types.ToolResult, error) {
+	failed, decodeErr := failStrictDecode(name, now, err, hints, raw)
+	if field := extractUnknownFieldName(err); field != "" && len(hints) == 0 && failed.Repair != nil {
+		// A bare field name can also occur in unrelated patch operations.
+		// Keep the rejected JSON coordinates, never resolve it to an
+		// accepted path belonging to a different operation's schema.
+		failed.Repair.Fields = nil
+		if _, containers, ok := patchRawFieldOwnerAndContainers(raw, field); ok {
+			for _, container := range containers {
+				failed.Repair.Fields = append(failed.Repair.Fields, patchJSONPathJoin(container, field))
+			}
+		}
+		failed.Repair.Hint = "The field is not accepted at the submitted location. Use only fields from the selected current patch branch, preserving all intended answer facts; do not borrow hidden coordinates from another operation."
+	}
+	failed.Repair = attachToolJSONSurfaceMetadataForSchema(name, schema, failed.Repair)
+	return failed, decodeErr
+}
 
 // answerDocumentPatchMisplacedHintsForSchema keeps wrong-container repairs in
 // the grammar of the patch operation that actually rejected the payload. The
@@ -19,26 +43,35 @@ import (
 func answerDocumentPatchMisplacedHintsForSchema(err error, raw, schema json.RawMessage) []MisplacedFieldHint {
 	field := extractUnknownFieldName(err)
 	if field == "" {
-		return answerDocumentV2MisplacedHints
+		return nil
 	}
 	owner, invalidContainers, ok := patchRawFieldOwnerAndContainers(raw, field)
 	if !ok {
-		return answerDocumentV2MisplacedHints
+		return nil
 	}
 	validPaths := patchSchemaFieldPaths(schema, field, owner)
 	if len(validPaths) == 0 {
-		return answerDocumentV2MisplacedHints
+		return nil
 	}
-	hints := append([]MisplacedFieldHint(nil), answerDocumentV2MisplacedHints...)
-	for i := range hints {
-		if hints[i].Field != field || hints[i].CanonicalName != "" {
-			continue
+	// The decoder does not report the failing path. Exclude occurrences that
+	// already occupy a published path instead of falsely calling them invalid.
+	var rejectedContainers []string
+	for _, container := range invalidContainers {
+		published := false
+		for _, valid := range validPaths {
+			if patchJSONPathJoin(container, field) == valid {
+				published = true
+				break
+			}
 		}
-		hints[i].ContainerNames = invalidContainers
-		hints[i].CorrectPaths = validPaths
-		return hints
+		if !published {
+			rejectedContainers = append(rejectedContainers, container)
+		}
 	}
-	return answerDocumentV2MisplacedHints
+	if len(rejectedContainers) == 0 {
+		return nil
+	}
+	return []MisplacedFieldHint{{Field: field, ContainerNames: rejectedContainers, CorrectPaths: validPaths}}
 }
 
 func patchRawFieldOwnerAndContainers(raw json.RawMessage, field string) (string, []string, bool) {

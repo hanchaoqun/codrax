@@ -66,8 +66,8 @@ func TestAnswerDocumentPatchMisplacedHintFailsClosedAcrossOperationOwners(t *tes
 	err := errors.New(`json: unknown field "from_node"`)
 	hints := answerDocumentPatchMisplacedHintsForSchema(err, raw, schema)
 	got := RemapStrictDecodeErrorWithRaw(err, hints, raw).Error()
-	if !strings.Contains(got, "blocks[i].edge_anchors[j].from_node") {
-		t.Fatalf("ambiguous owners must retain the prior conservative hint: %s", got)
+	if got != err.Error() {
+		t.Fatalf("ambiguous owners must not invent a relocation: %s", got)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestAnswerDocumentPatchMisplacedHintRequiresPublishedSameOperationPath(t *t
 	err := errors.New(`json: unknown field "from_node"`)
 	hints := answerDocumentPatchMisplacedHintsForSchema(err, raw, schema)
 	got := RemapStrictDecodeErrorWithRaw(err, hints, raw).Error()
-	if !strings.Contains(got, "blocks[i].edge_anchors[j].from_node") {
+	if got != err.Error() {
 		t.Fatalf("inactive patch operation must not invent a current path: %s", got)
 	}
 }

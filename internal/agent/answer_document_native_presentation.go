@@ -15,6 +15,27 @@ import (
 type answerDocNativePresentationReceipt struct {
 	queries      map[string]bool
 	eventMembers map[answerDocEventMemberKey]bool
+	// Selection and publication completeness are independent: reference
+	// previews must not hide exact flat member quantities from the same query.
+	// This private routing receipt cannot satisfy completeFor or remove notes.
+	samplingSelections map[string]bool
+}
+
+func (p *answerDocNativePresentationReceipt) observeSamplingSelection(r types.ObservationRecord, qualified bool) {
+	if p == nil || nativePresentationFamily(r) != "perf_sampling" {
+		return
+	}
+	key := nativePresentationQueryKey(r)
+	if key == "" {
+		return
+	}
+	if p.samplingSelections == nil {
+		p.samplingSelections = make(map[string]bool)
+	}
+	if prior, exists := p.samplingSelections[key]; exists {
+		qualified = qualified && prior
+	}
+	p.samplingSelections[key] = qualified
 }
 
 // A query can publish several independent families. A complete tree is not

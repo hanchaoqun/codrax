@@ -5053,7 +5053,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if edge.PriorityRelationCaliber != "" {
 				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (%s latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (%s latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t [%s]\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine,
 				types.TraceWakeupPreWaitDisplay(traceThreadLabel(edge.Wakee), fmt.Sprintf("%.3f", edge.LatencyMs)),
 				sanitizeForBanner(edge.LatencyCaliber),
@@ -5061,7 +5061,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
 				priorityProof,
 				sanitizeForBanner(traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)),
-				traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber))
+				traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber),
+				types.RuntimeWakeupProcessDisplay(types.RuntimeWakeupThread(edge.Waker), types.RuntimeWakeupThread(edge.Wakee)))
 		}
 		// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
 		// WINDOW-TOTAL raw wakeup counts on the query-time face too
@@ -9197,7 +9198,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryNativeTimelineObservations(result, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
-	out = append(out, traceQueryPerfSamplingTreeObservations(result.PerfSamplingTree, ref, scope, at)...)
+	out = append(out, traceQueryPerfSamplingTreeObservations(result.PerfSamplingTree, ref, scope, at, result)...)
 	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
@@ -12992,6 +12993,7 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 		fmt.Sprintf("wakeup_chain_edge %s -> %s", traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee)),
 		fmt.Sprintf("at %.6f", edge.WakeupTs),
 		fmt.Sprintf("line=%d", edge.WakeupLine),
+		types.RuntimeWakeupProcessDisplay(types.RuntimeWakeupThread(edge.Waker), types.RuntimeWakeupThread(edge.Wakee)),
 	}
 	if edge.SegmentOrdinal >= 2 {
 		// 返工 P3⑤: extra-lane identity on the text face (zero-emission for
