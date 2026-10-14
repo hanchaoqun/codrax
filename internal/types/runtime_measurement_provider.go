@@ -147,6 +147,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 			if !result.Success || result.ToolName != "trace_query" {
 				continue
 			}
+			participants := NewTraceEventParticipantDisplayRoster(result.Observations)
 			for _, r := range result.Observations {
 				p, ok := DecodeRuntimeMeasurementPublication(r)
 				if !ok {
@@ -172,7 +173,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				for i, table := range p.Tables {
 					table = table.Clone()
 					var valid bool
-					table, valid = scopeRuntimeEventTable(table, r, requested)
+					table, valid = scopeRuntimeEventTableForRequest(table, r, requested, input.RequestModel, participants)
 					if !valid {
 						validTables = false
 						break

@@ -31,8 +31,15 @@ func renderAnswerDocTraceEventInventoryView(ledger types.ObservationLedger, requ
 }
 
 func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationLedger, bridge traceEventPublicationBridge, requests ...*types.RequestModel) (string, map[string]bool) {
+	return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger, bridge, nil, requests...)
+}
+
+func renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger types.ObservationLedger, bridge traceEventPublicationBridge, publication *answerDocNativePresentationReceipt, requests ...*types.RequestModel) (string, map[string]bool) {
 	var records []types.ObservationRecord
-	seen := make(map[string]bool)
+	var aliases [][]types.ObservationRecord
+	seen := make(map[string]int)
+	queryContents := make(map[string]string)
+	queryConflicts := make(map[string]bool)
 	for _, record := range ledger.Records {
 		if !types.IsValidTraceEventSearchInventoryRecord(record) {
 			continue
@@ -45,11 +52,22 @@ func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationL
 			continue
 		}
 		key, err := json.Marshal([]any{record.SourceRef, record.EventSearchInventory})
-		if err != nil || seen[string(key)] {
+		if err != nil {
 			continue
 		}
-		seen[string(key)] = true
+		queryKey := nativePresentationQueryKey(record)
+		contents, _ := json.Marshal(record.EventSearchInventory)
+		if previous, exists := queryContents[queryKey]; exists && previous != string(contents) {
+			queryConflicts[queryKey] = true
+		}
+		queryContents[queryKey] = string(contents)
+		if index, exists := seen[string(key)]; exists {
+			aliases[index] = append(aliases[index], record)
+			continue
+		}
+		seen[string(key)] = len(records)
 		records = append(records, record)
+		aliases = append(aliases, []types.ObservationRecord{record})
 	}
 	if len(records) == 0 {
 		return "", nil
@@ -64,7 +82,13 @@ func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationL
 	if len(records) > traceEventInventoryPromptQueryLimit {
 		omitted := len(records) - traceEventInventoryPromptQueryLimit
 		fmt.Fprintf(&b, "- query_receipts_omitted=%d; retaining the first %d distinct accepted query receipts for context budget only. Publication order does not supersede another query or decide which scope answers the request. Other receipts remain in the observation ledger.\n", omitted, traceEventInventoryPromptQueryLimit)
+		for _, group := range aliases[traceEventInventoryPromptQueryLimit:] {
+			for _, original := range group {
+				publication.observe(original, false)
+			}
+		}
 		records = records[:traceEventInventoryPromptQueryLimit]
+		aliases = aliases[:traceEventInventoryPromptQueryLimit]
 	}
 	projections := make([]*traceInventoryScopeProjection, len(records))
 	producerNotes := make([][]string, len(records))
@@ -78,12 +102,13 @@ func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationL
 		originalRows[n] = len(record.EventSearchInventory.Rows)
 	}
 	if len(requests) == 1 && requests[0] != nil {
+		participants := types.NewTraceEventParticipantDisplayRoster(ledger.Records)
 		for n := range records {
 			request := *requests[0]
 			request.RuntimeArtifactScopeProfile, _ = ledger.RuntimeDisplayScope(records[n], request.RuntimeArtifactScopeProfile)
-			records[n], projections[n] = traceEventInventoryScopeProjection(records[n], &request)
+			records[n], projections[n] = traceEventInventoryScopeProjection(records[n], &request, participants)
 		}
-		b.WriteString("- prompt_scope_projection filters displayed members by observed emitter and the request's half-open time windows only. Query filters, coverage and matched_total remain the original query's figures, not target-window totals. Scope exclusions are separate from display-budget omissions; zero retained rows does not prove zero matching target events. This display view establishes no pairing, lifetime, execution interval or cause.\n")
+		b.WriteString("- prompt_scope_projection filters displayed members by observed emitter or independently verified participants of that exact event, and the request's half-open time windows. Participation does not establish event ownership or process membership. Query filters, coverage and matched_total remain the original query's figures, not target-window totals. Scope exclusions are separate from display-budget omissions; zero retained rows does not prove zero matching target events. This display view establishes no pairing, lifetime, execution interval or cause.\n")
 	}
 	if traceEventInventoryHasJankFields(records) {
 		b.WriteString("- " + skill.TraceJankClockContract + " Compute reported duration from the exact (end_ts_ns - start_ts_ns) difference before converting to milliseconds. The emitter TID, marker PID and appid are distinct identities, not proof of the affected target thread. A jank marker reports a symptom; only independently supported chain evidence can establish its cause.\n")
@@ -157,6 +182,7 @@ func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationL
 		b.WriteByte('\n')
 	}
 	rows := make([]map[string]any, 0, rowCount)
+	rowMetadataComplete := make(map[string]bool, rowCount)
 	for n, row := range members.rows {
 		if len(row.Raw) > traceEventInventoryPromptRawLimit {
 			end := traceEventInventoryPromptRawLimit
@@ -169,13 +195,38 @@ func renderAnswerDocTraceEventInventoryPublicationView(ledger types.ObservationL
 		if bounded["prompt_metadata_omission"] != nil {
 			metadataOmissions++
 		}
-		rows = append(rows, map[string]any{"id": fmt.Sprintf("row-%d", n+1), "row": bounded})
+		id := fmt.Sprintf("row-%d", n+1)
+		rowMetadataComplete[id] = bounded["prompt_metadata_omission"] == nil
+		rows = append(rows, map[string]any{"id": id, "row": bounded})
 	}
 	data, _ := json.Marshal(map[string]any{"display_rows": rows})
 	b.WriteString("- ")
 	b.Write(data)
 	b.WriteByte('\n')
 	fmt.Fprintf(&b, "- query_receipts_shown=%d; prompt_member_rows=%d/%d; objects_with_metadata_omissions=%d; inventory_section_byte_limit=%d. Preview omissions never change the original query counts, completeness or causal authority.\n\n", len(records), rowCount, traceEventInventoryPromptRowLimit, metadataOmissions, traceEventInventoryPromptByteLimit)
+	for n, record := range records {
+		// The original producer receipt owns enumeration completeness. Normal
+		// target/half-open-window exclusions do not consume the display budget;
+		// every retained member must survive, with its exact structured fields.
+		// Raw is an explicitly bounded preview, not a claim of full source text.
+		published := aliases[n][0].EventSearchInventory.RowsComplete &&
+			!queryConflicts[nativePresentationQueryKey(aliases[n][0])] &&
+			len(members.refs[n]) == len(record.EventSearchInventory.Rows) &&
+			views[n]["prompt_metadata_omission"] == nil
+		for _, ref := range members.refs[n] {
+			published = published && rowMetadataComplete[ref]
+		}
+		for _, row := range record.EventSearchInventory.Rows {
+			if row.Semantics != nil {
+				for _, field := range row.Semantics.Fields {
+					published = published && field.Status != "omitted"
+				}
+			}
+		}
+		for _, original := range aliases[n] {
+			publication.observe(original, published)
+		}
+	}
 	complete := map[string]bool{}
 	if metadataOmissions == 0 {
 		for n, record := range records {

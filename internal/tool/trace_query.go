@@ -6737,29 +6737,12 @@ func traceQueryPerfQualityCompact(q *tracequery.PerfQualitySummary) string {
 	if len(q.FrameStatuses) > 0 {
 		parts = append(parts, fmt.Sprintf("exact_frames=%d,unknown_frames=%d", q.CallchainKnownCount, q.CallchainUnknownCount))
 	}
-	if len(q.Sources) > 0 {
-		parts = append(parts, "source="+sanitizeForBanner(q.Sources[0].Value))
-	}
-	if len(q.InputIntegrityIssues) > 0 {
-		parts = append(parts, "input_integrity="+sanitizeForBanner(q.InputIntegrityIssues[0].Value))
-	}
-	if len(q.SymbolizationStatuses) > 0 {
-		parts = append(parts, "symbolization="+sanitizeForBanner(q.SymbolizationStatuses[0].Value))
-	}
-	if len(q.SampleKinds) > 0 {
-		parts = append(parts, "sample_kind="+sanitizeForBanner(q.SampleKinds[0].Value))
-	}
-	if len(q.WeightUnits) > 0 {
-		parts = append(parts, "weight_unit="+sanitizeForBanner(q.WeightUnits[0].Value))
-	}
-	if len(q.Clocks) > 0 {
-		parts = append(parts, "clock="+sanitizeForBanner(q.Clocks[0].Value))
-	}
-	if len(q.ClockConfidences) > 0 {
-		parts = append(parts, "clock_confidence="+sanitizeForBanner(q.ClockConfidences[0].Value))
-	}
-	if len(q.CallchainStatuses) > 0 {
-		parts = append(parts, "callchain_status="+sanitizeForBanner(q.CallchainStatuses[0].Value))
+	for _, dimension := range traceQueryPerfQualityDimensions(q) {
+		if len(dimension.values) == 1 {
+			parts = append(parts, dimension.name+"="+sanitizeForBanner(dimension.values[0].Value))
+		} else if len(dimension.values) > 1 {
+			parts = append(parts, dimension.name+"=mixed", dimension.name+"_distribution="+traceQueryPerfQualityDistribution(dimension.values))
+		}
 	}
 	return strings.Join(parts, ",")
 }
@@ -14702,7 +14685,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 					Object:          hot.DSO,
 					Value:           strconv.FormatInt(hot.Period, 10),
 					Unit:            "sample_weight",
-					Summary:         traceQueryPerfCohortDenominatorLabel(cohort) + fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(cohort.Quality), hot.Period, hot.SampleCount, hot.Percent),
+					Summary:         traceQueryPerfCohortDenominatorLabel(cohort) + fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 					RichNotes: traceQueryTypedKVNotes([][2]string{
 						{types.TraceNoteKeyPerfValueBasis, tracequery.PerfRecordedFieldsValueBasis},
 						{"symbol", hot.Symbol},
@@ -14711,12 +14694,13 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 						{"weight_unit", hot.WeightUnit},
 						{types.TraceNoteKeySource, hot.Source},
 						{"symbolization_status", hot.SymbolizationStatus},
-						{types.TraceNoteKeyPerfQuality, traceQueryPerfQualityCompact(cohort.Quality)},
+						{types.TraceNoteKeyPerfQuality, "scope=cohort," + traceQueryPerfQualityCompact(cohort.Quality)},
 						{types.TraceNoteKeyPerfQualityCaveats, strings.Join(perfQualityCaveatsForTraceQuery(cohort.Quality), "; ")},
 						{"sample_weight", strconv.FormatInt(hot.Period, 10)},
 						{"samples", traceQueryTypedCount(hot.SampleCount)},
 						{"percent", fmt.Sprintf("%.2f", hot.Percent)},
 						{"threads", traceThreadLabels(hot.Threads)},
+						{types.TraceNoteKeyPerfQualityScope, traceQueryPerfQualityScopeNote(cohort, ref)},
 					}),
 					SupportRefs: traceQueryObservationSupportRefs(ref, hot.LineStart, hot.LineEnd),
 					ObservedAt:  at,

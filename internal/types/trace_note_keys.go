@@ -1443,6 +1443,9 @@ const (
 // 采样族 (perf family — display-layer parsed).
 const (
 	TraceNoteKeyPerfQuality = "perf_quality"
+	// Display-only aggregate scope and distributions; never member quality or
+	// scheduling/causal authority. The existing native cohort owns its identity.
+	TraceNoteKeyPerfQualityScope = "perf_quality_scope"
 	// TraceNoteKeyPerfQualityCaveats rides next to perf_quality on
 	// perf_sample_top_symbol rows; the evaluator's metric-check supplement
 	// (runtimeTracePerfQualityNote) parses BOTH keys back off the wire.
@@ -2204,6 +2207,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 
 	// 采样族 (perf).
 	{TraceNoteKeyPerfQuality, "perf", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyPerfQualityScope, "perf", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyPerfQualityCaveats, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfStatisticalCaliber, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfValueBasis, "perf", TraceNoteCarrierDisplayOnly},

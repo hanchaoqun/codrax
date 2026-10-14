@@ -114,6 +114,8 @@ func selectRuntimeEventTable(original RuntimeMeasurementTable, selection *Runtim
 	}
 	if len(s.RowIDs) > 0 {
 		population += "；显式选择的保留记录，选择本身不证明满足业务筛选或完整枚举"
+	} else if original.nativeEventTargetExcluded > 0 {
+		population += "；本视图仅覆盖请求主体与时间范围内的保留记录"
 	} else if original.nativeEventRequestExcluded > 0 {
 		population += "；本视图仅覆盖请求时间窗内的保留记录"
 	} else {
@@ -121,6 +123,9 @@ func selectRuntimeEventTable(original RuntimeMeasurementTable, selection *Runtim
 	}
 	if original.nativeEventRequestExcluded > 0 {
 		population += fmt.Sprintf("；另有%d条查询记录不满足请求时间窗（窗外或时刻未验证），未计入本视图（不是交接省略）", original.nativeEventRequestExcluded)
+	}
+	if original.nativeEventTargetExcluded > 0 {
+		population += fmt.Sprintf("；另有%d条查询记录未验证为请求主体的记录或事件参与者，未计入本视图（不是交接省略，不证明该主体没有其它事件）", original.nativeEventTargetExcluded)
 	}
 	out.nativeEventScopeNoteIndex = len(out.Notes)
 	out.Notes = append(out.Notes, fmt.Sprintf("本视图：%d 条；库存保留：%d 条；查询匹配：%d 条；查询已返回：%d 条；交接省略：%d 条。%s。各查询独立，次数不代表唯一请求数或根因。", len(selected), len(d.Rows), d.Coverage.MatchedTotal, d.Coverage.Emitted, d.HandoffRowsOmitted, population))

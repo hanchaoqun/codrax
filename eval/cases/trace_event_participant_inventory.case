@@ -1,0 +1,9 @@
+ID="trace_event_participant_inventory"
+NAME="Trace wakeup participants — target roster across native surfaces"
+QUESTION="看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
+HTRACE_FILE="eval/fixtures/hmosperf_event_participants/wakeups.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_CONTAINS="loader worker"
+EXPECT_MERMAID_MIN_EDGES=3

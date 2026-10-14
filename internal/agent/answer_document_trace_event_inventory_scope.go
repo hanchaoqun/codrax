@@ -1,12 +1,6 @@
 package agent
 
-import (
-	"strconv"
-	"strings"
-
-	"github.com/hanchaoqun/codrax/internal/threadidentity"
-	"github.com/hanchaoqun/codrax/internal/types"
-)
+import "github.com/hanchaoqun/codrax/internal/types"
 
 // A query's subject selector is not ownership: searches may match a payload,
 // waker, destination or text. Retain a separate, row-owned writing view rather
@@ -17,28 +11,27 @@ func renderAnswerDocScopedTraceEventInventories(ctx *types.AgentContext, accepte
 }
 
 func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accepted, principal types.ObservationLedger) (string, map[string]bool) {
+	return renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, accepted, principal, nil)
+}
+
+func renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx *types.AgentContext, accepted, principal types.ObservationLedger, publication *answerDocNativePresentationReceipt) (string, map[string]bool) {
 	bridge := buildTraceEventPublicationBridge(ctx)
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return renderAnswerDocTraceEventInventoryPublicationView(principal, bridge)
+		return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(principal, bridge, publication)
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	p := rm.RuntimeQuestionProfile
 	scope := rm.RuntimeArtifactScopeProfile
 	hasDisplayScope := answerDocHasUserRuntimeTarget(rm) || scope.HasExplicitTimeWindows() || scope != nil && scope.Comparison != nil
 	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !hasDisplayScope {
-		return renderAnswerDocTraceEventInventoryPublicationView(principal, bridge)
+		return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(principal, bridge, publication)
 	}
 	// Unlike whole-window aggregates, inventories contain individual events.
 	// Project those points below instead of rejecting an entire receipt whose
 	// executed lookup includes tolerance outside one or more requested windows.
-	view := accepted
-	view.Records = nil
-	for _, row := range accepted.Records {
-		if types.IsValidTraceEventSearchInventoryRecord(row) {
-			view.Records = append(view.Records, row)
-		}
-	}
-	return renderAnswerDocTraceEventInventoryPublicationView(view, bridge, rm)
+	// The renderer displays only inventories, but needs the independent typed
+	// row-local participant receipts to qualify their finite display members.
+	return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(accepted, bridge, publication, rm)
 }
 
 type traceInventoryScopeProjection struct {
@@ -50,15 +43,19 @@ type traceInventoryScopeProjection struct {
 	Basis                   string `json:"basis"`
 }
 
-func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *types.RequestModel) (types.ObservationRecord, *traceInventoryScopeProjection) {
+func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *types.RequestModel, rosters ...types.TraceEventParticipantDisplayRoster) (types.ObservationRecord, *traceInventoryScopeProjection) {
 	if rm == nil {
 		return record, nil
 	}
 	i := types.CloneTraceEventSearchInventory(record.EventSearchInventory)
-	out := &traceInventoryScopeProjection{InputRows: len(i.Rows), Basis: "observed_emitter_and_request_window_only_not_pairing_or_causality"}
+	out := &traceInventoryScopeProjection{InputRows: len(i.Rows), Basis: "observed_emitter_or_verified_row_participant_and_request_window_only_not_pairing_or_causality"}
+	var participants types.TraceEventParticipantDisplayRoster
+	if len(rosters) == 1 {
+		participants = rosters[0]
+	}
 	rows := make([]types.TraceEventSearchInventoryRow, 0, len(i.Rows))
 	for _, row := range i.Rows {
-		if !traceEventInventoryRowMatchesTarget(row, rm) {
+		if !types.TraceEventRowMatchesDisplayTarget(record, row, rm, participants) {
 			out.OwnerRowsExcluded++
 			continue
 		}
@@ -77,34 +74,6 @@ func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *type
 }
 
 func traceEventInventoryRowMatchesTarget(row types.TraceEventSearchInventoryRow, rm *types.RequestModel) bool {
-	// A time-scoped inventory need not name an owner. Exploration cursors do
-	// not select an application or narrow the user's all-owner population.
-	if !answerDocHasUserRuntimeTarget(rm) {
-		return true
-	}
-	for _, target := range rm.RuntimeTargets {
-		if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
-			continue
-		}
-		if target.Kind == types.RuntimeTargetKindProcess {
-			if row.EmitterTGIDKnown != nil && *row.EmitterTGIDKnown && target.PID > 0 && target.PID <= types.RuntimeTargetMaxPID && row.EmitterTGID == target.PID {
-				return true
-			}
-			continue // source.owner_pid / marker PID do not establish an emitter.
-		}
-		if row.EmitterTIDKnown == nil || !*row.EmitterTIDKnown || row.EmitterTID <= 0 {
-			continue
-		}
-		one := &types.RequestModel{RuntimeTargets: []types.RuntimeTarget{target}}
-		if target.PID > 0 || threadidentity.Parse(target.Thread).HasPID {
-			if types.ObservationRecordMatchesUserRuntimeTarget(types.ObservationRecord{Subject: strconv.Itoa(row.EmitterTID)}, one) {
-				return true
-			}
-			continue // an equal comm cannot override a different explicit TID.
-		}
-		if name := threadidentity.CleanName(target.Thread); name != "" && strings.EqualFold(name, strings.TrimSpace(row.Comm)) {
-			return true // observed name only; no unique TID or lifecycle inferred.
-		}
-	}
-	return false
+	// Other callers need actual emitter ownership, not event participation.
+	return types.TraceEventRowMatchesEmitterTarget(row, rm)
 }

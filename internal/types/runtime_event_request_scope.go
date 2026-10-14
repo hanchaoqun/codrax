@@ -25,7 +25,12 @@ func TraceEventRowWithinRequestedWindows(row TraceEventSearchInventoryRow, scope
 // capture-specific request scope. Rebuild the private display table without
 // changing the query inventory, coverage, stable event IDs or original bytes.
 func scopeRuntimeEventTable(table RuntimeMeasurementTable, r ObservationRecord, scope *RuntimeArtifactScopeProfile) (RuntimeMeasurementTable, bool) {
-	if table.EventData == nil || !scope.HasExplicitTimeWindows() {
+	return scopeRuntimeEventTableForRequest(table, r, scope, nil, TraceEventParticipantDisplayRoster{})
+}
+
+func scopeRuntimeEventTableForRequest(table RuntimeMeasurementTable, r ObservationRecord, scope *RuntimeArtifactScopeProfile, rm *RequestModel, roster TraceEventParticipantDisplayRoster) (RuntimeMeasurementTable, bool) {
+	selectTarget := rm != nil && rm.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() && traceEventDisplayHasUserTarget(rm)
+	if table.EventData == nil || !scope.HasExplicitTimeWindows() && !selectTarget {
 		return table, true
 	}
 	if !table.nativeEventData || r.EventSearchInventory == nil || len(table.EventData.Rows) != len(r.EventSearchInventory.Rows) {
@@ -34,6 +39,10 @@ func scopeRuntimeEventTable(table RuntimeMeasurementTable, r ObservationRecord, 
 	out := table.Clone()
 	out.EventData.Rows = nil
 	for n, row := range r.EventSearchInventory.Rows {
+		if selectTarget && !TraceEventRowMatchesDisplayTarget(r, row, rm, roster) {
+			out.nativeEventTargetExcluded++
+			continue
+		}
 		if TraceEventRowWithinRequestedWindows(row, scope) {
 			out.EventData.Rows = append(out.EventData.Rows, table.EventData.Rows[n])
 		} else {

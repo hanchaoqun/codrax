@@ -1,0 +1,13 @@
+# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+target-42 (20) [001] .... 1.000000: sched_switch: prev_comm=target prev_pid=42 prev_prio=110 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+loader-11 (10) [000] .... 1.003000: sched_wakeup: comm=target pid=42 prio=110 target_cpu=1
+target-42 (20) [001] .... 1.004000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42 next_prio=110
+helper-12 (10) [000] .... 1.005000: sched_wakeup: comm=other pid=99 prio=120 target_cpu=2
+target-42 (20) [001] .... 1.006000: sched_switch: prev_comm=target prev_pid=42 prev_prio=110 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+worker-13 (30) [002] .... 1.009000: sched_wakeup: comm=target pid=42 prio=110 target_cpu=1
+target-42 (20) [001] .... 1.010000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42 next_prio=110
+target-42 (20) [001] .... 1.012000: sched_switch: prev_comm=target prev_pid=42 prev_prio=110 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+loader-11 (10) [000] .... 1.017000: sched_wakeup: comm=target pid=42 prio=110 target_cpu=1
+target-42 (20) [001] .... 1.018000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42 next_prio=110
+helper-12 (10) [000] .... 1.020000: sched_wakeup: comm=other pid=99 prio=120 target_cpu=2

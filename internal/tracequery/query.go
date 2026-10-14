@@ -4810,6 +4810,7 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 		key = "unknown"
 	}
 	acc := bucket[key]
+	item.SymbolizationStatus = firstNonEmpty(item.SymbolizationStatus, "unknown")
 	if acc == nil {
 		acc = &perfHotspotAcc{
 			item:   item,
@@ -4817,6 +4818,11 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 			total:  total,
 		}
 		bucket[key] = acc
+	} else if acc.item.SymbolizationStatus != item.SymbolizationStatus {
+		// A hotspot can contain rows with different resolution quality. Its
+		// member status must describe that aggregate, not whichever row arrived
+		// first. Counts, weights and the existing hotspot identity stay intact.
+		acc.item.SymbolizationStatus = "mixed"
 	}
 	acc.item.SampleCount++
 	acc.period.add(period)
@@ -27947,6 +27953,13 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 func perfQualityTopValue(values []PerfValueCount) string {
 	if len(values) == 0 {
 		return ""
+	}
+	// This is a compact aggregate label, not the first/most frequent
+	// member's status. Keep the full counted distribution in native Quality.
+	for _, value := range values[1:] {
+		if value.Value != values[0].Value {
+			return "mixed"
+		}
 	}
 	return values[0].Value
 }

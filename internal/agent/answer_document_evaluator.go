@@ -411,6 +411,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	var b strings.Builder
 	trace := newAnswerDocDynamicTrace(ctx)
+	var nativePresentation answerDocNativePresentationReceipt
 
 	// W3.3 (2026-05-05): one-line pointer to the schema's
 	// authoritative PRE-EMIT CONSTRAINTS section. The prompt below
@@ -615,7 +616,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "observation_ledger", func() string {
-		return renderAnswerDocObservationLedger(ctx)
+		return renderAnswerDocObservationLedgerWithPublication(ctx, &nativePresentation)
 	}) {
 		return b.String()
 	}
@@ -650,7 +651,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "investigation_narrative_handoff", func() string {
-		return renderAnswerDocInvestigationNarrativeHandoff(ctx)
+		return renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx, &nativePresentation)
 	}) {
 		return b.String()
 	}
@@ -5740,6 +5741,13 @@ const answerDocObservationLedgerPromptLimit = types.ObservationPromptRecordLimit
 const answerDocMixedRuntimeSourceObservationLedgerPromptLimit = 10
 
 func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
+	return renderAnswerDocObservationLedgerWithPublication(ctx, nil)
+}
+
+func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, publication *answerDocNativePresentationReceipt) string {
+	if publication == nil {
+		publication = &answerDocNativePresentationReceipt{}
+	}
 	ledger := answerDocObservationLedger(ctx)
 	if ledger.Empty() {
 		return renderAnswerDocRuntimeMeasurementChoices(ctx)
@@ -5750,7 +5758,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	outsideSelectedWindowRecords += outsideIOQueryWindows
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
-	inventoryPrompt, publishedInventoryMetadata := renderAnswerDocScopedTraceEventInventoryView(ctx, ledger, promptLedger)
+	inventoryPrompt, publishedInventoryMetadata := renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, ledger, promptLedger, publication)
 	// Independent completion-closed waits keep their established causal and
 	// blocking rulers even when the query's statistical population is unknown.
 	// This separate pool must never feed requested facts or occupancy totals.
@@ -5835,7 +5843,8 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString(renderAnswerDocProcessProfiles(ctx, promptLedger))
 	b.WriteString(renderAnswerDocCPUStateFrequency(ctx, promptLedger))
 	b.WriteString(renderAnswerDocResourceStacks(ctx, promptLedger))
-	b.WriteString(renderAnswerDocPerfSamplingTrees(ctx, promptLedger))
+	b.WriteString(renderAnswerDocPerfSamplingTrees(ctx, promptLedger, publication))
+	b.WriteString(renderAnswerDocPerfMemberFacts(ledger, publication))
 	b.WriteString(renderAnswerDocRenderingCandidates(ctx, ledger))
 	b.WriteString(renderAnswerDocTransactionHandoffs(ctx, ledger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
@@ -8570,6 +8579,10 @@ func answerDocCurrentSourceProfileShouldUseSoftCaveat(authority types.RuntimeSou
 }
 
 func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) string {
+	return renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx, nil)
+}
+
+func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.AgentContext, publication *answerDocNativePresentationReceipt) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -8636,6 +8649,9 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 			}
 		}
 		raw = unique
+		if publication.replacesCurrentSynthesis(ctx) {
+			currentSynthesis = ""
+		}
 	}
 	if len(raw) == 0 && currentSynthesis == "" {
 		return ""
@@ -25287,6 +25303,19 @@ func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.Answe
 		if row.Key == "" || row.Value == "" || seen[row.Key] {
 			continue
 		}
+		if strings.HasPrefix(row.Key, "perf_quality_scope_") {
+			visible := false
+			for _, block := range doc.Blocks {
+				for _, item := range block.Items {
+					if item.Label+": "+item.Text == row.Value {
+						visible = true
+					}
+				}
+			}
+			if visible {
+				continue
+			}
+		}
 		seen[row.Key] = true
 		rows = append(rows, row)
 	}
@@ -25303,9 +25332,22 @@ func runtimeTracePerfQualityMetricRows(ctx *types.AgentContext, requested map[st
 		return nil
 	}
 	var rows []runtimeAggregateMetricCompactRow
+	for i, item := range tool.RuntimeTracePerfQualityScopedItems(ledger.Records) {
+		rows = append(rows, runtimeAggregateMetricCompactRow{Order: order, Key: fmt.Sprintf("perf_quality_scope_%d", i+1), Value: item.Label + ": " + item.Text})
+	}
 	seen := map[string]bool{}
 	for _, record := range ledger.Records {
 		if !runtimeTracePerfQualityRecord(record) {
+			continue
+		}
+		scoped := false
+		for _, note := range record.RichNotes {
+			if strings.HasPrefix(note, types.TraceNoteKeyPerfQualityScope+"=") {
+				scoped = true
+				break
+			}
+		}
+		if scoped {
 			continue
 		}
 		for _, note := range record.RichNotes {

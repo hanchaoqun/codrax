@@ -9771,27 +9771,13 @@ func runtimeTracePerfQualityItems(doc *types.AnswerDocumentV2, ctx *types.BusCon
 	}
 	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
-	seen := make(map[string]bool)
 	var out []types.AnswerBlockItem
-	for _, record := range ledger.Records {
-		text := runtimeTracePerfQualityText(record)
-		if text == "" || strings.Contains(visible, text) || seen[text] {
+	for _, item := range runtimeTraceScopedPerfQualityItems(ledger.Records) {
+		if strings.Contains(visible, item.Text) {
 			continue
 		}
-		seen[text] = true
-		label := strings.TrimSpace(record.Subject)
-		if label == "" {
-			label = "perf sample"
-		}
-		out = append(out, types.AnswerBlockItem{
-			ID:          fmt.Sprintf("runtime_trace_perf_quality_%d", len(out)+1),
-			Label:       label,
-			Text:        text,
-			CitationRef: -1,
-		})
-		if len(out) >= 2 {
-			break
-		}
+		item.ID = fmt.Sprintf("runtime_trace_perf_quality_%d", len(out)+1)
+		out = append(out, item)
 	}
 	return out
 }

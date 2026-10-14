@@ -34,12 +34,10 @@ func TestSchedulerIdentityFiniteWakeeScopeRemainsIndependent239(t *testing.T) {
 	before := traceInventoryScopeAuthority(t, ctx)
 	prompt := traceEventInventoryActualFinalizerPrompt(t, ctx)
 	views := traceEventInventoryPromptViews(t, prompt)
-	// Existing member scope matches the emitter, not scheduler endpoint roles.
-	// HMC-01.3/16.4 remains open: new display fields must not silently acquire
-	// owner authority to work around that separate contract. The RED experiment
-	// showing the omitted row is preserved outside the repository.
-	if len(views) != 1 || len(views[0].Inventory.Rows) != 0 || views[0].PromptRowsOmitted != 1 {
-		t.Fatalf("display semantics changed existing owner qualification: %+v", views)
+	// HMC240 reuses the independently validated row-local wakeup receipt.
+	// Display semantics alone still do not confer ownership or causal rights.
+	if len(views) != 1 || len(views[0].Inventory.Rows) != 1 || views[0].PromptRowsOmitted != 0 {
+		t.Fatalf("verified wakee participant disappeared from finite display: %+v", views)
 	}
 	if before != traceInventoryScopeAuthority(t, ctx) {
 		t.Fatal("display altered full ledger")
