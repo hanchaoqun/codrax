@@ -121,6 +121,15 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"resource.address_bits_hex", "resource", "text", "", "同一地址的64位十六进制位型（不判有效性）"},
 	{"resource.sub_type_id", "resource", "int64", "", "资源子类原始引用"},
 	{"resource.sub_type_name", "resource", "text", "", "已提供的资源子类名称"},
+	{"scheduler.wakee.comm", "scheduler", "text", "", "唤醒目标线程名"},
+	{"scheduler.wakee.tid", "scheduler", "int64", "", "唤醒目标线程编号（TID）"},
+	{"scheduler.wakee.tgid", "scheduler", "int64", "", "唤醒目标线程所属进程编号（TGID）"},
+	{"scheduler.prev.comm", "scheduler", "text", "", "切出线程名"},
+	{"scheduler.prev.tid", "scheduler", "int64", "", "切出线程编号（TID）"},
+	{"scheduler.prev.tgid", "scheduler", "int64", "", "切出线程所属进程编号（TGID）"},
+	{"scheduler.next.comm", "scheduler", "text", "", "切入线程名"},
+	{"scheduler.next.tid", "scheduler", "int64", "", "切入线程编号（TID）"},
+	{"scheduler.next.tgid", "scheduler", "int64", "", "切入线程所属进程编号（TGID）"},
 }
 
 func LookupTraceEventSemanticDescriptor(key string) (TraceEventSemanticDescriptor, bool) {
@@ -173,6 +182,11 @@ func ValidateTraceEventSemantics(value *TraceEventSemantics) bool {
 
 func traceEventSemanticFieldValueValid(key, value string) bool {
 	switch key {
+	case "scheduler.wakee.tid", "scheduler.wakee.tgid", "scheduler.prev.tid", "scheduler.prev.tgid", "scheduler.next.tid", "scheduler.next.tgid":
+		// This optional display projection has no endpoint presence bit for
+		// historical zero values. Do not convert default zero into idle proof.
+		id, err := strconv.ParseInt(value, 10, 32)
+		return err == nil && id > 0 && strconv.FormatInt(id, 10) == value
 	case "plugin.value_storage_class", "plugin.category_storage_class", "plugin.filter_type_storage_class", "source.filter_storage_class", "source.arg_set_storage_class":
 		return value == "absent" || value == "null" || value == "text" || value == "blob" || value == "integer" || value == "real"
 	case "plugin.value_encoding", "plugin.category_encoding", "plugin.filter_type_encoding", "source.filter_encoding", "source.arg_set_encoding":
@@ -263,6 +277,9 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 		}
 		descriptor, ok := LookupTraceEventSemanticDescriptor(field.Key)
 		if !ok || descriptor.Family == "plugin" && !plugin || (descriptor.Family == "marker" || descriptor.Family == "counter" || descriptor.Family == "resource") && !marker || descriptor.Family == "source" && !plugin && !marker {
+			return false
+		}
+		if descriptor.Family == "scheduler" && !traceSchedulerSemanticFieldMatches(field.Key, eventType) {
 			return false
 		}
 	}

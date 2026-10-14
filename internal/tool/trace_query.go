@@ -5830,7 +5830,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 				traceEventProvenanceDetail(ev),
 				traceEventPriorityDetail(ev),
-				traceEventSchedulerDetail(ev),
+				traceEventSchedulerDetail(ev)+traceEventSchedulerIdentityDetail(ev.Event),
 				traceEventResourceDetail(ev)+traceQueryJankEventDetail(ev.Event),
 				raw,
 			)

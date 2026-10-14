@@ -15,6 +15,8 @@ import (
 func ProjectTraceEventSemantics(event Event) *types.TraceEventSemantics {
 	p := traceEventSemanticProjector{value: types.TraceEventSemantics{SchemaVersion: types.TraceEventSemanticsVersion}}
 	switch event.Type {
+	case EventSchedWakeup, EventSchedWaking, EventSchedSwitch:
+		p.schedulerIdentities(event)
 	case EventMeasureInterval:
 		if event.PluginFields == nil || event.PluginFields.Measure == nil {
 			return nil

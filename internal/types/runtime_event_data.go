@@ -113,6 +113,12 @@ func BuildTraceEventRuntimeMeasurementPublication(r ObservationRecord) (RuntimeM
 	if r.SourceRef.PayloadRef != "" {
 		t.Notes = append(t.Notes, "完整查询结果："+r.SourceRef.PayloadRef)
 	}
+	for _, field := range d.Fields {
+		if descriptor, ok := LookupTraceEventSemanticDescriptor(field.Key); ok && descriptor.Family == "scheduler" {
+			t.Notes = append(t.Notes, TraceSchedulerIdentityTeaching)
+			break
+		}
+	}
 	t.Notes = append(t.Notes, i.Caveats...)
 	// Exact producer-owned lookup notes distinguish the requested business
 	// window from a wider matching window. They are display context only.

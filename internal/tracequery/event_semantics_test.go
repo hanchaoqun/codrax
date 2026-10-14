@@ -120,9 +120,20 @@ func TestTraceEventSemanticsPublicPluginMarkerCounter(t *testing.T) {
 }
 
 func TestTraceEventSemanticsUnknownAndBoundedProjection(t *testing.T) {
-	for _, event := range []Event{{Type: EventSchedSwitch}, {Type: EventHiSystemEvent}, {Type: EventTraceMark}} {
+	for _, event := range []Event{{Type: EventUnknown}, {Type: EventHiSystemEvent}, {Type: EventTraceMark}} {
 		if ProjectTraceEventSemantics(event) != nil {
 			t.Fatalf("unsupported/legacy event got semantics %+v", event)
+		}
+	}
+	// Scheduler endpoint display is supported, but historical empty values
+	// carry no identity presence certificate and must remain entirely unknown.
+	emptySwitch := ProjectTraceEventSemantics(Event{Type: EventSchedSwitch})
+	if emptySwitch == nil || len(emptySwitch.Fields) != 6 {
+		t.Fatal("empty scheduler display lost its explicit unknown fields")
+	}
+	for _, field := range emptySwitch.Fields {
+		if field.Status != "unavailable" || field.Value != nil {
+			t.Fatalf("empty scheduler transport manufactured identity: %+v", field)
 		}
 	}
 	legacy := ProjectTraceEventSemantics(Event{Type: EventTraceMark, SpanAction: "C", SpanPID: 0, SpanName: "HeapSize", SpanValue: "0"})
