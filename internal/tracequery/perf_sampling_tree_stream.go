@@ -176,6 +176,21 @@ func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLim
 		}
 		p = buildPerfSamplingTree(idx, q)
 	}
+	caveats := append(append([]string(nil), sel.caveats...), p.Caveats...)
+	var selection *ThreadSelectorResolution
+	if p.Status == "available" {
+		selection = threadSelectorResolutionForQuery(idx, q)
+		if selection != nil {
+			caveats = append(caveats, "Thread selector diagnostics cover retained sampling and sampled-thread lifecycle metadata only; missing names or candidates do not establish absence from the full capture. Numeric TID is preserved; name candidates are discovery hints, not automatic retargeting.")
+			// The streaming index intentionally omits unrelated thread metadata.
+			// No observed name on either side is insufficient to certify a
+			// mismatch. Explicitly unknown sample identities were scrubbed by
+			// native admission and must not be reconstructed from the header.
+			if selection.Selected.Comm == "" && len(selection.NameCandidates) == 0 {
+				selection = nil
+			}
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -185,7 +200,7 @@ func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLim
 	if err := sel.close(); err != nil {
 		return Result{}, err
 	}
-	return Result{View: ViewPerfSamplingTree, SourcePath: idx.Path, TimeUnit: "seconds", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, LineCount: idx.LineCount, ScannedLineCount: idx.ScannedLineCount, EventCount: idx.ParsedKnown, UnparsedLineCount: idx.UnparsedLines, ParseLinePanics: idx.ParseLinePanics, ClockRegressions: idx.ClockRegressions, TraceArtifacts: idx.TraceArtifacts, PerfSamplingTree: p, Caveats: append(append([]string(nil), sel.caveats...), p.Caveats...)}, nil
+	return Result{View: ViewPerfSamplingTree, SourcePath: idx.Path, TimeUnit: "seconds", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, LineCount: idx.LineCount, ScannedLineCount: idx.ScannedLineCount, EventCount: idx.ParsedKnown, UnparsedLineCount: idx.UnparsedLines, ParseLinePanics: idx.ParseLinePanics, ClockRegressions: idx.ClockRegressions, TraceArtifacts: idx.TraceArtifacts, PerfSamplingTree: p, ThreadSelection: selection, Caveats: caveats}, nil
 }
 
 // Streaming parsing uses a non-retaining interner. Charge every retained
