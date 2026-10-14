@@ -7961,3 +7961,57 @@ B的原机器FAIL另有独立评测接缝原因：case误用`DATA_FIXTURE`，rea
 5份冻结输入均可按SHA核对：二进制快照、A问题/fixture、B原问题配置、完整原件。B当前case仅fixture配置作有意修正，原case两份逐字节相同副本保留，问题/oracle及原始输入不变。原件SHA与child preparation一致；无额外模型问题。首次归档126份复制收据逐字节一致、共索引180份原件，目录`eval/results/hmc_sampling_identity_20261013/`；完整binary只存一份，CLI构建产物以哈希留证，模型凭证不复制。后续发布收据只追加索引，不改原答案/日志/FAIL。
 
 代码分片`123c1ccf7`、`7f5133fcb`、评测入口`87e74451e`及配置修正`406b25d27`；本账本/任务入口、架构和机器/人工摘要同批汇总提交。后续干净make与普通push/远端SHA记录在`verification-receipts/codrax-hmc239-release-*.log/json`，不使用强推。完整能力仍21交付/58开放，生产子能力两组、输入/取数验收一条、整答人工0/2；各口径明确分开。
+
+## 240. 事件参与者、质量作用域与实际事实发布凭证（2026-10-13）
+
+### 240.1 核账、范围与参考设计
+
+起点`7e34d7eaf`工作区干净，79唯一ID=21实现已交付+58开放、重复0；36待实施/16部分实施/2待验收/3验收中/1持续执行。§239及以前机器/人工FAIL保留，不凭新代码倒签；本批不新增重复任务ID、不缩父项退出条件。实现限定三组共享子能力，真实评测固定两例各一次并行。
+
+重新核对参考`wakeup_chain_index.py`、`sleep_ops.py`的内部线程ID→TID→进程映射及前后事件顺序：借鉴行级关联，不把标签、相邻睡眠或from_itid名称当因果证明。`perf_calltree_ops.py`先选定总体再建完整路径，但不照搬名字tuple合并、缺栈剔除、采样比例换墙钟或空窗回退。`query_engine.py::_post_process_agent_output`将实际data/headline和truncated/empty边界分别保留；借鉴真实产物驱动交接，不复制会丢本仓来源的metadata白名单。`skill_executor.py`的状态推进依赖校验结果，而不是口头reason；参考工作流四个skip测试不作验收证据。
+
+### 240.2 有限事件参与者展示成员
+
+新私有`TraceEventParticipantDisplayRoster`仅消费独立校验的row-local `scheduler_wakeup_event`，完整SourceRef、line、time、event、scan scope与已知emitter必须匹配。冲突拒绝；semantic展示字段只能否定明确矛盾，不能创设证据。旧emitter-only匹配保留给真正所有权消费者，展示名单不授进程归属、执行区间、配对、链上或根因权限。
+
+finalizer库存与原生event selector共用名单及半开窗口：公开query保3条，旧正文0/原生2，修后两侧都只显示正确1条，原始ledger、计数、稳定row ID保持不变；被排除ID不能再绑定。正文、表、无边事实图、分组共用选集，目标排除与窗口排除、预算省略分别计数。跨来源/查询/行/时刻/冲突、未知身份、进程混用、右边界、无窗目标正控、JSON不能恢复私有凭证及clone/coalesce覆盖。idle0、sched_waking/sched_switch新参与者范围未擅自加入。
+
+### 240.3 总体质量与成员质量分离
+
+由生产者生成版本化`perf_quality_scope`显示封套，保原cohort/source generation/window/event/unit及实际publisher的source/query/payload。重复JSON键、未知字段、发布者不匹配不能成为scoped展示。物理成员与准备根路径可不同，显示封套不创造此来源映射的选择权限。
+
+总体质量单列完整计数/分布；热点只展示自身已记录symbol/DSO/source/symbolization/samples/weight，不把164按比例分给单个热点，也不把总体unsymbolized套给已解析函数。旧单值投影遇多种质量输出mixed并保计数分布；同热点不同解析状态不再由输入顺序决定。主系统块与legacy补充共用同一格式化入口，旧未知scope只作未验证总体信息；保原采集告警，不用新显示字段升级因果。公开两热点真实query→emit反例及顺序/混合/多源多窗/多event/篡改负控通过。
+
+真实B确认此修复生效，但同一物理总体仍被perf_stats和自动window_stats显示两遍：选择参数不同导致cohort ID不同，其余完整Scope相同。长JSON分布和原始告警仍偏内部化，后继应以受信物理总体身份做显示复用、保查询出处，不按文本删重或盲合来源。附件概览仍有未标明总体混合的旧unsymbolized标签，HTML把C++模板参数的尖括号片段按链接显示；这些较低ROI展示债一并挂原16.4/18.4，与主答案计数/持续运行错误分开，不再扩本批实现。
+
+### 240.4 原生事实与当前摘要交接，以及独立复核补救
+
+增加仅当次finalizer持有的发布凭证，renderer在scope投影、冲突校验和全部预算之后签收；原始查询、来源、payload、目标、窗口与clock完整进入key。全部必需发布到位且bounded/resolved、无独立源码/因果/关系/absence义务时，只去掉当前reason及trim后完全相等副本；独立notes、原closure和ledger字节不变。legacy soft源码标签不盖过共享来源资格。无窗scope coverage、未知不可用、collapsed树、遗漏引用/节点/语义字段/查询、metadata裁剪、其它未接provider均保原摘要。raw预览公开截断不等于旁边typed字段丢失，也不宣称原文全文完整。
+
+最初query级回执经独立复核证实范围过宽：真实`window_stats`同query返回完整采样树及file_io/page_cache等事实，仅展示树却使完整性为true，实际finalizer移掉I/O摘要。公开RED `native-mixed-presentation-red-v1.log`保留。root在第一轮全仓改生产前中止（正式exit143），补为**逐事实族**发布，未注册族保守false；同query不同族不互签。flat原始symbol统计包含未知/opaque栈，不等于精确前缀节点：独立flat provider只沿已验证完整tree的同query定位原生成员，再完整投递自身字段和32行/32KiB预算后签收，不借tree代签。库存镜像须为同来源同query的精确点事件，区间/不同类型/邻近行不借证。
+
+末版公开正例含perf_sampling_tree、window_stats、先search再window两独立query及实际finalizer adapter；保35/7/100、unknown5和字面系统帧，flat字段逐项对照原producer而非从树重算。混合I/O反例、flat缺失/字节/成员预算、事件镜像8类变异、源码/关系/因果/absence/未知/独立note负控通过。无窗artifact_scope_coverage尚无provider，保摘要是明确保守边界，不假称已闭合。补救在两live冻结版本之后，不能将旧live与末版全仓拼成同版模型验收；没有第三例追跑。
+
+### 240.5 固定两例真实评测与完整人工审计
+
+两例在`20261013-205220`同秒启动，各一次，共用标准make的`7e34d7eaf38f-dirty`冻结快照；问题、case、原件和binary SHA均复核不变。目录`eval/results/hmc_native_publication_20261013/`，机器合计1/2、人工0/2。
+
+**A `trace_event_participant_inventory`：机器FAIL、人工FAIL，391秒。** 真实模型选择`wakeup_chain`，未调用event_search，因此本批新参与者库存入口的live验收未命中，不算PASS。原生三条边准确携loader11/TGID10、worker13/30、target42/20；终稿时间1.003/1.009/1.017及方向、来源行正确，未混helper99，却称进程信息未记录。已定位旧共享边文本/summary只用线程标签，actual finalizer边段未带独立TGID，不是原件或解析器未知，也不能称已证波动。
+
+A图初稿和局部修补累计15拒，出现legacy enum不接受wakeup、ref-selected与legacy字段混用、误把addition_ref填placement_ref等，最后相同修复范围停止并恢复先前结构化草稿；机器`degraded_answer_checks_skipped:1 mermaid_edges:0<3`。未验图安全隔离正确，但图需求未完成；正式exit0不代表成功。降级不是流仍活动时4ms没有答案，而是已发生多轮结构化修复失败，本批未改超时。终稿同一9行线程状态表重复两遍；未把状态或背景升为根因。图局部分支/schema/工具JSON教学需统一验证，不能从模型非法调用直接断言合法分支不可执行。
+
+**B `trace_binary_sample_only`：机器PASS、人工FAIL，86秒。** 原件30,062,585字节/SHA `da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632`未变，默认真实准备12,000样本，目标窗/TID1609取164样本/259cycles；两热点各82，权重174/85（67.1815%/32.8185%）。系统总体/热点质量显示正确；正文和主表却按权重比例×164编成110/54次，还声称一直on-CPU、非睡眠阻塞，后置免责声明不能抵销。
+
+B真实finalizer写作上下文没有Observation Ledger/原生树及82/82明细，不应误记成“所有正确事实已充分交给模型”。原生tree.source_path是准备manifest，cohort.source_path是物理capture.perftrace；`TraceQueryAggregateSelectionSubject`直接要求二者相等，导致命名目标投影拒绝该树；symbol主体也不匹配线程，promptLedger为空，只剩设备元数据和载体ID/164边界。当前错误synthesis因此仍交给finalizer，不是被causal profile排除。这是已有准备关系未贯通的确定缺口，挂原09.4/18.3/18.4高优先；不能删除来源校验或凭路径相似放行。即便补桥，该树每节点只显示4引用/78省略，当前完整凭证仍应保守，不可顺手放宽。
+
+两例均无真实query失败后自然修复；A是图成文修复，B取数首调成功，分别记未触发而非新永久阻塞。保所有原始fail、完整payload、实际上下文、Markdown/HTML/sidecar；系统自动补齐、Trace投影及图隔离均未取消。详细人工报告为`verification-receipts/codrax-hmc240-participant-manual-audit-v1.md`及`verification-receipts/codrax-hmc240-sample-only-manual-audit-v1.md`，两者均已完整归档，不用正确附录冲销正文FAIL。
+
+### 240.6 剩余范围、下一ROI与发布收据
+
+完整能力本批新增0、累计21/79、58开放；三组共享子能力与父项、两份人工FAIL分别报告，不按提交次数计功。新增发现归原任务，不变成更多稳定编号。下一能力轨先核09.4初始退出条件及现有完整证据，不再重写解析器或强求未触发的自然retry；高影响缺陷轨优先准备manifest↔物理成员的精确来源关系贯通，随后共享唤醒边身份与图修复可执行教学。以实际字段族/来源投递与同源显示复用降低幻觉，不扫问答关键词。
+
+轮换评测建议原采样自然问题+真实controller只读登记，入口先做零模型/确定性资格验证，不以旧脚本controller的限定PASS代签；18.5是持续执行项。17.7活动SQLite快照须设计并发writer/WAL reset、源不变、捕获边界、代次/缓存/取消整块能力，不夹在成文小修内快速关账。独立ROI报告核对过任务初始提交`da4a33d5f`，明确原条款与后来已登记范围，不靠缩范围让58下降。
+
+源码及公开回归/自然case提交`014bc8af6`，已普通推送`origin/main`。末版唯一完整回归`go test -json -timeout=20m ./...`正式exit0：92包PASS、13包SKIP、0个Action=fail、0非JSON行；tool包603.227s，退出前额外等待来自Go的`runCache.saveOutput → computeTestInputsID → hashOpen`测试缓存收尾，保留只读进程采样，不误称产品超时或另起重复全仓。末版相关回归、agent/types/tracequery/tool四包定向race、skill整包、构建及diff检查均正式通过。第一轮full-v1在生产补救前主动终止，exit143，87包PASS/13包SKIP仍不构成全仓通过；全部开发期夹具/编译/边界失败留原件，文件名green不代替退出码。
+
+原件目录`eval/results/hmc_native_publication_20261013/`含两份原始机器verdict及独立manual-verdict、完整子进程blob、最终MD/HTML/旁路、B实际准备目录、原始30,062,585字节sample-only采集、A自然case及独立oracle、独立二进制oracle与全批红绿/取消/末版收据。首轮146份复制均逐字节一致，227份产物逐一SHA-256入`evidence-sha256-index.txt`；后续发布收据追加后重建索引，不覆盖既有不一致文件。冻结二进制及两例输入5项hash再次全OK。独立末版代码/文档复核无新增阻断，不替代人工FAIL。汇总为`batch-audit.md`、`verification-receipts/codrax-hmc240-verification-status-v1.json`；最终提交/远端确认另追加发布收据，父任务状态保持21/58。

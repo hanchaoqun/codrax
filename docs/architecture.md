@@ -887,6 +887,8 @@ Turn A 末尾，explorer 把整份调查结果冻结成 `TurnAArtifacts`：
 
 日志与量测原生事实展示复用最终所选 Observation ID / 原生测量表的来源、查询和窗口凭证；补充主事实引用不会授予因果、同一时钟或源码权限。来源元数据预算优先覆盖实际所选记录的精确 source_id+generation。既有局部因果投影保留；没有局部投影但父查询已知越窗的行不升级为主引用。原生事实场景的当前摘要若允许展示，仅保单次有界 advisory；已有 runtime-only 安全抑制不变，不通过扫描旧摘要文本猜来源或迁移生命周期。
 
+HMC §240在finalizer当次构建内增加原生展示回执，首接事件库存、采样树和独立flat热点字段：真实投影、冲突检查和所有显示预算之后才登记精确source/query/payload/时间/目标/时钟及事实族；同窗不同查询、同查询不同事实族都不能借证。完整树可以定位同query原生热点，但不能证明flat字段已显示；后者须独立完整投递并经过32行/32KiB预算。库存点镜像还要求完整SourceRef和同一物理行/时刻/事件类型，不能以同query覆盖邻近点或区间。只有已解决的有限事实请求、没有独立源码/关系/因果义务且全部native查询各族已实际发布时，才去掉当前调查摘要及其完全相同副本。独立调查笔记、原始closure、ledger及Trace投影不变；缺字段/节点/查询、冲突、未知不可用或未接入的原生视图保守保留advisory。预览raw的已披露截断不否定完整typed字段，但回执不承诺原文全文完整。回执不持久化、不授事实或完成权限；legacy intent默认源码标签不压过共享hard/soft来源权威。
+
 ### 5.9 Extractor — 看快照写答案 slate
 
 > *像论文作者写"结论"那一节：本节不能再做新实验、不能再引入新数据，只能从前面已经收集好的数据里挑出"实验结论是 A、B、C，每条对应表 3 第 5 行"。挑错或挑漏直接判 lower_bound（"以上至少这些，可能还有更多"）—— 这是诚实的退路，比"不知道但说了 14 个"安全。*
@@ -1482,6 +1484,10 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
 **无损采样树（HMC-09.4）**：`perf_sampling_tree`与旧`perf_stats/window_stats/trace_perf_bundle/perf_timeline`复用完整准入样本与原生树交接。物理来源代次、producer、event、unit和线程代次分别成cohort；完整分母包含缺栈样本，展开/折叠与展示预算只省略显示，不改变总体。symbol/DSO/IP及字面帧边界保留，不按分号拆合法符号、不删系统栈、不以占比乘窗口生成耗时。原始引用、缺失与省略量明确披露；显示父子只有采样路径含义，不生成直接调用或Trace根因证据。
+
+HMC §240把总体采样质量与热点属性分层：`perf_quality_scope`仅是display-only的原生cohort元数据，完整来源/代次/时间窗/事件/单位参与去重；系统附表和旧finalizer补充复用同一展示。总体分布及CPU/帧质量计数只列一次，热点只展示自身符号解析/样本/权重等字段；混合状态为mixed，不取首个值或按数量摊派。相同热点内状态混合也不依输入顺序。未知不是零，原采集告警先于通用解释；可见标签不打印长内部cohort/generation ID。
+
+有限目标事件展示复用私有参与者名单：只有独立验证的同一`source/query/payload/scan/line/time`的row-local唤醒凭证能补充发射端之外的目标线程；目前覆盖`sched_wakeup`，不从raw或展示字段猜参与关系。正文库存、原生表/图selector和分组共用该名单，目标排除与窗口排除分别披露；查询总数、原始成员与旧owner判断保持不变。展示参与者不等于业务owner、进程、依赖链或根因资格。
 
 旧`top_callchains`与树共享`frames_v1`验证：`callchain_identity.form=exact_frames`按完整Kind/Symbol/DSO/IP序列区分路径，原始行坐标不是路径身份；`opaque_flat_label`保原字符串及未知原因，不与已验证路径合并。`quality.frame_statuses`及`callchain_known/unknown_count`指已验证帧边界（不承诺完整unwind），`callchain_statuses`仍是生产者原始声明。平面`top_symbols/top_dso`仍统计全部记录的对应字段，不能当作前缀节点inclusive/self权重；缺栈记录不从分母或平面热点消失。工具完整/紧凑展示均保这个量尺区别，不靠模型正文关键词纠错。
 
