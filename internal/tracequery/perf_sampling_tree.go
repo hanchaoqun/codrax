@@ -230,6 +230,7 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 	if q.runCancel.sample() {
 		return fail("scan_canceled")
 	}
+	p.Caveats = append(p.Caveats, population.identityCoverageCaveats()...)
 	if population.selectorWithheld {
 		p.Caveats = append(p.Caveats, perfThreadSelectorWithheldCaveat(q.PID > 0))
 		return fail("typed_identity_unproven")

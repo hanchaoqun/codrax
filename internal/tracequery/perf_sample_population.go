@@ -28,14 +28,18 @@ type perfPopulationScopeKey struct {
 }
 
 type perfSamplePopulation struct {
-	idx               *Index
-	q                 Query
-	ledger            *perfIdentityLedger
-	selector          threadSelector
-	identityAddressed bool
-	selectorWithheld  bool
-	selectorValid     bool
-	generations       map[string]string
+	idx                      *Index
+	q                        Query
+	ledger                   *perfIdentityLedger
+	selector                 threadSelector
+	identityAddressed        bool
+	selectorWithheld         bool
+	selectorValid            bool
+	generations              map[string]string
+	identitySources          map[string]bool
+	identitySourcesRead      bool
+	unassignedOtherSource    bool
+	unassignedSelectedSource bool
 }
 
 func newPerfSamplePopulation(idx *Index, q Query) *perfSamplePopulation {
@@ -70,7 +74,61 @@ func (p *perfSamplePopulation) admit(ordinal int, filter perfSampleFilter) (perf
 		p.selectorWithheld = true
 		return key, identity, known, false
 	}
+	p.observeUnassignedIdentity(ordinal, known)
 	return key, identity, known, perfThreadIdentityMatchesQuery(p.ledger, key, identity, known, p.q)
+}
+
+// observeUnassignedIdentity checks population completeness, not row identity.
+// A converter-owned anonymous row cannot prove either membership or absence.
+// Restrict this uncertainty to physical sources that actually prove the chosen
+// selector; if none do, a nonempty anonymous population is not measured zero.
+// Full-capture bindings locate those sources even when the selected window is
+// empty. Header/comm/perf_source_* coordinates never enter this decision.
+func (p *perfSamplePopulation) observeUnassignedIdentity(ordinal int, known bool) {
+	if !p.identityAddressed || !p.selectorValid || known {
+		return
+	}
+	ev := p.idx.Events[ordinal]
+	if _, candidate := perfIdentityCandidateTIDFromEvent(ev); candidate {
+		// A proved different numeric candidate (including a locally withheld
+		// one) is handled by the ledger's precise selector verdict, not by
+		// anonymous source coverage.
+		return
+	}
+	if !p.identitySourcesRead {
+		p.identitySourcesRead = true
+		p.identitySources = map[string]bool{}
+		for _, binding := range p.ledger.bindings {
+			if p.q.runCancel.tick() {
+				return
+			}
+			record := p.ledger.records[binding.record]
+			if !perfThreadIdentityMatchesQuery(p.ledger, record.key, record.identity, true, p.q) {
+				continue
+			}
+			if source, found := samplingSourceForEvent(p.idx, p.idx.Events[binding.ordinal]); found {
+				p.identitySources[source.SourcePath] = true
+			}
+		}
+	}
+	source, found := samplingSourceForEvent(p.idx, ev)
+	if len(p.identitySources) == 0 || !found || p.identitySources[source.SourcePath] {
+		p.selectorWithheld = true
+		p.unassignedSelectedSource = true
+		return
+	}
+	p.unassignedOtherSource = true
+}
+
+func (p *perfSamplePopulation) identityCoverageCaveats() []string {
+	var caveats []string
+	if p.unassignedSelectedSource {
+		caveats = append(caveats, "sampling_identity_coverage=incomplete; selected-window samples have unassigned thread identity in a relevant physical source; the target population is unavailable, not measured zero; source-wide sample inventory remains queryable")
+	}
+	if p.unassignedOtherSource {
+		caveats = append(caveats, "sampling_identity_scope=proven_physical_sources; anonymous samples in other physical sources remain source-wide inventory, not selected-thread membership or proof of complete target coverage across the capture")
+	}
+	return caveats
 }
 
 func (p *perfSamplePopulation) cohortKey(ev Event, thread perfThreadKey, known bool) perfCohortKey {

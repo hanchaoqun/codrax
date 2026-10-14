@@ -69,11 +69,11 @@ func TestSamplingStreamSelectionReceiptHMC238WithholdsUnavailable(t *testing.T) 
 func TestSamplingStreamSelectionReceiptHMC238UnknownIdentityDoesNotReuseHeader(t *testing.T) {
 	idx := buildTraceIndex(t, "unknown-thread.perftrace", "worker-11 (10) [000] .... 1.1: perf_sample: pid=10 tid=11 thread_identity_known=false sample_weight=3 event=cycles symbol=work source=raw\n")
 	r, err := StreamPerfSamplingTree(context.Background(), idx.Path, Query{View: ViewPerfSamplingTree, PID: 11, Thread: "worker", TimeStart: 1, TimeEnd: 2})
-	// The pre-existing tree currently reports available/0 for a source-only
-	// sample. This receipt-only fix must not turn that into proven identity,
-	// nor silently expand into changing population availability semantics.
-	if err != nil || r.ThreadSelection != nil || r.PerfSamplingTree.Status != "available" || r.PerfSamplingTree.SampleCount != 0 ||
-		!strings.Contains(strings.Join(r.Caveats, " "), "not establish absence") {
+	// HMC239 closes the separately recorded population gap: an anonymous
+	// nonempty source is unavailable for this target, never measured zero.
+	// The HMC238 no-header-derived identity guarantee remains unchanged.
+	if err != nil || r.ThreadSelection != nil || r.PerfSamplingTree.Status != "unavailable" || r.PerfSamplingTree.SampleCount != 0 ||
+		r.PerfSamplingTree.Reason != "typed_identity_unproven" {
 		t.Fatalf("unknown typed identity gained a header-derived receipt: %v %+v", err, r)
 	}
 }

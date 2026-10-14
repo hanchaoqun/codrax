@@ -95,8 +95,10 @@ func TestSamplingSelectionReceiptPublicHMC238EmptyAndUnknownRemainDistinct(t *te
 	}
 	unknown := samplingRepairQueryHMC235(t, ctx, map[string]any{"path": path, "pid": 11, "thread": "worker"})
 	u, _, _ := samplingRepairPayloadHMC235(t, unknown)
+	// HMC239 closes the separate source-only population gap without granting
+	// any header-derived selector certificate or treating uncertainty as retry.
 	if !unknown.Success || u.ThreadSelection != nil || u.PerfSamplingTree.SampleCount != 0 ||
-		!strings.Contains(strings.Join(u.Caveats, " "), "not establish absence") || strings.Contains(unknown.Summary, "thread_selection status=") {
+		u.PerfSamplingTree.Status != "unavailable" || u.PerfSamplingTree.Reason != "typed_identity_unproven" || strings.Contains(unknown.Summary, "thread_selection status=") {
 		t.Fatalf("unknown typed identity was rehabilitated through header: %+v", u)
 	}
 	for _, row := range unknown.Observations {

@@ -4144,10 +4144,14 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 	}
 	if population.selectorWithheld && filter == nil {
 		// A partially proved target is not a complete selected denominator.
-		return &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(false), Caveats: append(ledger.caveats(), perfThreadSelectorWithheldCaveat(q.PID > 0))}
+		caveats := append(ledger.caveats(), population.identityCoverageCaveats()...)
+		return &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(false), Caveats: append(caveats, perfThreadSelectorWithheldCaveat(q.PID > 0))}
+	}
+	if admissionFilter == nil {
+		ctx.Caveats = append(ctx.Caveats, population.identityCoverageCaveats()...)
 	}
 	if ctx.SampleCount == 0 {
-		if len(selectorCaveats) > 0 {
+		if len(selectorCaveats) > 0 || len(ctx.Caveats) > 0 {
 			ctx.Caveats = append(ctx.Caveats, selectorCaveats...)
 			return ctx
 		}
@@ -5261,9 +5265,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		return PerfTimelineResult{Window: queryResultTimeWindow(q), Caveats: []string{"invalid_thread_selector; conflicting or out-of-range typed selection cannot define a sampling population"}}
 	}
 	ledger := population.ledger
-	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindow(idx, q, ledger)
+	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindowForPopulation(idx, q, ledger, population)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
 	res.Caveats = append(res.Caveats, ledger.caveats()...)
+	res.Caveats = append(res.Caveats, population.identityCoverageCaveats()...)
 	if q.runCancel.fired() {
 		return res
 	}
@@ -5469,6 +5474,10 @@ func perfThreadIdentityMatchesQuery(ledger *perfIdentityLedger, key perfThreadKe
 }
 
 func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float64, float64, int, map[int]bool, bool) {
+	return perfTimelineWindowForPopulation(idx, q, ledger, newPerfSamplePopulation(idx, q))
+}
+
+func perfTimelineWindowForPopulation(idx *Index, q Query, ledger *perfIdentityLedger, population *perfSamplePopulation) (float64, float64, int, map[int]bool, bool) {
 	start, end := q.TimeStart, q.TimeEnd
 	count := 0
 	contributorPIDs := map[int]bool{}
@@ -5486,6 +5495,7 @@ func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float6
 			continue
 		}
 		key, identity, identityOK := ledger.identityForEventOrdinalBorrowed(ordinal)
+		population.observeUnassignedIdentity(ordinal, identityOK)
 		if !perfTimelineAdmits(ev, q, ledger, key, identity, identityOK) {
 			continue
 		}
@@ -5512,7 +5522,7 @@ func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float6
 	if end == start && count > 0 {
 		end = start + 0.001
 	}
-	return start, end, count, contributorPIDs, selectorWithheld
+	return start, end, count, contributorPIDs, selectorWithheld || population.selectorWithheld
 }
 
 func perfTimelineThreadSelector(q Query) (threadSelector, bool) {

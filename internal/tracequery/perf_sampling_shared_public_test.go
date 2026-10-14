@@ -82,10 +82,10 @@ func TestPerfSamplingLegacyTargetAndWindowPopulation(t *testing.T) {
 			q := selector
 			q.View, q.TimeStart, q.TimeEnd = view, 1, 2
 			r := Run(idx, q)
-			if r.PerfSamplingTree == nil || r.PerfSamplingTree.SampleCount != 1 || r.PerfSamplingTree.Cohorts[0].TotalWeight != 3 {
-				t.Fatalf("%s target/window broadened: %+v", view, r.PerfSamplingTree)
+			if r.PerfSamplingTree == nil || r.PerfSamplingTree.Status != "unavailable" || r.PerfSamplingTree.Reason != "typed_identity_unproven" || len(r.PerfSamplingTree.Cohorts) != 0 {
+				t.Fatalf("%s incomplete same-source population claimed an exact target denominator: %+v", view, r.PerfSamplingTree)
 			}
-			if r.WindowStats != nil && (r.WindowStats.PerfSamples == nil || r.WindowStats.PerfSamples.SampleCount != 1 || r.WindowStats.PerfSamples.TotalPeriod != 3) {
+			if r.WindowStats != nil && (r.WindowStats.PerfSamples == nil || r.WindowStats.PerfSamples.SampleCount != 0 || !strings.Contains(strings.Join(r.WindowStats.PerfSamples.Caveats, " "), "typed_identity_unproven")) {
 				t.Fatalf("flat target differs from tree: %+v", r.WindowStats.PerfSamples)
 			}
 		}
@@ -94,11 +94,18 @@ func TestPerfSamplingLegacyTargetAndWindowPopulation(t *testing.T) {
 	if r.PerfStats.SampleCount != 3 || r.PerfStats.CohortCount != 3 || r.PerfStats.ThreadIdentityUnknownSampleCount != 1 || r.PerfStats.TotalPeriod != 0 {
 		t.Fatalf("global inventory lost original unknown/target rows: %+v", r.PerfStats)
 	}
-	r = Run(idx, Query{View: "perf_stats", PID: 11, TimeStart: 1, TimeEnd: 2.1})
+	// Window arithmetic still has an exact oracle on a wholly attributed
+	// source; removing unknown rows at query time would not prove completeness.
+	known := buildTraceIndex(t, "known-targets.perftrace", `
+ target-11 (10) [000] .... 1.1: perf_sample: pid=10 tid=11 sample_weight=3 event=cycles symbol=target source=one
+ other-12 (10) [000] .... 1.2: perf_sample: pid=10 tid=12 sample_weight=5 event=cycles symbol=other source=one
+ target-11 (10) [000] .... 2.1: perf_sample: pid=10 tid=11 sample_weight=11 event=cycles symbol=outside source=one
+`)
+	r = Run(known, Query{View: "perf_stats", PID: 11, TimeStart: 1, TimeEnd: 2.1})
 	if r.PerfStats.SampleCount != 1 || r.PerfStats.TotalPeriod != 3 || r.PerfSamplingTree.Window.EndInclusive || r.PerfStats.Cohorts[0].Scope.Window.EndInclusive {
 		t.Fatal("explicit half-open sampling window included its right endpoint")
 	}
-	r = Run(idx, Query{View: "perf_stats", PID: 11})
+	r = Run(known, Query{View: "perf_stats", PID: 11})
 	if r.PerfStats.SampleCount != 2 || r.PerfStats.TotalPeriod != 14 || !r.PerfSamplingTree.Window.EndInclusive || !r.PerfStats.Cohorts[0].Scope.Window.EndInclusive {
 		t.Fatal("complete capture lost its final timestamp sample")
 	}

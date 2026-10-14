@@ -7956,6 +7956,9 @@ func answerDocBoundedRuntimeObservationPromptRecordAllowed(
 	if types.TraceObservationIsEvidenceBoundary(record) || answerDocBoundedRuntimeTargetDiagnosticPredicate(predicate) {
 		return true
 	}
+	if answerDocSamplingQueryBoundaryMatchesTarget(record, rm) {
+		return true
+	}
 	if subject, ok := tool.TraceQueryAggregateSelectionSubject(record); ok {
 		selected := record // prompt-only retention; never rewrite the ledger owner
 		selected.Subject = subject
