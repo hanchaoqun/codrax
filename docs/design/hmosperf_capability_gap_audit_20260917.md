@@ -7901,3 +7901,63 @@ full-v2已正式exit0：91测试包PASS、13无测试包，全量Action=fail为�
 发布前归档逐字节核对69份复制收据，总索引126份原件，根目录`eval/results/hmc_repl_terminal_20261013/`，含A1/A2、B独立复制、全仓中止/末版、开发失败、审计与输入清单。`evidence-sha256-index.txt`逐项保原路径/SHA；原始A2机器human_pending不改写，人工FAIL另存。第一次归档脚本因本机Ruby没有filter_map失败，改兼容v2脚本后成功；两个脚本及失败日志保留，不是产品测试失败，不覆盖已复制原件。后续构建/推送收据只追加归档，不为文档变动重跑全仓。
 
 本批三笔代码分片为`a35c6c5b9`（采样选择回执）、`6cfe04b4f`（真实REPL评测入口）、`b867f533e`（实际CLI脚本输入及启动回归）；账本/任务入口和机器/人工摘要同批汇总。完整任务新增0、累计21，58开放及各状态不变；两组子能力不按提交数重复计功。发布以普通push和远端SHA核验收据为准，后继优先队列见任务清单及`codrax-hmc238-next-roi-v1.md`，不将一次限定PASS改写为全能力完成。
+
+## 239. 采样身份可用性、多端点事实展示与 sample-only 二进制（2026-10-13）
+
+### 239.1 核账与参考设计
+
+起点`8208fd17b`干净，79唯一任务=21实现已交付+58开放，重复0；36待实施/16部分实施/2待验收/3验收中/1持续执行。已知FAIL原件不倒签，先修共享事实层而非按某句答案加门。参考`perf_calltree_ops.py::_build_full_tree`先选线程/窗口再构建完整路径，但不照搬名称元组合并、缺栈剔除、采样比例换算墙钟或空窗扩大总体。参考`sched/runtime.yaml`、`wakeup_chain_index.py`与`sleep_ops.py`明确TID、进程和内部ID的独立映射；本仓复用既有typed事件与原生展示，不复制缺映射补0。
+
+### 239.2 共享采样可用性与查询结果交接
+
+`123c1ccf7`在旧/新采样共同的`perfSamplePopulation`修复：本次实际窗和过滤内有无法归属的采样，且位于已证明目标的物理来源（或根本没有证明目标的来源）时，结果为`unavailable / typed_identity_unproven`，不是available/0。完整来源的受信身份仅用来定位物理来源，不用头部、comm或`perf_source_*`伪造行归属。其它物理来源的匿名采样不污染已证明来源的目标值，但必须说明范围仅覆盖已证明来源，不能宣称全采集完整。窗外及右边界外未知不污染窗内；源级总体原样保留，明确已知的其他线程及真正空窗仍可为零。旧统计、window/bundle、timeline及树共用同一准入，空context保有意义的来源范围说明；显式因果/角色过滤不改。
+
+公开五入口RED后，工具已正确但真实finalizer仍隐藏不可用结果：旧聚合主体要求非空可用树。新增精确查询边界保留读取native decoder校验后的source/window/selector/outcome，只匹配原请求的精确线程选择；排除进程和探索cursor，不写Subject、不铸聚合身份、不加因果或principal资格。真实finalizer五入口及来源/窗/角色/选择/生产者篡改负控通过。旧238预期曾明确固定available/0缺口，现精确迁为不可用，不删“不准从头部复建身份”等负控。
+
+同源匿名、跨源匿名、真空窗、已知其他线程、同名线程、冲突、半开窗、source-wide、角色过滤及同TID两代次独立3/5分母均有公开/流式索引对照；末版race三包通过。初始编译夹具错误、第二个真实finalizer缺口、旧契约预期FAIL分别保留，不把文件名green当作通过凭证。
+
+### 239.3 多端点线程/进程展示
+
+`7f5133fcb`在既有`TraceEventSemantics`登记wakee/prev/next各comm/tid/tgid九字段。仅从准入事件typed字段投影；正TID与名称独立，TGID仅在同一事件的端点TID和独立已知emitter TID相同且TGID已知时复用。不同线程不复制发射者进程号，缺失不补零。summary、原生表与无边事实图使用同一行/字段选择，最终上下文只按相关字段携一次角色短教学，不扫描模型原文。
+
+不改Event热路径、JSON/缓存、ledger、Trace因果投影或自动补齐。六包相关、字段目录、原件JSON/size pin和DiagramIdentityAuthorityCensus通过。原始空switch负控精确迁为六个全unknown字段，不降低其它不支持类型检查。
+
+两项残余明确留在01.3/16.4：Event没有端点0的持久presence凭证，合法idle0与缺失0不能区分，本片都保持未确定；有限wakee目标公开query返回1条，但旧finalizer owner只认emitter，展示清单0条/omitted1。完整ledger的`scheduler_wakeup_event(record-11→target-42)`保持不变；该fixture本来没有prompt trusted-wakeup边，不为通过测试虚构。新增显示字段不越权充当owner。旧238A2自然答案FAIL不因本片确定性修复改签。
+
+### 239.4 完整原始采样二进制入口
+
+`87e74451e`新增opt-in离线oracle与自然eval入口，使用参考仓完整`test_brbe.data`原件，30,062,585字节、SHA256 `da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632`。实际独立参考解析及本仓完整准备均为12,000采样；旧注释的数量不当oracle。原件不裁剪、不预转换替代附件，也不因文件名声明支持BRBE。
+
+真实CLI零模型启动独立准备通过23.116秒，操作员oracle从不注入child。窗口486489.4–486489.6秒源级1,393采样/11线程；目标poll_report/TID1609为164采样、单独cycles权重259：未解析kernel IP `0xffffff800b829d24`占82/174，`SensorCallbackProxy::OnDataEvent_`占82/85；百分比按权重为67.1815%/32.8185%。无调度事件、sample_kind未知、时钟假定和跳过的branch_stack等均保留，不能推线程整窗执行、阻塞时长或停顿根因。
+
+本批固定A原采样自然问题、B原始sample-only自然热点问题，各1次并行，共用`87e74451e171-dirty`标准make冻结二进制（dirty仅两份文档）。机器oracle只作smoke，完整人工结果和末版全仓正式退出另列下节；不在尚未完成时标绿，不追第三例。
+
+### 239.5 固定双例完整人工审计：0/2，不误销账
+
+A `trace_lossless_sampling_tree-20261013-195631`正式进程exit0、137秒、机器PASS，人工FAIL。模型两次查询首调成功，真实目标11和1–2秒窗正确；原生树和finalizer都完整保35/7/100独立分母、exact A10/B20、unknown5、字面`sys;root`帧及DSO/IP。主表亦正确，但正文把两producer的cycles加为42，再写20/42和22/42，宣称5样本均完整两层并遗漏未知栈，且将权重说成采样频率/密度。不能以正确附录或主表冲销这些叙述。探索的advisory叙述也含“均为2层”等未证概括，与明确的typed上下文并存；底层未再合并分母，不继续无差别重修解析器。准确结论是共享事实成文/交接仍欠验证，不是已经证明偶发波动。
+
+B `trace_binary_sample_only-20261013-195632`正式进程exit0、124秒；完整原件→默认真实准备→模型`perf_stats/window_stats`→164/259与174/85取数子路径PASS，完整答案人工FAIL。正文称采样证明“活跃地执行内核代码和传感器回调”，而sample_kind未知、无调度证据，后置“运行/等待均不可排除”不能冲销前文。探索reason更早称200ms内运行而非睡眠/阻塞，说明应审计结构化事实与advisory叙述交接，而非只在最后扫原文。
+
+B同时暴露确定性系统质量作用域错误：系统补入“Perf证据质量”以`OnDataEvent_`为主体，却套用总体的unsymbolized/ip_only及cpu_known164；该热点原生为symbolized、82样本/85权重。主表“已符号化”正确，投影质量列表与之矛盾。应从总体与成员质量作用域绑定泛化修复，不能简单把164替换82或归为模型波动。挂原09.4/16.4及采样质量能力，不新建重复任务。
+
+B的原机器FAIL另有独立评测接缝原因：case误用`DATA_FIXTURE`，read分析成功但runner按数据操作要求terminal，产生`FAIL data_terminal_missing`。`406b25d27`改用既有read `FIXTURE`，bash语法/配置检查及完整`runner_lib_test.sh`通过，不改runner门、不改问题/oracle、不重跑模型。原case按字节/SHA保存，原FAIL不追改，不能宣称修后的自然入口已重新live验收。两例机器合计1/2、人工0/2。
+
+两例都没有实际query失败后的自然修复，未命中不算PASS或新缺陷。B有一次真实analysis声明拒绝后重交成功，不充作query retry；finalizer追加facet也不是质量问题已修。A无图，B仅确定性缺数据Trace树，无Mermaid/原生采样树图，不能签像素级或多图能力。B同窗自动补采和原生因果投影仍保留，根因sidecar为空、不可用，运行/等待时长均为`—`，没有把背景升为链上根因。
+
+### 239.6 验收范围与后继ROI
+
+本批可使用的生产子能力为两组：共享采样可用性及最终查询结果交接、多端点线程/进程同源展示；另新增完整sample-only原件真实CLI/模型取数验收入口。完整任务新增0、累计21、58开放；原09.4不能因原生取数正确而忽略自然成文FAIL，也不能把无自然retry/无图单独当永久阻塞或把BRBE/其它模式无限扩入退出条件。18.3还保完整尾部/REPL对应自然答案与其原范围。
+
+后继两轨按影响面排序：能力轨先复用已有`DecodeRuntimeWakeupEvent`精确source/query/line/time/端点凭证，建立共享“事件参与者展示成员”名单，解决有限wakee query1→prompt0，联通正文库存和表/图selector，不修改所有权或因果身份；缺陷轨先修整体质量误落到成员的问题，再处理已有原生事实与advisory叙述冲突的精确交接。既有raw质量范围必须保留，不能只改表头。合法idle0的presence证据单独评估热路径/缓存成本，优先级低于上述跨surface缺口。
+
+随后轮换18.5真实controller只读登记及17.7活动输入快照；09.4完整自然答案继续独立留债，不针对42、中文“运行”或某个函数增加关键词硬门。失败原件、完整payload、上下文、Markdown/HTML/sidecar和原始二进制统一归档。定向五包、末版race三包、skill整包和六包端点/结构保护已通过；唯一全仓正式退出、哈希核对与推送收据在发布节记录。
+
+### 239.7 末版验证、归档与发布
+
+唯一full-v1已正式exit0：92测试包PASS、13无测试包，全量Action=fail与非JSON错误行均为空。tool测试输出592.896秒，正式package pass为671.315秒，收齐驱动退出后才签全仓。新增sample-only离线opt-in用例另有真实CLI预检23.116秒收据，不把默认skip当新二进制运行。Go冻结后未再改源码；全仓期间后续只有文档与独立case配置修正，不重跑整仓冒充更高覆盖。
+
+定向五包末版通过；sampling末版race tracequery2.754s/tool9.749s/agent3.673s、skill整包、六包端点/原件/结构保护均通过。首次相关v1两个错误旧/新测试预期以及开发中编译夹具失败均保留，未删除保护断言。原case使用DATA_FIXTURE的评测接缝错误另以read FIXTURE及完整runner_lib_test修复验证，原自然机器FAIL不倒签。
+
+5份冻结输入均可按SHA核对：二进制快照、A问题/fixture、B原问题配置、完整原件。B当前case仅fixture配置作有意修正，原case两份逐字节相同副本保留，问题/oracle及原始输入不变。原件SHA与child preparation一致；无额外模型问题。首次归档126份复制收据逐字节一致、共索引180份原件，目录`eval/results/hmc_sampling_identity_20261013/`；完整binary只存一份，CLI构建产物以哈希留证，模型凭证不复制。后续发布收据只追加索引，不改原答案/日志/FAIL。
+
+代码分片`123c1ccf7`、`7f5133fcb`、评测入口`87e74451e`及配置修正`406b25d27`；本账本/任务入口、架构和机器/人工摘要同批汇总提交。后续干净make与普通push/远端SHA记录在`verification-receipts/codrax-hmc239-release-*.log/json`，不使用强推。完整能力仍21交付/58开放，生产子能力两组、输入/取数验收一条、整答人工0/2；各口径明确分开。
