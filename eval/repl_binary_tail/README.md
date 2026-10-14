@@ -1,7 +1,7 @@
 # Actual CLI REPL binary-tail evaluation (HMC 18.3 / batch 238)
 
 This is one explicitly opted-in real-model case. It starts the ordinary built
-`codrax` executable without `--request`, sends `/htrace <original>`, one natural
+`codrax` executable with `--mode=code` and without `--request`, sends `/htrace <original>`, one natural
 question, then `/exit`. It does not install a runner, controller, model adapter,
 converter stub, or precomputed answer in the child process. Ordinary Go tests
 exercise deterministic fixture, transport, and public REPL lifecycle behavior;
@@ -76,3 +76,26 @@ releases it. It checks the answer is rendered before exit, without a timing
 sleep; this lifecycle stub is never used by the live entry. The transport
 negative uses a helper test process that exits 37: a correct-looking stdout
 tuple cannot produce successful native evidence or live acceptance.
+
+## CLI startup regression and original failed attempt
+
+The first batch-238 attempt failed before any model call: the harness supplied
+`--mode=read`, confusing the internal pipeline phase with the public CLI task
+mode. Its `machine_checks_failed` receipt, 0.915989334-second execution, and
+`unknown mode "read"` output remain unchanged in the original result directory.
+The earlier argument-string and public-Loop tests did not exercise CLI parsing;
+their passing status did not prove the actual executable could enter the REPL.
+The new actual-CLI regression then exposed a separate production seam: piped
+stdin was not passed into the REPL, so it incorrectly attempted to open a TTY.
+That deterministic failure is retained separately from the initial live-attempt
+failure; it also occurred before any model call.
+
+The minimal correction is `--mode=code`, with the existing `write_enabled: false`
+kill switch unchanged. A non-short deterministic test builds the actual CLI
+once and runs the exact harness argv with only `/exit` on stdin. It requires
+normal exit and the REPL's goodbye output. An otherwise identical invalid
+`--mode=read` negative must fail explicitly. A local rejecting provider endpoint
+must receive zero requests, and child logs must contain no model/tool/answer
+execution. These startup checks are not real-model acceptance. Any separately
+authorized real attempt must use a fresh result directory; it cannot overwrite
+or relabel the original failure.

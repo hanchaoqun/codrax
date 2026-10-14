@@ -2944,6 +2944,8 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **脚本输入所有权**：非TTY提示、粘贴和运行期输入共用一个终身scanner/pump，按独占消费权交接，停止与队列转移原子化；旧/重复停止不能吞下一轮命令。取消后先等本轮返回，再处理后续输入。普通排队最多32条及`max(8MiB, 配置单行上限)`累计字节，溢出有精确丢弃披露，仍可接收取消；单行上限各入口一致，非EOF读取错误不当成功退出。关闭只撤销交付、不关闭借入reader，唯一阻塞Read可能等调用方输入/EOF。真实Run另提供`PrepareRunCancellation`，串行调用者按预留→Run或放弃→release使用专属句柄，预读取消不落在token初始化空窗，旧句柄不能取消新Run。无预留的CLI/TTY取消路径保持原形。
 
+真实CLI `runREPL` 用现有终端检测区分 stdin：管道及文件重定向将同一借入 `os.Stdin` 传给 `Config.In`，进入上述脚本输入所有权，不增加第二层读取/缓冲或回退打开 `/dev/tty`；TTY保持 `In=nil`，继续原生交互。此接线不改变REPL排队、EOF、取消或写权限策略；关闭/出错的非TTY输入仍保原读取错误，不伪装成交互或成功EOF。
+
 **REPL文件Trace准备（HMC-17.4）**：默认`/htrace <path>`和`/atrace <path>`使用`traceinput.Begin→Commit/Discard`，自动准备受支持二进制并保留完整查询材料；文本和bundle走同一边界。准备前检查runner能携带原始预览、来源和完整材料，不能静默缩成预览。准备期是本地非LLM操作，不预留/取消runner、不收发旧steering、不重置用量，不增加模型墙钟超时。独立ctx的取消与Commit+附件tuple发布同锁，原文setter先撤旧收据，typed setter最后发布新收据。脚本`/cancel`、TTY键入`/cancel`、ESC与SIGINT只取消本次准备；bracketed paste中的同形文字仍是数据。停止/排队转移在操作锁外，防输入锁与取消锁倒序。
 
 失败/取消不改旧附件，也不自动用旧附件回答随后输入（含同步失败后尚未读到的脚本行）。明确失败状态在Loop和dispatch入口暂存问题，最多32条/8MiB，溢出披露；准备成功、`/htrace keep`明确沿用旧附件或`/htrace clear`清空后恢复。等待确认期间只立即接受`/htrace`、`/help`、`/cancel`和退出命令，其余输入保持原命令/数据属性排队；直接Run恢复通道也拒绝绕过。完整文本沿schema1持久化，转换/bundle/截断预览沿schema2要求重新附加原件。SIGTERM或二次Ctrl+C在本地准备期先等拥有权限的撤销/输入交接完成再退出，不以固定短超时跳过回滚；不是无界延长模型响应等待。

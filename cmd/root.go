@@ -2076,6 +2076,7 @@ func runREPL(_ *cobra.Command) error {
 		Renderer:                app.renderer,
 		RepoRoot:                flagRepo,
 		Branch:                  flagBranch,
+		In:                      replInputForStdin(os.Stdin),
 		Out:                     os.Stdout,
 		PasteFoldMinChars:       app.replPasteFoldMinChars,
 		ReadRunAutoResume:       app.replReadRunAutoResume,

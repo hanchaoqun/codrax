@@ -148,7 +148,7 @@ func run(ctx context.Context, opts options) error {
 }
 
 func childArgs(workspace, logs string) []string {
-	return []string{"--repo", workspace, "--branch", "main", "--mode=read", "--chitchat-classifier=false", "--pipeline-max-steps", "50", "--log-level", "debug", "--log-dir", logs, "--color", "never"}
+	return []string{"--repo", workspace, "--branch", "main", "--mode=code", "--chitchat-classifier=false", "--pipeline-max-steps", "50", "--log-level", "debug", "--log-dir", logs, "--color", "never"}
 }
 
 func runtimeSettings(opts options) ([]byte, error) {
