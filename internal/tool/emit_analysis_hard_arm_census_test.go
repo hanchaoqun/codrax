@@ -141,7 +141,7 @@ var emitAnalysisHardArmRegistry = map[string]emitAnalysisHardArm{
 	"validateRuntimeArtifactCallChainConsistency":               {"internal_consistency", "call-chain kind vs declared runtime targets"},
 	`len(exactTargets) > 1 && predicates.HasPerMemberTable && (strings.EqualFold(strings.TrimSpace(kind), "config_mapping") || scenario == types.ScenarioConfigTrace) && len(exactContextRoles) == 0`: {"internal_consistency", "declared multi-key per-member config table requires its exact_context_roles companion carrier"},
 	"validateRequiredDiagramEmptyParticipantSlate":     {"internal_consistency", "required diagram + cross-component predicate vs an explicitly empty slate"},
-	"validateRequiredFlowDiagramParticipantProvenance": {"internal_consistency", "relation_scope_quote / participant rows / entity roster contradictions (V4-1 §40.34, V4-3 §40.21)"},
+	"validateRequiredFlowDiagramParticipantProvenance": {"internal_consistency", "relation_scope_quote / participant rows / frozen entity roster contradictions, including a uniquely selected runtime thread borrowed by another co-listed actor (V4-1 §40.34, V4-3 §40.21, HMC242)"},
 	"validateRequiredFileDimensionContradictions":      {"internal_consistency", "V4-4 §40.22: owner ∧ navigation-only on one file; index outside the declared dimension set — completeness arms retired"},
 	"validateCallChainRequestedDimensionRoles":         {"internal_consistency", "call-chain kind vs declared dimension roles"},
 	"validateAuxiliaryPrincipalExclusionConflict":      {"internal_consistency", "source scope vs exclusion policy"},

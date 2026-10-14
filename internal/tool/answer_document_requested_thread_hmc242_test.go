@@ -20,30 +20,7 @@ func requestedThreadFixtureHMC242(t *testing.T) (*types.BusContext, []RuntimeDia
 
 func requestedThreadFixtureCustomHMC242(t *testing.T, question string, customize func(map[string]any)) (*types.BusContext, []RuntimeDiagramRelation) {
 	t.Helper()
-	path, err := filepath.Abs("../../eval/fixtures/hmosperf_event_participants/wakeups.systrace")
-	if err != nil {
-		t.Fatal(err)
-	}
-	trace, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if question == "" {
-		question = "看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
-	}
-	ctx := &types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir(), Language: "zh", AttachedHitrace: string(trace), Mutable: types.NewMutableState(question)}
-	payload := b1793TargetRosterPayload(t, true)
-	payload["intent"], payload["question_kind"], payload["predicate_axis"] = "trace", "call_chain", "call"
-	payload["predicates"].(map[string]any)["is_relational_lookup"] = true
-	payload["runtime_question_profile"] = map[string]any{"scope": "relation_analysis", "frame_causality_requested": false, "runtime_work_relation_requested": false, "confidence": .95}
-	payload["requested_answer_dimensions"] = map[string]any{"is_dimensioned_answer": true, "confidence": .95, "dimensions": []any{map[string]any{"index": 1, "label": "唤醒时序图", "required": true, "role": "diagram", "source_quote": "画一张唤醒时序图"}}}
-	payload["runtime_artifact_scope_profile"] = map[string]any{"requested_scope": "explicit_time_window", "time_start": 1.0, "time_end": 1.02, "source_quote": "1.000 到 1.020 秒", "confidence": .95}
-	payload["runtime_target_profile"] = map[string]any{"declaration": "named_target", "source_quote": hmc242ParticipantQuote, "confidence": .95}
-	payload["runtime_targets"] = []any{runtimeTargetProvenanceRowHMC237("thread", 42, "target-42")}
-	payload["diagram_hint"] = map[string]any{"required": true, "kind": "sequence", "relation_scope_quote": hmc242ParticipantQuote + "被谁唤醒了", "participants": []any{map[string]any{"identity": hmc242ParticipantQuote, "source_quote": hmc242ParticipantQuote, "role": "incident_required"}}}
-	if customize != nil {
-		customize(payload)
-	}
+	ctx, payload, path := requestedThreadAnalysisInputHMC242(t, question, customize)
 	wantParticipants := len(payload["diagram_hint"].(map[string]any)["participants"].([]any))
 	raw, _ := json.Marshal(payload)
 	analysis, err := (&EmitAnalysis{}).Execute(ctx, raw)
@@ -69,6 +46,35 @@ func requestedThreadFixtureCustomHMC242(t *testing.T, question string, customize
 		t.Fatalf("fixture did not activate the accepted diagram obligation: hint=%+v contract=%+v diagram=%+v obligations=%+v", rm.DiagramHint, ctx.AnalysisIR.AnswerContract.Diagram, view.DiagramPlan, view.DiagramParticipantObligations)
 	}
 	return ctx, rows
+}
+
+func requestedThreadAnalysisInputHMC242(t *testing.T, question string, customize func(map[string]any)) (*types.BusContext, map[string]any, string) {
+	t.Helper()
+	path, err := filepath.Abs("../../eval/fixtures/hmosperf_event_participants/wakeups.systrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if question == "" {
+		question = "看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
+	}
+	ctx := &types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir(), Language: "zh", AttachedHitrace: string(trace), Mutable: types.NewMutableState(question)}
+	payload := b1793TargetRosterPayload(t, true)
+	payload["intent"], payload["question_kind"], payload["predicate_axis"] = "trace", "call_chain", "call"
+	payload["predicates"].(map[string]any)["is_relational_lookup"] = true
+	payload["runtime_question_profile"] = map[string]any{"scope": "relation_analysis", "frame_causality_requested": false, "runtime_work_relation_requested": false, "confidence": .95}
+	payload["requested_answer_dimensions"] = map[string]any{"is_dimensioned_answer": true, "confidence": .95, "dimensions": []any{map[string]any{"index": 1, "label": "唤醒时序图", "required": true, "role": "diagram", "source_quote": "画一张唤醒时序图"}}}
+	payload["runtime_artifact_scope_profile"] = map[string]any{"requested_scope": "explicit_time_window", "time_start": 1.0, "time_end": 1.02, "source_quote": "1.000 到 1.020 秒", "confidence": .95}
+	payload["runtime_target_profile"] = map[string]any{"declaration": "named_target", "source_quote": hmc242ParticipantQuote, "confidence": .95}
+	payload["runtime_targets"] = []any{runtimeTargetProvenanceRowHMC237("thread", 42, "target-42")}
+	payload["diagram_hint"] = map[string]any{"required": true, "kind": "sequence", "relation_scope_quote": hmc242ParticipantQuote + "被谁唤醒了", "participants": []any{map[string]any{"identity": hmc242ParticipantQuote, "source_quote": hmc242ParticipantQuote, "role": "incident_required"}}}
+	if customize != nil {
+		customize(payload)
+	}
+	return ctx, payload, path
 }
 
 func requestedThreadDocHMC242(rows []RuntimeDiagramRelation, anchored bool) *types.AnswerDocumentV2 {

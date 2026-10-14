@@ -15,7 +15,7 @@ import (
 
 // Exercise the actual IR compiler and finalizer, not a hand-authored participant
 // contract. The accepted request quote is intentionally unlike the native IDs.
-func requestedThreadAgentContextHMC242(t *testing.T, identities ...string) *types.AgentContext {
+func requestedThreadAgentInputHMC242(t *testing.T) (*types.AgentContext, json.RawMessage) {
 	t.Helper()
 	const question = "看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
 	path, err := filepath.Abs("../../eval/fixtures/hmosperf_event_participants/wakeups.systrace")
@@ -49,6 +49,13 @@ func requestedThreadAgentContextHMC242(t *testing.T, identities ...string) *type
 		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"唤醒时序图","role":"diagram","source_quote":"画一张唤醒时序图","required":true}]},
 		"diagram_hint":{"required":true,"kind":"sequence","relation_scope_quote":"target 线程（tid 42）被谁唤醒了","participants":[{"identity":"target 线程（tid 42）","source_quote":"target 线程（tid 42）","role":"incident_required"}]}
 	}`)
+	return ctx, raw
+}
+
+func requestedThreadAgentContextHMC242(t *testing.T, identities ...string) *types.AgentContext {
+	t.Helper()
+	ctx, raw := requestedThreadAgentInputHMC242(t)
+	var err error
 	if len(identities) > 0 {
 		var payload map[string]any
 		if err := json.Unmarshal(raw, &payload); err != nil {
@@ -106,6 +113,70 @@ func TestRequestedThreadShortIdentityActualFinalizerHMC242(t *testing.T) {
 	}
 	if got := tool.DiagramParticipantCoverageMismatchesWithRuntimeContext(bus, ctx.Mutable.AnswerDocumentV2(), types.BuildAnswerSemanticViewForBusContext(bus), nil); len(got) > 0 {
 		t.Fatalf("finalizer coverage disagrees: %+v", got)
+	}
+}
+
+func TestRequestedThreadOmittedActorPublicRepairActualIRHMC242(t *testing.T) {
+	ctx, raw := requestedThreadAgentInputHMC242(t)
+	const narrow = "target 线程（tid 42）"
+	const broad = narrow + "和 observer"
+	ctx.Objective = strings.Replace(ctx.Objective, narrow, broad, 1)
+	ctx.Mutable = types.NewMutableState(ctx.Objective)
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: ctx.AttachedHitraceSource, Signals: []string{"sched_switch", "sched_wakeup"}}})
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["entities"] = []any{"target", "observer"}
+	payload["runtime_target_profile"].(map[string]any)["source_quote"] = broad
+	diagram := payload["diagram_hint"].(map[string]any)
+	diagram["relation_scope_quote"] = broad + "被谁唤醒了"
+	participant := diagram["participants"].([]any)[0].(map[string]any)
+	participant["identity"], participant["source_quote"] = "observer", broad
+	raw, _ = json.Marshal(payload)
+	result, err := (&tool.EmitAnalysis{}).Execute(types.ToolBusContext(ctx, types.AgentAnalyzer), raw)
+	if err != nil || result.Success || !strings.Contains(result.Summary, "ambiguous native thread binding") {
+		t.Fatalf("actual analyzer adapter accepted wrong actor: %v %+v", err, result)
+	}
+	if ir, err := buildAnalysisIR(ctx); err == nil || ir != nil {
+		t.Fatalf("invalid declaration entered the actual IR: ir=%+v err=%v", ir, err)
+	}
+	// Repair only the typed declaration; keep the original two-entity roster.
+	payload["runtime_target_profile"].(map[string]any)["source_quote"] = narrow
+	participant["identity"], participant["source_quote"] = "target", narrow
+	raw, _ = json.Marshal(payload)
+	result, err = (&tool.EmitAnalysis{}).Execute(types.ToolBusContext(ctx, types.AgentAnalyzer), raw)
+	if err != nil || !result.Success {
+		t.Fatalf("narrow quote repair rejected: %v %+v", err, result)
+	}
+	ctx.AnalysisIR, err = buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.AgentName, ctx.Stage = types.AgentFinalizer, types.StageFinalize
+	result, err = (&tool.TraceQuery{}).Execute(types.ToolBusContext(ctx, types.AgentExplorer), json.RawMessage(`{"source":"attached_trace","view":"wakeup_chain","time_start":1,"time_end":1.02}`))
+	if err != nil || !result.Success {
+		t.Fatalf("native query after repair: %v %+v", err, result)
+	}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
+	rows := tool.RuntimeDiagramRelations(answerDocObservationLedger(ctx), &ctx.AnalysisIR.RequestModel)
+	if len(rows) != 3 {
+		t.Fatalf("narrow declaration changed native event population: %+v", rows)
+	}
+	doc := transactionSupportedDiagram(rows, types.DiagramSequence)
+	doc.Blocks[0].Text = "记录三次唤醒，不表示唤醒者造成了全部等待。"
+	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	doc.Blocks[0].TraceCausalClaimCaliber = types.TraceCausalClaimNoConclusion
+	doc.Blocks[0].FacetIDs = []string{string(types.FacetObservedArtifactFact)}
+	doc.Blocks[1].FacetIDs = []string{string(types.FacetDiagramSpine), string(types.FacetObservedArtifactFact)}
+	raw, _ = json.Marshal(doc)
+	result, err = (&tool.EmitAnswerDocument{}).Execute(types.ToolBusContext(ctx, types.AgentFinalizer), raw)
+	if err != nil || !result.Success {
+		t.Fatalf("repaired native diagram failed actual finalizer: %v %+v", err, result)
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, `"participant":"target"`) || !strings.Contains(prompt, "requested_participant_binding") || strings.Contains(prompt, `"participant":"observer"`) {
+		t.Fatal("actual finalizer did not preserve only the repaired binding")
 	}
 }
 

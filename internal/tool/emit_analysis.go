@@ -2857,12 +2857,19 @@ func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) 
 // RequestModel field: §40.21 ③ requires the gate input to be the model's
 // original emission or a lossless normalization, and the frozen value is the
 // only carrier a structural census can prove unwritten.
+// Before the source-flow early exits, the same frozen roster also checks the
+// narrow native-thread presentation bridge: one selected coordinate cannot
+// be lent to another co-listed actor merely because both share a quote.
+// Requests that cannot enter that bridge retain their old trace/non-flow path.
 func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel, roster modelEntityRoster) string {
+	entities := roster.Entities()
+	if conflict := validateRuntimeParticipantBindingRoster(rm, entities); conflict != "" {
+		return conflict
+	}
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
 		return ""
 	}
-	entities := roster.Entities()
 	var conflicts []string
 	participantKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
 	participantAliasKeys := make(map[string]bool, len(rm.DiagramHint.Participants))

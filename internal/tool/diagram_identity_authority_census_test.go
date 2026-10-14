@@ -67,9 +67,10 @@ var diagramIdentityCensusQuoteOnlyArguments = map[diagramIdentityCensusKey][2]st
 var diagramIdentityCensusHardArms = map[string]bool{
 	"validateRequiredFlowDiagramParticipantProvenance":    true,
 	"reconcileDiagramParticipantsWithClosedRelationScope": true,
-	"parseDiagramHint":                   true,
-	"runtimeThreadLookupIdentityInQuote": true,
-	"requestedRuntimeParticipantThread":  true,
+	"parseDiagramHint":                        true,
+	"runtimeThreadLookupIdentityInQuote":      true,
+	"requestedRuntimeParticipantThread":       true,
+	"validateRuntimeParticipantBindingRoster": true,
 }
 
 var diagramIdentityCensusIdentityArgs = map[string]bool{
@@ -255,5 +256,22 @@ func TestDiagramIdentityAuthorityCensus(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("participant bridge bypassed shared whole-identity authority: %v", offenders)
+	}
+	const rosterOwner = "emit_analysis_runtime_participant_provenance.go"
+	mutated = map[string]string{rosterOwner: strings.Replace(files[rosterOwner],
+		"!entityNamedInQuote(participant.SourceQuote, entity)", "!strings.Contains(participant.SourceQuote, entity)", 1)}
+	if mutated[rosterOwner] == files[rosterOwner] {
+		t.Fatal("frozen runtime roster self-red did not mutate the registered call")
+	}
+	offenders, _, err = diagramIdentityAuthorityCensus(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, offender := range offenders {
+		found = found || strings.Contains(offender, "validateRuntimeParticipantBindingRoster substring-matches an identity")
+	}
+	if !found {
+		t.Fatalf("runtime roster helper bypassed shared whole-identity authority: %v", offenders)
 	}
 }
