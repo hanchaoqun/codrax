@@ -78,6 +78,13 @@ to a different fixture. The case uses an isolated stub source repository and
 the existing 15-step read runner budget; there is no new controller/harness or
 automatic rerun.
 
+Use the read runner's `FIXTURE`, not `DATA_FIXTURE`: the latter also requires a
+data-operation terminal receipt, which an ordinary trace-analysis answer does
+not produce. Batch 239's first real run used the wrong setting and therefore
+retains its original `FAIL data_terminal_missing` despite completing the read
+pipeline. Correcting this case does not retroactively pass that run, replace its
+separate human verdict, or authorize a third model run.
+
 `EXPECT_SUCCESSFUL_TOOL_RESULTS=trace_query` plus `OnDataEvent_` on the
 digest-bound primary answer is only machine smoke, not acceptance. Human audit
 must read the entire final answer and actual preparation/query payloads: verify

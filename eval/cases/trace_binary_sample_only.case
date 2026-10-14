@@ -3,7 +3,7 @@ NAME="Original binary CPU samples — focused hotspot and diagnostic limit"
 QUESTION="请看这份采集中 486489.4 到 486489.6 秒 poll_report 线程（tid 1609）的采样热点，主要落在哪些函数？这些结果能解释它为什么停顿吗？"
 : "${CODRAX_SAMPLE_ONLY_INPUT:?set CODRAX_SAMPLE_ONLY_INPUT to the pinned complete test_brbe.data original; run the offline oracle first}"
 HTRACE_FILE="$CODRAX_SAMPLE_ONLY_INPUT"
-DATA_FIXTURE="stub_repo"
+FIXTURE="eval/fixtures/stub_repo"
 N_DEFAULT=1
 EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
 EXPECT_PRIMARY_CONTAINS="OnDataEvent_"
