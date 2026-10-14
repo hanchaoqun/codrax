@@ -1216,7 +1216,7 @@ func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *t
 			"properties": map[string]any{
 				"participant_ref": map[string]any{"type": "string", "enum": []any{ref}},
 				"action":          map[string]any{"type": "string", "enum": []any{string(types.AnswerDiagramParticipantVisibilityRepairEnsureVisible)}},
-				"node_id":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128, "description": "Choose a new safe node, or one uniquely declared existing node to relabel without changing its edges or notes. Relabeling does not prove role-to-thread mapping; retain an unproven boundary."},
+				"node_id":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128, "description": "Choose a new safe node, or one uniquely declared existing node to relabel without changing its edges or notes. A current requested_participant_binding may name the exact selected native node. Relabeling alone does not prove role-to-thread mapping; retain an unproven boundary only for an unresolved participant."},
 				"visible_label":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
 			},
 			"required": []any{"participant_ref", "action", "node_id", "visible_label"},
@@ -3100,9 +3100,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 			}
 		}
-		if err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		if err := applyModelAuthoredDiagramAtomicEditsWithNativeParticipants(
 			prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements,
-			p.DiagramBoundaryEdits, p.DiagramParticipantEdits, protectedParticipants, lease, stagePrecedence,
+			p.DiagramBoundaryEdits, p.DiagramParticipantEdits, protectedParticipants, lease, runtimeDiagramRelationsForContext(ctx), stagePrecedence,
 		); err != nil {
 			// Missing orphan decisions are not a malformed relation patch: they
 			// are exact post-edit facts that did not exist before this call. When

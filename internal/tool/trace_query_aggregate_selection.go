@@ -16,6 +16,9 @@ import (
 // New aggregate families must supply a decoder checking their own typed payload,
 // source, window, role and binding; query metadata alone never grants retention.
 func TraceQueryAggregateSelectionSubject(record types.ObservationRecord) (string, bool) {
+	if subject, ok, _ := TraceQueryFilteredPerfMemberSelection(record); ok {
+		return subject, true
+	}
 	if profile, ok := DecodeTraceProcessProfile(record); ok {
 		return traceQueryAggregateSelectedThread(record.SourceRef, profile.SourceThread.PID, profile.SourceThread.Comm)
 	}

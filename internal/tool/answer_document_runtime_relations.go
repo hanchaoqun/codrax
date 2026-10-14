@@ -26,7 +26,9 @@ type RuntimeDiagramRelation struct {
 	presentationKey, presentationQuery string
 	// Native point-event ordering is separate from relation proof. Only a
 	// provider-validated event may populate this private carrier.
-	eventOrder *runtimeDiagramEventOrder
+	eventOrder                 *runtimeDiagramEventOrder
+	threadEndpoints            *runtimeDiagramThreadEndpoints
+	requestedFrom, requestedTo []string
 }
 
 // RuntimeDiagramRelationProvider keeps producer validation separate from
@@ -173,7 +175,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 		}
 	}
 	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{}
-	return append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...)
+	return bindRequestedRuntimeParticipants(append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...), rm)
 }
 
 func runtimeDiagramRelationsForContext(ctx *types.BusContext) []RuntimeDiagramRelation {
@@ -317,6 +319,15 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)
 		fmt.Fprintf(&b, "- %q → %q；%s；edge_anchor=%s\n", row.FromLabel, row.ToLabel, row.ScopeLabel, data)
+		for _, side := range []struct {
+			node         string
+			participants []string
+		}{{row.FromNode, row.requestedFrom}, {row.ToNode, row.requestedTo}} {
+			for _, participant := range side.participants {
+				binding, _ := json.Marshal(map[string]string{"participant": participant, "native_node": side.node})
+				fmt.Fprintf(&b, "  requested_participant_binding=%s; this exact selected thread satisfies the requested identity; keep the native node/instance anchors with a readable label, not a second unproven role lane. This does not grant a causal claim.\n", binding)
+			}
+		}
 	}
 	fmt.Fprintf(&b, "- 展示 %d 条已证明直接关系，另省略 %d 条；省略不表示不存在其它关系，也不保证完整树。\n\n", min(limit, len(rows)), max(0, len(rows)-limit))
 	if repeated := len(authority) - len(rows); repeated > 0 {

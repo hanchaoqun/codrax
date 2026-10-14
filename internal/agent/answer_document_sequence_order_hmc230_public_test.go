@@ -72,15 +72,16 @@ func TestNativeSequenceOrderHMC230PublicRejectAndPatch(t *testing.T) {
 	if res.Repair == nil || !strings.Contains(res.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues], "native_sequence_event_order_conflict") {
 		t.Fatalf("need precise event-order issue: %+v", res)
 	}
-	if !strings.Contains(res.Summary, "1.040010") || !strings.Contains(res.Summary, "1.045000") || !strings.Contains(res.Summary, "replace_blocks") {
-		t.Fatalf("repair must publish exact source order and executable replacement: %s", res.Summary)
+	if !strings.Contains(res.Summary, "1.040010") || !strings.Contains(res.Summary, "1.045000") {
+		t.Fatalf("repair must publish exact source order: %s", res.Summary)
 	}
-	installAnswerDocDiagramRelationRepairLease(ctx, ctx.Mutable, &res, false)
-	fixed := sequenceOrderHMC230Doc(rows, false)
-	raw, _ = json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary"}, "replace_blocks": []types.AnswerBlock{fixed.Blocks[1]}})
+	if !installAnswerDocDiagramRelationRepairLease(ctx, ctx.Mutable, &res, false) {
+		t.Fatal("precise native-order failure must publish current local capabilities")
+	}
+	raw = nativeOrderLocalPatchHMC242(t, ctx, rows[1].FromNode+"->>"+rows[1].ToNode+": observed event")
 	res, err = (&tool.EmitAnswerDocumentPatch{}).Execute(bus, raw)
 	if err != nil || !res.Success {
-		t.Fatalf("native order replacement rejected: %v %+v", err, res)
+		t.Fatalf("native order local move rejected: %v %+v", err, res)
 	}
 	got := ctx.Mutable.AnswerDocumentV2()
 	if got == nil || got.Blocks[0].Text != doc.Blocks[0].Text {
@@ -205,10 +206,10 @@ func TestNativeSequenceOrderHMC230OldLeaseRetired(t *testing.T) {
 	if err != nil || res.Success || res.Repair == nil || !strings.Contains(res.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues], "native_sequence_event_order_conflict") {
 		t.Fatalf("attachment must reveal reversed time without publishing it: %v %+v", err, res)
 	}
-	if installAnswerDocDiagramRelationRepairLease(ctx, ctx.Mutable, &res, false) || ctx.Mutable.AnswerDiagramRelationRepairLease() != nil {
-		t.Fatal("order-only repair retained stale edge lease")
+	if !installAnswerDocDiagramRelationRepairLease(ctx, ctx.Mutable, &res, false) || ctx.Mutable.AnswerDiagramRelationRepairLease() == nil {
+		t.Fatal("precise order repair did not replace the old attachment lease")
 	}
-	if hint, ok := answerDocDiagramRelationDeltaPatchHint(&res, true, false); !ok || !strings.Contains(hint, "replace_blocks") || strings.Contains(hint, "use `diagram_edge_edits`") {
+	if hint, ok := answerDocDiagramRelationDeltaPatchHint(&res, true, false); !ok || !strings.Contains(hint, "use `diagram_edge_edits`") || strings.Contains(hint, "No atomic edge removal/addition is authorized") {
 		t.Fatalf("wrong order-repair teaching: %s", hint)
 	}
 	// Earlier opaque refs cannot act on this new generation.
@@ -216,11 +217,10 @@ func TestNativeSequenceOrderHMC230OldLeaseRetired(t *testing.T) {
 	if err != nil || stale.Success {
 		t.Fatalf("old attachment refs replayed: %v %+v", err, stale)
 	}
-	fixed := sequenceOrderHMC230Doc(rows, false)
-	raw, _ = json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary"}, "replace_blocks": []types.AnswerBlock{fixed.Blocks[1]}})
+	raw = nativeOrderLocalPatchHMC242(t, ctx, rows[1].FromNode+"->>"+rows[1].ToNode+": observed event")
 	res, err = (&tool.EmitAnswerDocumentPatch{}).Execute(bus, raw)
 	if err != nil || !res.Success {
-		t.Fatalf("order replacement after old lease failed: %v %+v", err, res)
+		t.Fatalf("order local move after retiring the old lease failed: %v %+v", err, res)
 	}
 }
 

@@ -957,9 +957,10 @@ func diagramParticipantCoverageMismatches(
 			}
 		}
 		allSurfaces = append(allSurfaces, surfaces)
-		// Source planning aliases are not native instance bindings. A runtime
-		// participant must name the published node/identity itself.
-		runtimeCovered := diagramParticipantHasRuntimeIncident(doc, []string{obligation.Identity}, runtimeRelations)
+		// Source planning aliases are not native bindings. The shared bridge
+		// adds only current, provider-validated selected thread endpoints.
+		runtimeSurfaces := requestedRuntimeParticipantSurfaces(obligation.Identity, runtimeRelations)
+		runtimeCovered := diagramParticipantHasRuntimeIncident(doc, runtimeSurfaces, runtimeRelations)
 		states = append(states, state{
 			obligation:      obligation,
 			surfaces:        surfaces,
@@ -972,7 +973,7 @@ func diagramParticipantCoverageMismatches(
 	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i)
-		states[i].typedEdgeAvailable = requestScopedEdgeAvailable || len(diagramParticipantRuntimeRelations([]string{states[i].obligation.Identity}, runtimeRelations)) > 0
+		states[i].typedEdgeAvailable = requestScopedEdgeAvailable || len(diagramParticipantRuntimeRelations(requestedRuntimeParticipantSurfaces(states[i].obligation.Identity, runtimeRelations), runtimeRelations)) > 0
 		if requestScopedEdgeAvailable {
 			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
 				rm, states[i].obligation, evidence, stagePrecedence, 8,
@@ -3900,7 +3901,7 @@ func diagramParticipantMissingRuntimeRelations(rows []RuntimeDiagramRelation, mi
 			if participant.Role != types.DiagramParticipantIncidentRequired || participant.Identity != mismatch.Participant {
 				continue
 			}
-			selected = append(selected, diagramParticipantRuntimeRelations([]string{participant.Identity}, rows)...)
+			selected = append(selected, diagramParticipantRuntimeRelations(requestedRuntimeParticipantSurfaces(participant.Identity, rows), rows)...)
 		}
 	}
 	return selected

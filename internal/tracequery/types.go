@@ -1222,6 +1222,7 @@ type ViewCancellation struct {
 }
 
 type Result struct {
+	filteredPerfPopulation      *perfFilteredPopulationWitness
 	PerfSamplingTree            *PerfSamplingTreeResult `json:"perf_sampling_tree,omitempty"`
 	View                        string                  `json:"view"`
 	SourcePath                  string                  `json:"source_path"`

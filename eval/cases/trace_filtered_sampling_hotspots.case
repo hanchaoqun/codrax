@@ -1,0 +1,8 @@
+ID="trace_filtered_sampling_hotspots"
+NAME="Filtered document-worker hotspots with independent sampling events"
+QUESTION="请看附件中1到2秒文档工作线程（tid 11）的采样，只看 /app/A.so 中的 work 热点。按采样事件列出命中次数、权重和占比，解释这些结果说明了什么。"
+HTRACE_FILE="eval/fixtures/hmosperf_lossless_sampling/paths.perftrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="work"

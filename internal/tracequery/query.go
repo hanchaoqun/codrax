@@ -1046,7 +1046,7 @@ func Run(idx *Index, q Query) Result {
 			}
 		}
 	}
-	return runCancelFinalize(&res, cancel)
+	return sealFilteredPerfPopulation(runCancelFinalize(&res, cancel), q)
 }
 
 // eventSearchScopeAccounting returns the physical timestamp envelope of the

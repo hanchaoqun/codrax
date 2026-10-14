@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -12,14 +14,41 @@ import (
 // scope-qualified query can route same-query native flat fields here, but those
 // fields receive their own receipt only after they actually survive this budget.
 func renderAnswerDocPerfMemberFacts(ledger types.ObservationLedger, publication *answerDocNativePresentationReceipt) string {
+	return renderAnswerDocPerfMemberFactsSelected(ledger, publication, nil)
+}
+
+func renderAnswerDocScopedPerfMemberFacts(ctx *types.AgentContext, ledger, promptLedger types.ObservationLedger, publication *answerDocNativePresentationReceipt) string {
+	selected := map[string]bool{}
+	for _, r := range promptLedger.Records {
+		if _, valid, _ := tool.TraceQueryFilteredPerfMemberSelection(r); !valid {
+			continue
+		}
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		window := tracequery.ResourceStackWindow{StartTs: r.SourceRef.QueryWindowStartTs, EndTs: r.SourceRef.QueryWindowEndTs}
+		if !qualified || profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, window) {
+			continue
+		}
+		selected[filteredPerfMemberPresentationKey(r)] = true
+	}
+	return renderAnswerDocPerfMemberFactsSelected(ledger, publication, selected)
+}
+
+func filteredPerfMemberPresentationKey(r types.ObservationRecord) string {
+	data, _ := json.Marshal([]any{nativePresentationQueryKey(r), r.ClaimKey, r.Span, r.Subject, r.Object, r.Value, r.Unit, r.RichNotes})
+	return string(data)
+}
+
+func renderAnswerDocPerfMemberFactsSelected(ledger types.ObservationLedger, publication *answerDocNativePresentationReceipt, selected map[string]bool) string {
 	var b strings.Builder
 	seen := map[string]bool{}
 	shown := 0
 	for _, r := range ledger.Records {
+		_, filtered, complete := tool.TraceQueryFilteredPerfMemberSelection(r)
+		filtered = filtered && selected[filteredPerfMemberPresentationKey(r)]
 		if r.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 			!types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) ||
 			r.Predicate != "perf_sample_top_symbol" || publication == nil ||
-			!publication.samplingSelections[nativePresentationQueryKey(r)] {
+			(!filtered && !publication.samplingSelections[nativePresentationQueryKey(r)]) {
 			continue
 		}
 		data, err := json.Marshal(struct {
@@ -48,7 +77,7 @@ func renderAnswerDocPerfMemberFacts(ledger types.ObservationLedger, publication 
 		b.Write(data)
 		b.WriteByte('\n')
 		seen[string(data)] = true
-		publication.observe(r, true)
+		publication.observe(r, !filtered || complete)
 		shown++
 	}
 	if shown > 0 {

@@ -1321,6 +1321,8 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 	samplingBundle, _ := samplingSourceBundleHMC241(t)
 	samplingBoundResult, _ := samplingIdentityQueryHMC239(t, samplingBundle, "perf_sampling_tree", map[string]any{"pid": 11})
 	records = append(records, samplingBoundResult.Observations...)
+	filteredSamplingResult, _ := samplingIdentityQueryHMC239(t, samplingBundle, "window_stats", map[string]any{"pid": 11, "pattern": "symbol=work"})
+	records = append(records, filteredSamplingResult.Observations...)
 	businessPath, _ := filepath.Abs("../../eval/fixtures/hmosperf_business_io_chain/events.systrace")
 	businessParams, _ := json.Marshal(map[string]any{"source": "path", "path": businessPath, "view": "window_stats", "time_start": .999, "time_end": 1.051})
 	businessResult, businessErr := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir()}, businessParams)

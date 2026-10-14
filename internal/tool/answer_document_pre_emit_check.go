@@ -5471,6 +5471,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			parts = append(parts, mismatch.nativeSequenceOrderDetail)
 		}
 		expected := "Use emit_answer_document_patch replace_blocks for the named diagram: move the existing event statements into the exact native order below, keeping their labels, endpoint tuples and other block fields. Move repeated-pair edge_anchors in the same occurrence order. Update runtime_notes_v1.body_line when moving a selected note. Preserve siblings with unchanged_block_ids. Do not use diagram_edge_edits removal/addition to repair time order. If an older atomic lease still blocks replacement, use full emit_answer_document with the same preserved siblings. Alternatively choose a genuinely nonsequential relation graph (omit sequence-only runtime_notes_v1), or omit an optional diagram; no new causal bridge is authorized. "
+		var delta types.AnswerDiagramRelationRepairDelta
+		if json.Unmarshal([]byte(relationRepairDelta), &delta) == nil && types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions) != nil {
+			expected = "Use the current diagram_edge_edits refs in one transaction: remove the selected out-of-order statement by failure_ref, then add that exact same event by addition_ref at a current placement_ref. Preserve every event tuple and count; remove-only, duplicate events and stale positions are rejected. Preserve siblings with unchanged_block_ids. Positions grant no relation or causal authority. "
+		}
 		reason := "The exact native source/window/clock tuples prove the selected event/note points, but the model placed an earlier point below a later point in one linear sequence region. No label timestamp, prose, source-call ordering or cross-branch total order was inferred."
 		if mismatches[0].Issue == diagramNativeNoteBindingUnavailable {
 			expected = "Use replace_blocks for the named diagram to correct runtime_notes_v1 selector/point/node_id/body_line against current published native choices, preserving its other fields and sibling blocks. If the owner/span is unavailable, omit the optional selector and retain an honest unproven note. If an older atomic lease blocks replacement, use full emit_answer_document with preserved siblings. "
@@ -7104,10 +7108,10 @@ func diagramRelationRepairDeltaJSON(
 		}
 	}
 	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict || mismatches[0].Issue == diagramNativeNoteBindingUnavailable {
-		// A reorder does not authorize new relations or deleting proved edges.
-		// The recognized non-executable current delta revokes an older atomic
-		// lease and exposes the ordinary block replacement lane.
-		raw, err := json.Marshal(diagramRelationRepairDelta{Version: types.AnswerDiagramRelationRepairDeltaVersion, Failures: failures, PreserveUnlistedEdges: true})
+		// Reinsert only the exact current native event selected by an executable
+		// order failure. Unbound notes retain their non-executable fallback.
+		allowed := nativeSequenceOrderRepairCandidates(ctx, failures)
+		raw, err := json.Marshal(diagramRelationRepairDelta{Version: types.AnswerDiagramRelationRepairDeltaVersion, Failures: failures, AllowedAdditions: allowed, PreserveUnlistedEdges: true})
 		if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 			return ""
 		}

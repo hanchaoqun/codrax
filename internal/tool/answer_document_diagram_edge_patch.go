@@ -463,6 +463,21 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	lease *types.AnswerDiagramRelationRepairLease,
 	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
 ) error {
+	return applyModelAuthoredDiagramAtomicEditsWithNativeParticipants(prev, patch, edits, boundaries, boundaryEdits, participantEdits, protectedParticipants, lease, nil, stagePrecedenceOpt...)
+}
+
+func applyModelAuthoredDiagramAtomicEditsWithNativeParticipants(
+	prev *types.AnswerDocumentV2,
+	patch *types.AnswerDocumentV2Patch,
+	edits []emitAnswerDiagramEdgeEdit,
+	boundaries []emitAnswerDiagramBoundaryReplacement,
+	boundaryEdits []emitAnswerDiagramBoundaryEdit,
+	participantEdits []emitAnswerDiagramParticipantEdit,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+	runtimeRows []RuntimeDiagramRelation,
+	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
+) error {
 	if prev == nil || patch == nil {
 		return fmt.Errorf("previous answer and patch are required")
 	}
@@ -572,6 +587,10 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		var err error
 		if failureRef != "" && lease != nil {
 			for _, failure := range lease.Failures {
+				if failure.FailureRef == failureRef && failure.Issue == types.DiagramRelationFailureNativeSequenceEventOrder &&
+					!types.AnswerDiagramNativeOrderFailureMatchesBase(prev, failure) {
+					return fmt.Errorf("diagram_edge_edits[%d]: failure_ref=%q has a stale native order carrier", i, failureRef)
+				}
 				if failure.FailureRef == failureRef && failure.AnchorOccurrence != 0 &&
 					!types.AnswerDiagramRelationRepairOccurrenceMatchesBase(prev, failure) {
 					return fmt.Errorf("diagram_edge_edits[%d]: failure_ref=%q has a stale metadata occurrence snapshot", i, failureRef)
@@ -952,7 +971,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			return err
 		}
 		base := previous[blockID]
-		if err := applyOneModelAuthoredDiagramParticipantVisibilityEdit(&block, base, edit, failure); err != nil {
+		if err := applyOneModelAuthoredDiagramParticipantVisibilityEdit(&block, base, edit, failure, runtimeRows); err != nil {
 			return fmt.Errorf("diagram_participant_edits[%d] participant_ref=%q: %w", i, ref, err)
 		}
 		working[blockID] = block
@@ -1039,6 +1058,7 @@ func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
 	base types.AnswerBlock,
 	edit emitAnswerDiagramParticipantEdit,
 	failure types.AnswerDiagramParticipantVisibilityRepairFailure,
+	runtimeRows ...[]RuntimeDiagramRelation,
 ) error {
 	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil ||
 		base.Kind != types.BlockDiagram || base.Diagram == nil {
@@ -1065,7 +1085,8 @@ func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
 		return fmt.Errorf("node_id is unsafe, ambiguously declared, or the diagram family has no lossless standalone declaration form")
 	}
 	labels := diagramEvidenceNodeLabels(body, block.Diagram.Kind)
-	if !diagramParticipantEndpointExplicitlyDisplaysIdentity([]string{failure.Participant}, nodeID, labels) {
+	boundNative := len(runtimeRows) == 1 && requestedRuntimeParticipantNode(failure.Participant, nodeID, runtimeRows[0])
+	if !boundNative && !diagramParticipantEndpointExplicitlyDisplaysIdentity([]string{failure.Participant}, nodeID, labels) {
 		return fmt.Errorf("the model-authored node_id/visible_label does not visibly carry the exact required participant identity")
 	}
 	block.Diagram.Body = body

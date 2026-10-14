@@ -5844,7 +5844,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	b.WriteString(renderAnswerDocCPUStateFrequency(ctx, promptLedger))
 	b.WriteString(renderAnswerDocResourceStacks(ctx, promptLedger))
 	b.WriteString(renderAnswerDocPerfSamplingTrees(ctx, promptLedger, publication))
-	b.WriteString(renderAnswerDocPerfMemberFacts(ledger, publication))
+	b.WriteString(renderAnswerDocScopedPerfMemberFacts(ctx, ledger, promptLedger, publication))
 	b.WriteString(renderAnswerDocRenderingCandidates(ctx, ledger))
 	b.WriteString(renderAnswerDocTransactionHandoffs(ctx, ledger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
@@ -19480,6 +19480,9 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 		return "", false
 	}
 	for _, failure := range delta.Failures {
+		if answerDocNativeOrderHasLocalCandidate(failure, delta.AllowedAdditions) {
+			continue // The current schema publishes a precise local move below.
+		}
 		if failure.Issue == types.DiagramRelationFailureNativeSequenceEventOrder || failure.Issue == types.DiagramRelationFailureNativeNoteBinding {
 			if failure.Issue == types.DiagramRelationFailureNativeNoteBinding {
 				return "A selected native business note cannot bind to its exact current source, owner, point or Note line. Use emit_answer_document_patch replace_blocks for only the named diagram, preserving unrelated fields and siblings. Select a currently offered runtime_notes_v1 receipt and its exact participant; do not infer ownership from labels or borrow another window. This failure does not authorize atomic edge removal/addition. Full emit_answer_document remains available if replacement is unavailable.\n\n" + result.Summary, true
@@ -19506,6 +19509,12 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` for schema-published local repairs; preserve the rest. ")
 	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
+	for _, failure := range delta.Failures {
+		if answerDocNativeOrderHasLocalCandidate(failure, delta.AllowedAdditions) {
+			b.WriteString("For a native event-order failure, remove the exact failure_ref and add the same event's addition_ref at a current sequence placement_ref in one transaction. Preserve its native identity and event count, other messages and all unrelated fields; deletion alone is not a reorder. ")
+			break
+		}
+	}
 	if answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
 		b.WriteString("The listed edges are already grounded; only their anchor metadata is missing. Prefer keeping every such edge, its endpoints, operator, order, and visible label: use a schema-published attach pair, or a permitted replace with the same visible content. Missing metadata does not make an edge unsupported. ")
 	}

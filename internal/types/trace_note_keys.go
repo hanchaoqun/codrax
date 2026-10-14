@@ -428,6 +428,7 @@ const TraceNoteKeyPerfSamplingTree = "perf_sampling_tree"
 // Producer-bound manifest/member provenance for sampling display selection.
 // This carrier does not grant causal, ownership or completeness authority.
 const TraceNoteKeyPerfSamplingSourceBinding = "perf_sampling_source_binding"
+const TraceNoteKeyPerfFilteredMember = "perf_filtered_member"
 
 // Exact owner and paired coordinates for native display notes, not causality.
 const TraceNoteKeyBusinessDiagramAnnotation = "business_diagram_annotation_v1"
@@ -1703,6 +1704,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyResourceStack, "resource_stack", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfSamplingTree, "perf_sampling_tree", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfSamplingSourceBinding, "perf_sampling_tree", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyPerfFilteredMember, "perf_sampling_population", TraceNoteCarrierSoftConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.

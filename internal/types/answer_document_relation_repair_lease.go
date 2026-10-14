@@ -188,10 +188,13 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	switch issue {
-	case DiagramRelationFailureNativeSequenceEventOrder, DiagramRelationFailureNativeNoteBinding:
-		// Both events are proved. Edge removal/replacement cannot express a
-		// movement between existing statements. Retire older atomic leases and
-		// leave a fully validated model-authored block replacement available.
+	case DiagramRelationFailureNativeSequenceEventOrder:
+		if answerDiagramNativeOrderExactCarrier(base, failure) {
+			return AnswerDiagramRelationRepairCarrierPriorAnchor, []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	case DiagramRelationFailureNativeNoteBinding:
+		// A note without an exact edge carrier cannot use atomic edge edits.
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "call_edge_occurrence_unproven":
 		// Compatibility for historical occurrence-failure checkpoints: keep
@@ -319,6 +322,9 @@ func AnswerDiagramRelationRepairFailureCanAttachCandidate(
 	failure AnswerDiagramRelationRepairFailure,
 	candidate AnswerDiagramRelationRepairCandidate,
 ) bool {
+	if failure.Issue == DiagramRelationFailureNativeSequenceEventOrder {
+		return false // Reordering needs removal and explicit re-placement, not metadata attachment.
+	}
 	if strings.TrimSpace(failure.BlockID) == "" ||
 		strings.TrimSpace(failure.BlockID) != strings.TrimSpace(candidate.BlockID) ||
 		!candidate.RelationKind.IsValid() ||
@@ -708,7 +714,7 @@ func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure Answe
 	if selectedCount == 1 {
 		block := toRefBlock(*selected)
 		payload.Block = &block
-		if failure.AnchorOccurrence > 0 {
+		if failure.AnchorOccurrence > 0 || failure.Issue == DiagramRelationFailureNativeSequenceEventOrder {
 			// Byte ownership only: labels and Mermaid are opaque snapshot data,
 			// never interpreted to select an anchor or authorize a relation.
 			raw, _ := json.Marshal(struct {
@@ -1076,7 +1082,8 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		failure.FailureRef = strings.TrimSpace(failure.FailureRef)
 		failure.BlockID = strings.TrimSpace(failure.BlockID)
 		failure.Issue = strings.TrimSpace(failure.Issue)
-		if failure.Issue == DiagramRelationFailureNativeSequenceEventOrder || failure.Issue == DiagramRelationFailureNativeNoteBinding {
+		if failure.Issue == DiagramRelationFailureNativeNoteBinding ||
+			(failure.Issue == DiagramRelationFailureNativeSequenceEventOrder && !answerDiagramNativeOrderExactCarrier(base, failure)) {
 			// Even an optional-diagram removal lease would freeze the proved
 			// messages and suppress the useful ordinary reorder repair.
 			return nil
@@ -1154,7 +1161,7 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 			!AnswerDocumentStandaloneRelationAdditionCandidateSelected(base, candidate) {
 			return nil
 		}
-		if answerDiagramRelationRepairCandidateAlreadyAnchored(base, candidate) {
+		if answerDiagramRelationRepairCandidateAlreadyAnchored(base, candidate) && !answerDiagramNativeOrderReinsertion(base, clean, candidate) {
 			continue
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
@@ -1175,6 +1182,20 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 	}
 	if len(clean) == 0 && len(allowed) == 0 {
 		return nil
+	}
+	for _, f := range clean {
+		if f.Issue != DiagramRelationFailureNativeSequenceEventOrder {
+			continue
+		}
+		matched := false
+		for _, c := range allowed {
+			if c.BlockID == f.BlockID && c.RelationKind == f.RelationKind && c.FromIdentity == f.FromIdentity && c.ToIdentity == f.ToIdentity {
+				matched = true
+			}
+		}
+		if !matched {
+			return nil // Removal alone is not an executable event re-placement.
+		}
 	}
 	sort.SliceStable(allowed, func(i, j int) bool {
 		return answerDiagramRelationRepairCandidateKey(allowed[i]) < answerDiagramRelationRepairCandidateKey(allowed[j])
@@ -1359,9 +1380,11 @@ func answerDiagramRelationRepairOrdinaryValidationKind(kind AnswerBlockKind) boo
 }
 
 // answerDiagramRelationRepairCandidateAlreadyAnchored is the lease boundary's
-// defense in depth: an addition capability can never name a canonical tuple
-// already present in the base carrier. Visible endpoints and labels are not
-// part of this identity and remain model-owned.
+// defense in depth: an ordinary addition capability cannot name a canonical
+// tuple already present in the base carrier. The sole caller-side exception
+// is exact native-event re-placement, which must preserve the event count.
+// Visible endpoints and labels are not part of this identity and remain
+// model-owned.
 func answerDiagramRelationRepairCandidateAlreadyAnchored(
 	base *AnswerDocumentV2,
 	candidate AnswerDiagramRelationRepairCandidate,
@@ -1529,6 +1552,7 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 		}
 	}
 	var violations []AnswerDiagramRelationRepairScopeViolation
+	violations = append(violations, answerDiagramNativeOrderPopulationViolations(lease, merged)...)
 	removedOptionalDiagramIDs := make(map[string]bool)
 	if len(baseDiagramIDs) > 0 {
 		baseDiagramOrder := make([]string, 0, len(baseDiagramIDs))
