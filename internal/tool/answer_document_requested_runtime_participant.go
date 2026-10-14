@@ -16,14 +16,24 @@ type runtimeDiagramThreadEndpoints struct {
 }
 
 // Reconcile an exact accepted request phrase with its independently validated
-// numeric selector. Neither raw question/answer text nor a display name is
-// parsed here. A broader quote, a business role, a name-only target, lookup or
-// ambiguous roster remains unbound. The original requested identity is kept.
+// numeric selector. Identity membership reuses the analyzer's exact lexical
+// provenance predicate on that typed quote, never a scan of raw question or
+// answer text. A short accepted display identity need not equal its whole
+// quote. Co-listed participant identities remain ambiguous; no role/name
+// similarity or native comm matching supplies a mapping.
 func requestedRuntimeParticipantThread(rm *types.RequestModel, p types.DiagramParticipantHint) (int, bool) {
-	if rm == nil || rm.RuntimeTargetProfile == nil || rm.RuntimeTargetProfile.Declaration != types.RuntimeTargetDeclarationNamedTarget ||
+	if rm == nil || rm.DiagramHint == nil || rm.RuntimeTargetProfile == nil || rm.RuntimeTargetProfile.Declaration != types.RuntimeTargetDeclarationNamedTarget ||
 		p.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(p.Identity) == "" ||
-		p.Identity != p.SourceQuote || p.SourceQuote != rm.RuntimeTargetProfile.SourceQuote {
+		p.SourceQuote != rm.RuntimeTargetProfile.SourceQuote || !entityNamedInQuote(p.SourceQuote, p.Identity) {
 		return 0, false
+	}
+	// A shared source span can co-list several actors but only one numeric
+	// selector. Exact quote equality cannot assign that selector to all of
+	// them. Inspect only the accepted typed roster, not natural-language roles.
+	for _, other := range rm.DiagramHint.Participants {
+		if other.Identity != p.Identity && entityNamedInQuote(p.SourceQuote, other.Identity) {
+			return 0, false
+		}
 	}
 	var selected types.RuntimeTarget
 	count := 0

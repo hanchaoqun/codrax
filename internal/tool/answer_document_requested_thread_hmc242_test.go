@@ -15,6 +15,10 @@ import (
 const hmc242ParticipantQuote = "target 线程（tid 42）"
 
 func requestedThreadFixtureHMC242(t *testing.T) (*types.BusContext, []RuntimeDiagramRelation) {
+	return requestedThreadFixtureCustomHMC242(t, "", nil)
+}
+
+func requestedThreadFixtureCustomHMC242(t *testing.T, question string, customize func(map[string]any)) (*types.BusContext, []RuntimeDiagramRelation) {
 	t.Helper()
 	path, err := filepath.Abs("../../eval/fixtures/hmosperf_event_participants/wakeups.systrace")
 	if err != nil {
@@ -24,7 +28,9 @@ func requestedThreadFixtureHMC242(t *testing.T) (*types.BusContext, []RuntimeDia
 	if err != nil {
 		t.Fatal(err)
 	}
-	question := "看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
+	if question == "" {
+		question = "看看附件中 1.000 到 1.020 秒 target 线程（tid 42）被谁唤醒了。逐次列出时间、双方线程和能确认的进程信息，再画一张唤醒时序图。"
+	}
 	ctx := &types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir(), Language: "zh", AttachedHitrace: string(trace), Mutable: types.NewMutableState(question)}
 	payload := b1793TargetRosterPayload(t, true)
 	payload["intent"], payload["question_kind"], payload["predicate_axis"] = "trace", "call_chain", "call"
@@ -35,13 +41,17 @@ func requestedThreadFixtureHMC242(t *testing.T) (*types.BusContext, []RuntimeDia
 	payload["runtime_target_profile"] = map[string]any{"declaration": "named_target", "source_quote": hmc242ParticipantQuote, "confidence": .95}
 	payload["runtime_targets"] = []any{runtimeTargetProvenanceRowHMC237("thread", 42, "target-42")}
 	payload["diagram_hint"] = map[string]any{"required": true, "kind": "sequence", "relation_scope_quote": hmc242ParticipantQuote + "被谁唤醒了", "participants": []any{map[string]any{"identity": hmc242ParticipantQuote, "source_quote": hmc242ParticipantQuote, "role": "incident_required"}}}
+	if customize != nil {
+		customize(payload)
+	}
+	wantParticipants := len(payload["diagram_hint"].(map[string]any)["participants"].([]any))
 	raw, _ := json.Marshal(payload)
 	analysis, err := (&EmitAnalysis{}).Execute(ctx, raw)
 	if err != nil || !analysis.Success {
 		t.Fatalf("public analysis: %v %s", err, analysis.Summary)
 	}
 	rm := ctx.Mutable.RequestModel()
-	if rm == nil || rm.DiagramHint == nil || len(rm.DiagramHint.Participants) != 1 {
+	if rm == nil || rm.DiagramHint == nil || len(rm.DiagramHint.Participants) != wantParticipants {
 		t.Fatalf("analysis lost participant: %+v", rm)
 	}
 	// The pipeline derives this presentation contract from the accepted hint.
@@ -55,7 +65,7 @@ func requestedThreadFixtureHMC242(t *testing.T) (*types.BusContext, []RuntimeDia
 		t.Fatalf("want all three exact target events, got %+v", rows)
 	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
-	if view.DiagramPlan == nil || !view.DiagramPlan.Required || len(view.DiagramParticipantObligations) != 1 {
+	if view.DiagramPlan == nil || !view.DiagramPlan.Required || len(view.DiagramParticipantObligations) == 0 {
 		t.Fatalf("fixture did not activate the accepted diagram obligation: hint=%+v contract=%+v diagram=%+v obligations=%+v", rm.DiagramHint, ctx.AnalysisIR.AnswerContract.Diagram, view.DiagramPlan, view.DiagramParticipantObligations)
 	}
 	return ctx, rows
@@ -99,6 +109,63 @@ func TestHMC242RequestedThreadPublicOrderedDiagram(t *testing.T) {
 	}
 	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, ctx.Mutable.AnswerDocumentV2(), types.BuildAnswerSemanticViewForBusContext(ctx), nil); len(got) != 0 {
 		t.Fatalf("post gate disagrees: %+v", got)
+	}
+}
+
+func TestHMC242RequestedThreadPublicSharedQuoteRemainsUnbound(t *testing.T) {
+	for _, mode := range []string{"same_quote", "context_actor", "co_listed_other_quote", "different_quote"} {
+		t.Run(mode, func(t *testing.T) {
+			quote := hmc242ParticipantQuote + "和 observer"
+			question := "看看附件中 1.000 到 1.020 秒 " + quote + "被谁唤醒了，再画一张唤醒时序图。"
+			ctx, rows := requestedThreadFixtureCustomHMC242(t, question, func(payload map[string]any) {
+				payload["runtime_target_profile"].(map[string]any)["source_quote"] = quote
+				diagram := payload["diagram_hint"].(map[string]any)
+				diagram["relation_scope_quote"] = quote + "被谁唤醒了"
+				otherQuote, otherRole := quote, "incident_required"
+				if mode == "context_actor" {
+					otherRole = "context_only"
+				}
+				if mode == "co_listed_other_quote" {
+					otherQuote = "observer"
+				}
+				diagram["participants"] = []any{
+					map[string]any{"identity": "target", "source_quote": quote, "role": "incident_required"},
+					map[string]any{"identity": "observer", "source_quote": otherQuote, "role": otherRole},
+				}
+				if mode == "different_quote" {
+					diagram["participants"] = []any{map[string]any{"identity": "target", "source_quote": "target", "role": "incident_required"}}
+					diagram["relation_scope_quote"] = "被谁唤醒了"
+				}
+			})
+			for _, row := range rows {
+				if len(row.requestedFrom)+len(row.requestedTo) != 0 {
+					t.Fatalf("ambiguous quote borrowed native identity: %+v", row)
+				}
+			}
+			raw, _ := json.Marshal(requestedThreadDocHMC242(rows, true))
+			result, err := (&EmitAnswerDocument{}).Execute(ctx, raw)
+			if err != nil || result.Success || !strings.Contains(result.Summary, "missing_unproven_boundary") {
+				t.Fatalf("unproved participant mapping acquired coverage: %v %s", err, result.Summary)
+			}
+		})
+	}
+}
+
+func TestHMC242RequestedThreadShortIdentityWholeSurfaceOnly(t *testing.T) {
+	ctx, _ := requestedThreadFixtureCustomHMC242(t, "", func(payload map[string]any) {
+		payload["diagram_hint"].(map[string]any)["participants"].([]any)[0].(map[string]any)["identity"] = "target"
+	})
+	rm := &ctx.AnalysisIR.RequestModel
+	p := rm.DiagramHint.Participants[0]
+	if id, ok := requestedRuntimeParticipantThread(rm, p); !ok || id != 42 {
+		t.Fatalf("accepted short identity lost exact target: %d %t", id, ok)
+	}
+	for _, identity := range []string{"tar", "retarget", "business_owner", "target-42"} {
+		changed := p
+		changed.Identity = identity
+		if _, ok := requestedRuntimeParticipantThread(rm, changed); ok {
+			t.Fatalf("unquoted/substring identity %q was bound", identity)
+		}
 	}
 }
 

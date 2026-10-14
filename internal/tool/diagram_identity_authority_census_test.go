@@ -69,6 +69,7 @@ var diagramIdentityCensusHardArms = map[string]bool{
 	"reconcileDiagramParticipantsWithClosedRelationScope": true,
 	"parseDiagramHint":                   true,
 	"runtimeThreadLookupIdentityInQuote": true,
+	"requestedRuntimeParticipantThread":  true,
 }
 
 var diagramIdentityCensusIdentityArgs = map[string]bool{
@@ -235,5 +236,24 @@ func TestDiagramIdentityAuthorityCensus(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("quote-only owner acquired value/identity matching permission: %v", offenders)
+	}
+	// The native participant bridge may reuse the accepted short identity, but
+	// it must not turn quote membership into an arbitrary substring match.
+	const participantOwner = "answer_document_requested_runtime_participant.go"
+	mutated = map[string]string{participantOwner: strings.Replace(files[participantOwner],
+		"!entityNamedInQuote(p.SourceQuote, p.Identity)", "!strings.Contains(p.SourceQuote, p.Identity)", 1)}
+	if mutated[participantOwner] == files[participantOwner] {
+		t.Fatal("participant identity self-red did not mutate the registered call")
+	}
+	offenders, _, err = diagramIdentityAuthorityCensus(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, offender := range offenders {
+		found = found || strings.Contains(offender, "requestedRuntimeParticipantThread substring-matches an identity")
+	}
+	if !found {
+		t.Fatalf("participant bridge bypassed shared whole-identity authority: %v", offenders)
 	}
 }

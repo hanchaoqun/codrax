@@ -3272,7 +3272,8 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 // TestAnswerDocumentPatchBaseCensus_NormalizationPrecedesAtomicEdits
 // (§40.17 ①③): inside EmitAnswerDocumentPatch.Execute the patch-normalizer
 // chain is called exactly once and its position precedes both atomic diagram
-// executors.
+// executors. The native-participant executor is the direct production entry;
+// the older boundaries-only helper remains a compatibility wrapper.
 func TestAnswerDocumentPatchBaseCensus_NormalizationPrecedesAtomicEdits(t *testing.T) {
 	tree := loadRetryGenerationTree(t)
 	execute := answerDocumentPatchExecute(t, tree)
@@ -3281,7 +3282,7 @@ func TestAnswerDocumentPatchBaseCensus_NormalizationPrecedesAtomicEdits(t *testi
 		if call, ok := n.(*ast.CallExpr); ok {
 			switch callee := selectorCallee(call); callee {
 			case "normalizeAnswerDocumentPatchForBase",
-				"applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries",
+				"applyModelAuthoredDiagramAtomicEditsWithNativeParticipants",
 				"applyModelAuthoredDiagramRelationScopeEdits":
 				positions[callee] = append(positions[callee], call.Pos())
 			}
@@ -3292,7 +3293,7 @@ func TestAnswerDocumentPatchBaseCensus_NormalizationPrecedesAtomicEdits(t *testi
 		t.Fatalf("normalizeAnswerDocumentPatchForBase must be called exactly once in Execute, got %d", got)
 	}
 	normalize := positions["normalizeAnswerDocumentPatchForBase"][0]
-	for _, executor := range []string{"applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries", "applyModelAuthoredDiagramRelationScopeEdits"} {
+	for _, executor := range []string{"applyModelAuthoredDiagramAtomicEditsWithNativeParticipants", "applyModelAuthoredDiagramRelationScopeEdits"} {
 		if got := len(positions[executor]); got != 1 {
 			t.Fatalf("%s must be called exactly once in Execute, got %d", executor, got)
 		}
