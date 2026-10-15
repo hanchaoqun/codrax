@@ -740,6 +740,7 @@ type MutableState struct {
 	investigationResultKind            string
 	investigationAggregateFacts        []AnswerAggregateFact
 	investigationMeasurementMemberSets []AnswerRuntimeMeasurementReceipt
+	investigationNativeFactCompletion  *investigationNativeFactCompletion
 	investigationRelationClaims        []AnswerRelationClaim
 	// exactContextRequiredFiles stores repo-relative production files
 	// that the explorer structurally ranked as same-scope related-
@@ -1257,7 +1258,8 @@ type TurnAArtifacts struct {
 	// instead of reconstructing from stale early grep notes. It is not
 	// a citation and not system-synthesised answer text: finalization
 	// must reconcile it with the typed evidence and tool outputs.
-	AcceptedClosureReason string
+	AcceptedClosureReason     string
+	AcceptedNativeFactHandoff *InvestigationNativeFactHandoff `json:",omitempty"`
 
 	// SupersededClosures retains replaced closures as audit-only lifecycle
 	// records. They are not ordinary narrative or independently supported
@@ -1506,6 +1508,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
 	out.investigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
 	out.investigationMeasurementMemberSets = cloneMeasurementMemberSetSelections(m.investigationMeasurementMemberSets)
+	out.investigationNativeFactCompletion = cloneInvestigationNativeFactCompletion(m.investigationNativeFactCompletion)
 	out.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
 	out.investigationRelationClaims = CloneAnswerRelationClaims(m.investigationRelationClaims)
 	out.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(m.retainedInvestigationRelationClaims)
@@ -1550,6 +1553,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
 	investigationMeasurementMemberSets := cloneMeasurementMemberSetSelections(fork.investigationMeasurementMemberSets)
+	nativeFactHandoff := fork.acceptedNativeFactHandoffLocked()
 	investigationRelationClaims := CloneAnswerRelationClaims(fork.investigationRelationClaims)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
@@ -1642,6 +1646,10 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
 		m.investigationAggregateFacts = mergedAggregateFacts
 		m.investigationMeasurementMemberSets = investigationMeasurementMemberSets
+		m.investigationNativeFactCompletion = nil
+		if nativeFactHandoff != nil {
+			m.investigationNativeFactCompletion = &investigationNativeFactCompletion{nativeFactHandoff, m.investigationCompleteGeneration, investigationCompleteReason}
+		}
 		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		if investigationCompleteReason != "" {
@@ -5473,6 +5481,10 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	}
 	snap.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(snap.ToolResults, snap.EvidenceItems, snap.HandoffCarriers)
 	snap.toolDocumentationCompletion = m.acceptedToolDocumentationLocked()
+	snap.AcceptedNativeFactHandoff = a.AcceptedNativeFactHandoff.Clone()
+	if h := m.acceptedNativeFactHandoffLocked(); h != nil {
+		snap.AcceptedNativeFactHandoff = h
+	}
 	m.turnAArtifacts = &snap
 	m.turnAArtifactsRevision++
 	if snap.SourceInventoryObservation.IsActive() || len(snap.HandoffCarriers) > 0 || len(snap.EvidenceItems) > 0 {
@@ -5506,6 +5518,10 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	}
 	out := *m.turnAArtifacts
 	out.toolDocumentationCompletion = m.acceptedToolDocumentationLocked()
+	out.AcceptedNativeFactHandoff = m.turnAArtifacts.AcceptedNativeFactHandoff.Clone()
+	if h := m.acceptedNativeFactHandoffLocked(); h != nil {
+		out.AcceptedNativeFactHandoff = h
+	}
 	if m.turnAArtifacts.InvestigationNotes != nil {
 		out.InvestigationNotes = append([]string(nil), m.turnAArtifacts.InvestigationNotes...)
 	}
@@ -5555,6 +5571,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
 	m.investigationMeasurementMemberSets = nil
+	m.investigationNativeFactCompletion = nil
 	m.turnAArtifactsRevision++
 	m.exploreForkTurnABaseNotesLen = 0
 	m.exploreForkTurnABaseBoundaryLen = 0
@@ -5621,6 +5638,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	}
 	out := *in
 	out.InvestigationNotes = append([]string(nil), in.InvestigationNotes...)
+	out.AcceptedNativeFactHandoff = in.AcceptedNativeFactHandoff.Clone()
 	out.SupersededClosures = append([]InvestigationClosureHistoryEntry(nil), in.SupersededClosures...)
 	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
@@ -5707,6 +5725,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	)
 	if current.AcceptedClosureReason != "" {
 		merged.AcceptedClosureReason = current.AcceptedClosureReason
+		merged.AcceptedNativeFactHandoff = current.AcceptedNativeFactHandoff.Clone()
 	}
 	if current.AcceptedResultKind != "" {
 		merged.AcceptedResultKind = current.AcceptedResultKind

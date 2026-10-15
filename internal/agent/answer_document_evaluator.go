@@ -8611,6 +8611,7 @@ func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.Agen
 		// decision is typed producer authority only; no narrative is scanned.
 		return ""
 	}
+	interpretation, lifecycleOnly := answerDocSeparatedNativeFactHandoff(ctx, publication)
 	ta := ctx.Mutable.TurnAArtifacts()
 	var raw []string
 	if ta != nil {
@@ -8645,16 +8646,16 @@ func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.Agen
 			}
 		}
 		raw = unique
-		if publication.replacesCurrentSynthesis(ctx) {
+		if lifecycleOnly || publication.replacesCurrentSynthesis(ctx) {
 			currentSynthesis = ""
 		}
 	}
 	if len(raw) == 0 && currentSynthesis == "" {
-		return ""
+		return interpretation
 	}
 	notes := recentSanitizedInvestigationNarrativeNotes(raw)
 	if len(notes) == 0 && currentSynthesis == "" {
-		return ""
+		return interpretation
 	}
 	var b strings.Builder
 	b.WriteString("## Investigation Narrative Handoff\n\n")
@@ -8670,7 +8671,7 @@ func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.Agen
 	if currentSynthesis != "" {
 		fmt.Fprintf(&b, "**Current model synthesis (advisory, not a verified fact):**\n%s\n\n", truncateAnswerDocPromptText(sanitizePriorDraftForSummary(currentSynthesis), 900))
 	}
-	return b.String()
+	return interpretation + b.String()
 }
 
 func answerDocHasDeterministicRuntimeQueryObservation(ctx *types.AgentContext) bool {

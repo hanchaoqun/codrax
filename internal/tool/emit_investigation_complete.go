@@ -67,8 +67,8 @@ func (t *EmitInvestigationComplete) Description() string {
 		"move to the extraction and finalization stages. Call this ONCE when " +
 		"you have collected enough evidence to answer the user's question. " +
 		"Do NOT call this if you still have files to read or hypotheses to verify. " +
-		"Requires a reason that carries the concise terminal conclusion for later " +
-		"answer writing, plus a confidence level (high or medium)."
+		"Requires a concise completion reason and a confidence level (high or medium). " +
+		"Preserve the concise terminal conclusion, necessary findings and boundaries for later answer writing using the currently available structured handoff fields."
 }
 
 var (
@@ -96,6 +96,14 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		).Replace(`{
 		"type": "object",
 		"properties": {
+			"native_fact_handoff": {
+				"type":"object", "additionalProperties":false,
+				"description":"Optional separated handoff for native measurements. Select existing runtime_measurement observation_id/view pairs instead of restating their values. Put every independent diagnosis, hypothesis, negative finding, source explanation and scope caveat in interpretation; it stays advisory, never causal evidence. With this contract reason is lifecycle rationale only. It is omitted from answer synthesis only after current rebinding and complete post-budget publication of every selected view; otherwise the legacy reason remains. Other investigation notes are preserved. This does not waive any completion or evidence requirement.",
+				"properties": {
+					"runtime_measurements":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
+					"interpretation":{"type":"string","description":"All independent interpretation and missing-evidence boundaries, without copying the selected native numbers. Empty only if there is no independent interpretation to preserve."}
+				},"required":["runtime_measurements","interpretation"]
+			},
 			"runtime_measurement_member_sets": {
 				"type": "array", "maxItems": 16,
 				"description": "__MEASUREMENT_MEMBER_SET_TEACHING__",
@@ -288,6 +296,7 @@ func joinPrincipalSpanWaiverReasons() string {
 }
 
 type emitInvestigationCompleteParams struct {
+	NativeFactHandoff            *completionNativeFactHandoff            `json:"native_fact_handoff,omitempty"`
 	RuntimeMeasurementMemberSets []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurement_member_sets,omitempty"`
 	BusinessSpanRef              string                                  `json:"business_span_ref,omitempty"`
 	Reason                       string                                  `json:"reason"`
@@ -303,6 +312,7 @@ type emitInvestigationCompleteParams struct {
 }
 
 type emitInvestigationCompleteRawParams struct {
+	NativeFactHandoff            *completionNativeFactHandoff            `json:"native_fact_handoff,omitempty"`
 	RuntimeMeasurementMemberSets []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurement_member_sets,omitempty"`
 	BusinessSpanRef              string                                  `json:"business_span_ref,omitempty"`
 	Reason                       string                                  `json:"reason"`
@@ -375,6 +385,7 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		raw.AbsenceJustification = decodeMisplacedStringField(misplaced, "absence_justification")
 	}
 	*p = emitInvestigationCompleteParams{
+		NativeFactHandoff:            raw.NativeFactHandoff,
 		RuntimeMeasurementMemberSets: raw.RuntimeMeasurementMemberSets,
 		// Execution focus is selected only by the top-level typed field.
 		// The prose/string-tail compatibility lane must never mint it.
@@ -2448,6 +2459,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if measurementMemberSetErr != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: measurementMemberSetErr.Error(), Success: false, Timestamp: time.Now()}, nil
 	}
+	nativeFactHandoff, nativeFactHandoffErr := completionNativeFactHandoffSelection(ctx, p.NativeFactHandoff)
+	if nativeFactHandoffErr != nil {
+		return types.ToolResult{ToolName: t.Name(), Summary: nativeFactHandoffErr.Error(), Success: false, Timestamp: time.Now()}, nil
+	}
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
 	// makes the bounded member set part of the answer, so a resolved
@@ -3181,6 +3196,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
 	ctx.Mutable.SetInvestigationMeasurementMemberSets(measurementMemberSets)
+	ctx.Mutable.AcceptInvestigationNativeFactHandoff(nativeFactHandoff)
 	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
 	appendPrincipalSpanWaiverCompletionNote(ctx)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)

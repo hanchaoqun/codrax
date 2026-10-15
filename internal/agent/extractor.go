@@ -775,6 +775,8 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 			b.WriteString("- model-authored runtime closure reason omitted from the extraction evidence pool because producer-owned runtime observations are available and the matching unsupported aggregate synthesis was withheld. The durable audit record remains unchanged.\n")
 		} else if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
 			b.WriteString("- model-authored closure reason omitted because grounded current-source facts and typed flow carriers are authoritative for mechanism roles and relations; unstructured exploration synthesis cannot mint runtime identities, pairing keys, call edges, or ordered paths.\n")
+		} else if separated := renderExtractorNativeFactHandoff(ctx, reason, aggregateFacts); separated != "" {
+			b.WriteString(separated)
 		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
 			reason = sanitizeExtractorStageHandoffText(reason)

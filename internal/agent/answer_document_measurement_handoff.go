@@ -66,6 +66,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	eventNotes := map[string]string{}
 	previewRows := 0
 	for i, table := range choices {
+		writtenNotes := map[string]bool{}
 		count := previewCounts[i]
 		if count > 0 {
 			previewed[table.ObservationID] = true
@@ -114,6 +115,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 			fmt.Fprintf(&b, "  scope: %s; %s\n", table.Notes[0], table.Notes[1])
 			samplingFacts.note(table, table.Notes[0])
 			samplingFacts.note(table, table.Notes[1])
+			writtenNotes[table.Notes[0]], writtenNotes[table.Notes[1]] = true, true
 		}
 		// Empty summaries still carry the producer's unavailable/empty status.
 		// No preview rows is not evidence of a measured zero.
@@ -121,13 +123,20 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 			for _, note := range table.Notes[2:] {
 				fmt.Fprintf(&b, "  boundary: %s\n", note)
 				samplingFacts.note(table, note)
+				writtenNotes[note] = true
 			}
 		} else if count > 0 && len(table.Notes) >= 2 {
 			for _, note := range table.Notes[len(table.Notes)-2:] {
 				fmt.Fprintf(&b, "  boundary: %s\n", note)
 				samplingFacts.note(table, note)
+				writtenNotes[note] = true
 			}
 		}
+		complete := count == len(table.Rows)
+		for _, note := range table.Notes {
+			complete = complete && writtenNotes[note]
+		}
+		publication.observeMeasurementView(table, complete)
 	}
 	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
 	samplingFacts.publish(ctx, publication)

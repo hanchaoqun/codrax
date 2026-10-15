@@ -122,6 +122,9 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged.MCPResponses = append(append([]types.MCPResponse(nil), prior.MCPResponses...), current.MCPResponses...)
 	if merged.AcceptedClosureReason == "" {
 		merged.AcceptedClosureReason = prior.AcceptedClosureReason
+		merged.AcceptedNativeFactHandoff = prior.AcceptedNativeFactHandoff.Clone()
+	} else {
+		merged.AcceptedNativeFactHandoff = current.AcceptedNativeFactHandoff.Clone()
 	}
 	if merged.AcceptedResultKind == "" {
 		merged.AcceptedResultKind = prior.AcceptedResultKind

@@ -49,5 +49,5 @@ func projectExplorerMeasurementMemberSchema(ctx *types.AgentContext, schemas []l
 		root["properties"], _ = json.Marshal(properties)
 		out[i].Parameters, _ = json.Marshal(root)
 	}
-	return out
+	return projectExplorerNativeFactHandoffSchema(ctx, out)
 }
