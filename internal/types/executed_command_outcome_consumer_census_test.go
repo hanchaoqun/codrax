@@ -78,6 +78,7 @@ type outcomeSwitchRegistration struct {
 
 var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/context", file: "trace_catalog.go", fn: "formatTraceCatalogs", domain: outcomeDomainCatalog},
+	{dir: "internal/tool", file: "trace_catalog_navigation.go", fn: "traceCatalogCounts", domain: outcomeDomainCatalog},
 	{dir: "internal/tracecatalog", file: "query.go", fn: "validateCompletion", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "runtime_measurement_acquisition_status.go", fn: "runtimeMeasurementAcquisitionSide", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
@@ -1004,6 +1005,7 @@ func TestExecutedCommandOutcomeConsumerCatalogDomainIsTyped(t *testing.T) {
 	members := map[string]string{"ExecutedCommandOutcomeExecuted": "executed", "ExecutedCommandOutcomeTimeout": "timeout"}
 	for _, target := range []struct{ dir, file, fn string }{
 		{"internal/context", "trace_catalog.go", "formatTraceCatalogs"},
+		{"internal/tool", "trace_catalog_navigation.go", "traceCatalogCounts"},
 		{"internal/tracecatalog", "query.go", "validateCompletion"},
 	} {
 		for _, probe := range []struct {

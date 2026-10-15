@@ -2175,6 +2175,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
+	var toolSurfaceState toolSurfaceTransition
 	mcpRenderSeen := map[string]struct{}{}
 
 	// Reset the per-dispatch running tool-result buffer so a fresh
@@ -2368,7 +2369,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		effectiveToolNames := toolSchemaNameSet(effectiveTools)
 
 		requestMessages := messages
-		if directive, ok := currentTurnToolSurfaceMessage(iterToolSchemas, effectiveTools); ok {
+		if directive, ok := toolSurfaceState.message(ctx, iterToolSchemas, effectiveTools); ok {
 			requestMessages = append(requestMessages, directive)
 			logging.Debug("[diag %s] iter=%d phase=tool_surface directive injected tools=%s",
 				b.name, i, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
