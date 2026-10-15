@@ -53,6 +53,11 @@ var traceQueryTraceDiagStepMirror = map[string]string{
 // frame discovery scope, wakeup budgets, recipe/interaction selectors,
 // window_sweep bucketing, compute-supply topology).
 var traceQueryToolOnlyParams = map[string]bool{
+	// Current host-admitted catalog/query references are run-local workflow
+	// navigation, not replayable trace coordinates. A standalone tracediag
+	// process has no live catalog; the expanded ordinary filters keep their
+	// existing mirrors. Strict script decoding must still reject this key.
+	"catalog_query_ref": true,
 	// Sampling display navigation is tool-local; tracediag retains its full
 	// deterministic default projection without an interactive expand token.
 	"sampling_depth": true,
@@ -158,6 +163,29 @@ func TestTraceQueryEventSearchParamsMirroredInTraceDiagStep(t *testing.T) {
 	}
 	if violations := traceQueryTraceDiagMirrorViolations(props, tags, traceQueryTraceDiagStepMirror, traceQueryToolOnlyParams); len(violations) > 0 {
 		t.Fatalf("trace_query ↔ tracediag Step parameter-face drift:\n  %s", strings.Join(violations, "\n  "))
+	}
+}
+
+func TestTraceQueryCatalogReferenceRemainsToolLocal(t *testing.T) {
+	plain := "version: 1\nsteps:\n  - label: events\n    view: event_search\n    pid: 42\n    window: \"1..2\"\n"
+	if _, err := tracediag.ParseScript([]byte(plain)); err != nil {
+		t.Fatalf("ordinary expanded selectors must remain replayable: %v", err)
+	}
+	for _, version := range []string{"1", "2"} {
+		withRef := strings.Replace(plain, "version: 1", "version: "+version, 1) + "    catalog_query_ref: {catalog_id: catalog, query_id: query}\n"
+		if _, err := tracediag.ParseScript([]byte(withRef)); err == nil || !strings.Contains(err.Error(), "catalog_query_ref") {
+			t.Fatalf("standalone v%s script must reject run-local catalog reference: %v", version, err)
+		}
+	}
+	withoutRef := make(map[string]bool, len(traceQueryToolOnlyParams))
+	for name, local := range traceQueryToolOnlyParams {
+		if name != "catalog_query_ref" {
+			withoutRef[name] = local
+		}
+	}
+	violations := traceQueryTraceDiagMirrorViolations(traceQuerySchemaProperties(t), traceDiagStepYAMLTags(), traceQueryTraceDiagStepMirror, withoutRef)
+	if len(violations) != 1 || !strings.Contains(violations[0], "unrecognized tool property catalog_query_ref") {
+		t.Fatalf("removing the explicit reviewed exemption must redden census: %v", violations)
 	}
 }
 
