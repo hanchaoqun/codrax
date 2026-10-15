@@ -16,6 +16,10 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 	}
 	var b strings.Builder
 	for _, c := range ac.Mutable.TraceCatalogs() {
+		if b.Len() >= (24<<10)-512 {
+			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
+			break
+		}
 		s := c.Snapshot()
 		if b.Len() == 0 {
 			b.WriteString("Capture/object query directory — navigation and last recorded execution status only. Window numbers are argument bounds; endpoint inclusion is unknown unless explicitly recorded, so use the actual query's boundary contract. Revalidate sources before reuse. It does not prove measurements, capture completeness, cross-capture clock alignment or causality. Use the actual query evidence for findings; do not count failed, stale or unexecuted work as zero.\n")
@@ -25,7 +29,12 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			counts[string(q.Outcome)]++
 		}
 		countJSON, _ := json.Marshal(counts)
-		fmt.Fprintf(&b, "catalog_id=%q root=%q candidates=%d planned_queries=%d discovery_complete=%t query_status_counts=%s\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON)
+		header := fmt.Sprintf("catalog_id=%q root=%q candidates=%d planned_queries=%d discovery_complete=%t query_status_counts=%s\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON)
+		if b.Len()+len(header) > (24<<10)-512 {
+			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
+			break
+		}
+		b.WriteString(header)
 		paths := map[string]string{}
 		for _, a := range s.Artifacts {
 			paths[a.ID] = a.Path
@@ -36,6 +45,17 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 					b.WriteByte('\n')
 				}
 			}
+		}
+		if selection, ok := c.Representatives(); ok {
+			if section := formatTraceCatalogRepresentatives(selection, (24<<10)-b.Len()); section != "" {
+				b.WriteString(section)
+			} else {
+				fmt.Fprintf(&b, "Representative comparison omitted by context budget; use trace_catalog with action=representative_status and catalog_id=%q.\n", s.ID)
+			}
+			if b.Len() > 24<<10 {
+				break
+			}
+			continue
 		}
 		shown := 0
 		for _, q := range s.Queries {

@@ -176,6 +176,8 @@ type Catalog struct {
 	history     []HistoricalRun
 	// Fresh Resume admission only; distinct from declared-window authority.
 	resumedPlans map[string]bool
+	// Soft run-local selection; it cannot be restored from navigation JSON.
+	representatives *representativePlan
 	// independentInputs is minted only by the explicit two-side constructor;
 	// persisted navigation snapshots cannot restore this operation permission.
 	independentInputs bool

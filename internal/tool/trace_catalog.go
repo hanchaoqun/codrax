@@ -22,11 +22,12 @@ type TraceCatalog struct {
 
 func (*TraceCatalog) Name() string { return "trace_catalog" }
 func (*TraceCatalog) Description() string {
-	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching
+	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
-	"action":{"type":"string","enum":["discover","status","resume"],"description":"Default discover; status reads a current catalog; resume re-admits only a historical roster under an explicitly authorized root, with all current queries pending."},
+	"action":{"type":"string","enum":["discover","status","resume","representatives","representative_status"],"description":"Default discover; status reads a current catalog; resume re-admits a historical roster. representatives freezes soft-ranked representatives of exact query-specification groups; representative_status pages that fixed selection with current execution states."},
+	"representatives":{"type":"object","additionalProperties":false,"properties":{"per_cluster":{"type":"integer","minimum":1,"maximum":5,"description":"Default 1; resource limit, not statistical coverage."},"max_clusters":{"type":"integer","minimum":1,"maximum":50,"description":"Default 10; resource limit. Other groups remain listed as budget-skipped."},"priority":{"type":"string","enum":["unexecuted_first","retry_first","largest_input_first"],"description":"Default unexecuted_first. Navigation metadata only, not severity; unknown sizes are not zero. Exact query IDs break ties."}},"description":"Only action=representatives. Does not execute or prohibit any member; a new explicit selection replaces the previous run-local selection."},
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
 	"recursive":{"type":"boolean","description":"Default true. Symbolic links are not followed; skipped and incomplete traversal are disclosed."},
@@ -37,13 +38,14 @@ func (*TraceCatalog) Parameters() json.RawMessage {
 }
 
 type traceCatalogParams struct {
-	Action       string            `json:"action"`
-	Root         string            `json:"root"`
-	Recursive    *bool             `json:"recursive"`
-	Queries      []json.RawMessage `json:"queries"`
-	CatalogID    string            `json:"catalog_id"`
-	Offset       int               `json:"offset"`
-	SnapshotPath string            `json:"snapshot_path"`
+	Action          string                              `json:"action"`
+	Root            string                              `json:"root"`
+	Recursive       *bool                               `json:"recursive"`
+	Queries         []json.RawMessage                   `json:"queries"`
+	CatalogID       string                              `json:"catalog_id"`
+	Offset          int                                 `json:"offset"`
+	SnapshotPath    string                              `json:"snapshot_path"`
+	Representatives *tracecatalog.RepresentativeOptions `json:"representatives"`
 }
 
 func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (types.ToolResult, error) {
@@ -54,6 +56,10 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		out.Summary = "trace_catalog needs current run state"
+		return out, nil
+	}
+	if p.Representatives != nil && p.Action != "representatives" {
+		out.Summary = "representatives configuration requires action=representatives"
 		return out, nil
 	}
 	if p.Offset < 0 || len(p.Queries) > 16 {
@@ -134,9 +140,9 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 			out.Summary = err.Error()
 			return out, nil
 		}
-	case "status":
+	case "status", "representatives", "representative_status":
 		if p.Root != "" || p.Recursive != nil || len(p.Queries) > 0 || p.SnapshotPath != "" {
-			out.Summary = "status accepts only catalog_id and offset"
+			out.Summary = "current catalog actions accept catalog_id and offset; only representatives accepts its selection configuration"
 			return out, nil
 		}
 		for _, current := range ctx.Mutable.TraceCatalogs() {
@@ -149,8 +155,28 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 			out.Summary = "catalog_id is not from this live run; saved JSON is historical navigation only"
 			return out, nil
 		}
+		if p.Action != "status" {
+			if _, err := traceCatalogAuthorizedRoot(ctx, c.Snapshot().Root); err != nil {
+				out.Summary = err.Error()
+				return out, nil
+			}
+		}
 		for _, a := range c.Snapshot().Artifacts {
 			_, _ = c.Resolve(contextFromBus(ctx), a.ID)
+		}
+		if p.Action == "representatives" {
+			if p.Offset != 0 {
+				out.Summary = "new representative selections start at offset 0; use representative_status for subsequent pages"
+				return out, nil
+			}
+			options := tracecatalog.RepresentativeOptions{}
+			if p.Representatives != nil {
+				options = *p.Representatives
+			}
+			if _, err := c.SelectRepresentatives(contextFromBus(ctx), options); err != nil {
+				out.Summary = err.Error()
+				return out, nil
+			}
 		}
 	default:
 		out.Summary = "unknown trace_catalog action"
@@ -161,7 +187,11 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 		out.Summary = "catalog retained in this run, but persistence failed: " + err.Error()
 		return out, nil
 	}
-	out.Summary, err = traceCatalogPage(c.Snapshot(), ref, p.Offset)
+	if p.Action == "representatives" || p.Action == "representative_status" {
+		out.Summary, err = traceCatalogRepresentativePage(ctx, c, ref, p.Offset)
+	} else {
+		out.Summary, err = traceCatalogPage(c.Snapshot(), ref, p.Offset)
+	}
 	if err != nil {
 		out.Summary = err.Error()
 		return out, nil

@@ -80,6 +80,7 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/context", file: "trace_catalog.go", fn: "formatTraceCatalogs", domain: outcomeDomainCatalog},
 	{dir: "internal/tool", file: "trace_catalog_navigation.go", fn: "traceCatalogCounts", domain: outcomeDomainCatalog},
 	{dir: "internal/tracecatalog", file: "query.go", fn: "validateCompletion", domain: outcomeDomainCatalog},
+	{dir: "internal/tracecatalog", file: "representatives.go", fn: "countRepresentativeMember", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "runtime_measurement_acquisition_status.go", fn: "runtimeMeasurementAcquisitionSide", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
@@ -1007,6 +1008,7 @@ func TestExecutedCommandOutcomeConsumerCatalogDomainIsTyped(t *testing.T) {
 		{"internal/context", "trace_catalog.go", "formatTraceCatalogs"},
 		{"internal/tool", "trace_catalog_navigation.go", "traceCatalogCounts"},
 		{"internal/tracecatalog", "query.go", "validateCompletion"},
+		{"internal/tracecatalog", "representatives.go", "countRepresentativeMember"},
 	} {
 		for _, probe := range []struct {
 			name, body string

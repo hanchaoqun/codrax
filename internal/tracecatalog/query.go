@@ -324,6 +324,7 @@ func (c *Catalog) Clone() *Catalog {
 		bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}}
 	copy.independentInputs = c.independentInputs
 	copy.history = cloneHistory(c.history)
+	copy.representatives = cloneRepresentativePlan(c.representatives)
 	copy.resumedPlans = make(map[string]bool, len(c.resumedPlans))
 	for id, resumed := range c.resumedPlans {
 		copy.resumedPlans[id] = resumed
@@ -451,6 +452,9 @@ func (c *Catalog) Merge(other *Catalog) error {
 		}
 	}
 	c.queries = merged
+	if copy.representatives != nil && (c.representatives == nil || copy.representatives.Sequence > c.representatives.Sequence) {
+		c.representatives = cloneRepresentativePlan(copy.representatives)
+	}
 	if c.declared == nil {
 		c.declared = map[string]bool{}
 	}
