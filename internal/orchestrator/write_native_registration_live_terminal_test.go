@@ -59,7 +59,7 @@ func TestNativeRegistrationLiveTerminalMissingSourceRemainsUnverified(t *testing
 // exact public preparation path. Only the planner adapter differs. The source
 // completion, proof-followup routing and persisted registration all come from
 // the production controller; no terminal verdict or private grant is injected.
-func runNativeRegistrationTerminalPlanning(t *testing.T, f controllerRegistrationFixture, planner agent.Agent, planningSkill *skill.Config, sourceVerified func(*types.ChangeReport, *types.WriteWorkflowRun)) {
+func runNativeRegistrationTerminalPlanning(t *testing.T, f controllerRegistrationFixture, planner agent.Agent, planningSkill *skill.Config, sourceVerified func(*types.ChangeReport, *types.WriteWorkflowRun), controllers ...agent.Agent) {
 	t.Helper()
 	o, mu := f.o, f.o.busCtx.Mutable
 	mu.ResetChangeReport()
@@ -77,17 +77,28 @@ func runNativeRegistrationTerminalPlanning(t *testing.T, f controllerRegistratio
 	}
 	mu.SetWriteWorkflowRun(run)
 	o.writeWorkflowRunStore = store
+	var naturalController agent.Agent
+	if len(controllers) > 0 {
+		naturalController = controllers[0]
+	}
 	calls := 0
 	ar, sr, _ := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		types.AgentWriteController: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+		types.AgentWriteController: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			if types.IsPersistedNativeTestRegistrationPlan(ctx.Mutable.ChangePlan()) {
 				// The scheduler has already persisted the plan and typed transition.
 				// Stop here without introducing a production failure or terminal.
 				panic(nativeRegistrationRestartBoundary{})
 			}
 			calls++
-			if calls > 12 {
+			limit := 12
+			if naturalController != nil {
+				limit = 50
+			}
+			if calls > limit {
 				t.Fatal("source controller did not converge to registration")
+			}
+			if naturalController != nil {
+				return naturalController.Execute(ctx, sk)
 			}
 			action := writeflow.ActionFinish
 			if calls == 1 {
@@ -97,6 +108,11 @@ func runNativeRegistrationTerminalPlanning(t *testing.T, f controllerRegistratio
 			return &agent.StageOutput{ToolResults: []types.ToolResult{result}}, nil
 		},
 	})
+	if naturalController != nil {
+		// buildRegistries supplies test placeholder skills; real decisions must
+		// receive the same default skill as the public controller agent.
+		skill.RegisterDefaults(sr)
+	}
 	o.agents, o.skills = ar, sr
 	o.readExplorationRunner = readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
 		controllerRegistrationTool(t, o.busCtx, (&tool.ReadFile{}).Execute, map[string]any{"path": "value.py"})

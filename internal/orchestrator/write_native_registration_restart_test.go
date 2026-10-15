@@ -27,6 +27,8 @@ type registrationRestartInput struct {
 	Reject                                                          string
 	SourceTerminal                                                  bool
 	PriorInvocations                                                []string
+	NaturalController                                               bool
+	ProvidersPath, AuditDir                                         string
 }
 
 func (f controllerRegistrationFixture) restart(t *testing.T, reject ...string) *types.ChangeReport {
@@ -34,6 +36,11 @@ func (f controllerRegistrationFixture) restart(t *testing.T, reject ...string) *
 }
 
 func (f controllerRegistrationFixture) restartExpectingSourceTerminal(t *testing.T, sourceTerminal bool, reject ...string) *types.ChangeReport {
+	t.Helper()
+	return f.restartWithController(t, sourceTerminal, false, "", "", reject...)
+}
+
+func (f controllerRegistrationFixture) restartWithController(t *testing.T, sourceTerminal, natural bool, providers, auditDir string, reject ...string) *types.ChangeReport {
 	t.Helper()
 	o := f.o
 	plan, run := o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.WriteWorkflowRun()
@@ -48,6 +55,7 @@ func (f controllerRegistrationFixture) restartExpectingSourceTerminal(t *testing
 	}
 	input := registrationRestartInput{Root: o.busCtx.RepoRoot, WorkDir: o.busCtx.WorkDir, Objective: o.busCtx.Mutable.Objective(), PlanID: plan.ID, SourceID: f.source.ID, Head: f.head, OldInvocation: f.oldInvocation, ParentPID: os.Getpid()}
 	input.SourceTerminal = sourceTerminal
+	input.NaturalController, input.ProvidersPath, input.AuditDir = natural, providers, auditDir
 	if prior := o.loadWriteFinalReportChangeReport(f.source.ID); prior != nil {
 		for _, command := range prior.ExecutedCommands {
 			if command.InvocationID != "" {
@@ -153,6 +161,9 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 			{Action: writeflow.ActionFinish, ReasonCode: "all_verified"},
 		}, &calls),
 	})
+	if input.NaturalController {
+		installNativeRegistrationChildController(t, input, ar, sr)
+	}
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, RepoRoot: input.Root, MainRepoRoot: input.Root, WorkDir: input.WorkDir, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
@@ -220,7 +231,13 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 	} else if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified || run.Completion.ReasonCode != "missing_terminal_verify_verdict" {
 		t.Fatalf("missing source completion was laundered: %+v", run.Completion)
 	}
-	if verified != 1 || report == nil || !report.Passed || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
+	validExecutionCount := verified == 1
+	if input.NaturalController {
+		// Real decisions may request another fresh verification; do not turn
+		// the scripted helper's fixed sequence into a natural-run oracle.
+		validExecutionCount = verified >= 1
+	}
+	if !validExecutionCount || report == nil || !report.Passed || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
 		t.Fatalf("new registered proof missing: executions=%d report=%+v", verified, report)
 	}
 	r := report.ExistingTestExecutions[0]
@@ -284,6 +301,7 @@ func saveRegistrationRestartAudit(t *testing.T, input registrationRestartInput, 
 		"test_failed": t.Failed(), "readonly_checked": checked, "readonly": readonly, "head": head, "expected_head": input.Head,
 		"git_status": status, "git_diff": diff,
 		"current_invocations": invocations, "old_invocation": input.OldInvocation, "prior_source_invocations": input.PriorInvocations,
+		"natural_controller": input.NaturalController,
 	}
 	if testErr == nil {
 		audit["test_sha256"] = fmt.Sprintf("%x", sha256.Sum256(testBytes))

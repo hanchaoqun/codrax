@@ -33,7 +33,7 @@ func TestNativeRegistrationLiveRestoredTerminal(t *testing.T) {
 	runNativeRegistrationLiveEvaluation(t, os.Getenv("CODRAX_LIVE_REGISTRATION_TERMINAL_EVAL_DIR"), true)
 }
 
-func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTerminal bool) {
+func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTerminal bool, naturalController ...bool) {
 	t.Helper()
 	if out == "" {
 		t.Skip("explicit live evaluation not requested")
@@ -74,11 +74,32 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 		t.Fatal(err)
 	}
 	const question = "实现已修好，请运行保留的现有测试，确认返回值正确。不要再修改源码、测试、配置或依赖。"
+	natural := len(naturalController) > 0 && naturalController[0]
+	var controller agent.Agent
+	controllerModel, controllerDecisions := "", "scripted_verify_then_finish"
+	if natural {
+		if !sourceTerminal {
+			t.Fatal("natural controller evaluation requires the source-terminal preparation")
+		}
+		controllerAdapter, err := llm.NewFromConfig(config.ResolveProvider(cfg, string(types.AgentWriteController)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		controller = nativeRegistrationControllerAgent(controllerAdapter)
+		controllerModel, controllerDecisions = controllerAdapter.ModelID(), "real_model_parent_and_restored_child"
+		providers, err = filepath.Abs(providers)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	kind := "restored_native_registration_planner"
 	if sourceTerminal {
 		kind = "native_registration_restored_terminal"
 	}
-	save("evaluation.json", map[string]any{"kind": kind, "model": adapter.ModelID(), "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": "scripted_verify_then_finish", "source_terminal_verification": sourceTerminal})
+	if natural {
+		kind = "native_registration_natural_controller_terminal"
+	}
+	save("evaluation.json", map[string]any{"kind": kind, "model": adapter.ModelID(), "controller_model": controllerModel, "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": controllerDecisions, "source_terminal_verification": sourceTerminal, "source_preparation": "operator_public_emit_apply_git_and_native_execution", "verification_executor": "public_run_tests_not_model_verifier"})
 	f := newControllerRegistrationFixture(t)
 	o, mu := f.o, f.o.busCtx.Mutable
 	mu.SetObjective(question)
@@ -134,7 +155,7 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 			}
 			save("source-verify-report.json", report)
 			save("source-verified-workflow.json", run)
-		})
+		}, controller)
 	} else {
 		steps := 0
 		if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "proof", Purpose: "verification_proof_followup", ExpectedPaths: []string{"value.py"}}, &steps); err != nil {
@@ -156,7 +177,7 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 	run := mu.WriteWorkflowRun()
 	save("before-restart-plan.json", plan)
 	save("before-restart-workflow.json", run)
-	report := f.restartExpectingSourceTerminal(t, sourceTerminal)
+	report := f.restartWithController(t, sourceTerminal, natural, providers, out)
 	plan = o.busCtx.Mutable.ChangePlan()
 	if report == nil || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
 		t.Fatal("fresh execution did not prove the original required behavior")
@@ -175,5 +196,5 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 	if sourceTerminal {
 		assertNativeRegistrationContextPackReceipt(t, o.busCtx.WorkDir)
 	}
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal, "context_pack_durability_verified": sourceTerminal})
+	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal, "context_pack_durability_verified": sourceTerminal, "controller_decisions": controllerDecisions})
 }
