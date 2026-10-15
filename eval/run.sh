@@ -1888,9 +1888,27 @@ SUMMARY="$OUTDIR/summary.md"
   # step mirrors the live plan back over run-N.plan.json across replan
   # rounds, so the table reads the immutable per-step archives instead:
   # plan-1 = the plan-step original, plan-2 = the post-apply live-plan
-  # mirror (only written when it differs). Runs without archives (e.g.
-  # commandless apply) fall back to run-N.plan.json as before.
+  # mirror (only written when it differs). Commandless apply instead follows
+  # the actual plan bound by this run's write-apply receipt, never a time scan.
   if [[ -n "$MODE" && "$MODE" != "read" ]]; then
+    summary_plan_paths=()
+    summary_source_paths=()
+    for i in $(seq 1 "$N"); do
+      summary_plan_paths[$i]=""
+      summary_source_paths[$i]=""
+      if [[ "$MODE" == "apply" ]]; then
+        summary_scratch="$OUTDIR/run-$i.repo"
+        if [[ -n "$MULTIREPO" ]]; then
+          summary_scratch="$OUTDIR/run-$i.parent/$MULTIREPO_WRITE_ROOT"
+        fi
+        summary_artifacts="$(python3 "$ROOT/eval/write_summary_receipts.py" resolve \
+          --outdir "$OUTDIR" --scratch "$summary_scratch" --run-id "$i")"
+        summary_plan_paths[$i]="$(printf '%s\n' "$summary_artifacts" | sed -n '1p')"
+        summary_source_paths[$i]="$(printf '%s\n' "$summary_artifacts" | sed -n '2p')"
+      elif [[ -f "$OUTDIR/run-$i.plan.json" ]]; then
+        summary_plan_paths[$i]="$OUTDIR/run-$i.plan.json"
+      fi
+    done
     echo "## Plan artifacts"
     echo
     echo "(step: plan-1 = plan-step original; plan-2 = post-apply live-plan mirror, present when apply changed the plan file — replan generations and/or apply stamps such as applied_commit_sha/approval)"
@@ -1904,11 +1922,15 @@ SUMMARY="$OUTDIR/summary.md"
           plan_gen_paths+=("$gen")
         fi
       done
-      if [[ ${#plan_gen_paths[@]} -eq 0 && -f "$OUTDIR/run-$i.plan.json" ]]; then
-        plan_gen_paths=("$OUTDIR/run-$i.plan.json")
+      if [[ ${#plan_gen_paths[@]} -eq 0 && -n "${summary_plan_paths[$i]}" ]]; then
+        plan_gen_paths=("${summary_plan_paths[$i]}")
       fi
       if [[ ${#plan_gen_paths[@]} -eq 0 ]]; then
-        echo "| $i | — | no | — | — | — |"
+        if [[ "$MODE" == "apply" ]]; then
+          echo "| $i | — | unavailable (receipt missing or invalid) | — | — | — |"
+        else
+          echo "| $i | — | no | — | — | — |"
+        fi
         continue
       fi
       for plan_path in "${plan_gen_paths[@]}"; do
@@ -1944,9 +1966,8 @@ PYEOF
     done
     echo
     if [[ "$MODE" == "apply" ]]; then
-      # Post-apply snapshots for each explicitly scoped file. Reads from the worktree or durable
-      # recovery ref because apply is sandboxed there; scratch-repo
-      # bytes are unchanged by construction (L5 red line).
+      # Read the already-materialized product bound by the run receipt. A
+      # summary must not replay materialization or fall back to scratch bytes.
       # The first-20-line preview stays for continuity, then matched
       # oracle lines / applied diff / command provenance make late-file
       # changes diagnosable without opening every run artifact.
@@ -1962,7 +1983,7 @@ PYEOF
         summary_scope_index=0
         for summary_path in "${summary_scope_files[@]}"; do
           summary_scope_index=$((summary_scope_index + 1))
-          echo "## Post-apply file — \`$summary_path\` (first 20 lines, from delivered source)"
+          echo "## Post-apply file — \`$summary_path\` (first 20 lines, from existing materialized product)"
           echo
           for i in $(seq 1 "$N"); do
             echo "### run $i"
@@ -1976,19 +1997,15 @@ PYEOF
                 echo
               fi
             fi
-            plan_path="$OUTDIR/run-$i.plan.json"
+            plan_path="${summary_plan_paths[$i]}"
             summary_scratch="$OUTDIR/run-$i.repo"
             if [[ -n "$MULTIREPO" ]]; then
               summary_scratch="$OUTDIR/run-$i.parent/$MULTIREPO_WRITE_ROOT"
             fi
-            if [[ -n "$POST_APPLY_FILES" ]]; then
-              summary_source="$(eval_materialize_write_apply_source "$plan_path" "$OUTDIR" "$summary_scratch" "$i" || true)"
-              src=""
-              if [[ -n "$summary_source" ]]; then
-                src="$(eval_post_apply_scope_source_file "$summary_source" "$summary_path")" || src=""
-              fi
-            else
-              src="$(eval_post_apply_source_file "$plan_path" "$OUTDIR" "$summary_scratch" "$i" "$summary_path" || true)"
+            summary_source="${summary_source_paths[$i]}"
+            src=""
+            if [[ -n "$summary_source" ]]; then
+              src="$(eval_post_apply_scope_source_file "$summary_source" "$summary_path")" || src=""
             fi
             if [[ -n "$src" ]]; then
               echo '```'

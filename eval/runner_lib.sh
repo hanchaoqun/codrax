@@ -1573,6 +1573,12 @@ eval_write_apply_result_record() {
     printf '  "allow_unverified": %s\n' "$(eval_bool_literal "$allow_unverified")"
     echo "}"
   } >"$result_file"
+  # Bind the execution-selected plan once. Summary reads this handoff; it must
+  # not rediscover a plan or rematerialize delivery while rendering a report.
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  python3 "$script_dir/write_summary_receipts.py" capture --receipt "$result_file" \
+    --plan "$plan_path" --outdir "$outdir" --scratch "$scratch"
 }
 
 eval_max_context_tokens_estimate() {

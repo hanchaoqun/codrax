@@ -1666,6 +1666,10 @@ JSON
   printf 'planned\n'
   exit 0
 fi
+if [[ "${FAKE_WRITE_COMMANDLESS:-0}" == "1" && -z "$plan_file" ]]; then
+  plan_file="$repo/.codrax/plans/plan-fake-write-apply.json"
+  mkdir -p "$(dirname "$plan_file")"
+fi
 if [[ -n "$plan_file" ]]; then
   plan_dir="$(dirname "$plan_file")"
   early_sha=""
@@ -1779,6 +1783,7 @@ import sys
 
 plan_path = Path(sys.argv[1])
 plan = json.loads(plan_path.read_text())
+plan["summary"] = "fix typo"
 owners = []
 
 def persist_owner(owner, sha, paths):
@@ -1838,6 +1843,29 @@ if [[ -z "$write_pass_dir" ]]; then
 fi
 assert_eq "$(cat "$write_pass_dir/run-1.verdict")" "PASS" "write apply report pass verdict"
 assert_eq "$(eval_json_top_bool_field "$write_pass_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply result authoritative in run.sh"
+
+# HMC244: Auto Pilot owns its actual persisted plan; no run-N.plan.json
+# mirror exists. The summary must consume the run receipt, not that filename.
+write_commandless_case="$tmp/runner_write_apply_commandless_summary.case"
+cat >"$write_commandless_case" <<'CASE'
+ID=runner_write_apply_commandless_summary
+NAME="commandless summary follows actual plan receipt"
+MODE=apply
+COMMANDLESS_APPLY=1
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_COMMANDLESS=1 FAKE_WRITE_REPORT=1 CODRAX_BIN="$fake_write_apply" CODRAX_PROVIDER_ARGS_RAW="" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_commandless_case" 1 >"$tmp/runner-commandless.out" 2>"$tmp/runner-commandless.err"
+write_commandless_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_commandless_summary-*' | sort | tail -1)"
+[[ -n "$write_commandless_dir" ]] || fail "commandless summary result absent"
+assert_eq "$(cat "$write_commandless_dir/run-1.verdict")" PASS "commandless execution is independently verified"
+[[ ! -e "$write_commandless_dir/run-1.plan.json" ]] || fail "summary must not manufacture a plan mirror"
+grep -Fq '| 1 | plan-fake-write-apply | yes | 1 | patch | main.py |' "$write_commandless_dir/summary.md" || fail "summary lost receipt-owned commandless plan"
+grep -Fq 'return f' "$write_commandless_dir/summary.md" || fail "summary lost receipt-owned delivered source"
+grep -Fq 'Applied diff hunk' "$write_commandless_dir/summary.md" || fail "commandless summary lost actual plan diff provenance"
+grep -Fq 'cmd=make check' "$write_commandless_dir/summary.md" || fail "commandless summary lost actual plan command receipt"
 
 write_unverified_case="$tmp/runner_write_apply_final_unverified.case"
 cat >"$write_unverified_case" <<'CASE'
