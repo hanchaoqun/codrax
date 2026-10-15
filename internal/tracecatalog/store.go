@@ -134,6 +134,23 @@ func Load(ctx context.Context, path string) (Snapshot, error) {
 	if err != nil || !generation.SameVersion(current) {
 		return Snapshot{}, fmt.Errorf("catalog path changed while reading")
 	}
+	snapshot, err := DecodeSnapshot(data)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
+	return snapshot, nil
+}
+
+// DecodeSnapshot recognizes complete bounded historical navigation bytes only.
+// It performs no filesystem access and grants no current catalog, source,
+// execution or window authority. Load and file-read navigation share this gate.
+func DecodeSnapshot(data []byte) (Snapshot, error) {
+	if len(data) > MaxSnapshotBytes {
+		return Snapshot{}, fmt.Errorf("catalog snapshot exceeds size limit")
+	}
 	// All navigation keys must be unambiguous, including history; a duplicate
 	// cannot select an alternative root, member, or plan during restoration.
 	unique := json.NewDecoder(bytes.NewReader(data))
@@ -169,9 +186,6 @@ func Load(ctx context.Context, path string) (Snapshot, error) {
 		}
 	}
 	if err := validateSnapshot(snapshot); err != nil {
-		return Snapshot{}, err
-	}
-	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
 	return snapshot, nil

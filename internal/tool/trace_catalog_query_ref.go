@@ -63,7 +63,7 @@ func traceQueryResolveCatalogReference(ctx *types.BusContext, raw json.RawMessag
 		}
 		q, found := c.Query(r.QueryID)
 		if !found {
-			break
+			return nil, nil, traceCatalogWrongReference(c, r.QueryID)
 		}
 		for _, a := range c.Snapshot().Artifacts {
 			if a.ID != q.ArtifactID {

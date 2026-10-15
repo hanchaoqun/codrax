@@ -5123,6 +5123,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
 	readVersion.record(ctx, result, summary == content)
 	recordCompletionReadCoverage(ctx, fsPath, result)
+	finishTraceCatalogReadNavigation(ctx, fsPath, data, sliceStart == 0 && sliceEnd == totalLines && summary == content && !clampedByInlineBudget, &result)
 	return result, nil
 }
 

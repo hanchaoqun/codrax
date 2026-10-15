@@ -194,19 +194,26 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, 
 	queryCalls := map[string]any{}
 	for i := offset; i < total && len(records) < pageSize; i++ {
 		if i < len(s.Artifacts) {
-			records = append(records, s.Artifacts[i])
+			records = append(records, traceCatalogRecord("candidate_artifact", s.Artifacts[i]))
 		} else {
 			q := s.Queries[i-len(s.Artifacts)]
-			records = append(records, q)
+			records = append(records, traceCatalogRecord("current_query_plan", q))
 			queryCalls[q.ID] = map[string]any{"catalog_query_ref": map[string]string{"catalog_id": s.ID, "query_id": q.ID}}
 		}
 	}
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
 		"candidate_count": len(s.Artifacts), "planned_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
 		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
-	page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query."
+	page["current_counts"] = traceCatalogCounts(s.Queries)
 	if len(queryCalls) > 0 {
+		page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query. Plans, attempts, and artifact-object pairs are different counts; no count here is a runtime measurement."
 		page["query_calls"] = queryCalls
+	} else if len(s.Queries) == 0 {
+		page["execution"] = "Only candidate files were discovered; no executable query plans exist. Candidate artifact IDs are not query IDs. Use an ordinary trace_query with a selected candidate path and explicit query arguments, or discover with expected queries."
+	} else if offset == total {
+		page["execution"] = "End of the current catalog: no more records or query_calls on this page."
+	} else {
+		page["execution"] = "This page contains candidates only; use next_call to reach planned query_calls. Candidate artifact IDs are not query IDs."
 	}
 	if len(s.History) > 0 {
 		page["historical_runs"] = len(s.History)
