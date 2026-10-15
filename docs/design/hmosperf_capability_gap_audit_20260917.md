@@ -8127,3 +8127,63 @@ A上下文首轮83373估算tokens/4消息，末轮129718/37消息，增46345；�
 末版`full-v3`在`f745c100b43781dfd3778680a1af07ca114f4e7e`正式exit0：92包PASS、13包SKIP、0失败事件/0非JSON行，tool637.295秒。仅验证命令使用20m包预算，产品timeout不变。运行期间Go/测试冻结，正式退出后6192个Go/build输入及6个case/fixture/oracle逐项hash全通过；标准make exit0，末版二进制SHA256 `716e9434e6793030cd8548482dbbc6a94f555c06e8d0304f5f070ee4413abd54`。两例真实模型使用的是较早冻结`4e21da1a01ec`，不能将末版全绿与早期机器PASS拼接成修后人工PASS。
 
 原件目录`eval/results/hmc_filtered_sampling_identity_20261014/`已归档两份机器verdict/独立manual-verdict、完整阶段日志/blob、最终MD/HTML/sidecar、原case/fixture/oracle，以及所有开发RED/中间失败/full-v1 FAIL/full-v2与v3收据。首轮185份复制逐字节一致、272份产物入`evidence-sha256-index.txt`；后续发布收据仅追加并重建索引，不覆盖不一致原件。归档Go探针改扩展名`.go.txt`但原字节不改；二进制/凭据不入归档。`batch-audit.md`与`verification-receipts/codrax-hmc242-verification-status-v1.json`记录实现、整答失败和未覆盖分支，最终文档/远端SHA另附发布收据。本地忽略的结果目录不宣称已推远端，中央文档记录可复核入口。
+
+## 243. 采样事实跨展示复用与精确原生泳道选择（2026-10-14，末版验收完成）
+
+### 243.1 核账、参考意图和退出条件
+
+起点`00c058653e1f1a75dc71372d60eb1c5fc699e735`工作区干净。逐ID复算79唯一任务、21已交付、58开放，重复0；开放状态36待实施/16部分实施/2待验收/3验收中/1持续执行。§242整答人工0/2及以前失败原件保持原状，不以正确附录或后续公开测试倒签。
+
+本批仍只有两条实施轨。能力轨复用已有原生量测publication/receipt、来源窗口与预算，把同一次真实采样查询的精确symbol/DSO事实组交给正文、表格和无因果边事实图；各cohort保独立分母和单位，采样记录数不改称栈帧数，总体质量不移给热点子集。仅在原生身份证明记录互不重叠时合计次数，不跨cohort合计权重，不另建任意表达式/计算DSL。缺陷轨用当前受信原生lane的显式显示选择统一箭头与Note挂载；完整事件anchor及既有请求绑定仍有效，单凭标签相似不能合并孤立Note，搬运Note不把其文字认证为原生事实。保Trace因果投影、自动补齐及原有关系/位置权限。
+
+实际阅读参考`perf_calltree_ops.py::_build_full_tree`及`wakeup_chain_index.py`：前者先选线程/窗口总体、再按真实callchain计数并在树上复用同一分母；后者明确保留内部itid，同时公开真实tid以兼顾显示与反查。本项目采纳“选择与事实先冻结、展示不重新推算”和“显示名不替代内部身份”。不复制参考的缺栈排除、仅名称路径key、比例换窗口毫秒、旧时钟空窗fallback或最近唤醒自动因果关联；本项目已有明确同轴时间窗不做额外时区转换。
+
+退出条件：公开query→当前成文合同→emit/patch/恢复→渲染保持采样来源、实际筛选、独立分母、未知质量及单位；JSON/陈旧或错来源选择不能恢复私有权限。图公开入口能用精确选择将Note和真实箭头放到同一泳道，声明冲突、错窗/源/旧选择保持失败，事件数量/身份/顺序及自由Note文字不被改写。快检覆盖新增字段、动态schema、clone/序列化/普查、L1/L7/L8、技能旧教学及相邻量测/事件功能，冻结后一次完整回归。
+
+真实双例固定原`trace_filtered_sampling_hotspots`与原`native_registration_commandless`，并行各一次，不改自然问题、不追第三例。前者验上批选中4次与质量作用域/正文口径，后者轮换真实CLI/controller只读登记；若只是普通apply成功，登记分支必须记未覆盖。图若未自然出现只报公开回归通过，不代签live图验收；完整树与sample-only原退出条件不被flat例代验。重复表格、历史预算、数据缺口计数标签及活动SQLite/BRBE等留原编号，除明确阻断本批正确性不夹带第三轨。
+
+### 243.2 冻结实现与公开反例闭环
+
+实现冻结提交`b66fa1370072930a52fe5b8deda8f4137820cc48`，两轨共用现有事实/关系框架，没有新增任意计算DSL或问答关键词硬门。采样以真实query、物理来源代次、线程、窗口及端点、symbol/DSO冻结事实组；每个采集总体单独保次数、权重、分母、单位、样本类型与时钟。正文、表格、无边事实图复用原`runtime_measurement:{observation_id,view}`，总体质量不移给热点，短总体标记关联主表与质量表。私有发布见证和表内容摘要不随JSON传递，旧普通量测保持table-only；原有32组/128行交接预算不增加，不授完整树/成员集/调查完成或因果权限。
+
+图新增仅显示用的`diagram.runtime_participants_v1`，从当前受信线程泳道选择精确绑定。公开原反例7泳道归并为真实3泳道，三条事件身份/顺序和自由Note原文保持；未选择的同名节点不猜身份。显示选择不能补请求主体资格、不能生成因果边。声明、箭头和Note主体按语法位置共同改写；当前选择每次emit/patch/恢复重新绑定，跨块失败原子化。实际合并涉及的创建/销毁/激活语义保守拒绝，不影响无关线程或未真正归并的生命周期。
+
+独立复核在冻结前还发现并保留三个公开RED：①隐式原生`[1.1,3]`含末点900却标半开窗；②采样事实图误满足必需关系图并遮挡后续普通图；③普通量测的恢复稿改为summary/diagram后静默丢事实。末版分别按typed端点展示及scope资格、后检严格事实分类、共享恢复当前资格修复，原三个overlay同条件正式GREEN（tool1.155/orchestrator1.261/agent3.014秒）。隐式3条/915不裁改；合法`[1,3)`不能借该闭端点聚合，`[1,4)`可用。原端点RED外层未启pipefail但go输出FAIL，如实保留而不冒称shell exit1。图生命周期三变体另有公开RED→GREEN。全部反例和独立结论见`/tmp/codrax-hmc243-independent-review-v1.md`及同前缀原件。
+
+采样末版related-v12、兼容恢复、注册/schema pins及精确race均正式exit0；图related-v5五包与race-v2、后检公共来源矩阵均exit0；skill整包和L1/hot-file相关回归通过。无匹配测试的render行不计覆盖，实际渲染由公开emit/patch/恢复测试验证。开发中schema条件、无contract准入、nil-view panic等真实失败及夹具/编译失败分开留证，不改旧pin求绿。所有Go与测试冻结后标准make正式exit0，二进制SHA256`806cfe98f5f256b93923187e8e13ba9eebc845d1c676adbd2414fe36dfc2460b`；6219个build/eval输入已冻结。完整回归和固定两例已启动，正式终态另记下节，尚不能以这些确定性收据销父项或倒签§242人工失败。
+
+### 243.3 固定双例：机器2/2、人工分层验收
+
+双例runner正式exit0，两例各一次并行；外层耗时164/186秒（case自身162/183秒），不追第三例。结果根`eval/results/hmc_sampling_surface_registration_20261014/`。两例都使用上述初版冻结代码；后续修复与末版全仓不能倒签本次自然答案。
+
+**A过滤采样：机器PASS、人工FAIL。** 实际event_search显式pid11和[1,2)，随后perf_stats省略目标和窗口，系统只补时间没有补目标。原生三总体35/7/100、A平面15与精确路径10+未知5正确；actual finalizer却没有新采样事实选择器或完整树，只有事件库存与若干observation IDs，错误调查摘要仍投递。9条旧pretriage候选已被正确supersede，不能错怪它们直接污染本轮finalizer。正文混合raw/simpleperf cycles并误算32，跨cycles/instructions合计132/142及92.96%，又把总体样本类型未知误写成单条截断、把字面帧`sys;root`拆开并断言唯一CPU热点。完整Markdown/HTML及primary/principal均失败；末尾正确原生质量附录不抵销。新采样selector、DSO独立过滤、采样失败后的自然重试及图均未触发，分析入口先错TID后改正不代签这些分支。该失败存在明确共享交接缺口，不归为已证明模型波动。
+
+**B命令未知的写模式：普通源码交付机器/人工PASS，登记NOT_TRIGGERED。** 实际隔离源码修改、3个原生unittest方法和1次探针通过，原测试/配置不改，结构化终态保留zero_tests检测；没有只读登记proposal或独立进程登记恢复。最终卡片“4条验证结果”正确，但controller实际finish工具参数与持久化progress_ledger误写“全部4个测试通过”，持久化说明一致性仍FAIL，不能称整个流程零缺陷。`/workflow show`消费该消息，但本次未调用，不误报最终卡片已展示错误数字。case summary另将实际plan_written=true/materialization已完成写成未产生计划/文件不可用，原write-apply.json、applied-tree和报告齐全；此验收摘要缺陷及runtime scope profile两次未知枚举/一次冲突重试挂原16.4/18.5，不夹带新实现轨。
+
+两例完整原件、独立人工报告和未覆盖项保留；本批完整能力新增0、仍21/79及58开放。先修共同入口/事实发布确证的系统缺口，不增加原问题约束，不靠扫原文阻断某种措辞。
+
+### 243.4 全仓失败收齐后的共同入口补救
+
+首轮`go test -json -timeout=20m ./...`正式exit1，90包PASS/13包SKIP/2包FAIL、无非JSON错误行；全部Action=fail归为三个测试根。agent的`NativePresentationReplacesOnlyCurrentSynthesisHMC240`两个分支和`PerfMemberPublicationHMC240SeparateFromPrefixTree`暴露新增采样事实族未接预算后完整发布凭证，不能简单将它归为tree族：精确树不证明flat未知栈或总体质量已展示。types的`RuntimeMeasurementShapeTeachingKeepsOrdinaryRowsSeparate`则是本批改写既有精确教学措辞，补救恢复原“interpretation belongs in a separate block”，不放宽断言。tool包591.442秒；全部6219个冻结build/eval输入在正式退出后核验一致，才开始同批修复。
+
+真实A的上游原因独立定位：已接受的user target为pid11+显示名，先执行event_search(pid11)又记录无名称cursor；旧继承按PID+名称去重，将同一线程算成两个目标。后续perf_stats因此只自动补窗而不补线程。补救优先复用typed同kind/合法数字PID身份，保非cursor来源、不同PID/线程与进程/名称-only歧义及显式selector优先，不从fixture唯一线程或原始问题猜目标。新采样发布不因此放宽无selector或来源代次权限。同步补新事实族逐组、真正预算后完整发布的凭证，防止同query另一组或树为未展示质量代签；原始调查笔记和混合源码/IO调查不无条件删除。原FAIL保持，末版公开正反、独审及完整回归另记。
+
+补救从真实`EmitAnalysis→IR→event_search→省略目标的perf_stats→实际finalizer`建立公开RED，不以手造单条RequestModel代替入口。较宽相关测试又发现合法`Thread-10 [56284]`被过度清名，改复用既有精确selector语法；旧线程默认/缓存用例的process或缺kind夹具明确为thread，同时保原process-only、unknown+thread及双RequestModel冲突负控。工具说明改为“规范身份比较后唯一”，不再教模型必须只有一条名册记录；当前golden与独立精确逆向差量同步，历史完整hash不变。
+
+实际perf_stats还比window_stats多旧`perf_sample_top_callchain`事实，须独立完整发布其原始路径、摘要、量尺及来源，不能借精确树签收未知路径。新增原文展示揭示32KiB共享预算被重复SourceRef占用、最后一个热点省略的安全FAIL；补救在当前段按来源JSON精确去重，首次目录项与成员行原子计预算，不删事实、不增32成员/32KiB上限。每个实际完整显示的事实族才签收，省略、错源或失去私有原生凭证仍保留当前调查摘要；独立笔记与源码/关系调查不因事实展示被删除。这是同轨交接闭包，不以新增模型重跑求绿。
+
+### 243.5 末版补救、独立审查与验收边界
+
+补救提交`00dae116512cc877c65bc143fb327e86f56713cd`共19文件。真实公开链恢复pid11及[1,2)，实际成文上下文保35/7/100、flat A15、exact A10及unknown5、字面帧`sys;root`；全部原生事实实际完整发布后才替换精确当前综合，独立笔记/源码/关系义务保留。该确定性结果不证明模型已自然选原生selector或答对原问题。name-only、不同ID/kind、当前IR歧义、非法selector和旧Mutable副本均不能冒充唯一目标，单个unknown-kind的旧兼容未被本批夸大为全面拒绝。
+
+目标相关v2正式exit0（tool14.496秒），race8.765秒；实际finalizer公开闭包1.514秒及race4.633秒通过。采样publication相关v1正式exit0（agent3.996秒），race33.339秒；首轮三根失败均有修后通过收据。schema/prompt/全部历史Description与ByteGolden、skill整包、结构/热文件检查均通过，不匹配测试的包不计覆盖。独立followup-v4正式exit0（3根17子），验证真实预算、原件普通/补齐重复、JSON/来源/窗口与当前摘要边界；callchain-v2正式exit0（1根4子），逐字段还原5条完整调用链及来源目录，实际13成员/1来源/29629字节，仍在原预算内。两份独立原失败及原probe版本保留，不因补救覆盖旧证据。
+
+末版标准make正式exit0，二进制SHA256`cd4e3d9f859992109d8add3c1340d59f4156158b2a9cb940a80ea793f56fb5ef`；6226个build/eval输入与二进制冻结后运行唯一末版full-v2，正式exit0：92包PASS/13包SKIP/0失败事件/0非JSON行，tool675.158秒。正式退出后所有冻结输入与二进制hash逐项通过；运行期间Go/测试不改，未增加第三次模型调用。原full-v1及开发中间失败不覆盖，不能以末版全绿倒签较早双例的自然答案。
+
+本批三联口径仍为：**完整能力新增0（累计21/79）、交付2组子能力、保留2组本批人工未通过问题；开放58项**。子能力为采样事实跨展示复用及准确选择/完整交接、精确原生图泳道选择；未通过问题为采样自然整答、写模式持久化完成说明与验收摘要一致性。旧图/预算/其它领域未完项仍留原ID，不混称这两组为所有剩余缺陷；未触发登记/图/自然采样retry属于未覆盖，不冒充新产品故障。
+
+下一批按ROI保持双轨：能力轨用`trace_binary_sample_only`验准备原件→已选总体→热点与诊断边界，优先收09.4/18.3而不再叠新采样表达结构；缺陷轨按真实验证结果的typed单位贯通完成说明/持久化/旧case摘要，挂16.4/18.5，并轮换只读登记终态。自然retry未触发和证据已充分的偶发措辞单列，不无限阻塞其它参考能力；没有注册行为的普通apply不会补签登记验收。
+
+下一缺陷轨已做只读预定位：`internal/writeflow/controller.go`仍把模型decision.Reason直接写入progress，既有`write_verify_render.go::renderVerifySuccess`却正确按TestResults称“验证结果”，需统一原生计数与展示角色而非扫描“4个测试”等原文。`eval/run.sh`的commandless执行使用发现的真实plan路径，旧摘要/文件预览仍固定`run-N.plan.json`，与实际交付收据分流；优先从已有typed交付记录复用真实路径，保路径/代次验证及原失败，不造空镜像计划追绿。这里只记录源码位置和后续方案，冻结期间没有实施或宣称这些已修。
+
+本地原件目录`eval/results/hmc_sampling_surface_registration_20261014/`首轮175份复制逐字节一致、342份产物/原来源hash全部复核；包括两份独立manual-verdict、完整工具blob、原MD/HTML/sidecars、原case/fixture/oracle、所有开发和全仓失败及末版通过收据。`batch-audit.md`和`verification-receipts/codrax-hmc243-verification-status-v2.json`明确真实模型版与最终代码版的边界，`evidence-sha256-index.txt`记录每项来源；后续发布收据只追加，不覆盖不一致原件。Go探针使用.go.txt，归档不含构建二进制或providers凭据。结果目录为本地忽略产物，不声称已经远端保存；中央代码、任务/审计文档和双例摘要按批提交推送。
