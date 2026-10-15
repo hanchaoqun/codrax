@@ -22,32 +22,34 @@ type TraceCatalog struct {
 
 func (*TraceCatalog) Name() string { return "trace_catalog" }
 func (*TraceCatalog) Description() string {
-	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence."
+	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
-	"action":{"type":"string","enum":["discover","status"],"description":"Default discover; status reads a current catalog without rediscovering."},
+	"action":{"type":"string","enum":["discover","status","resume"],"description":"Default discover; status reads a current catalog; resume re-admits only a historical roster under an explicitly authorized root, with all current queries pending."},
+	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
 	"recursive":{"type":"boolean","description":"Default true. Symbolic links are not followed; skipped and incomplete traversal are disclosed."},
 	"queries":{"type":"array","maxItems":16,"items":{"type":"object"},"description":"Optional expected trace_query calls for every candidate. Reuse that tool's argument contract, omit source/path. No execution or evidence is produced by planning."},
-	"catalog_id":{"type":"string","description":"Exact ID returned by discover; required for status."},
+	"catalog_id":{"type":"string","description":"Exact ID returned by discover or resume; required for status."},
 	"offset":{"type":"integer","minimum":0,"description":"Navigation page offset, default 0."}
 	}}`)
 }
 
 type traceCatalogParams struct {
-	Action    string            `json:"action"`
-	Root      string            `json:"root"`
-	Recursive *bool             `json:"recursive"`
-	Queries   []json.RawMessage `json:"queries"`
-	CatalogID string            `json:"catalog_id"`
-	Offset    int               `json:"offset"`
+	Action       string            `json:"action"`
+	Root         string            `json:"root"`
+	Recursive    *bool             `json:"recursive"`
+	Queries      []json.RawMessage `json:"queries"`
+	CatalogID    string            `json:"catalog_id"`
+	Offset       int               `json:"offset"`
+	SnapshotPath string            `json:"snapshot_path"`
 }
 
 func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (types.ToolResult, error) {
 	out := types.ToolResult{ToolName: t.Name(), Timestamp: time.Now()}
 	var p traceCatalogParams
-	if _, failure, err := decodeStrictToolParams(t.Name(), raw, t.Parameters(), &p, nil); err != nil {
+	if _, failure, err := decodeStrictToolParams(t.Name(), raw, t.Parameters(), &p, nil); failure != nil {
 		return *failure, err
 	}
 	if ctx == nil || ctx.Mutable == nil {
@@ -61,6 +63,10 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	var c *tracecatalog.Catalog
 	switch p.Action {
 	case "", "discover":
+		if p.SnapshotPath != "" {
+			out.Summary = "snapshot_path requires action=resume"
+			return out, nil
+		}
 		if p.CatalogID != "" {
 			out.Summary = "discover does not accept catalog_id; use status to read an existing catalog"
 			return out, nil
@@ -82,7 +88,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 				out.Summary = fmt.Sprintf("queries[%d]: %v", i, err)
 				return out, nil
 			}
-			if parsed[i].Source != "" || parsed[i].Path != "" || parsed[i].BusinessSpanRef != "" {
+			if parsed[i].Source != "" || parsed[i].Path != "" || parsed[i].BusinessSpanRef != "" || parsed[i].Comparison != nil {
 				out.Summary = "planned queries must omit source, path and capture-local business_span_ref"
 				return out, nil
 			}
@@ -121,8 +127,15 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 				}
 			}
 		}
+	case "resume":
+		var err error
+		c, err = traceCatalogResume(ctx, p)
+		if err != nil {
+			out.Summary = err.Error()
+			return out, nil
+		}
 	case "status":
-		if p.Root != "" || p.Recursive != nil || len(p.Queries) > 0 {
+		if p.Root != "" || p.Recursive != nil || len(p.Queries) > 0 || p.SnapshotPath != "" {
 			out.Summary = "status accepts only catalog_id and offset"
 			return out, nil
 		}
@@ -178,16 +191,27 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, 
 		return "", fmt.Errorf("catalog offset exceeds %d navigation records", total)
 	}
 	var records []any
+	queryCalls := map[string]any{}
 	for i := offset; i < total && len(records) < pageSize; i++ {
 		if i < len(s.Artifacts) {
 			records = append(records, s.Artifacts[i])
 		} else {
-			records = append(records, s.Queries[i-len(s.Artifacts)])
+			q := s.Queries[i-len(s.Artifacts)]
+			records = append(records, q)
+			queryCalls[q.ID] = map[string]any{"catalog_query_ref": map[string]string{"catalog_id": s.ID, "query_id": q.ID}}
 		}
 	}
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
 		"candidate_count": len(s.Artifacts), "planned_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
 		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
+	page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query."
+	if len(queryCalls) > 0 {
+		page["query_calls"] = queryCalls
+	}
+	if len(s.History) > 0 {
+		page["historical_runs"] = len(s.History)
+		page["history_notice"] = "All earlier attempts are retained in saved_index.history as navigation only. Current queries start not_executed, including historical successes; execute again for current facts."
+	}
 	if offset+len(records) < total {
 		page["next_call"] = map[string]any{"action": "status", "catalog_id": s.ID, "offset": offset + len(records)}
 	}

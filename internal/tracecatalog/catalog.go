@@ -104,12 +104,14 @@ type Plan struct {
 }
 
 type Completion struct {
-	Outcome        Outcome `json:"outcome"`
-	SourceRevision string  `json:"source_revision,omitempty"`
-	PayloadRef     string  `json:"payload_ref,omitempty"`
-	RawRef         string  `json:"raw_ref,omitempty"`
-	Truncated      bool    `json:"truncated,omitempty"`
-	Error          *Issue  `json:"error,omitempty"`
+	// Effective arguments after normal tool preparation/defaults; never user authority.
+	ExecutedParameters json.RawMessage `json:"executed_parameters,omitempty"`
+	Outcome            Outcome         `json:"outcome"`
+	SourceRevision     string          `json:"source_revision,omitempty"`
+	PayloadRef         string          `json:"payload_ref,omitempty"`
+	RawRef             string          `json:"raw_ref,omitempty"`
+	Truncated          bool            `json:"truncated,omitempty"`
+	Error              *Issue          `json:"error,omitempty"`
 }
 
 type Attempt struct {
@@ -129,13 +131,24 @@ type QueryRecord struct {
 // Snapshot never carries the run identity or source validators. Load returns
 // this type only; it cannot be converted back into a live Catalog.
 type Snapshot struct {
-	SchemaVersion  int           `json:"schema_version"`
-	ID             string        `json:"id"`
-	Root           string        `json:"root"`
-	NavigationOnly bool          `json:"navigation_only"`
-	Discovery      Discovery     `json:"discovery"`
-	Artifacts      []Artifact    `json:"artifacts"`
-	Queries        []QueryRecord `json:"queries"`
+	SchemaVersion  int             `json:"schema_version"`
+	ID             string          `json:"id"`
+	Root           string          `json:"root"`
+	NavigationOnly bool            `json:"navigation_only"`
+	Discovery      Discovery       `json:"discovery"`
+	Artifacts      []Artifact      `json:"artifacts"`
+	Queries        []QueryRecord   `json:"queries"`
+	History        []HistoricalRun `json:"history,omitempty"`
+}
+
+// HistoricalRun is audit navigation only, separate from current attempts.
+// It deliberately has no nested history or live source/declared-plan authority.
+type HistoricalRun struct {
+	ID        string        `json:"id"`
+	Root      string        `json:"root"`
+	Discovery Discovery     `json:"discovery"`
+	Artifacts []Artifact    `json:"artifacts"`
+	Queries   []QueryRecord `json:"queries"`
 }
 
 type sourceBinding struct {
@@ -160,6 +173,9 @@ type Catalog struct {
 	bindings    map[string]sourceBinding
 	queries     map[string]QueryRecord
 	declared    map[string]bool
+	history     []HistoricalRun
+	// Fresh Resume admission only; distinct from declared-window authority.
+	resumedPlans map[string]bool
 	// independentInputs is minted only by the explicit two-side constructor;
 	// persisted navigation snapshots cannot restore this operation permission.
 	independentInputs bool
@@ -194,6 +210,7 @@ func (c *Catalog) snapshotLocked() Snapshot {
 	s := Snapshot{SchemaVersion: SchemaVersion, ID: c.id, Root: c.root, NavigationOnly: true, Discovery: c.discovery,
 		Artifacts: make([]Artifact, 0, len(c.artifacts)), Queries: make([]QueryRecord, 0, len(c.queries))}
 	s.Discovery.Issues = append([]Issue(nil), c.discovery.Issues...)
+	s.History = cloneHistory(c.history)
 	for _, a := range c.artifacts {
 		a.Issues = append([]Issue(nil), a.Issues...)
 		s.Artifacts = append(s.Artifacts, a)
@@ -218,6 +235,7 @@ func cloneQuery(q QueryRecord) QueryRecord {
 	}
 	q.Attempts = append([]Attempt(nil), q.Attempts...)
 	for i := range q.Attempts {
+		q.Attempts[i].ExecutedParameters = append(json.RawMessage(nil), q.Attempts[i].ExecutedParameters...)
 		if q.Attempts[i].Error != nil {
 			v := *q.Attempts[i].Error
 			q.Attempts[i].Error = &v

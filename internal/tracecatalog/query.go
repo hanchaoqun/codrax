@@ -245,6 +245,11 @@ func (c *Catalog) Complete(ctx context.Context, queryID string, completion Compl
 }
 
 func validateCompletion(c Completion) error {
+	if len(c.ExecutedParameters) > 0 {
+		if _, err := normalizePlan(Plan{ArtifactID: "execution", Object: Object{Kind: "capture", ID: "all"}, View: "execution", Parameters: c.ExecutedParameters}); err != nil {
+			return err
+		}
+	}
 	switch c.Outcome {
 	case OutcomeSuccess, OutcomeEmpty:
 		if (c.PayloadRef == "" && c.RawRef == "") || c.SourceRevision == "" || c.Error != nil {
@@ -281,6 +286,7 @@ func (c *Catalog) attemptCountLocked() int {
 }
 
 func (c *Catalog) appendAttemptLocked(q *QueryRecord, completion Completion) {
+	completion.ExecutedParameters = append(json.RawMessage(nil), completion.ExecutedParameters...)
 	seq := c.run.sequence.Add(1)
 	a := Attempt{ID: digest("attempt_", struct {
 		Query    string
@@ -317,6 +323,11 @@ func (c *Catalog) Clone() *Catalog {
 		artifacts: map[string]Artifact{}, generations: make(map[string]filegeneration.Identity),
 		bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}}
 	copy.independentInputs = c.independentInputs
+	copy.history = cloneHistory(c.history)
+	copy.resumedPlans = make(map[string]bool, len(c.resumedPlans))
+	for id, resumed := range c.resumedPlans {
+		copy.resumedPlans[id] = resumed
+	}
 	copy.independentOrigins = make(map[string]string, len(c.independentOrigins))
 	for path, id := range c.independentOrigins {
 		copy.independentOrigins[path] = id
@@ -446,6 +457,14 @@ func (c *Catalog) Merge(other *Catalog) error {
 	for id, declared := range copy.declared {
 		if declared {
 			c.declared[id] = true
+		}
+	}
+	if c.resumedPlans == nil {
+		c.resumedPlans = map[string]bool{}
+	}
+	for id, resumed := range copy.resumedPlans {
+		if resumed {
+			c.resumedPlans[id] = true
 		}
 	}
 	return nil

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
@@ -77,12 +78,16 @@ func traceCatalogExactNS(seconds float64) (int64, bool) {
 }
 
 type traceCatalogQueryTicket struct {
-	catalog     *tracecatalog.Catalog
-	artifact    tracecatalog.Artifact
-	queryID     string
-	raw         json.RawMessage
-	predeclared bool
-	revision    string
+	catalog            *tracecatalog.Catalog
+	artifact           tracecatalog.Artifact
+	queryID            string
+	raw                json.RawMessage
+	predeclared        bool
+	revision           string
+	fixedPlan          bool
+	resumedPlan        bool
+	admissionFailed    bool
+	executedParameters json.RawMessage
 }
 
 // Called on an already decoded explicit path, before preparation. Failed
@@ -139,11 +144,14 @@ func traceCatalogBindQuery(ctx *types.BusContext, tickets []traceCatalogQueryTic
 		if err != nil {
 			return err
 		}
-		q, err := t.catalog.RegisterPlannedQuery(contextFromBus(ctx), plan)
-		if err != nil {
-			return err
+		if !t.fixedPlan {
+			q, err := t.catalog.RegisterPlannedQuery(contextFromBus(ctx), plan)
+			if err != nil {
+				return err
+			}
+			t.queryID = q.ID
 		}
-		t.queryID = q.ID
+		t.executedParameters = plan.Parameters
 		t.revision = v.Fingerprint()
 	}
 	return nil
@@ -154,7 +162,7 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 		return
 	}
 	for _, t := range tickets {
-		completion := tracecatalog.Completion{Outcome: tracecatalog.OutcomeSuccess, SourceRevision: t.revision, RawRef: out.RawRef}
+		completion := tracecatalog.Completion{Outcome: tracecatalog.OutcomeSuccess, SourceRevision: t.revision, RawRef: out.RawRef, ExecutedParameters: t.executedParameters}
 		if out.EnumerationAuthority != nil {
 			completion.Truncated = out.EnumerationAuthority.Status == "incomplete"
 		}
@@ -178,9 +186,20 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			if out.Repair != nil && out.Repair.Code != "" {
 				code = out.Repair.Code
 			}
-			completion.Error = &tracecatalog.Issue{Code: code, Path: t.artifact.Path, Message: out.Summary}
+			message := out.Summary
+			if len(message) > tracecatalog.MaxTextBytes {
+				message = message[:tracecatalog.MaxTextBytes-3]
+				for !utf8.ValidString(message) {
+					message = message[:len(message)-1]
+				}
+				message += "..."
+			}
+			completion.Error = &tracecatalog.Issue{Code: code, Path: t.artifact.Path, Message: message}
 		}
-		_, currentErr := t.catalog.Resolve(contextFromBus(ctx), t.artifact.ID)
+		var currentErr error
+		if !t.admissionFailed {
+			_, currentErr = t.catalog.Resolve(contextFromBus(ctx), t.artifact.ID)
+		}
 		if currentErr != nil && contextFromBus(ctx).Err() == nil {
 			completion.Outcome = tracecatalog.OutcomeStale
 			completion.Error = &tracecatalog.Issue{Code: "source_changed", Path: t.artifact.Path, Message: currentErr.Error()}
@@ -189,7 +208,10 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 		if completionErr != nil {
 			out.Summary += "\nCapture index update failed: " + completionErr.Error()
 		}
-		independent := completionErr == nil && currentErr == nil && t.predeclared && len(t.catalog.Snapshot().Artifacts) > 1
+		// Resume's current execution roster is distinct from the discovery-time
+		// declared-window marker. Only a fully re-admitted reference may isolate
+		// a member's preparation failure; replay/repetition cannot mint it.
+		independent := completionErr == nil && currentErr == nil && !t.admissionFailed && (t.predeclared || t.resumedPlan) && len(t.catalog.Snapshot().Artifacts) > 1
 		// Exact request-owned comparison inputs retain a failed/stale side
 		// without terminating the other side. JSON snapshots cannot mint it.
 		independent = independent || t.catalog.IndependentInput(t.artifact.ID) && contextFromBus(ctx).Err() == nil && (completionErr == nil || errors.Is(completionErr, tracecatalog.ErrStale))
@@ -197,7 +219,7 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			!strings.HasSuffix(strings.ToLower(t.artifact.Path), ".tracebundle.json") {
 			out.TraceCatalogIndependentFailure = true
 		}
-		if _, err := saveTraceCatalog(ctx, t.catalog); err != nil {
+		if _, err := saveTraceCatalogAfterAttempt(ctx, t.catalog); err != nil {
 			out.Summary += "\nCapture index persistence failed: " + err.Error()
 		}
 	}

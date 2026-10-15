@@ -134,6 +134,13 @@ func Load(ctx context.Context, path string) (Snapshot, error) {
 	if err != nil || !generation.SameVersion(current) {
 		return Snapshot{}, fmt.Errorf("catalog path changed while reading")
 	}
+	// All navigation keys must be unambiguous, including history; a duplicate
+	// cannot select an alternative root, member, or plan during restoration.
+	unique := json.NewDecoder(bytes.NewReader(data))
+	unique.UseNumber()
+	if _, err := canonicalValue(unique, 0); err != nil {
+		return Snapshot{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var snapshot Snapshot
@@ -152,6 +159,15 @@ func Load(ctx context.Context, path string) (Snapshot, error) {
 		}
 		snapshot.Queries[i].Plan = plan
 	}
+	for h := range snapshot.History {
+		for i := range snapshot.History[h].Queries {
+			plan, err := normalizePlan(snapshot.History[h].Queries[i].Plan)
+			if err != nil {
+				return Snapshot{}, err
+			}
+			snapshot.History[h].Queries[i].Plan = plan
+		}
+	}
 	if err := validateSnapshot(snapshot); err != nil {
 		return Snapshot{}, err
 	}
@@ -162,6 +178,14 @@ func Load(ctx context.Context, path string) (Snapshot, error) {
 }
 
 func validateSnapshot(s Snapshot) error {
+	if len(s.History) > MaxHistoricalRuns {
+		return fmt.Errorf("catalog history limit exceeded")
+	}
+	for _, h := range s.History {
+		if err := validateSnapshot(Snapshot{SchemaVersion: SchemaVersion, ID: h.ID, Root: h.Root, NavigationOnly: true, Discovery: h.Discovery, Artifacts: h.Artifacts, Queries: h.Queries}); err != nil {
+			return fmt.Errorf("historical catalog: %w", err)
+		}
+	}
 	if s.SchemaVersion != SchemaVersion || s.ID == "" || !s.NavigationOnly || !filepath.IsAbs(s.Root) {
 		return fmt.Errorf("unsupported or non-navigation catalog snapshot")
 	}

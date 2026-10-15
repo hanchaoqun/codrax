@@ -286,7 +286,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryPerfSamplingTreeSchema(traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))))))
+	return traceQueryCatalogReferenceSchema(traceQueryPerfSamplingTreeSchema(traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -333,6 +333,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 
 	schema := t.Parameters()
 	params = applyStructuredPayloadCompat(t.Name(), params, schema)
+	params, catalogTickets, executeErr = traceQueryResolveCatalogReference(ctx, params)
+	if executeErr != nil {
+		return types.ToolResult{ToolName: t.Name(), Summary: executeErr.Error(), Timestamp: time.Now()}, nil
+	}
 	var p traceQueryParams
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
@@ -460,7 +464,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if sourceReject != nil {
 		return *sourceReject, nil
 	}
-	catalogTickets = traceCatalogBeginQuery(ctx, p, params)
+	if len(catalogTickets) == 0 {
+		catalogTickets = traceCatalogBeginQuery(ctx, p, params)
+	}
 	if err := traceQueryValidateAttachedInputBeforeMaterialization(ctx, p); err != nil {
 		if traceQueryIsCancellation(err) {
 			return traceQueryCancellationResult(p.View, "attached_trace", err), nil
