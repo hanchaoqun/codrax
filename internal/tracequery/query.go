@@ -3780,11 +3780,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 }
 
 type perfHotspotAcc struct {
-	item      PerfHotspot
-	period    perfCheckedInt64
-	threadSet perfThreadIdentitySet
-	cpuSet    perfCPUSet
-	total     *int64
+	item         PerfHotspot
+	recordedTime perfSampleTimeAcc
+	period       perfCheckedInt64
+	threadSet    perfThreadIdentitySet
+	cpuSet       perfCPUSet
+	total        *int64
 }
 
 type perfThreadAcc struct {
@@ -3835,6 +3836,7 @@ type perfCohortAcc struct {
 	key                          perfCohortKey
 	scope                        *PerfCohortScope
 	sampleCount                  int
+	recordedTime                 perfSampleTimeAcc
 	total                        perfCheckedInt64
 	threadIdentityUnknownSamples int
 	threadSet                    perfThreadIdentitySet
@@ -4069,6 +4071,7 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 		}
 		ctx.SampleCount++
 		cohort.sampleCount++
+		cohort.recordedTime.add(ev.Ts)
 		cohort.total.add(period)
 		if !threadIdentityOK {
 			notePerfThreadIdentityUnknown(&ctx.ThreadIdentityUnknownSampleCount, &ctx.ThreadIdentityCountExact)
@@ -4094,14 +4097,14 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value, ev.Ts)
 		addPerfHotspot(cohort.byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
 			DSO:                 pf.DSO,
 			Event:               cohortKey.event,
 			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value, ev.Ts)
 		callchainKey, callchainIdentity := perfCallchainIdentity(pf, frames, frameReason)
 		addPerfHotspot(cohort.byCallchain, callchainKey, PerfHotspot{
 			Symbol:              pf.Symbol,
@@ -4112,13 +4115,13 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value, ev.Ts)
 		addPerfHotspot(cohort.byEvent, cohortKey.event, PerfHotspot{
 			Event:               cohortKey.event,
 			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value, ev.Ts)
 		if threadIdentityOK {
 			addPerfThread(cohort.byThread, threadKey, threadIdentity, cpu, ev.Line, period, example, &cohort.total.value)
 		}
@@ -4809,7 +4812,7 @@ func perfValueCountsContain(values []PerfValueCount, want string) bool {
 	return false
 }
 
-func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, threadKey perfThreadKey, identity PerfThreadIdentity, identityOK bool, cpu int, line int, period int64, example string, total *int64) {
+func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, threadKey perfThreadKey, identity PerfThreadIdentity, identityOK bool, cpu int, line int, period int64, example string, total *int64, sampleTs float64) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		key = "unknown"
@@ -4830,6 +4833,7 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 		acc.item.SymbolizationStatus = "mixed"
 	}
 	acc.item.SampleCount++
+	acc.recordedTime.add(sampleTs)
 	acc.period.add(period)
 	if acc.item.LineStart == 0 || (line > 0 && line < acc.item.LineStart) {
 		acc.item.LineStart = line
@@ -4899,6 +4903,7 @@ func materializePerfCohorts(in map[perfCohortKey]*perfCohortAcc, max int) []Perf
 		acc := in[key]
 		item := PerfCohort{
 			Scope:                            acc.scope,
+			RecordedTime:                     acc.recordedTime.summary(),
 			Event:                            key.event,
 			WeightUnit:                       key.weightUnit,
 			WeightStatus:                     perfAggregateStatusOverflow,
@@ -4986,6 +4991,7 @@ func perfHotspotCandidateLess(left, right perfHotspotCandidate) bool {
 
 func materializePerfHotspot(acc *perfHotspotAcc) PerfHotspot {
 	item := acc.item
+	item.RecordedTime = acc.recordedTime.summary()
 	if acc.period.exact {
 		item.Period = acc.period.value
 	}

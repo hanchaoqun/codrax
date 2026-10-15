@@ -19,6 +19,9 @@ func TestPerfAggregateSchemaAddsOnlyOptionalScope(t *testing.T) {
 		{reflect.TypeOf(tracequery.PerfTimelineCohort{}), "Event|string|event;WeightUnit|string|weight_unit;WeightStatus|string|weight_status;SampleCount|int|sample_count,omitempty;Period|int64|period,omitempty;TopSymbol|string|top_symbol,omitempty;TopDSO|string|top_dso,omitempty"},
 	} {
 		_, schema := detailSchemaFingerprint(tc.typ)
+		if tc.typ == reflect.TypeOf(tracequery.PerfCohort{}) {
+			schema = perfSchemaBeforeRecordedTime(t, schema)
+		}
 		const added = "Scope|*tracequery.PerfCohortScope|scope,omitempty;"
 		if !strings.HasPrefix(schema, added) || strings.TrimPrefix(schema, added) != tc.old {
 			t.Fatalf("%s changed outside optional source scope: %s", tc.typ.Name(), schema)

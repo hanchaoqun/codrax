@@ -1926,21 +1926,22 @@ type PerfContext struct {
 // "exact" or "aggregate_overflow". An overflow cohort retains sample and
 // identity inventory but intentionally publishes no weighted Top-N.
 type PerfCohort struct {
-	Scope                            *PerfCohortScope    `json:"scope,omitempty"`
-	Event                            string              `json:"event"`
-	WeightUnit                       string              `json:"weight_unit"`
-	WeightStatus                     string              `json:"weight_status"`
-	SampleCount                      int                 `json:"sample_count,omitempty"`
-	TotalPeriod                      int64               `json:"total_period,omitempty"`
-	ThreadIdentityCount              int                 `json:"thread_identity_count,omitempty"`
-	ThreadIdentityCountExact         *bool               `json:"thread_identity_count_exact,omitempty"`
-	ThreadIdentityUnknownSampleCount int                 `json:"thread_identity_unknown_sample_count,omitempty"`
-	Quality                          *PerfQualitySummary `json:"quality,omitempty"`
-	TopSymbols                       []PerfHotspot       `json:"top_symbols,omitempty"`
-	TopDSO                           []PerfHotspot       `json:"top_dso,omitempty"`
-	TopCallchains                    []PerfHotspot       `json:"top_callchains,omitempty"`
-	TopThreads                       []PerfThreadSummary `json:"top_threads,omitempty"`
-	TopEvents                        []PerfHotspot       `json:"top_events,omitempty"`
+	Scope                            *PerfCohortScope      `json:"scope,omitempty"`
+	RecordedTime                     *PerfSampleTimeBounds `json:"recorded_time,omitempty"`
+	Event                            string                `json:"event"`
+	WeightUnit                       string                `json:"weight_unit"`
+	WeightStatus                     string                `json:"weight_status"`
+	SampleCount                      int                   `json:"sample_count,omitempty"`
+	TotalPeriod                      int64                 `json:"total_period,omitempty"`
+	ThreadIdentityCount              int                   `json:"thread_identity_count,omitempty"`
+	ThreadIdentityCountExact         *bool                 `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                   `json:"thread_identity_unknown_sample_count,omitempty"`
+	Quality                          *PerfQualitySummary   `json:"quality,omitempty"`
+	TopSymbols                       []PerfHotspot         `json:"top_symbols,omitempty"`
+	TopDSO                           []PerfHotspot         `json:"top_dso,omitempty"`
+	TopCallchains                    []PerfHotspot         `json:"top_callchains,omitempty"`
+	TopThreads                       []PerfThreadSummary   `json:"top_threads,omitempty"`
+	TopEvents                        []PerfHotspot         `json:"top_events,omitempty"`
 }
 
 type PerfHotspot struct {
@@ -1953,6 +1954,7 @@ type PerfHotspot struct {
 	Source                           string                 `json:"source,omitempty"`
 	SymbolizationStatus              string                 `json:"symbolization_status,omitempty"`
 	SampleCount                      int                    `json:"sample_count,omitempty"`
+	RecordedTime                     *PerfSampleTimeBounds  `json:"recorded_time,omitempty"`
 	Period                           int64                  `json:"period,omitempty"`
 	Percent                          float64                `json:"percent,omitempty"`
 	ThreadIdentityCount              int                    `json:"thread_identity_count,omitempty"`

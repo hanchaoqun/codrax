@@ -74,11 +74,12 @@ func traceQuerySamplingMeasurementPublications(result tracequery.Result, records
 					fmt.Sprintf("查询窗口 [%s, %s%s 秒；实际过滤条件：%s。分母是执行这些条件后的各自查询总体，不是所选热点之和。", traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd), endpoint, filters),
 					"每行是独立采样总体；记录占比=命中记录数/该行总体记录数，权重占比=命中权重/该行总体权重。不跨事件、采集方式或单位相加权重，也不推导跨总体去重记录总数。",
 					"这是符号与所属文件的平面热点，不是精确调用路径；可能包含同名地址。未知不是零。记录数不等于调用次数或采样频率，权重占比不等于耗时、CPU忙碌或根因。",
+					"记录时刻包络是完整选集的首末记录点，不是连续执行或阻塞时长；预览首末行不能替代它，包络内外也不能据此断言没有活动。",
 				}}
 				groups[key], order = g, append(order, key)
 			}
 			population := fmt.Sprintf("总体%d", len(g.rows)+1)
-			g.rows = append(g.rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.WeightUnit), strconv.Itoa(hot.SampleCount), strconv.FormatInt(hot.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10), samplingFactFraction(hot.Period, c.TotalPeriod), population, samplingFactKnown(c.Scope.Clock), samplingFactFraction(int64(hot.SampleCount), int64(c.SampleCount))})
+			g.rows = append(g.rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.WeightUnit), strconv.Itoa(hot.SampleCount), strconv.FormatInt(hot.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10), samplingFactFraction(hot.Period, c.TotalPeriod), population, samplingFactKnown(c.Scope.Clock), samplingFactFraction(int64(hot.SampleCount), int64(c.SampleCount)), samplingFactRecordedTime(hot.RecordedTime, hot.SampleCount), samplingFactRecordedTime(c.RecordedTime, c.SampleCount), samplingFactExecutionBasis(c.Scope.SampleKind)})
 			for _, row := range samplingFactQualityRows(c) {
 				g.quality = append(g.quality, append(row, population, samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.Scope.Clock)))
 			}
@@ -94,7 +95,7 @@ func traceQuerySamplingMeasurementPublications(result tracequery.Result, records
 	for _, key := range order {
 		g := groups[key]
 		tables := []types.RuntimeMeasurementTable{{ObservationID: g.record.ID, View: types.RuntimeMeasurementSummary, Label: g.label,
-			Columns: []string{"采样事件", "采集方式", "样本类型", "权重单位", "命中记录数", "命中权重", "查询总体记录数", "查询总体权重", "权重占比", "总体标记", "时钟域", "记录占比"}, Rows: g.rows, Notes: g.notes}}
+			Columns: []string{"采样事件", "采集方式", "样本类型", "权重单位", "命中记录数", "命中权重", "查询总体记录数", "查询总体权重", "权重占比", "总体标记", "时钟域", "记录占比", "热点记录时刻包络（秒）", "查询总体记录时刻包络（秒）", "执行状态依据"}, Rows: g.rows, Notes: g.notes}}
 		if len(g.quality) > 0 {
 			tables = append(tables, types.RuntimeMeasurementTable{ObservationID: g.record.ID, View: types.RuntimeMeasurementDistribution, Label: g.label + " — 查询总体质量（不是热点子集质量）",
 				Columns: []string{"采样事件", "采集方式", "权重单位", "质量维度", "状态", "总体内样本记录数", "总体内权重", "查询总体记录数", "查询总体权重", "总体标记", "样本类型", "时钟域"}, Rows: g.quality, Notes: append(append([]string(nil), g.notes...), "质量项按样本记录计数，不是栈帧个数；精确帧边界不证明完整展开。质量维度彼此重叠，不能相加。")})

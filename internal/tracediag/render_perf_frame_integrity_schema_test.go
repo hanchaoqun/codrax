@@ -40,6 +40,7 @@ func TestPerfFrameIntegrityAdditiveSchemaAndJSON(t *testing.T) {
 	}
 	hotType := reflect.TypeOf(tracequery.PerfHotspot{})
 	_, hotSchema := detailSchemaFingerprint(hotType)
+	hotSchema = perfSchemaBeforeRecordedTime(t, hotSchema)
 	previous := removeReviewedPerfField(t, hotSchema, "CallchainIdentity|*tracequery.PerfCallchainIdentity|callchain_identity,omitempty")
 	const oldHotspot = "Symbol|string|symbol,omitempty;DSO|string|dso,omitempty;Callchain|string|callchain,omitempty;Event|string|event,omitempty;WeightUnit|string|weight_unit,omitempty;Source|string|source,omitempty;SymbolizationStatus|string|symbolization_status,omitempty;SampleCount|int|sample_count,omitempty;Period|int64|period,omitempty;Percent|float64|percent,omitempty;ThreadIdentityCount|int|thread_identity_count,omitempty;ThreadIdentityCountExact|*bool|thread_identity_count_exact,omitempty;ThreadIdentityUnknownSampleCount|int|thread_identity_unknown_sample_count,omitempty;ThreadIdentities|[]tracequery.PerfThreadIdentity|thread_identities,omitempty;Threads|[]tracequery.ThreadRef|threads,omitempty;CPUs|[]int|cpus,omitempty;LineStart|int|line_start,omitempty;LineEnd|int|line_end,omitempty;Example|string|example,omitempty"
 	if previous != oldHotspot {

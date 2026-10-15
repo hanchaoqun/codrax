@@ -433,7 +433,7 @@ func TestPerfPublishedRostersAreBoundedWithExactTotalsUnderTie(t *testing.T) {
 	var total int64 = 1000
 	for i, ev := range events {
 		key, identity, known := ledger.identityForEventOrdinalBorrowed(i)
-		addPerfHotspot(hotspots, "shared", PerfHotspot{Symbol: "Shared::hot"}, key, identity, known, 0, ev.Line, 10, "", &total)
+		addPerfHotspot(hotspots, "shared", PerfHotspot{Symbol: "Shared::hot"}, key, identity, known, 0, ev.Line, 10, "", &total, ev.Ts)
 	}
 	wide := sortedPerfHotspots(hotspots, 4)
 	if len(wide) != 1 || wide[0].ThreadIdentityCount != 100 || len(wide[0].ThreadIdentities) != perfPublishedThreadRosterCap || len(wide[0].Threads) != perfPublishedThreadRosterCap || wide[0].Period != 1000 {

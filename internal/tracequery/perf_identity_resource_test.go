@@ -375,7 +375,7 @@ func TestPerfSingletonAccumulatorsHighCardinalityAllocationBudget(t *testing.T) 
 	threads := make(map[perfThreadKey]*perfThreadAcc, cardinality)
 	var total int64
 	for value := 0; value < cardinality; value++ {
-		addPerfHotspot(hotspots, labels[value], PerfHotspot{Symbol: labels[value], Callchain: callchains[value]}, threadKeys[value], identities[value], true, 0, value+1, 1, labels[value], &total)
+		addPerfHotspot(hotspots, labels[value], PerfHotspot{Symbol: labels[value], Callchain: callchains[value]}, threadKeys[value], identities[value], true, 0, value+1, 1, labels[value], &total, float64(value))
 		addPerfThread(threads, threadKeys[value], identities[value], 0, value+1, 1, labels[value], &total)
 	}
 	runtime.ReadMemStats(&after)
