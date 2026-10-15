@@ -171,14 +171,14 @@ func renderVerifySuccess(report *types.ChangeReport, lang string) (out string) {
 		}
 		return "\n## Tests verified\n\nNo report produced; the verify step completed but emitted no details.\n"
 	}
-	total := len(report.TestResults)
+	counts := types.SummarizeVerificationResults(report)
 	auditNote := renderVerificationWorktreeAuditNote(report.WorktreeAudit, zh)
 	if zh {
-		return fmt.Sprintf("\n## 测试通过\n\n%d 条验证结果已记录为通过。报告已存到 .codrax/plans/%s.report.json。%s\n",
-			total, report.PlanID, auditNote)
+		return fmt.Sprintf("\n## 测试通过\n\n%s。报告已存到 .codrax/plans/%s.report.json。%s\n",
+			counts.RecordedResultsText(true), report.PlanID, auditNote)
 	}
-	return fmt.Sprintf("\n## Tests verified\n\n%d verification result(s) recorded as passed. Report saved to .codrax/plans/%s.report.json.%s\n",
-		total, report.PlanID, auditNote)
+	return fmt.Sprintf("\n## Tests verified\n\n%s. Report saved to .codrax/plans/%s.report.json.%s\n",
+		counts.RecordedResultsText(false), report.PlanID, auditNote)
 }
 
 // reportUntriedRunnableCandidate returns the highest-ranked typed

@@ -137,7 +137,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		}
 		run.Status = types.WriteWorkflowRunComplete
 		MarkWorkflowRunCompletionFromBatches(&run)
-		appendWorkflowProgress(&run, run.ActiveBatchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
+		appendWorkflowFinishProgress(&run, decision)
 	case ActionBlock:
 		if run.ActiveBatchID != "" {
 			updateWorkflowBatch(&run, run.ActiveBatchID, "", types.WriteWorkflowBatchBlocked)

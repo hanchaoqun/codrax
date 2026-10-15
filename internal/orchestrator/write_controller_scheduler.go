@@ -6019,6 +6019,7 @@ func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, r
 			run.Batches[i].UpdatedAt = time.Now()
 			appendWorkflowBatchAttemptWithFailureReason(&run.Batches[i], "verify", status, reasonCode,
 				writeWorkflowVerifyAttemptFailureReason(report), planID, reportID, reportID)
+			snapshotWorkflowVerificationResults(&run.Batches[i], report)
 			return
 		}
 	}

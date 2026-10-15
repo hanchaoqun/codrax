@@ -413,7 +413,7 @@ func WriteWorkflowDecisionSchemaForActions(actions []WorkflowAction) json.RawMes
 		"properties": map[string]any{
 			"action":              enumStringProp(enum),
 			"reason_code":         stringProp("Short typed reason code for the selected action."),
-			"reason":              stringProp("Brief explanation of the selected action."),
+			"reason":              stringProp("Brief advisory explanation of the selected action; retained for audit, not an authoritative verification count or completion fact. Result counts come from the bound verification report."),
 			"workflow":            workflowPlanSchema(),
 			"batch":               batchPlanSchema(),
 			"exploration_request": explorationRequestSchema(),

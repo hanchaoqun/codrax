@@ -303,17 +303,18 @@ func WriteWorkflowBatchPendingRevision(batch WriteWorkflowBatch) *WriteWorkflowR
 }
 
 type WriteWorkflowAttempt struct {
-	ID                string    `json:"id,omitempty"`
-	Kind              string    `json:"kind,omitempty"`
-	Status            string    `json:"status,omitempty"`
-	ReasonCode        string    `json:"reason_code,omitempty"`
-	FailureReasonCode string    `json:"failure_reason_code,omitempty"`
-	PlanID            string    `json:"plan_id,omitempty"`
-	ReportID          string    `json:"report_id,omitempty"`
-	ArtifactRef       string    `json:"artifact_ref,omitempty"`
-	SurfaceRef        string    `json:"surface_ref,omitempty"`
-	StartedAt         time.Time `json:"started_at,omitempty"`
-	FinishedAt        time.Time `json:"finished_at,omitempty"`
+	ID                  string                            `json:"id,omitempty"`
+	Kind                string                            `json:"kind,omitempty"`
+	Status              string                            `json:"status,omitempty"`
+	ReasonCode          string                            `json:"reason_code,omitempty"`
+	FailureReasonCode   string                            `json:"failure_reason_code,omitempty"`
+	PlanID              string                            `json:"plan_id,omitempty"`
+	ReportID            string                            `json:"report_id,omitempty"`
+	ArtifactRef         string                            `json:"artifact_ref,omitempty"`
+	SurfaceRef          string                            `json:"surface_ref,omitempty"`
+	StartedAt           time.Time                         `json:"started_at,omitempty"`
+	FinishedAt          time.Time                         `json:"finished_at,omitempty"`
+	VerificationResults *WriteWorkflowVerificationResults `json:"verification_results,omitempty"`
 }
 
 type WriteWorkflowEdge struct {
@@ -331,13 +332,16 @@ type WriteWorkflowBudget struct {
 }
 
 type WriteWorkflowProgress struct {
-	BatchID    string    `json:"batch_id,omitempty"`
-	Stage      string    `json:"stage,omitempty"`
-	Status     string    `json:"status,omitempty"`
-	ReasonCode string    `json:"reason_code,omitempty"`
-	Message    string    `json:"message,omitempty"`
-	FactKeys   []string  `json:"fact_keys,omitempty"`
-	At         time.Time `json:"at,omitempty"`
+	BatchID    string `json:"batch_id,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+	Status     string `json:"status,omitempty"`
+	ReasonCode string `json:"reason_code,omitempty"`
+	Message    string `json:"message,omitempty"`
+	// AdvisoryMessage preserves a model explanation for audit, not default
+	// completion display. It is never a result count or terminal authority.
+	AdvisoryMessage string    `json:"advisory_message,omitempty"`
+	FactKeys        []string  `json:"fact_keys,omitempty"`
+	At              time.Time `json:"at,omitempty"`
 }
 
 func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
@@ -583,6 +587,7 @@ func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAt
 		attempt.ReportID = trimWriteWorkflowRunText(attempt.ReportID)
 		attempt.ArtifactRef = trimWriteWorkflowRunText(attempt.ArtifactRef)
 		attempt.SurfaceRef = trimWriteWorkflowRunText(attempt.SurfaceRef)
+		attempt.VerificationResults = normalizeWriteWorkflowVerificationResults(attempt.VerificationResults, attempt)
 		if attempt.ID == "" && attempt.Kind == "" && attempt.Status == "" && attempt.ReasonCode == "" &&
 			attempt.FailureReasonCode == "" && attempt.PlanID == "" && attempt.ReportID == "" && attempt.ArtifactRef == "" && attempt.SurfaceRef == "" &&
 			attempt.StartedAt.IsZero() && attempt.FinishedAt.IsZero() {
@@ -749,8 +754,9 @@ func normalizeWriteWorkflowProgress(in []WriteWorkflowProgress) []WriteWorkflowP
 		item.Status = trimWriteWorkflowRunText(item.Status)
 		item.ReasonCode = trimWriteWorkflowRunText(item.ReasonCode)
 		item.Message = trimWriteWorkflowRunText(item.Message)
+		item.AdvisoryMessage = strings.TrimSpace(item.AdvisoryMessage)
 		item.FactKeys = dedupTrimWriteWorkflowRunStrings(item.FactKeys)
-		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" && len(item.FactKeys) == 0 && item.At.IsZero() {
+		if item.BatchID == "" && item.Stage == "" && item.Status == "" && item.ReasonCode == "" && item.Message == "" && item.AdvisoryMessage == "" && len(item.FactKeys) == 0 && item.At.IsZero() {
 			continue
 		}
 		out = append(out, item)
