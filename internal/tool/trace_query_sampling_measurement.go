@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -71,13 +72,13 @@ func traceQuerySamplingMeasurementPublications(result tracequery.Result, records
 				g = &samplingFactGroup{record: r, label: "采样热点 — " + hot.Symbol + " / " + hot.DSO, endInclusive: c.Scope.Window.EndInclusive, notes: []string{
 					"原件：" + result.SourcePath + "；采样成员：" + c.Scope.SourcePath + "；线程：" + subject,
 					fmt.Sprintf("查询窗口 [%s, %s%s 秒；实际过滤条件：%s。分母是执行这些条件后的各自查询总体，不是所选热点之和。", traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd), endpoint, filters),
-					"每行是独立采样总体；不跨事件、采集方式或单位相加权重，也不推导跨总体去重记录总数。占比只比较该行命中权重与该行总体权重。",
+					"每行是独立采样总体；记录占比=命中记录数/该行总体记录数，权重占比=命中权重/该行总体权重。不跨事件、采集方式或单位相加权重，也不推导跨总体去重记录总数。",
 					"这是符号与所属文件的平面热点，不是精确调用路径；可能包含同名地址。未知不是零。记录数不等于调用次数或采样频率，权重占比不等于耗时、CPU忙碌或根因。",
 				}}
 				groups[key], order = g, append(order, key)
 			}
 			population := fmt.Sprintf("总体%d", len(g.rows)+1)
-			g.rows = append(g.rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.WeightUnit), strconv.Itoa(hot.SampleCount), strconv.FormatInt(hot.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10), samplingFactFraction(hot.Period, c.TotalPeriod), population, samplingFactKnown(c.Scope.Clock)})
+			g.rows = append(g.rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.WeightUnit), strconv.Itoa(hot.SampleCount), strconv.FormatInt(hot.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10), samplingFactFraction(hot.Period, c.TotalPeriod), population, samplingFactKnown(c.Scope.Clock), samplingFactFraction(int64(hot.SampleCount), int64(c.SampleCount))})
 			for _, row := range samplingFactQualityRows(c) {
 				g.quality = append(g.quality, append(row, population, samplingFactKnown(c.Scope.SampleKind), samplingFactKnown(c.Scope.Clock)))
 			}
@@ -93,7 +94,7 @@ func traceQuerySamplingMeasurementPublications(result tracequery.Result, records
 	for _, key := range order {
 		g := groups[key]
 		tables := []types.RuntimeMeasurementTable{{ObservationID: g.record.ID, View: types.RuntimeMeasurementSummary, Label: g.label,
-			Columns: []string{"采样事件", "采集方式", "样本类型", "权重单位", "命中记录数", "命中权重", "查询总体记录数", "查询总体权重", "权重占比", "总体标记", "时钟域"}, Rows: g.rows, Notes: g.notes}}
+			Columns: []string{"采样事件", "采集方式", "样本类型", "权重单位", "命中记录数", "命中权重", "查询总体记录数", "查询总体权重", "权重占比", "总体标记", "时钟域", "记录占比"}, Rows: g.rows, Notes: g.notes}}
 		if len(g.quality) > 0 {
 			tables = append(tables, types.RuntimeMeasurementTable{ObservationID: g.record.ID, View: types.RuntimeMeasurementDistribution, Label: g.label + " — 查询总体质量（不是热点子集质量）",
 				Columns: []string{"采样事件", "采集方式", "权重单位", "质量维度", "状态", "总体内样本记录数", "总体内权重", "查询总体记录数", "查询总体权重", "总体标记", "样本类型", "时钟域"}, Rows: g.quality, Notes: append(append([]string(nil), g.notes...), "质量项按样本记录计数，不是栈帧个数；精确帧边界不证明完整展开。质量维度彼此重叠，不能相加。")})
@@ -132,9 +133,18 @@ func samplingFactQualityRows(c tracequery.PerfCohort) [][]string {
 		values []tracequery.PerfValueCount
 	}{
 		{"样本类型", q.SampleKinds}, {"帧边界", q.FrameStatuses}, {"调用链记录", q.CallchainStatuses}, {"符号解析", q.SymbolizationStatuses}, {"输入完整性", q.InputIntegrityIssues}, {"解析限制", q.ParserCaveats}, {"时钟", q.Clocks}, {"时钟可信度", q.ClockConfidences},
+		{"记录CPU（不代表执行状态）", q.RecordedCPUs},
 	} {
 		for _, value := range dimension.values {
-			rows = append(rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.WeightUnit), dimension.label, samplingFactKnown(value.Value), strconv.Itoa(value.SampleCount), strconv.FormatInt(value.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10)})
+			label := samplingFactKnown(value.Value)
+			if dimension.label == "记录CPU（不代表执行状态）" {
+				if cpu, ok := strings.CutPrefix(value.Value, "cpu:"); ok {
+					label = "CPU " + cpu
+				} else if value.Value == "other_known_cpus" {
+					label = fmt.Sprintf("其他已知CPU（合并%d个）", q.RecordedCPUOmittedCount)
+				}
+			}
+			rows = append(rows, []string{samplingFactKnown(c.Event), samplingFactKnown(c.Scope.Producer), samplingFactKnown(c.WeightUnit), dimension.label, label, strconv.Itoa(value.SampleCount), strconv.FormatInt(value.Period, 10), strconv.Itoa(c.SampleCount), strconv.FormatInt(c.TotalPeriod, 10)})
 		}
 	}
 	return rows

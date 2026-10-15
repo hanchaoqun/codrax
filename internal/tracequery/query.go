@@ -3961,6 +3961,7 @@ type perfQualityAcc struct {
 	clockConfidences      map[string]*perfValueCountAcc
 	callchainStatuses     map[string]*perfValueCountAcc
 	frameStatuses         map[string]*perfValueCountAcc
+	recordedCPUs          map[string]*perfValueCountAcc
 	cpuKnownCount         int
 	cpuUnknownCount       int
 	callchainKnownCount   int
@@ -4542,6 +4543,7 @@ func newPerfQualityAcc() *perfQualityAcc {
 		clockConfidences:      map[string]*perfValueCountAcc{},
 		callchainStatuses:     map[string]*perfValueCountAcc{},
 		frameStatuses:         map[string]*perfValueCountAcc{},
+		recordedCPUs:          map[string]*perfValueCountAcc{},
 	}
 }
 
@@ -4572,7 +4574,9 @@ func (acc *perfQualityAcc) add(ev Event, period int64, frameReason string) {
 	addPerfValueCount(acc.clockConfidences, firstNonEmpty(pf.ClockConfidence, "unknown"), period)
 	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(pf.CallchainStatus, "unknown"), period)
 	addPerfValueCount(acc.frameStatuses, firstNonEmpty(frameReason, "exact_frames"), period)
-	if perfSampleHasKnownCPU(ev) {
+	recordedCPU := perfSampleRecordedCPULabel(ev)
+	addPerfValueCount(acc.recordedCPUs, recordedCPU, period)
+	if recordedCPU != "unknown" {
 		acc.cpuKnownCount++
 	} else {
 		acc.cpuUnknownCount++
@@ -4619,6 +4623,7 @@ func (acc *perfQualityAcc) summary(total int64, weighted bool) *PerfQualitySumma
 	if weighted {
 		out.WeightStatus = perfAggregateStatusExact
 	}
+	out.RecordedCPUs, out.RecordedCPUOmittedCount = perfRecordedCPUDistribution(acc.recordedCPUs, total, weighted)
 	out.Caveats = perfQualityCaveats(*out)
 	if len(out.Sources) == 0 && len(out.InputIntegrityIssues) == 0 && len(out.ParserCaveats) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
 		return nil

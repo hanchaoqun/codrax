@@ -11,6 +11,7 @@ import (
 
 func perfQualitySchemaBeforeFrameStatuses(t *testing.T, schema string) string {
 	t.Helper()
+	schema = perfQualitySchemaBeforeRecordedCPU(t, schema)
 	return removeReviewedPerfField(t, schema, "FrameStatuses|[]tracequery.PerfValueCount|frame_statuses,omitempty")
 }
 
@@ -33,7 +34,7 @@ func removeReviewedPerfField(t *testing.T, schema, added string) string {
 
 func TestPerfFrameIntegrityAdditiveSchemaAndJSON(t *testing.T) {
 	qualityType := reflect.TypeOf(tracequery.PerfQualitySummary{})
-	hash, _ := detailSchemaFingerprint(qualityType)
+	hash := perfQualityHashBeforeRecordedCPU(t)
 	if hash != "a74f58cf80605d4a8085aa77ae487fcdfb0b6c2d0db9ba29562776d3cf2c89b7" {
 		t.Fatal("unreviewed frame quality schema change")
 	}

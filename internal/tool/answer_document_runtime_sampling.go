@@ -2,7 +2,7 @@ package tool
 
 import "github.com/hanchaoqun/codrax/internal/types"
 
-const runtimeSamplingFactTeaching = "Published native sampling facts also support summary/table/diagram using the same observation_id/view pair, with no copied text/items/columns/diagram. Summary retains separate cohort rows and their own denominators; distribution is query-population quality, not hotspot-subset quality, and its counts measure sample records, not stack frames. Never add weights across events/units or infer elapsed time, calls or causes. A fact diagram contains no relationship edges."
+const runtimeSamplingFactTeaching = "Published native sampling facts also support summary/table/diagram using the same observation_id/view pair, with no copied text/items/columns/diagram. Summary separates each cohort's record-share and weight-share denominators; distribution is query-population quality/recorded-CPU inventory, not hotspot-subset quality. Counts measure sample records, not stack frames; recorded CPU is not execution state. Never add weights across events/units or infer elapsed time, calls or causes. A fact diagram contains no relationship edges."
 
 func runtimeSamplingFactPairs(choices []types.RuntimeMeasurementTable) []any {
 	var pairs []any

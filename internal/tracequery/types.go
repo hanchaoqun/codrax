@@ -1978,8 +1978,12 @@ type PerfQualitySummary struct {
 	ClockConfidences      []PerfValueCount `json:"clock_confidences,omitempty"`
 	CallchainStatuses     []PerfValueCount `json:"callchain_statuses,omitempty"`
 	FrameStatuses         []PerfValueCount `json:"frame_statuses,omitempty"`
-	CPUKnownCount         int              `json:"cpu_known_count,omitempty"`
-	CPUUnknownCount       int              `json:"cpu_unknown_count,omitempty"`
+	// Recorded coordinates are inventory, not on-CPU execution evidence.
+	// Values are cpu:N, unknown, or the explicit other_known_cpus fold.
+	RecordedCPUs            []PerfValueCount `json:"recorded_cpus,omitempty"`
+	RecordedCPUOmittedCount int              `json:"recorded_cpu_omitted_count,omitempty"`
+	CPUKnownCount           int              `json:"cpu_known_count,omitempty"`
+	CPUUnknownCount         int              `json:"cpu_unknown_count,omitempty"`
 	// Known means exact producer frame boundaries, not a symbolized label or complete unwinding.
 	CallchainKnownCount   int      `json:"callchain_known_count,omitempty"`
 	CallchainUnknownCount int      `json:"callchain_unknown_count,omitempty"`

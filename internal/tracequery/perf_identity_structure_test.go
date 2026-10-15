@@ -22,7 +22,7 @@ func TestPerfIdentityAndCPUAuthorityCallerClosure(t *testing.T) {
 		"ProjectTraceEventInventoryCoordinates", // display identity only, not execution authority
 		"applyPerfBundleAdmission",
 		"normalizePerfSampleClaims",
-		"perfQualityAcc.add",
+		"perfSampleRecordedCPULabel", // display coordinate census, not execution authority
 		"perfSampleHasOnCPUExecutionCoordinate",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleHasOnCPUExecutionCoordinate", []string{
@@ -30,6 +30,7 @@ func TestPerfIdentityAndCPUAuthorityCallerClosure(t *testing.T) {
 		"perfSampleMatchesExecutionThread",
 		"perfSampleOnCPUExecutionCPU",
 	})
+	assertPerfHelperCallers(t, calls, "perfSampleRecordedCPULabel", []string{"perfQualityAcc.add"})
 	assertPerfHelperCallers(t, calls, "perfSampleOnCPUExecutionCPU", []string{
 		"BuildPerfTimeline",
 		"computePerfContextForOrdinalsWithCaveats",
@@ -69,6 +70,7 @@ func TestPerfExecutionConsumersCannotReadEventCPUDirectly(t *testing.T) {
 	allowed := map[string]bool{
 		"perfSampleHasKnownCPU":       true,
 		"perfSampleOnCPUExecutionCPU": true,
+		"perfSampleRecordedCPULabel":  true, // typed coordinate inventory only; separately tested
 	}
 	seenAllowed := map[string]bool{}
 	entries, err := os.ReadDir(".")
