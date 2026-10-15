@@ -5758,6 +5758,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	outsideSelectedWindowRecords += outsideIOQueryWindows
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
+	resourceStacks := renderAnswerDocScopedResourceStacks(ctx, ledger, promptLedger)
 	inventoryPrompt, publishedInventoryMetadata := renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, ledger, promptLedger, publication)
 	// Independent completion-closed waits keep their established causal and
 	// blocking rulers even when the query's statistical population is unknown.
@@ -5769,7 +5770,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
-		return answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx, publication) +
+		return resourceStacks.authorityText(ctx, promptLedger) + resourceStacks.text + answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx, publication) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
@@ -5777,7 +5778,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		// complete per-occurrence messages and ordered frames in natural
 		// language. Keep machine relation keys in the lossless audit ledger,
 		// not in the answer-writing prompt where they can leak into prose.
-		return logMetadata
+		return logMetadata + resourceStacks.authorityText(ctx, promptLedger) + resourceStacks.text
 	}
 	var b strings.Builder
 	b.WriteString("## Observation Ledger\n\n")
@@ -5797,7 +5798,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 			fmt.Fprintf(&b, "- The user-selected explicit trace window is the principal answer scope. %d deterministic query observation(s) whose own typed query windows extend outside it are omitted from this answer-writing view; they remain in the full ledger, causal projection inputs, report appendix, and audit trail as other-window context. Fully contained drilldown rows remain available.\n\n", outsideSelectedWindowRecords)
 		}
 	}
-	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, promptLedger); authority != "" {
+	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, resourceStacks.authorityLedger(promptLedger)); authority != "" {
 		b.WriteString(authority)
 	}
 	b.WriteString(renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext))
@@ -5842,7 +5843,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	b.WriteString(tool.RenderRuntimeDiagramRelationRecipes(ledger, relationRequest))
 	b.WriteString(renderAnswerDocProcessProfiles(ctx, promptLedger))
 	b.WriteString(renderAnswerDocCPUStateFrequency(ctx, promptLedger))
-	b.WriteString(renderAnswerDocResourceStacks(ctx, promptLedger))
+	b.WriteString(resourceStacks.text)
 	b.WriteString(renderAnswerDocPerfSamplingTrees(ctx, promptLedger, publication))
 	b.WriteString(renderAnswerDocScopedPerfMemberFacts(ctx, ledger, promptLedger, publication))
 	b.WriteString(renderAnswerDocRenderingCandidates(ctx, ledger))
@@ -7925,6 +7926,12 @@ func answerDocScopeProjectedObservationRecords(ctx *types.AgentContext, records 
 	for _, record := range records {
 		if answerDocObservationRecordIsCausalRankingPromptRow(record) {
 			continue
+		}
+		if projectNamedTarget {
+			// Only the member-scoped display may publish this aggregate's rows.
+			if _, resource := tool.DecodeTraceResourceStack(record); resource {
+				continue
+			}
 		}
 		if projectNamedTarget && !answerDocBoundedRuntimeObservationPromptRecordAllowed(record, rm, profile) {
 			continue
