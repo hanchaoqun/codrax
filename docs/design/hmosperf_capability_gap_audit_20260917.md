@@ -8187,3 +8187,55 @@ A上下文首轮83373估算tokens/4消息，末轮129718/37消息，增46345；�
 下一缺陷轨已做只读预定位：`internal/writeflow/controller.go`仍把模型decision.Reason直接写入progress，既有`write_verify_render.go::renderVerifySuccess`却正确按TestResults称“验证结果”，需统一原生计数与展示角色而非扫描“4个测试”等原文。`eval/run.sh`的commandless执行使用发现的真实plan路径，旧摘要/文件预览仍固定`run-N.plan.json`，与实际交付收据分流；优先从已有typed交付记录复用真实路径，保路径/代次验证及原失败，不造空镜像计划追绿。这里只记录源码位置和后续方案，冻结期间没有实施或宣称这些已修。
 
 本地原件目录`eval/results/hmc_sampling_surface_registration_20261014/`首轮175份复制逐字节一致、342份产物/原来源hash全部复核；包括两份独立manual-verdict、完整工具blob、原MD/HTML/sidecars、原case/fixture/oracle、所有开发和全仓失败及末版通过收据。`batch-audit.md`和`verification-receipts/codrax-hmc243-verification-status-v2.json`明确真实模型版与最终代码版的边界，`evidence-sha256-index.txt`记录每项来源；后续发布收据只追加，不覆盖不一致原件。Go探针使用.go.txt，归档不含构建二进制或providers凭据。结果目录为本地忽略产物，不声称已经远端保存；中央代码、任务/审计文档和双例摘要按批提交推送。
+
+## 244. sample-only二进制验收与验证完成事实交接（2026-10-14，子能力已交付、人工1/2）
+
+### 244.1 起点、参考设计与退出范围
+
+起点`37f6f9c8b`干净；逐稳定编号复核79唯一=21已交付+58开放，无重复。保持两轨：完整原始sample-only入口自然验收；§243已证的验证结果/持久化完成说明计数及评测真实计划路径交接缺陷。未通过原件不修改，未触发分支不记为通过，不让旧单句措辞占据第三轨。
+
+重新对照参考`core/preprocess/perf_calltree_ops.py:76–213`：按线程和半开时间窗先选采样总体，按调用链真实次数聚合，解决调用链行数不等于采样次数的问题；本项目继续保独立次数/period分母、原始帧及缺失身份，不照搬名称路径合并、缺栈排除或按窗口折算实际耗时。对照`core/query_engine.py`的`params_used`与摘要后处理：取数参数和原生结果必须随交接保持，不能让消费端从显示文字或预设文件名重建事实；参考的meta白名单会丢掉部分来源，不直接复制。
+
+能力退出条件：固定完整30062585字节、SHA256 `da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632`原件先过离线oracle及真实CLI无模型前置，再由自然问题实际准备→取数→成文核验。缺陷退出条件：原生验证计数与持久化完成说明同源，缺报告/错计划不借数，恢复保单位；评测摘要及预览复用本次真实交付收据的计划路径，坏路径/错来源不猜测或制造镜像。
+
+固定双例`trace_binary_sample_only`、`native_registration_commandless`并行各一次，不给问题添加护栏。普通apply不代签只读登记；sample-only不授调度、等待根因或BRBE语义，未触发自然重试/图/REPL明确单列。相关测试与独审冻结后统一全仓，失败原件及人工结论按批保留，状态以实际收据更新。
+
+### 244.2 两项泛化修复：同源验证计数与真实产物路径
+
+`0577b8b6cadf`统一验证卡片和持久化finish的`VerificationResultSummary`，计数单位是报告中实际记录的结果行，不冒称独立测试、方法、subtest或行为证明。通过/失败/non_asserting分开，nil报告为未知、已存在空报告为已知0行；不按自由文本猜skip。只从当前plan、post_apply_verify、当前verify attempt/report/artifact绑定显示快照；后续apply、最新legacy verify、错计划/报告、非法计数或缺来源均不借旧成功数。多批分别显示不相加，报告canonical JSON摘要只作审计标识，不是签名或新的完成权限。
+
+系统完成说明读上述事实，模型reason另存`AdvisoryMessage`供审计；默认恢复展示仍读`Message`。实际Store.Save→新Store.Load→REPL回归保此边界，旧无字段兼容；风险、approval、验证及finish门不消费显示快照。混合结果卡不再把所有行称通过，历史B1673全通过字节pin不变。公开RED含实际verify update→JSON恢复→finish误述与混合结果卡；正反矩阵覆盖来源代次、缺失/零值、深拷贝、恢复、多批不合计及伪快照不能放行finish。不新增模型必填字段或原文关键词门。
+
+`d1d9d0843`将执行已选的实际plan路径/原字节SHA随既有write-apply收据交接，摘要只读解析并共供计划清单、现有物化源码预览、diff及命令展示。来源绑定run/outdir/scratch/plan，以及已存在物化产物的final/workflow/seed/路径与收据hash。坏JSON/重复键、错run/plan、旧收据、字节变化、缺产物、目录链接均显式不可用；plan与源码可用性独立，不重新物化或制造`run-N.plan.json`镜像追绿。旧执行阶段的plan发现和显式plan-1/2档案不改；这是展示交接，不是新增验证授权或整棵产物树防篡改能力。
+
+相关五包、skill整包、writeflow整包、tool/agent schema与历史pin快检正式通过；四包定向race正式exit0，最后仅测试路径可移植性调整再取normal/race exit0。摘要公共shell反例先RED后GREEN，7项Python公开正反回归及主agent独立复跑均exit0；相邻runner合同通过。原夹具定位失败、中间编译/断言失败及原公开RED全部保留，不凭文件名判断通过。两个实施轨交叉独审均无发布阻断；完整末版回归和真实双例另记，不以局部绿代签。
+
+### 244.3 sample-only：原件准备与实际取数通过，完整答案FAIL
+
+本批重新只读调用参考`hiperf_binary_parser.py::parse_samples`，与独立生产prepare/CLI oracle一致：完整原件12,000 samples，`[486489.4,486489.6)`全线程1,393，tid1609/poll_report为164 samples、259 cycles权重。生产oracle正式exit0/20.834秒，真实CLI仅`/exit`且拒绝provider调用数0；原件inode/size/mtime/mode/hash及相邻目录不变。这个无模型前置不冒充自然答案。文件名带brbe也不代表本轮支持BRBE语义。
+
+冻结`0577b8b6cadf`与binary SHA256`74daa48b879e098aacaa3bcc92a2b1de12e1c4edc2c201e4c0a5a2ee6a0516bb`，两例同时启动、各一次，无第三例追绿。A机器PASS/119秒，完整人工FAIL。实际event_search→perf_stats精确带线程/窗口，不用预览代替完整准备或取数。内核IP`0xffffff800b829d24`和`SensorCallbackProxy::OnDataEvent_`各82次、权重分别174/85：次数各50%，权重67.18%/32.82%，都不是墙钟耗时。CPU1对应内核82/174、CPU0对应回调82/85；CPU0的JSON省略零值有明确known位和原始行佐证，不能把省略视为未知补零。164条sample_kind全unknown，无调度/阻塞/唤醒因果权限。
+
+最终表格数值正确，但正文把全164条写成CPU0，将unknown sample_kind升为on-CPU并称与停顿相悖，又把权重33%说成耗时、67%/32%说成采样次数。完整MD/HTML/primary/principal和附录均核查；末尾正确质量说明不能抵销主要结论。actual finalizer已收到两个热点的完整独立分母/权重及unknown质量，未使用可用原生selector；这不是原生取数失败，也没有证据证明只是随机波动。本例未触发失败查询后的自然retry，也没有最终图，不代签这两项。
+
+交接诊断：当前调查综合包含错误表述，但已明确标记advisory，不能说系统授予了verified权威。实际inventory164只保40/省124，提示中展示至多32条且均CPU0；树节点82个引用预览省78。现有完整发布门会受这些精确不完整条件限制，但未序列化所有内部前置状态，不能断言它们是唯一执行根因。实际accepted profile为bounded_fact_set、runtime_work/frame_causality=false；仍需保合法独立关系/源码调查义务。后继候选是按来源/总体/量尺区分核心聚合已完整与明细预览截断、降低冲突综合的噪声，必须先公共复现再改，不无差别删除诊断、不扫问答关键词或再加同题专用教学。
+
+### 244.4 commandless：普通交付及修复验收PASS，登记未触发
+
+B机器PASS/141秒（case自身136秒，计时范围不同），人工PASS限普通交付和本批两个修复。实际唯一源码diff为`return value`→`return value + 1`；fixture与scratch/worktree/materialized三处测试及setup原字节一致，scratch HEAD仍seed，未自动合并。3个原生unittest方法真实执行，报告3条通过结果、0个独立probe；方法内部6次subTest不另造报告行。3条执行命令中，源码py_compile仅syntax_preflight，根目录`Ran 0 tests`保zero_tests，不与真实方法相加。
+
+真实plan=`plan-1792046090963382000-85041`，verify attempt/report与新持久化快照total=3一致；系统finish Message和最终卡片均为3条验证结果，模型reason独存advisory。本轮reason也准确，因此错误reason隔离由公开反例证明，不假称live自然触发。未实际`/workflow show`，恢复显示仍是本批真实Store→新Store→REPL确定性回归而非现场自然恢复。普通来源批/整体终态verified，只读登记和补证批不存在，明确NOT_TRIGGERED，不借验18.5。
+
+新摘要准确列实际plan=yes、一文件patch、已有物化源码、真实diff和带outcome的命令；不存在固定plan镜像。独审逐项核plan/materialization/seed/final原件hash。旧`proof.probe_count=2`实际来自两条VerificationConfidence而非执行probe，当前计数不采该字段；这一既有内部命名边界继续留原编号，不伪造2次probe或夹带第三条修复轨。模型未采用的finish.strategy提到pytest，实际报告/持久化/最终卡片均为unittest，不据未采用字符串改变执行事实。
+
+analyzer有3次自然合同拒绝后成功，runner的rejects列只计finalizer，不应误读成全程零重试。此教学/分类成本与旧内部计数命名继续留账；未触发的登记、现场恢复和自然采样retry不冒充新产品故障，也不无限阻塞下一个高ROI参考能力。旧§243人工FAIL原件不倒签；本批机器2/2、完整人工1/2。
+
+### 244.5 冻结验证、剩余队列与交付口径
+
+末版标准make正式exit0；唯一冻结`go test -json -timeout=20m ./...`正式exit0，92包PASS/13包SKIP，全部Action=fail为空、0非JSON行。tool测试正文636.908秒，最终包pass事件716.57秒，等待命令正式退出而非看到正文PASS就签收。期间Go/测试/评测输入未改；退出后6907个build/eval输入、binary及完整原始采集SHA逐项复核通过。仅验证命令使用20m包预算，产品timeout和活跃流保护不变；没有第二套全仓或第三例模型追跑。
+
+本批完整能力新增0，累计21/79、开放58（36待实施/16部分实施/2待验收/3验收中/1持续执行，重复0）。交付2组子能力：原生验证结果到卡片/持久化/恢复展示的计数复用；执行真实计划到评测摘要/现有产物预览的路径复用。剩余1组本批人工验收缺陷为采样完整答案的主体总体/量尺/状态权限，不将它与58重复相加；其它历史开放项和未触发分支仍留原编号，未证明波动不称波动。
+
+后继双轨：高影响缺陷轨先在实际query→finalizer公共链复现“回答所需聚合事实已全而明细引用预览不全”的来源/量尺分层，确认何种交接噪声可安全移除后再实施，保独立调查笔记、源码和链上因果资格。能力轨重新按参考仓原退出条件选择可完整交付范围并轮换只读登记自然终态；sample-only输入已验部分不重复建设，正文仍未通过也不靠重复加教学无限占据后续批次。既有图/预算/16.4关系覆盖与09.4原始树退出条件不暗增、不删除。
+
+原件归档`eval/results/hmc_sample_only_completion_20261014/`首轮116份复制逐字节一致、279份产物入SHA索引；含完整原始二进制、实际准备清单/归一化成员、独立离线oracle、两例工具blob/最终MD与HTML/sidecars、各自manual-verdict和两份独立人工审计、公开RED/中间失败及末版通过日志。`batch-audit.md`与`verification-receipts/codrax-hmc244-verification-status-v1.json`记录正式退出和未覆盖分支；Go探针以.go.txt归档，不含构建二进制或providers凭据。后续发布收据只追加、不覆盖不一致原件；本地忽略目录不称已推远端，代码、中央文档和双例摘要按批提交推送。
