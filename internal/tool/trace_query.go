@@ -211,7 +211,7 @@ func (t *TraceQuery) Description() string {
 		1)
 	description = strings.Replace(description, "trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs", "trace_query promotes a validated sibling .tracebundle.json and builds a provenance-aware composite only from its admitted members (an unbound sibling .perftrace is not automatically merged): every event and derived evidence range resolves to a physical source artifact, local line, and time domain; only identical time domains or an explicit calibrated finite affine clock map enter the shared causal timeline, while incompatible artifacts are isolated with a typed caveat and remain directly queryable by their .perftrace path", 1)
 	description = strings.Replace(description, "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.", "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. The state_drilldown rows are the state-first handoff: top_sleep is a ranked Top-N cumulative sleep surface, long top_sleep rows require wakeup_chain/root_cause_rank recursive drilldown, fragmented sleep churn stays visible but non-recursive with thread_timeline/interaction_stats/window_stats follow-up, and fragmented runnable or D/IO waits remain recursive root-cause candidates. Preserve state_drilldown source, recommended_views, chain_required, and recursive flags instead of guessing from prose. Each state_drilldown row also carries window_proportion (fraction 0..1 of the selected window that state consumed) and a significant flag: the drill_rank=1 state is always significant, and states further down the drill_rank ordering are significant only when they clear the proportion floor; rows with significant=false are kept for coverage completeness but are too small to be worth their own per-layer root-cause drilldown, so prioritize significant=true states for per-layer root-cause analysis.", 1)
-	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread and reports trace_query_target_inherited, except cursor-only marker discovery (span_window with nonempty span_name or event_search with only normalized trace_mark types) when neither request-model copy has an active non-cursor target; explicit selectors, user/unknown-source focus, process scope and system supplementation retain their scopes, and trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
+	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes one unambiguous typed target after canonical identity comparison, trace_query inherits only that typed pid/thread (same-kind numeric IDs remain one target when a display name is omitted; different IDs or process/thread identities remain ambiguous) and reports trace_query_target_inherited, except cursor-only marker discovery (span_window with nonempty span_name or event_search with only normalized trace_mark types) when neither request-model copy has an active non-cursor target; explicit selectors, user/unknown-source focus, process scope and system supplementation retain their scopes, and trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
 	description = strings.Replace(description, "Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class.", "Trace markers include B/E/C/S/F/G/H/N/I rows: event_search preserves their exact raw payload plus span_action/span_pid/span_track/span_name/span_value. G/H ASYNC_FOR_TRACK pairs use payload pid + track_name + cookie and physical source/generation, publish typed track_name as trace_track_spans, and never inherit emitter-thread ownership or enter semantic/root-cause ranking. N/I publish only as zero-duration trace_instants. span_window/window_stats trace_spans remain the separate B/E/S/F kind=sync|async lane with category/subcategory/semantic_class.", 1)
 	description += " " + traceQueryFrameCrossThreadScopeContract
 	description += " wakeup_chain_edge/event_search wakee_prio_source is field-level authority provenance: inferred_next_sched_slice, unknown, or untrusted preserves the exact wakeup dependency but never contributes a priority class, relation, or inversion candidate. Current SQL conversion always emits this marker for non-exact wakeup priority; converted systrace artifacts created before this contract must be reconverted before their unmarked wakeup priority is used as hard inversion evidence, while unmarked native trace wakeup priority retains its producer-exact semantics."
@@ -16718,6 +16718,9 @@ func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams
 	if !ok {
 		return p, traceQueryUntypedTargetHintCaveat(ctx)
 	}
+	if target.TargetScope == tracequery.TargetScopeProcess {
+		return p, "trace_query_target_inheritance_skipped=process_target; an implicit process identity is not an exact thread selector"
+	}
 	if traceQueryMarkerNavigationSkipsCursor(ctx, p, target) {
 		return p, "trace_query_target_inheritance_skipped=marker_navigation; prior exploration cursor is not a marker owner; explicit time/line/name filters are unchanged"
 	}
@@ -16924,67 +16927,16 @@ func traceQuerySingleRuntimeTarget(ctx *types.BusContext) (traceQueryRequestTarg
 		if target, ok := traceQuerySingleRuntimeTargetFromRequestModel(&ctx.AnalysisIR.RequestModel); ok {
 			return target, true
 		}
+		for _, target := range ctx.AnalysisIR.RequestModel.RuntimeTargets {
+			if target.Active() {
+				return traceQueryRequestTarget{}, false
+			}
+		}
 	}
 	if ctx.Mutable != nil {
 		if target, ok := traceQuerySingleRuntimeTargetFromRequestModel(ctx.Mutable.RequestModel()); ok {
 			return target, true
 		}
-	}
-	return traceQueryRequestTarget{}, false
-}
-
-func traceQuerySingleRuntimeTargetFromRequestModel(rm *types.RequestModel) (traceQueryRequestTarget, bool) {
-	if rm == nil {
-		return traceQueryRequestTarget{}, false
-	}
-	targets := map[string]traceQueryRequestTarget{}
-	for _, runtimeTarget := range rm.RuntimeTargets {
-		target := traceQueryRequestTarget{
-			PID:    runtimeTarget.PID,
-			Thread: strings.TrimSpace(runtimeTarget.Thread),
-			Source: strings.TrimSpace(runtimeTarget.Source),
-		}
-		canonicalPID := target.PID
-		canonicalThread := target.Thread
-		// TARGETCANON-1: RuntimeTargets are a typed identity lane, but older
-		// analyzer records can still carry one of the trace_query selector
-		// spellings (for example "worker-200") in Thread with PID unset.  The
-		// engine and the exploration-cursor recorder already canonicalize that
-		// spelling to {pid:200, thread:"worker"}.  Normalize the request-model
-		// side with the SAME parser before cardinality/dedupe, otherwise the two
-		// equivalent records become two targets and an omitted-selector
-		// follow-up silently loses inheritance.
-		if parsedPID, parsedName, ok := tracequery.ParseThreadSelectorIdentity(target.Thread); ok {
-			switch {
-			case target.PID <= 0:
-				target.PID = parsedPID
-				target.Thread = parsedName
-				canonicalPID = parsedPID
-				canonicalThread = parsedName
-			case target.PID == parsedPID:
-				// The explicit PID already owns identity. Preserve the paired
-				// display selector verbatim ("Thread-10 [56284]" must not be
-				// truncated to "Thread-10"), but use its canonical name in the
-				// dedupe key so an equivalent cursor does not create a second
-				// target.
-				canonicalPID = parsedPID
-				canonicalThread = parsedName
-			}
-		}
-		if target.Source == "" {
-			target.Source = "request_model_runtime_targets"
-		}
-		if !traceQueryTypedRuntimeTargetSafe(target) {
-			continue
-		}
-		key := fmt.Sprintf("%d\x00%s", canonicalPID, strings.ToLower(strings.TrimSpace(canonicalThread)))
-		targets[key] = target
-	}
-	if len(targets) != 1 {
-		return traceQueryRequestTarget{}, false
-	}
-	for _, target := range targets {
-		return target, true
 	}
 	return traceQueryRequestTarget{}, false
 }

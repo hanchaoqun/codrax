@@ -23,8 +23,12 @@ func TestPerfMemberPublicationHMC240SeparateFromPrefixTree(t *testing.T) {
 		t.Fatal("prefix tree cannot publish flat weights including opaque stacks")
 	}
 	text := renderAnswerDocPerfMemberFacts(ledger, &publication)
+	if publication.completeFor(ctx) {
+		t.Fatal("tree and flat fields cannot publish the new fixed fact-table family")
+	}
+	renderAnswerDocRuntimeMeasurementChoices(ctx, &publication)
 	if !publication.completeFor(ctx) {
-		t.Fatal("independently published full flat fields and tree must cover this sampling-only query")
+		t.Fatal("independently published full flat fields, tree and fact tables must cover this sampling-only query")
 	}
 	for _, row := range ledger.Records {
 		if row.Predicate != "perf_sample_top_symbol" {
@@ -63,6 +67,7 @@ func TestPerfMemberPublicationHMC240SeparateFromPrefixTree(t *testing.T) {
 			var partial answerDocNativePresentationReceipt
 			renderAnswerDocPerfSamplingTrees(ctx, ledger, &partial)
 			renderAnswerDocPerfMemberFacts(copyLedger, &partial)
+			renderAnswerDocRuntimeMeasurementChoices(ctx, &partial)
 			if partial.completeFor(ctx) {
 				t.Fatal("omitted or unrelated flat member publication declared complete")
 			}

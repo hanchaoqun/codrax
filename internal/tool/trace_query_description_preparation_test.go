@@ -17,6 +17,7 @@ const tracePreparationPrior = "Normal analysis runs automatically prepare suppor
 
 func traceQueryDescriptionBeforePreparationEvolution(t *testing.T, description string) string {
 	t.Helper()
+	description = traceQueryDescriptionBeforeTargetIdentityEvolution(t, description)
 	if traceQueryInputPreparationTeaching != tracePreparationApproved || strings.Count(description, tracePreparationApproved) != 1 || strings.Contains(description, tracePreparationPrior) {
 		t.Fatal("preparation teaching must be the one approved existing-slot correction")
 	}

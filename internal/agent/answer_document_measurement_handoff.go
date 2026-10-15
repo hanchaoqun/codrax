@@ -12,7 +12,12 @@ import (
 // bounded preview guides analysis, but never changes the selected output rows.
 // Summaries get a fair share before details: an earlier measurement family
 // must not consume every numeric preview of a later family.
-func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
+func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publications ...*answerDocNativePresentationReceipt) string {
+	var publication *answerDocNativePresentationReceipt
+	if len(publications) == 1 {
+		publication = publications[0]
+	}
+	var samplingFacts samplingFactRosterPublication
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view == nil || !view.RuntimeMeasurementContract.Active() {
 		return ""
@@ -95,6 +100,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		}{table.Columns, rows})
 		fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
 			table.ObservationID, table.View, table.Label, len(table.Rows), len(table.Rows)-len(rows), preview)
+		samplingFacts.table(table, len(rows))
 		candidate := types.AnswerBlock{Kind: types.BlockTable, RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}, RequestedDimensionIndices: view.RuntimeMeasurementContract.NativeDisplayDimensionChoices()}
 		if indices, valid := types.BoundNativeDisplayDimensions(candidate, view.RuntimeMeasurementContract); valid {
 			fmt.Fprintf(&b, "  eligible requested_dimension_indices=%v (choose only dimensions this table answers).\n", indices)
@@ -106,20 +112,25 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		// teaching for multiple captures/windows with the same device label.
 		if len(table.Notes) >= 2 {
 			fmt.Fprintf(&b, "  scope: %s; %s\n", table.Notes[0], table.Notes[1])
+			samplingFacts.note(table, table.Notes[0])
+			samplingFacts.note(table, table.Notes[1])
 		}
 		// Empty summaries still carry the producer's unavailable/empty status.
 		// No preview rows is not evidence of a measured zero.
 		if table.View == types.RuntimeMeasurementSummary && (count > 0 || len(table.Rows) == 0) && len(table.Notes) > 2 {
 			for _, note := range table.Notes[2:] {
 				fmt.Fprintf(&b, "  boundary: %s\n", note)
+				samplingFacts.note(table, note)
 			}
 		} else if count > 0 && len(table.Notes) >= 2 {
 			for _, note := range table.Notes[len(table.Notes)-2:] {
 				fmt.Fprintf(&b, "  boundary: %s\n", note)
+				samplingFacts.note(table, note)
 			}
 		}
 	}
 	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
+	samplingFacts.publish(ctx, publication)
 	return b.String()
 }
 

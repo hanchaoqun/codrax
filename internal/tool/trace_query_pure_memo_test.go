@@ -388,7 +388,7 @@ func TestTraceQueryRunMemo_ClearedAtTurnBoundary(t *testing.T) {
 func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
 	ctx.Mutable.SetRequestModel(types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
-		PID: 100, Thread: "app-100", Source: "analyzer", Confidence: 1,
+		Kind: types.RuntimeTargetKindThread, PID: 100, Thread: "app-100", Source: "analyzer", Confidence: 1,
 	}}})
 
 	explicit, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, nil))

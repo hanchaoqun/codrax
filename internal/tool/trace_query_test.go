@@ -586,7 +586,7 @@ func TestTraceQueryInheritsDroppedPIDFromTypedRuntimeTarget(t *testing.T) {
 		WorkDir:  dir,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			RuntimeTargets: []types.RuntimeTarget{{
-				Kind:       types.RuntimeTargetKindProcess,
+				Kind:       types.RuntimeTargetKindThread,
 				PID:        42591,
 				Source:     "user_explicit",
 				Confidence: 0.95,
@@ -2087,7 +2087,9 @@ func TestTraceQueryDescriptionDocumentsStructuredRequestTargetInheritanceBoundar
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
 		"set pid/thread explicitly in the tool call",
-		"structured request model exposes exactly one runtime_targets entry",
+		"structured request model exposes one unambiguous typed target after canonical identity comparison",
+		"same-kind numeric IDs remain one target when a display name is omitted",
+		"different IDs or process/thread identities remain ambiguous",
 		"trace_query_target_inherited",
 		"does not infer omitted pid/thread values from raw request prose, analyzer entity strings",
 		"does not infer omitted pid/thread values from raw request prose",

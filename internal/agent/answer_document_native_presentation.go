@@ -48,6 +48,10 @@ func nativePresentationFamily(r types.ObservationRecord) string {
 		return "perf_sampling"
 	case "perf_sample_top_symbol":
 		return "perf_flat_members"
+	case "perf_sample_top_callchain":
+		return "perf_recorded_callchains"
+	case types.RuntimeSamplingMeasurementPredicate:
+		return "perf_fact_tables"
 	case types.TraceEventSearchInventoryPredicate:
 		return "event_inventory"
 	default:
@@ -59,6 +63,11 @@ func nativePresentationKey(r types.ObservationRecord) string {
 	family, query := nativePresentationFamily(r), nativePresentationQueryKey(r)
 	if family == "" || query == "" {
 		return ""
+	}
+	if family == "perf_fact_tables" {
+		// One query can supply several independently budgeted fact groups.
+		// Bind the complete compiled record, not a same-query sibling's key.
+		return family + ":" + traceEventPublicationRecordKey(r)
 	}
 	return family + ":" + query
 }

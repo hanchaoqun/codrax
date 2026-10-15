@@ -5750,7 +5750,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	}
 	ledger := answerDocObservationLedger(ctx)
 	if ledger.Empty() {
-		return renderAnswerDocRuntimeMeasurementChoices(ctx)
+		return renderAnswerDocRuntimeMeasurementChoices(ctx, publication)
 	}
 	promptLedgerRecords, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
 	promptLedgerRecords, separateIOContext, outsideIOQueryWindows := answerDocIOWindowObservationRecords(ctx, promptLedgerRecords)
@@ -5769,7 +5769,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
-		return answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
+		return answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx, publication) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
@@ -5854,7 +5854,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		// Occupancy is already-queried resource context regardless of whether
 		// the model classified the question as pressure, counts or causality.
 		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
-		b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx))
+		b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx, publication))
 	}
 	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
