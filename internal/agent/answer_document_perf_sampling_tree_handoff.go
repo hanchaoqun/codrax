@@ -40,6 +40,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	// the key. A different view or outer payload ID is not a different tree.
 	seenFacts := map[string]bool{}
 	publishedFacts := map[string]bool{}
+	aggregateFacts := map[string]bool{}
 	selectedFacts := map[string]bool{}
 	accepted, shown := 0, 0
 	for _, r := range ledger.Records {
@@ -55,6 +56,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		if conflict[k] {
 			publication.observe(r, false)
 			publication.observeSamplingSelection(r, false)
+			publication.observeSamplingAggregate(r, false)
 			continue
 		}
 		if seen[k] {
@@ -65,6 +67,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		if p.Status == "available" && seenFacts[fact] {
 			publication.observe(r, publishedFacts[fact])
 			publication.observeSamplingSelection(r, selectedFacts[fact])
+			publication.observeSamplingAggregate(r, aggregateFacts[fact])
 			continue
 		}
 		if p.Status == "available" {
@@ -74,6 +77,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		if shown >= 4 {
 			publication.observe(r, false)
 			publication.observeSamplingSelection(r, false)
+			publication.observeSamplingAggregate(r, false)
 			continue
 		}
 		var query strings.Builder
@@ -85,19 +89,25 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		if b.Len()+query.Len() > 63<<10 {
 			publication.observe(r, false)
 			publication.observeSamplingSelection(r, false)
+			publication.observeSamplingAggregate(r, false)
 			continue
 		}
 		b.WriteString(query.String())
 		selected := p.Status == "available" && p.OmittedCohorts == 0
 		selectedFacts[fact] = selected
 		publication.observeSamplingSelection(r, selected)
-		complete := p.Status == "available" && p.OmittedCohorts == 0 && p.DisplayRoot == ""
+		aggregateComplete := p.Status == "available" && p.OmittedCohorts == 0 && p.DisplayRoot == ""
+		referencesComplete := true
 		for _, cohort := range p.Cohorts {
-			complete = complete && cohort.OmittedNodes == 0
+			aggregateComplete = aggregateComplete && cohort.OmittedNodes == 0
 			for _, node := range cohort.Nodes {
-				complete = complete && node.OmittedChildren == 0 && node.OmittedReferences == 0
+				aggregateComplete = aggregateComplete && node.OmittedChildren == 0
+				referencesComplete = referencesComplete && node.OmittedReferences == 0
 			}
 		}
+		complete := aggregateComplete && referencesComplete
+		aggregateFacts[fact] = aggregateComplete
+		publication.observeSamplingAggregate(r, aggregateComplete)
 		publishedFacts[fact] = complete
 		publication.observe(r, complete)
 		shown++

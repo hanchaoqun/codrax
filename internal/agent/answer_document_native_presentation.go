@@ -19,6 +19,9 @@ type answerDocNativePresentationReceipt struct {
 	// previews must not hide exact flat member quantities from the same query.
 	// This private routing receipt cannot satisfy completeFor or remove notes.
 	samplingSelections map[string]bool
+	// Answer-grade aggregates and audit-reference previews have independent
+	// completeness. This never signs an omitted reference or event member.
+	samplingAggregates map[string]bool
 }
 
 func (p *answerDocNativePresentationReceipt) observeSamplingSelection(r types.ObservationRecord, qualified bool) {
@@ -186,5 +189,5 @@ func (p *answerDocNativePresentationReceipt) replacesCurrentSynthesis(ctx *types
 		a.CurrentSourceExplanationRequested || a.CurrentSourceRecordCount > 0 || a.ExactCurrentSourceSupportCount > 0 {
 		return false
 	}
-	return strings.TrimSpace(plan.StableInvestigationReason) != "" && p.completeFor(ctx)
+	return strings.TrimSpace(plan.StableInvestigationReason) != "" && p.answerFactsCompleteFor(ctx)
 }
