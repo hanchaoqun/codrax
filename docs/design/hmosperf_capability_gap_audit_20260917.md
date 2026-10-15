@@ -8401,3 +8401,57 @@ B恢复前4次trace_query确遭当轮工具面拒绝；恢复后真实工具数1
 详见[双例摘要](../../eval/parallel_selected_summary_hmc_resume_handoff_20261015.md)与[人工审计](../../eval/parallel_selected_summary_hmc_resume_handoff_20261015_manual_audit.md)。原始证据根`eval/results/hmc_resume_handoff_20261015/`为本地忽略产物；原始模型结果、失败、oracle和后置修补收据分开保存，不冒称已推送大文件或真实评测已重验。
 
 本批165份复制逐字节一致，336份产物入SHA索引并逐项复核；含完整实机二进制、实际准备、独立oracle、双例完整工具blob和成文sidecar、历史及当前清单、两份人工FAIL、两轮全仓及后置修补RED/GREEN/独审。Go快照保`.go.txt`原字节、不进入包普查；没有providers凭据或离线preflight binary。`batch-audit.md`及`verification-receipts/codrax-hmc247-verification-status-v1.json`保存正式退出、原/后置binary分离和任务计数；下一批原生owner展示桥只读设计另存，不计为已实施。四片代码/测试提交后统一提交架构、任务入口、中央账本和双例摘要，普通推送不包含本地忽略大文件。
+
+## 248. 代表样本覆盖与原生资源成员交接（2026-10-15，恢复能力交付、整答人工0/2）
+
+### 248.1 起点、参考意图与有限退出范围
+
+起点`62b516f56`干净，稳定79唯一=21已交付+58开放、重复0；35待实施/17部分实施/2待验收/3验收中/1持续执行。§247原机器1/2、人工0/2与后置修补未真实复验边界保持，不用新测试覆盖旧原件。能力轨转11.2，缺陷轨先修§247真实资源明细漏失，不开采样单句优化第三轨。
+
+复读参考`core/batch/closure/select.py`：按manifest声明键稳定排序、分簇取代表、簇按人数排序、超预算簇显式列出，设计价值是调查顺序与完整覆盖状态分离。`config/skills/cluster_analysis.yaml`再将代表证据阅读和逐簇差异分析交给模型；本项目复用这个组合意图，不照搬缺值按0、固定5/50语义、跨簇措辞雷同硬拒或强制subagent拓扑。分组/优先级仅调查导航，不能从代表扩为全簇根因或宣布未选成员正常；当前成员源/代次/窗口/量尺保持独立，真实执行继续普通trace_query，不建第二内核。11.3导出回写、活动SQLite快照与新聚类算法不借本项混销。
+
+缺陷轨已有实际轨迹与静态定位：有限事实问题带命名线程101/202，resource_stack的owner存在受校验载荷中，Subject却是通用显示名；成文前目标投影未接此身份而排掉原生资源。先实际公开受理→无附件目录/查询→finalizer复现，明确完整ledger、prompt投影、真实展示预算各层。方案需保精确查询的当前已查空、多owner只展示请求成员、原查询总体与选择省略分开，不能拼Subject、以谓词整包放行或从任一成员借全包权限；原生调用位置不授执行/等待/泄漏或响应因果资格。显式窗、因果诊断、Trace投影和自动补齐保持原路。
+
+固定两例并行各一次：能力代表/分组自然问题和§247原恢复自然问题；准备/oracle与模型可见输入分开，用户不背单位/来源/边界教学。相关正反、schema/参数面/Outcome/教学快检和独审/race先收齐，代码与测试冻结后统一全仓。原始失败、开发夹具错误、未触发与正式退出分开记录；实际验收前无新增完整交付。
+
+### 248.2 两轨实现与公开闭包
+
+`b95ff4c09`先以actual EmitAnalysis→无附件discover/save→新Mutable resume→四真实资源查询→actual finalizer取得公开RED：原生结果存在但七项展示事实缺失。修复只在专用原生资源通道接typed owner；重新严格解码、核当前来源/时钟/窗口/冲突，并逐事件筛请求成员，不改Subject凑匹配，不整包返回generic compact/RichNotes。精确已执行selector保empty/unavailable/partial边界，all空不替每个目标签空；原MatchedEvents/OmittedEvents、已显示与目标选择排除分开。4查询/64KiB预算保整查询与完整符号，仅真正发布的记录补入display source census，不改完整ledger或因果池。无命名目标及合法因果诊断保持旧路，Trace投影、自动补齐、链上业务语义未拆掉。
+
+参考`core/query_engine.py:461::_accumulate_result`按iterate item保留结果并分开summary/data，`:540::_build_empty_result`显式空值/原因；本项目沿原载荷和精确empty合同复用，不复制自由摘要为事实。交付收据曾将函数名误写为不存在的`_aggregate_result`，已核实际源码并保勘误，不让参考名误导后续维护。
+
+`c45c4cea1`实现`trace_catalog representatives/representative_status`：完整规范view、对象kind/ID/scope、窗口与全部参数分组，仅剥物理source/path；同TID跨工件不合并物理身份、时钟或因果。未执行/重试/已知输入大小为软优先级，名单冻结，成功/失败不重选；追加计划显式列为原选择之外，未选项仍可正常查询。返回selected实际query_calls复用既有准备/准入/执行内核。全体覆盖、组内成员覆盖分开，当前成功/已查空/失败/待执行、未匹配候选、陈旧/不可用源、跳过/预算省略不互换。
+
+每页16条/64KiB保完整JSON调用和续页，完整8MiB选择快照显式超限、无权限恢复；原snapshot协议不改，同run clone/merge保选择，历史resume不复活选择或结果。多catalog上下文共用24KiB预算，所选状态替代旧重复扁平目录；独审发现分支continue越过预算的接缝已在冻结前补入口/header/分支末三处校验，未提高预算。现有skill目录段原位说明全查、抽样、恢复区别，不新添安全规则墙。Outcome typed域精确登记并保自红负控。
+
+公开representatives→实际原生query→三阶段上下文及完整coverage正控通过；改源/外run/撤销root/未知参数/页边界/未选仍可执行/新计划/历史JSON/clone与merge均有负控。资源相关末版四包、窄race，代表相关末版五包、窄race三包、skill整包及两个eval包均正式exit0，独审无阻断。产品公开RED、中间编译错误/新夹具copylock/错误strict断言/80目录超既有8上限等开发失败原件保留；末版只修相应夹具或准确接缝，不以放宽门或删pin求绿。
+
+`2717ef3de`增加代表自然评测入口：准备只复制四路径完整SQLite、独立只读SQL oracle及初始化Git，零模型/零工具/无预选计划，oracle和期望在workspace外。a/c复制root原件、b/d复制nested原件，不冒称四个新实机录制。结构helper绑定同次实际status的saved_index/selection_snapshot/SHA，禁止mtime找快照；额外合法探查不被产品禁止，但不能替代本例预定代表集合验收。恢复例沿原helper及原自然问题，operator只执行一条旧计划后保存；构造中断与真实模型中断分开披露。
+
+### 248.3 冻结与两例真实结果
+
+标准make-v2正式exit0，冻结HEAD`2717ef3dec0402420148de9a1662b2fe0cc7342f`、6957输入，binary SHA256 `a174edc02b957bad3b94eda127b3ebdc77a9fdf8baf7acd33380c510663b502e`。较早build-v1没有用于live；两例均用最终同一binary，CLI `/exit`零模型预检正式exit0。A实际13:49:10.884982Z–13:54:25.385903Z；B实际13:49:12.029085Z–13:54:24.214556Z，两者正式exit0，没有第三例或后置模型重验。
+
+A未调用representatives/status，没有选择快照，结构验收NOT_TRIGGERED；不猜文件跑假audit。实际14次trace_query=4次process_profile缺selector正确拒绝+10次event_search成功（pattern 101/202各四原件，另宽查a/c），无专用resource_stack，最终十个adhoc event_search计划不是预定八个资源计划。新教学已加载，不能称工具没提供；错误view/pattern及错误完整性判断早于citation拒绝，不把所有错误都归因后面的门。
+
+A最终表格/正文把root右界10.050事件计入资源半开窗，3操作变4、净+256变+512；b/d调用位置错误复用a/c的ImageCache/UIFrame而非自身DecodeCache/Preview；最后事件10.005被推成只覆盖5ms/10%及稀疏采样；相同文本推成同运行，重复深度串成有序调用。actual finalizer已供请求半开投影与observed_time非coverage提示，但仍并存错误advisory Current model synthesis；b/d完整资源栈未取到，不冒称本例已供完整typed资源事实。旧raw event_search的scope_time_end=10.005与scan_scope.time_end=10.05分域、原生字段/综合冲突继续留账，不能静默改变旧查询右界语义追绿。整答人工FAIL，11.2只转部分实施。
+
+B真实读取checkpoint→resume，四原计划全部重置本轮未执行，历史单列；先把schema if误当参数、后混用ref+path，两次严格拒绝后自然修成ref-only，四计划均真正执行。后续为拿详细payload又各以普通path+pid+window查询一次，仍登记原四计划而非重复建计划；最终4计划/8attempt，最新3success+1empty，历史1轮。精确当前saved_index一次audit-index正式exit0，原checkpoint SHA `61e6b7aaf5c460a5f456eb44fc486eeec6079abf1b00d25ff495cdfa05590af8`不变，旧成功没有冒充本轮完成。
+
+B原生root101三事件8帧、root202一事件3帧、nested101一事件3帧、nested202当前精确空，合计5事件/14帧完整进入finalizer，发布来源计数4。§247原资源漏失已修复，本轮状态、事件时间/大小正确；但Free的源深度0、2被正文写成“深度1未知”，两个depth0的malloc/buffer_cleanup被串成有序箭头。原生表已明确缺深度数1、重复深度数1、0省略，不能再归因parser/交接缺字段。完整人工仍FAIL，关系精度挂16.4/18.3–18.5。两例无模型图，无新链上根因，不代签所有图、采样状态或只读登记其它终态。
+
+同源身份精度仍有余项：nested/202零匹配没有该线程名字的原生身份行，却从root侧借background；“未观察到匹配记录”也不等于采集完整且绝对无操作。重复四次查询是第二次multi-topic派发为取详细payload再查，属于结果交接效率问题，不是八个计划或恢复旧成功。以上随同一事实复用缺陷留账，不为使总数下降而漏记，也不扩成新的11.1退出门。
+
+### 248.4 系统发现、结算与下一队列
+
+只读复核A实际normalized route为mixed/current_source=required、结果含source_explanation；analyzer同时给bounded_fact_set/双线程/明确窗，却将运行时“调用位置”发为required source_location、“检查进度”发为function_or_purpose。source_location消费者按当前源码位置认定precise义务；真实completion两次因0/3、2/3源码引用降级，模型绕读二进制/查询JSON/.gitignore，直到既有external_only_trace waiver才通过。这是错误producer分类被硬门忠实执行，不是runtime facts不存在，也不能只因native count>0取消真正源码义务。
+
+具体教学接缝：TurnPolicy source用“reading repository files”，current_source模式却按“当前实现证据”定义，本地采集也在仓库内；source_location schema未明确current checkout，而consumer把它作为精确当前源码门。下一步原位统一证据域、原生调用位置与当前源码位置定义；完成拒绝从typed authority指出具体义务拥有者，不只要求再读文件，不自动豁免、不按问答关键词重分类。现有工具自由组合、真实mixed/source-only强门及Trace因果链保持。原生调用位置与执行状态是两个维度，事件/栈不自行变成等待或响应根因。
+
+按原始11.1有限合同（精确指纹、状态/失败/未覆盖、取消恢复、不信任陈腐缓存）和本轮真实恢复收据，结合既有公开负控，11.1实现交付；不把最终所有措辞、11.2代表选择、零重算、11.3回写、17.7活动快照追加为退出门。§246/247原FAIL仍保留，B完整人工FAIL不改签。新增完整能力1、累计22/79、开放57，34待实施/17部分实施/2待验收/3验收中/1持续执行、重复0；本批另交付2组生产子能力、1验收入口。剩余本批2组验收缺陷不与57重复相加：自然采集来源/维度及代表入口，原生字段/范围/关系同源成文。§247采样unknown与权重误述继续原账保留，未声称已证模型波动。
+
+下一能力轨优先11.2自然入口：先消除来源域教学冲突，再固定自然题验代表计划与实际对照；缺陷轨从精确帧身份/深度集合复用正文、表格及图关系，保缺层/同层歧义，不继续每句话追加规则。只读登记已验子路径继续保收据，二进制sample-only及09.4剩余边界轮换，不将未触发重试/BRBE等无限新增为原退出门。
+
+唯一冻结全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0 Action=fail、0非JSON错误行，tool最终package耗时673.780秒；已收进程正式退出，不取stdout PASS代替。6957输入与binary、两SQLite原件及checkpoint复核不变；本批没有后置Go修补或第三例追绿。详细原件见[双例摘要](../../eval/parallel_selected_summary_hmc_representative_resource_20261015.md)及[完整人工审计](../../eval/parallel_selected_summary_hmc_representative_resource_20261015_manual_audit.md)。本地忽略证据根`eval/results/hmc_representative_resource_20261015/`保原始失败、当前清单、工具blob和所有成文sidecar，不冒称大文件已推远端。
+
+本批56份归档复制逐字节核验，335份产物入SHA索引；含两例完整输入/独立oracle、操作器checkpoint、真实失败和成功工具调用、全部终稿、精确当前清单、三份独立审计及唯一全仓正式收据。`batch-audit.md`与`verification-receipts/codrax-hmc248-verification-status-v1.json`固定执行/验收/任务计数；`.go.txt`源码快照不进入包普查，没有providers凭据。三片代码/测试提交后汇总提交架构、任务清单、中央账本和双例摘要，普通推送不包含本地忽略原件。
