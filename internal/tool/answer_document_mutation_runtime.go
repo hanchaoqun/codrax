@@ -137,6 +137,9 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 			"mutation apply produced a nil document — internal error")
 	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if _, err := normalizeNativeDiagramParticipants(merged, runtimeDiagramRelationsForContext(ctx), nativeDiagramParticipantRequest(ctx)); err != nil {
+		return failEmit(toolName, now, "%v", err)
+	}
 	if err := materializeNativeDiagramNotes(merged, view, runtimeDiagramRelationsForContext(ctx)); err != nil {
 		return failEmit(toolName, now, "%v", err)
 	}
@@ -991,7 +994,7 @@ func collectMergedV2DocBlockViolations(doc *types.AnswerDocumentV2) []string {
 		if b.Diagram != nil && b.Kind != types.BlockDiagram {
 			violations = append(violations, fmt.Sprintf("merged blocks[%d]: diagram payload is only valid when kind=diagram; replace the block with kind=diagram or remove the sibling diagram object from kind=%q", i, b.Kind))
 		}
-		if b.Kind == types.BlockDiagram && b.Diagram == nil {
+		if b.Kind == types.BlockDiagram && b.Diagram == nil && !runtimeMeasurementBoundFactSurface(b) {
 			violations = append(violations, fmt.Sprintf("merged blocks[%d]: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If you removed it on a patch retry, restore it on `replace_blocks`; do not move the diagram body into the block-level `text` field", i))
 		}
 	}

@@ -107,7 +107,7 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 		return t.canonicalParameters()
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	parameters := BuildAnswerDocumentParametersFor(view)
+	parameters := BuildAnswerDocumentParametersFor(view, runtimeDiagramRelationsForContext(agentBusContextForAnswerPatchScope(ctx)))
 	if ctx.Mutable != nil {
 		parameters = projectTraceRootCauseReport(parameters, ctx.Mutable.TraceFindingContract(), false)
 	}

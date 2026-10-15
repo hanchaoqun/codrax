@@ -18,10 +18,10 @@ func RenderRuntimeEventMeasurementBlock(block types.AnswerBlock, language string
 
 func renderV2RuntimeEventMeasurement(b *strings.Builder, block types.AnswerBlock, lang answerDocLang) bool {
 	receipt := block.RuntimeMeasurement
-	if receipt == nil || receipt.EventSelection == nil || (block.Kind != types.BlockSummary && block.Kind != types.BlockDiagram) {
+	if receipt == nil || (receipt.EventSelection == nil && (receipt.BoundTable == nil || !receipt.BoundTable.HasNativeSamplingFacts())) || (block.Kind != types.BlockSummary && block.Kind != types.BlockDiagram) {
 		return false
 	}
-	if !receipt.IsBound() || receipt.BoundTable.EventData == nil {
+	if !receipt.IsBound() || (receipt.BoundTable.EventData == nil && !receipt.BoundTable.HasNativeSamplingFacts()) {
 		if lang == answerDocLangZH {
 			b.WriteString("事件选集未绑定到当前证据，无法展示可信字段。\n\n")
 		} else {

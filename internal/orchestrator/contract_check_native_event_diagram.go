@@ -7,10 +7,11 @@ import "github.com/hanchaoqun/codrax/internal/types"
 // ordinary sibling from that diagram's existing validators.
 func isBoundNativeEventFactDiagram(block types.AnswerBlock) bool {
 	ref := block.RuntimeMeasurement
-	return block.Kind == types.BlockDiagram && ref.IsBound() && ref.EventSelection != nil &&
-		ref.BoundTable.EventData != nil && block.Diagram == nil && block.Text == "" &&
+	return block.Kind == types.BlockDiagram && ref.IsBound() &&
+		(ref.EventSelection != nil && ref.BoundTable.EventData != nil || ref.BoundTable.HasNativeSamplingFacts()) &&
+		block.Diagram == nil && block.Text == "" &&
 		len(block.Items) == 0 && len(block.Columns) == 0 && block.RuntimeWorkRelation == nil &&
 		len(block.EdgeAnchors) == 0 && len(block.ParticipantBoundaries) == 0 &&
 		len(block.RelationClaims) == 0 && len(block.ClaimUses) == 0 &&
-		block.TraceCausalClaimCaliber == "" && block.RequestedRelationScope == ""
+		(block.TraceCausalClaimCaliber == "" || block.TraceCausalClaimCaliber == types.TraceCausalClaimNoConclusion) && block.RequestedRelationScope == ""
 }

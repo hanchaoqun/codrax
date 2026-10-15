@@ -56,7 +56,7 @@ func filteredPerfDigest(p *PerfContext) string {
 }
 
 func sealFilteredPerfPopulation(r Result, q Query) Result {
-	if r.ViewCancellation != nil || !perfLegacyViewCarriesSampling(q.View) || !PerfPopulationQueryFilters(q).Active() {
+	if r.ViewCancellation != nil || !perfLegacyViewCarriesSampling(q.View) {
 		return r
 	}
 	p := filteredPerfContext(r)
@@ -84,8 +84,15 @@ func sealFilteredPerfPopulation(r Result, q Query) Result {
 // Every cohort must keep its own frozen physical source generation. This is
 // display selection, not complete Top-N publication or causal admission.
 func FilteredPerfPopulation(r Result) (*PerfContext, Query, bool) {
+	p, q, ok := NativePerfPopulation(r)
+	return p, q, ok && PerfPopulationQueryFilters(q).Active()
+}
+
+// NativePerfPopulation also serves fixed producer-owned fact displays. It
+// does not relax the filtered member fallback or certify a sampling tree.
+func NativePerfPopulation(r Result) (*PerfContext, Query, bool) {
 	w, p := r.filteredPerfPopulation, filteredPerfContext(r)
-	if w == nil || r.ViewCancellation != nil || r.SourcePath != w.source || p == nil || filteredPerfDigest(p) != w.digest || !PerfPopulationQueryFilters(w.query).Active() {
+	if w == nil || r.ViewCancellation != nil || r.SourcePath != w.source || p == nil || filteredPerfDigest(p) != w.digest {
 		return nil, Query{}, false
 	}
 	snapshot, err := json.Marshal(r.TraceArtifacts)

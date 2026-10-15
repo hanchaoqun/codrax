@@ -123,10 +123,11 @@ type emitAnswerBlockItemV2 struct {
 }
 
 type emitAnswerDiagramV2 struct {
-	Kind           string                              `json:"kind"`
-	Language       string                              `json:"language,omitempty"`
-	Body           string                              `json:"body"`
-	RuntimeNotesV1 []types.RuntimeDiagramNoteSelection `json:"runtime_notes_v1,omitempty"`
+	Kind                  string                                     `json:"kind"`
+	Language              string                                     `json:"language,omitempty"`
+	Body                  string                                     `json:"body"`
+	RuntimeNotesV1        []types.RuntimeDiagramNoteSelection        `json:"runtime_notes_v1,omitempty"`
+	RuntimeParticipantsV1 []types.RuntimeDiagramParticipantSelection `json:"runtime_participants_v1,omitempty"`
 }
 
 // executeAnswerDocumentV2 handles block-only emits. It validates the
@@ -373,8 +374,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// its historical text byte-identical.
 	var blockViolations []string
 	completeRejectedProjection := true
+	measurementContract := runtimeMeasurementContractForBusContext(ctx)
 	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
-		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
+		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex), measurementContract)
 		if err != nil {
 			blockViolations = append(blockViolations, err.Error())
 			if _, shapeOnly := err.(answerStructuredTableShapeError); !shapeOnly {
@@ -544,7 +546,7 @@ func validateRecoveredAnswerBlocksAgainstDispatchSchema(ctx *types.BusContext, r
 	if !ok {
 		return fmt.Errorf("blocks property is missing after recovery")
 	}
-	schema := BuildAnswerDocumentParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx))
+	schema := BuildAnswerDocumentParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx), runtimeDiagramRelationsForContext(ctx))
 	var schemaRoot struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
@@ -946,6 +948,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
 	if answerDocumentHasVisibleDiagram(doc) {
+		if fixed, err := normalizeNativeDiagramParticipants(doc, runtimeDiagramRelationsForContext(ctx), nativeDiagramParticipantRequest(ctx)); err == nil && fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeNativeDiagramParticipants", fixed)
+		}
 		if fixed := normalizeRuntimeDiagramDefaultEndpointLabels(doc, runtimeDiagramRelationsForContext(ctx)); fixed > 0 {
 			pctx.recordPreEmitRepair("normalizeRuntimeDiagramDefaultEndpointLabels", fixed)
 			logging.Warning("[%s] reused %d producer endpoint names for default runtime diagram labels", toolName, fixed)
@@ -2406,7 +2411,7 @@ func mergeTrailingAnswerBlockAnnotations(probe map[string]json.RawMessage, tail 
 	if err := json.Unmarshal(out, &wire); err != nil {
 		return nil, false
 	}
-	if _, err := NormalizeEmitAnswerBlock(wire, "recovered_blocks[0]"); err != nil {
+	if _, err := normalizeRecoveredNativeFactBlock(wire, "recovered_blocks[0]"); err != nil {
 		return nil, false
 	}
 	return json.RawMessage(out), true

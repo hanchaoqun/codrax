@@ -48,7 +48,8 @@ import (
 // failEmit-style result wrapping (full emit) or fmt.Errorf wrapping
 // (patch emit) — this function only carries the typed projection
 // + per-record validation.
-func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.AnswerBlock, error) {
+func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string, contracts ...*types.RuntimeMeasurementContract) (types.AnswerBlock, error) {
+	nativeSampling := runtimeSamplingSelectorAvailable(raw.RuntimeMeasurement, contracts...)
 	if strings.TrimSpace(raw.ID) == "" {
 		return types.AnswerBlock{}, fmt.Errorf("%s: id is required and must be non-empty", fieldPath)
 	}
@@ -121,7 +122,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s.requested_dimension_indices requires an exact runtime_measurement table selector", fieldPath)
 	}
 	if raw.RuntimeMeasurement != nil {
-		if err := validateEmitRuntimeMeasurementBlock(raw, fieldPath); err != nil {
+		if err := validateEmitRuntimeMeasurementBlock(raw, fieldPath, nativeSampling); err != nil {
 			return types.AnswerBlock{}, err
 		}
 		blk.RuntimeMeasurement = &types.AnswerRuntimeMeasurementReceipt{
@@ -272,16 +273,17 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		normalizeEmitAnswerDiagram(raw.Diagram)
 		diag := &types.AnswerDiagramBlock{
-			Kind:           types.DiagramKind(raw.Diagram.Kind),
-			Language:       raw.Diagram.Language,
-			Body:           raw.Diagram.Body,
-			RuntimeNotesV1: append([]types.RuntimeDiagramNoteSelection(nil), raw.Diagram.RuntimeNotesV1...),
+			Kind:                  types.DiagramKind(raw.Diagram.Kind),
+			Language:              raw.Diagram.Language,
+			Body:                  raw.Diagram.Body,
+			RuntimeNotesV1:        append([]types.RuntimeDiagramNoteSelection(nil), raw.Diagram.RuntimeNotesV1...),
+			RuntimeParticipantsV1: append([]types.RuntimeDiagramParticipantSelection(nil), raw.Diagram.RuntimeParticipantsV1...),
 		}
 		if strings.TrimSpace(diag.Body) == "" {
 			return types.AnswerBlock{}, fmt.Errorf("%s: diagram.body is empty — set diagram.body to the raw Mermaid source (the part inside the ```mermaid fences; the renderer adds the fences itself). diagram.body is the only place the diagram source lives — do not put it in the block-level text field", fieldPath)
 		}
 		blk.Diagram = diag
-	} else if blk.Kind == types.BlockDiagram && !runtimeEventSelectorSurface(blk.Kind, blk.RuntimeMeasurement) {
+	} else if blk.Kind == types.BlockDiagram && !nativeSampling && !runtimeEventSelectorSurface(blk.Kind, blk.RuntimeMeasurement) {
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {
@@ -309,7 +311,7 @@ func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {
 	return diagram != nil &&
 		strings.TrimSpace(diagram.Kind) == "" &&
 		strings.TrimSpace(diagram.Language) == "" &&
-		strings.TrimSpace(diagram.Body) == "" && len(diagram.RuntimeNotesV1) == 0
+		strings.TrimSpace(diagram.Body) == "" && len(diagram.RuntimeNotesV1) == 0 && len(diagram.RuntimeParticipantsV1) == 0
 }
 
 // validateEmitAnswerStructuredTableRows keeps the JSON teaching and the

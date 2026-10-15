@@ -113,6 +113,7 @@ var (
 	)
 	answerDocumentDiagramAllowedFields = stringSet(
 		"runtime_notes_v1",
+		"runtime_participants_v1",
 		"kind",
 		"language",
 		"body",

@@ -36,6 +36,14 @@ func RebindRuntimeAnswerReceipts(doc *AnswerDocumentV2, view *AnswerSemanticView
 			if !BindRuntimeMeasurementReceipt(item.measurement, view.RuntimeMeasurementContract) {
 				return false
 			}
+			// A recovered pair identifies a table, not permission to change its
+			// surface. Only current native fact capabilities may supply prose or
+			// a fact diagram; legacy measurements remain table-only.
+			candidate := block
+			candidate.RuntimeMeasurement = item.measurement
+			if !runtimeRecoveredMeasurementSurfaceValid(candidate) {
+				return false
+			}
 		}
 		if block.RuntimeWorkRelation != nil {
 			receipt := *block.RuntimeWorkRelation
@@ -55,4 +63,21 @@ func RebindRuntimeAnswerReceipts(doc *AnswerDocumentV2, view *AnswerSemanticView
 		doc.Blocks[item.index].RuntimeWorkRelation = item.work
 	}
 	return true
+}
+
+func runtimeRecoveredMeasurementSurfaceValid(block AnswerBlock) bool {
+	r := block.RuntimeMeasurement
+	if r == nil || !r.IsBound() {
+		return false
+	}
+	native := r.EventSelection != nil && r.BoundTable.EventData != nil || r.BoundTable.HasNativeSamplingFacts()
+	if block.Kind != BlockTable && (!native || block.Kind != BlockSummary && block.Kind != BlockDiagram) {
+		return false
+	}
+	if !native {
+		return true // Preserve the existing ordinary-table recovery contract.
+	}
+	return block.Text == "" && len(block.Items) == 0 && len(block.Columns) == 0 && block.Diagram == nil && block.RuntimeWorkRelation == nil &&
+		len(block.EdgeAnchors) == 0 && len(block.ParticipantBoundaries) == 0 && len(block.RelationClaims) == 0 && len(block.ClaimUses) == 0 && block.RequestedRelationScope == "" &&
+		(block.TraceCausalClaimCaliber == "" || block.Kind == BlockSummary && block.TraceCausalClaimCaliber == TraceCausalClaimNoConclusion)
 }

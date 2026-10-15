@@ -14,7 +14,9 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 	choices := view.RuntimeMeasurementContract.Choices()
 	allowed := allowedKindSet(view)
 	events := runtimeEventChoicesAvailable(view)
-	if len(choices) == 0 || (len(allowed) > 0 && !allowed[string(types.BlockTable)] && !(events && (allowed[string(types.BlockSummary)] || allowed[string(types.BlockDiagram)]))) {
+	sampling := runtimeSamplingFactPairs(choices)
+	factSurfaces := events || len(sampling) > 0
+	if len(choices) == 0 || (len(allowed) > 0 && !allowed[string(types.BlockTable)] && !(factSurfaces && (allowed[string(types.BlockSummary)] || allowed[string(types.BlockDiagram)]))) {
 		delete(blockProps, "runtime_measurement")
 		return
 	}
@@ -31,6 +33,10 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 	}
 	if events {
 		blockProps["runtime_measurement"] = runtimeEventSelectorSchema(blockProps["runtime_measurement"].(map[string]any), choices, view.RuntimeMeasurementContract)
+	}
+	if len(sampling) > 0 {
+		property := blockProps["runtime_measurement"].(map[string]any)
+		property["description"] = property["description"].(string) + " " + runtimeSamplingFactTeaching
 	}
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
 		blockProps["requested_dimension_indices"] = map[string]any{
@@ -58,17 +64,25 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 		"text": map[string]any{"maxLength": 0}, "columns": map[string]any{"maxItems": 0}, "items": map[string]any{"maxItems": 0},
 		"diagram": map[string]any{"enum": []any{nil}}, "runtime_work_relation": map[string]any{"enum": []any{nil}},
 	}}
-	if events {
+	if factSurfaces {
 		props := payload["properties"].(map[string]any)
 		delete(props, "kind")
-		payload["if"] = runtimeEventSelectorRequiredSchema()
+		payload["if"] = runtimeMeasurementFactRequiredSchema(events, sampling)
 		payload["then"] = map[string]any{"properties": map[string]any{"kind": map[string]any{"enum": []string{"summary", "table", "diagram"}}}}
 		payload["else"] = map[string]any{"properties": map[string]any{"kind": map[string]any{"const": "table"}}}
-		conditions = append(conditions, map[string]any{"if": runtimeEventSelectorRequiredSchema(), "then": map[string]any{"properties": map[string]any{
-			"edge_anchors": map[string]any{"maxItems": 0}, "participant_boundaries": map[string]any{"maxItems": 0},
-			"relation_claims": map[string]any{"maxItems": 0}, "claim_uses": map[string]any{"maxItems": 0},
-			"trace_causal_claim_caliber": map[string]any{"enum": []string{string(types.TraceCausalClaimNoConclusion)}}, "requested_relation_scope": map[string]any{"maxLength": 0},
-		}}})
+		factConditions := []any{runtimeMeasurementFactRequiredSchema(events, sampling)}
+		if events && len(sampling) > 0 {
+			// The executable validator supports nested if/then/else, not anyOf.
+			payload["else"] = map[string]any{"if": runtimeEventSelectorRequiredSchema(), "then": payload["then"], "else": payload["else"]}
+			factConditions = append(factConditions, runtimeEventSelectorRequiredSchema())
+		}
+		for _, condition := range factConditions {
+			conditions = append(conditions, map[string]any{"if": condition, "then": map[string]any{"properties": map[string]any{
+				"edge_anchors": map[string]any{"maxItems": 0}, "participant_boundaries": map[string]any{"maxItems": 0},
+				"relation_claims": map[string]any{"maxItems": 0}, "claim_uses": map[string]any{"maxItems": 0},
+				"trace_causal_claim_caliber": map[string]any{"enum": []string{string(types.TraceCausalClaimNoConclusion)}}, "requested_relation_scope": map[string]any{"maxLength": 0},
+			}}})
+		}
 	}
 	conditions = append(conditions, map[string]any{
 		"if":   map[string]any{"required": []string{"runtime_measurement"}},
@@ -91,9 +105,17 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 			diagram["description"] = "Ordinary diagram payload. Omit when a published runtime_measurement.event_selection owns the fact diagram."
 		}
 	}
+	if len(sampling) > 0 {
+		if kind, ok := blockProps["kind"].(map[string]any); ok {
+			kind["description"] = kind["description"].(string) + " Published native sampling facts also own summary/table/diagram via runtime_measurement alone."
+		}
+		if diagram, ok := blockProps["diagram"].(map[string]any); ok {
+			diagram["description"] = "Ordinary diagram payload; omit when a published native fact selector supplies the fact diagram."
+		}
+	}
 }
 
-func validateEmitRuntimeMeasurementBlock(raw emitAnswerBlockV2, path string) error {
+func validateEmitRuntimeMeasurementBlock(raw emitAnswerBlockV2, path string, nativeSampling ...bool) error {
 	receipt := raw.RuntimeMeasurement
 	if receipt == nil {
 		return nil
@@ -101,11 +123,12 @@ func validateEmitRuntimeMeasurementBlock(raw emitAnswerBlockV2, path string) err
 	if strings.TrimSpace(receipt.ObservationID) == "" || !receipt.View.IsValid() {
 		return fmt.Errorf("%s.runtime_measurement requires one published observation_id/view pair from the current choices", path)
 	}
-	if (raw.Kind != string(types.BlockTable) && !runtimeEventSelectorSurface(types.AnswerBlockKind(raw.Kind), receipt)) || raw.Text != "" || len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil || raw.RuntimeWorkRelation != nil {
-		return fmt.Errorf("%s.runtime_measurement requires kind=table, or a published event_selection on summary/table/diagram, without text/items/columns/diagram/runtime_work_relation; put explanations in separate blocks", path)
+	sampling := len(nativeSampling) == 1 && nativeSampling[0]
+	if (raw.Kind != string(types.BlockTable) && !runtimeEventSelectorSurface(types.AnswerBlockKind(raw.Kind), receipt) && !(sampling && runtimeMeasurementFactSurfaceCandidate(types.AnswerBlockKind(raw.Kind), receipt))) || raw.Text != "" || len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil || raw.RuntimeWorkRelation != nil {
+		return fmt.Errorf("%s.runtime_measurement requires kind=table, or a published native sampling fact/event_selection on summary/table/diagram, without text/items/columns/diagram/runtime_work_relation; put explanations in separate blocks", path)
 	}
-	if receipt.EventSelection != nil && (len(raw.EdgeAnchors) > 0 || len(raw.ParticipantBoundaries) > 0 || len(raw.RelationClaims) > 0 || len(raw.ClaimUses) > 0 || !runtimeEventCaliberCompatible(types.AnswerBlockKind(raw.Kind), raw.TraceCausalClaimCaliber) || raw.RequestedRelationScope != "") {
-		return fmt.Errorf("%s.runtime_measurement.event_selection displays event facts only; omit causal claims and relation metadata", path)
+	if (receipt.EventSelection != nil || raw.Kind != string(types.BlockTable)) && (len(raw.EdgeAnchors) > 0 || len(raw.ParticipantBoundaries) > 0 || len(raw.RelationClaims) > 0 || len(raw.ClaimUses) > 0 || !runtimeEventCaliberCompatible(types.AnswerBlockKind(raw.Kind), raw.TraceCausalClaimCaliber) || raw.RequestedRelationScope != "") {
+		return fmt.Errorf("%s.runtime_measurement displays native facts only; omit causal claims and relation metadata", path)
 	}
 	return nil
 }
@@ -114,7 +137,7 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 	if block.RuntimeMeasurement == nil {
 		return len(block.RequestedDimensionIndices) == 0
 	}
-	if (block.Kind != types.BlockTable && !runtimeEventSelectorSurface(block.Kind, block.RuntimeMeasurement)) || block.Text != "" || len(block.Items) > 0 || len(block.Columns) > 0 || block.Diagram != nil || block.RuntimeWorkRelation != nil {
+	if !runtimeMeasurementFactSurfaceCandidate(block.Kind, block.RuntimeMeasurement) || block.Text != "" || len(block.Items) > 0 || len(block.Columns) > 0 || block.Diagram != nil || block.RuntimeWorkRelation != nil {
 		return false
 	}
 	if block.RuntimeMeasurement.EventSelection != nil && (len(block.EdgeAnchors) > 0 || len(block.ParticipantBoundaries) > 0 || len(block.RelationClaims) > 0 || len(block.ClaimUses) > 0 || !runtimeEventCaliberCompatible(block.Kind, string(block.TraceCausalClaimCaliber)) || block.RequestedRelationScope != "") {
@@ -126,6 +149,12 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 	}
 	copy := *block.RuntimeMeasurement
 	if !types.BindRuntimeMeasurementReceipt(&copy, contract) {
+		return false
+	}
+	if block.Kind != types.BlockTable && copy.EventSelection == nil && !copy.BoundTable.HasNativeSamplingFacts() {
+		return false
+	}
+	if copy.BoundTable.HasNativeSamplingFacts() && (len(block.EdgeAnchors) > 0 || len(block.ParticipantBoundaries) > 0 || len(block.RelationClaims) > 0 || len(block.ClaimUses) > 0 || !runtimeEventCaliberCompatible(block.Kind, string(block.TraceCausalClaimCaliber)) || block.RequestedRelationScope != "") {
 		return false
 	}
 	if len(block.RequestedDimensionIndices) > 0 {
@@ -143,7 +172,7 @@ func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types
 		}
 		hints = append(hints, emitFixHint{
 			Field:         fmt.Sprintf("blocks[%d].runtime_measurement", i),
-			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table; a published event_selection also supports available summary/diagram kinds. Omit competing text/items/columns/diagram/runtime_work_relation. Optional requested_dimension_indices must select current published member-set indices on a complete native display table. Do not copy rows to repair display ownership. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",
+			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table; published native sampling facts and event_selection also support available summary/diagram kinds. Sampling facts require no event_selection. Omit competing text/items/columns/diagram/runtime_work_relation. Optional requested_dimension_indices must select current published member-set indices on a complete native display table. Do not copy rows to repair display ownership. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",
 			Reason:        "This measurement selector is unavailable, stale, or has competing table content; no prose or causal conclusion is checked.",
 			ForceHard:     true, HardSignal: preEmitHardSignalExactReceiptBinding,
 		})

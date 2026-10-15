@@ -927,6 +927,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	}
 	var hints []emitFixHint
 	ctxOpt := pctx.ctxArgs()
+	hints = append(hints, preCheckNativeDiagramParticipants(doc, pctx.ctx)...)
 	hints = append(hints, preCheckNativeDiagramNotes(doc, view, pctx.ctx)...)
 
 	// 0. Citation-pool carrier integrity. Run these FIRST and append

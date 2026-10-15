@@ -233,7 +233,8 @@ func emitAnswerBlockFromTyped(block types.AnswerBlock) emitAnswerBlockV2 {
 	if block.Diagram != nil {
 		out.Diagram = &emitAnswerDiagramV2{
 			Kind: string(block.Diagram.Kind), Language: block.Diagram.Language, Body: block.Diagram.Body,
-			RuntimeNotesV1: append([]types.RuntimeDiagramNoteSelection(nil), block.Diagram.RuntimeNotesV1...),
+			RuntimeNotesV1:        append([]types.RuntimeDiagramNoteSelection(nil), block.Diagram.RuntimeNotesV1...),
+			RuntimeParticipantsV1: append([]types.RuntimeDiagramParticipantSelection(nil), block.Diagram.RuntimeParticipantsV1...),
 		}
 	}
 	for _, item := range block.Items {

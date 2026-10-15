@@ -53,7 +53,8 @@ type RuntimeMeasurementTable struct {
 	nativeTraceDisplayPopulation bool
 	// Exact whole-publication display identity, qualified by a current private
 	// source receipt. Never serialized or used as member/completion authority.
-	nativeFactIdentity string
+	nativeFactIdentity        string
+	nativeSamplingFactsDigest string
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {
@@ -86,6 +87,9 @@ func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
+	if t.nativeSamplingFactsDigest != "" && !t.HasNativeSamplingFacts() {
+		return false
+	}
 	if t.EventData != nil && !t.nativeEventData {
 		return false
 	}
@@ -196,6 +200,7 @@ type AnswerRuntimeMeasurementReceipt struct {
 func (r *AnswerRuntimeMeasurementReceipt) IsBound() bool {
 	return r != nil && r.BoundTable != nil && r.BoundTable.IsValid() &&
 		r.ObservationID == r.BoundTable.ObservationID && r.View == r.BoundTable.View &&
+		(r.BoundTable.nativeSamplingFactsDigest == "" || r.BoundTable.HasNativeSamplingFacts()) &&
 		(r.BoundTable.EventData != nil && r.BoundTable.nativeEventSelectionKey == runtimeEventSelectionKey(r.EventSelection) || r.BoundTable.EventData == nil && r.EventSelection == nil)
 }
 

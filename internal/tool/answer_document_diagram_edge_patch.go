@@ -1100,6 +1100,7 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 	if in.Diagram != nil {
 		diagram := *in.Diagram
 		diagram.RuntimeNotesV1 = append([]types.RuntimeDiagramNoteSelection(nil), in.Diagram.RuntimeNotesV1...)
+		diagram.RuntimeParticipantsV1 = append([]types.RuntimeDiagramParticipantSelection(nil), in.Diagram.RuntimeParticipantsV1...)
 		out.Diagram = &diagram
 	}
 	return out

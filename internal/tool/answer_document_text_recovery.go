@@ -558,7 +558,7 @@ func decodeRecoveredAnswerDocumentV2(raw json.RawMessage, mode string) (AnswerDo
 	// fieldPaths must name the block's index in the MODEL's own
 	// blocks[] array, not its system-shifted post-split position.
 	for _, entry := range splitFusedDiagramBlocks("emit_answer_document text-recovery", p.Blocks) {
-		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
+		blk, err := normalizeRecoveredNativeFactBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
 			return AnswerDocumentTextRecovery{}, err
 		}
@@ -652,7 +652,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	// facts or other typed authority fields. Current evidence must still bind
 	// these selectors at the shared recovery boundary before they can render.
 	if block.RuntimeMeasurement != nil || block.RuntimeWorkRelation != nil {
-		if normalized, err := NormalizeEmitAnswerBlock(block, fmt.Sprintf("blocks[%d]", idx)); err == nil {
+		if normalized, err := normalizeRecoveredNativeFactBlock(block, fmt.Sprintf("blocks[%d]", idx)); err == nil {
 			blk.RuntimeMeasurement = normalized.RuntimeMeasurement
 			blk.RequestedDimensionIndices = append([]int(nil), normalized.RequestedDimensionIndices...)
 			blk.RuntimeWorkRelation = normalized.RuntimeWorkRelation
@@ -709,7 +709,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 			Body:     block.Diagram.Body,
 		}
 	}
-	if blk.Kind == types.BlockDiagram && blk.Diagram == nil && !runtimeEventSelectorSurface(blk.Kind, blk.RuntimeMeasurement) {
+	if blk.Kind == types.BlockDiagram && blk.Diagram == nil && !runtimeMeasurementFactSurfaceCandidate(blk.Kind, blk.RuntimeMeasurement) {
 		if att, ok := displayAttachmentFromText(blk.Text); ok {
 			blk.Diagram = &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: att.Language, Body: att.Body}
 			blk.Text = ""

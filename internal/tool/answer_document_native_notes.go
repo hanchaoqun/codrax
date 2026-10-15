@@ -58,6 +58,10 @@ func nativeDiagramNotePoints(block *types.AnswerBlock, view *types.AnswerSemanti
 		available[a.Selector] = a
 	}
 	lines := strings.Split(d.Body, "\n")
+	bindings, bindingErr := runtimeDiagramParticipantBindings(*block, rows)
+	if bindingErr != nil {
+		return nil, bindingErr
+	}
 	for i, s := range d.RuntimeNotesV1 {
 		a, ok := available[s.Selector]
 		if !ok || (s.Point != "start" && s.Point != "end") {
@@ -79,16 +83,8 @@ func nativeDiagramNotePoints(block *types.AnswerBlock, view *types.AnswerSemanti
 				declared++
 			}
 		}
-		binds := s.NodeID == lane
-		for _, anchor := range block.EdgeAnchors {
-			for _, r := range rows {
-				if anchor.RelationKind != r.Kind || anchor.FromIdentity != r.FromIdentity || anchor.ToIdentity != r.ToIdentity {
-					continue
-				}
-				binds = binds || anchor.FromNode == s.NodeID && r.FromNode == lane || anchor.ToNode == s.NodeID && r.ToNode == lane
-			}
-		}
-		if !strings.HasPrefix(lane, "rt_thread_") || declared != 1 || !binds || runtimeDiagramAliasBindingsConflict(rows, block.EdgeAnchors, s.NodeID) {
+		binds := s.NodeID == lane || bindings[s.NodeID] == lane
+		if !strings.HasPrefix(lane, "rt_thread_") || declared != 1 || !binds {
 			return nil, fmt.Errorf("runtime_notes_v1[%d] node_id=%q is not bound to the exact native owner lane %q; use that declared lane or a proved event-side alias, never a name match", i, s.NodeID, lane)
 		}
 		order := runtimeWakeupDiagramEventOrder(record, traceWakeupEvent{Timestamp: at})

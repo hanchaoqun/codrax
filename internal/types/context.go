@@ -4362,6 +4362,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			if b.Diagram != nil {
 				diag := *b.Diagram
 				diag.RuntimeNotesV1 = append([]RuntimeDiagramNoteSelection(nil), b.Diagram.RuntimeNotesV1...)
+				diag.RuntimeParticipantsV1 = append([]RuntimeDiagramParticipantSelection(nil), b.Diagram.RuntimeParticipantsV1...)
 				cloned.Diagram = &diag
 			}
 			if len(b.ClaimUses) > 0 {

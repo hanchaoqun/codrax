@@ -317,7 +317,7 @@ func (t *EmitAnswerDocumentPatch) parametersForContext(
 	mut *types.MutableState,
 	scopeBus *types.BusContext,
 ) json.RawMessage {
-	raw := BuildAnswerDocumentPatchParametersFor(view)
+	raw := BuildAnswerDocumentPatchParametersFor(view, runtimeDiagramRelationsForContext(scopeBus))
 	if mut == nil {
 		return raw
 	}
@@ -1452,13 +1452,13 @@ func unionSortedBlockIDs(groups ...[]string) []string {
 // block item into both patch block arrays. It deliberately does not project or
 // copy the full document envelope: citations and document-level delta fields
 // retain their patch-specific replacement/append semantics.
-func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView) json.RawMessage {
+func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView, runtimeRows ...[]RuntimeDiagramRelation) json.RawMessage {
 	var patchRoot map[string]any
 	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).Parameters(), &patchRoot); err != nil {
 		return (&EmitAnswerDocumentPatch{}).Parameters()
 	}
 	var fullRoot map[string]any
-	if err := json.Unmarshal(BuildAnswerDocumentParametersFor(view), &fullRoot); err != nil {
+	if err := json.Unmarshal(BuildAnswerDocumentParametersFor(view, runtimeRows...), &fullRoot); err != nil {
 		return (&EmitAnswerDocumentPatch{}).Parameters()
 	}
 	patchProperties, _ := patchRoot["properties"].(map[string]any)
@@ -2931,7 +2931,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			strings.Join(paths, ", "))
 		params = repaired
 	}
-	fieldEditSchema := BuildAnswerDocumentPatchParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx))
+	fieldEditSchema := BuildAnswerDocumentPatchParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx), runtimeDiagramRelationsForContext(ctx))
 	leaseForFieldProjection := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	var excludedFieldEditTargets []string
 	if types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(leaseForFieldProjection) {
@@ -3062,12 +3062,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// add error until the next round).
 	var blockViolations []string
 	if len(p.ReplaceBlocks) > 0 {
-		converted, violations := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")
+		converted, violations := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks", runtimeMeasurementContractForView(view))
 		blockViolations = append(blockViolations, violations...)
 		patch.ReplaceBlocks = converted
 	}
 	if len(p.AddBlocks) > 0 {
-		converted, violations := convertEmitBlocksToTyped(t.Name(), p.AddBlocks, "add_blocks")
+		converted, violations := convertEmitBlocksToTyped(t.Name(), p.AddBlocks, "add_blocks", runtimeMeasurementContractForView(view))
 		blockViolations = append(blockViolations, violations...)
 		patch.AddBlocks = converted
 	}
@@ -5038,11 +5038,11 @@ func recoverPrevFromRejectedDraft(mut *types.MutableState) *types.AnswerDocument
 // NormalizeEmitAnswerBlock so the patch path picks up every typed
 // annotation field automatically (G2 post_v2_runtime_gap_remediation,
 // 2026-05-04 — pre-G2 this loop silently dropped EdgeAnchors).
-func convertEmitBlocksToTyped(toolName string, in []emitAnswerBlockV2, fieldName string) ([]types.AnswerBlock, []string) {
+func convertEmitBlocksToTyped(toolName string, in []emitAnswerBlockV2, fieldName string, contracts ...*types.RuntimeMeasurementContract) ([]types.AnswerBlock, []string) {
 	out := make([]types.AnswerBlock, 0, len(in))
 	var violations []string
 	for i, raw := range in {
-		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("%s: %s[%d]", toolName, fieldName, i))
+		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("%s: %s[%d]", toolName, fieldName, i), contracts...)
 		if err != nil {
 			violations = append(violations, err.Error())
 			continue

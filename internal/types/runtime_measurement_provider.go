@@ -21,13 +21,16 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	if predicate == TraceEventSearchInventoryPredicate {
+	if predicate == TraceEventSearchInventoryPredicate || predicate == RuntimeSamplingMeasurementPredicate {
 		return true
 	}
 	return predicate == TraceBusinessSpanPredicate || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
+	if predicate == RuntimeSamplingMeasurementPredicate {
+		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementDistribution
+	}
 	if predicate == TraceEventSearchInventoryPredicate {
 		return view == RuntimeMeasurementMembers
 	}
@@ -86,6 +89,14 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	}
 	seen := map[RuntimeMeasurementView]bool{}
 	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
+	if r.Predicate == RuntimeSamplingMeasurementPredicate {
+		if !uniqueMembers || !runtimeSamplingPublicationValid(r) {
+			return RuntimeMeasurementPublication{}, false
+		}
+		for i := range p.Tables {
+			p.Tables[i].nativeSamplingFactsDigest = runtimeSamplingDigest(p.Tables[i])
+		}
+	}
 	if r.Predicate == TraceEventSearchInventoryPredicate {
 		if !uniqueMembers || !runtimeEventPublicationMatches(r, p) {
 			return RuntimeMeasurementPublication{}, false
@@ -149,6 +160,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 			}
 			participants := NewTraceEventParticipantDisplayRoster(result.Observations)
 			for _, r := range result.Observations {
+				if !runtimeSamplingMeasurementMatchesRequest(r, input.RequestModel) {
+					continue
+				}
 				p, ok := DecodeRuntimeMeasurementPublication(r)
 				if !ok {
 					continue
@@ -161,6 +175,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
 				requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
 				if !qualified {
+					continue
+				}
+				if !runtimeSamplingMeasurementWithinWindows(r, requested) {
 					continue
 				}
 				// Event receipts own individual points. A wider lookup envelope

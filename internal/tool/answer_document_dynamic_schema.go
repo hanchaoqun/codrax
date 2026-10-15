@@ -42,7 +42,7 @@ import (
 // view==nil falls back to the canonical static schema so test
 // callers and any future codepath without a compiled view still
 // see the full surface.
-func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMessage {
+func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView, runtimeRows ...[]RuntimeDiagramRelation) json.RawMessage {
 	canonical := (&EmitAnswerDocument{}).canonicalParameters()
 	if view == nil {
 		return canonical
@@ -64,6 +64,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectClaimUsesEnum(blockProps, view)
 			projectDiagramField(blockProps, view)
 			projectNativeDiagramNotes(blockProps, view)
+			projectNativeDiagramParticipants(blockProps, view, runtimeRows...)
 			projectEdgeAnchorsField(blockProps, view)
 			projectParticipantBoundariesField(blockProps, view)
 			projectRequestedRelationScopeField(blockProps, view)
@@ -626,6 +627,10 @@ func projectKindPayloadConditionals(blockItems map[string]any, view *types.Answe
 		payloadSchema := map[string]any{"required": []string{"id", "kind", payload}}
 		if runtimeEventChoicesAvailable(view) && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
 			payloadSchema = map[string]any{"if": runtimeEventSelectorRequiredSchema(), "then": runtimeEventSelectorRequiredSchema(), "else": payloadSchema}
+		}
+		if pairs := runtimeSamplingFactPairs(view.RuntimeMeasurementContract.Choices()); len(pairs) > 0 && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
+			selected := runtimeMeasurementFactRequiredSchema(false, pairs)
+			payloadSchema = map[string]any{"if": selected, "then": selected, "else": payloadSchema}
 		}
 		conditionals = append(conditionals, map[string]any{
 			"if": map[string]any{
