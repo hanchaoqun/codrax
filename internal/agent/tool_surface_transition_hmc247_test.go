@@ -89,7 +89,12 @@ func TestHMC247ToolSurfaceTransitionActualExplorerResume(t *testing.T) {
 			var nav struct {
 				NextCall json.RawMessage `json:"next_call"`
 			}
-			line := strings.SplitN(results[len(results)-1].Summary, "\n", 2)[0]
+			var line string
+			for _, candidate := range strings.Split(results[len(results)-1].Summary, "\n") {
+				if strings.HasPrefix(candidate, "Checkpoint navigation (not query evidence): ") {
+					line = candidate
+				}
+			}
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "Checkpoint navigation (not query evidence): ")), &nav); err != nil || len(nav.NextCall) == 0 {
 				t.Fatalf("real read lost next_call: %v %s", err, line)
 			}

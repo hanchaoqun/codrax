@@ -98,7 +98,9 @@ func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data [
 	}
 	if nav := BuildTraceCatalogReadNavigation(ctx, path, data, complete); nav != nil {
 		out.Refinement = nav.Refinement
-		out.Summary = nav.Summary + "\n" + out.Summary
+		// Preserve the read_file banner/gutters and registered producer bytes as
+		// an exact prefix; navigation is advisory, not source text.
+		out.Summary = out.Summary + "\n" + nav.Summary
 	}
 }
 

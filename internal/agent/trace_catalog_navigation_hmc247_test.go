@@ -68,7 +68,12 @@ func TestHMC247CheckpointActualAgentNavigationAndHistoricalHandoff(t *testing.T)
 	var nav struct {
 		NextCall json.RawMessage `json:"next_call"`
 	}
-	line := strings.SplitN(read.Summary, "\n", 2)[0]
+	var line string
+	for _, candidate := range strings.Split(read.Summary, "\n") {
+		if strings.HasPrefix(candidate, prefix) {
+			line = candidate
+		}
+	}
 	if !strings.HasPrefix(line, prefix) {
 		t.Fatal("actual read lost navigation")
 	}

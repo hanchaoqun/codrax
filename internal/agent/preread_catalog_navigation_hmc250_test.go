@@ -180,7 +180,13 @@ func TestHMC250CheckpointPreReadBoundaries(t *testing.T) {
 			if kind == "complete" {
 				raw, _ := json.Marshal(map[string]string{"path": path})
 				read, err := (&toolpkg.ReadFile{}).Execute(bus, raw)
-				if err != nil || !read.Success || strings.SplitN(read.Summary, "\n", 2)[0] != line {
+				var readLine string
+				for _, candidate := range strings.Split(read.Summary, "\n") {
+					if strings.HasPrefix(candidate, prefix) {
+						readLine = candidate
+					}
+				}
+				if err != nil || !read.Success || readLine != line {
 					t.Fatalf("read_file and pre-read navigation diverged: %v %s", err, read.Summary)
 				}
 			}

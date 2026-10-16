@@ -132,8 +132,13 @@ func TestHMC247CheckpointPagedAndOrdinaryReadsKeepTheirMeaning(t *testing.T) {
 
 func checkpointAction247(t *testing.T, out types.ToolResult) json.RawMessage {
 	t.Helper()
-	line := strings.SplitN(out.Summary, "\n", 2)[0]
 	const prefix = "Checkpoint navigation (not query evidence): "
+	var line string
+	for _, candidate := range strings.Split(out.Summary, "\n") {
+		if strings.HasPrefix(candidate, prefix) {
+			line = candidate
+		}
+	}
 	if !strings.HasPrefix(line, prefix) {
 		t.Fatalf("missing complete navigation: %s", line)
 	}
