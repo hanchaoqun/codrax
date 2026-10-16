@@ -8733,3 +8733,53 @@ B另确认共享计数缺陷：第五轮已执行且一步失败，之后追加�
 两笔生产提交`2b18260bc`（命名包终态交付）与`18284a212`（资源值/深度语义）已普通推送origin/main，正式exit0；未修改参考仓，未强推。文档及完整审计另笔收尾，原始日志/二进制仅本地保存，不混同远端代码交付与自然答案验收。
 
 本地忽略根`eval/results/hmc_terminal_delivery_20261015/`完成105份逐字节复制（104份本批临时凭证/脚本/失败原件与1份真实binary），269工件SHA索引、164既有raw确认不变；A/B完整独审、正式双例/全仓、包/原引用复核均在案，未复制credentials。只读最终核验正式0：`verification-receipts/codrax-hmc253-final-verification-v1.json` SHA `7cf39dc2ff6e652f706941e0476a613efc9ad0fba8babc5cb9eb315ad4be7c6d`；归档receipt SHA `439eb7974f6c149db1a1ebce0f76f49d779900b40798c142cbb771055a339304`，索引SHA `a666b14db11cf95ec6b99160de24687946224e1b2a422b821a72bf1f8a4be2e4`。明确六物理轴仅覆盖当前已登记4attempt，未认证漏登记的另外4次；完整FAIL及56开放不变。
+
+## 254. 准备来源执行登记与原生分析交付归属（2026-10-16，子能力已交付、整答人工0/2）
+
+### 254.1 核账、参考意图与有限范围
+
+起点`95cffaf50`干净且远端一致；独立逐稳定编号复核79唯一=23已交付+56开放、重复0，33待实施/16部分实施/3待验收/3验收中/1持续执行。保§253完整人工0/2、A漏登记及B原生路径未触发，既有物理PASS不能代替全调用覆盖或答案正确。
+
+主代理亲读参考仓规范、架构及`core/batch/closure/package.py`。采用显式成员/JSON关联、自包含交接和运行内续执的设计意图；本项目使用私有来源代次、同一原生工具及唯一终态组件落实，不复制mtime选最新、CWD兜底或任意JSON恢复权限。两轨为11.3准备来源执行登记和16.4分析自产交付的原生入口；终态上下文调整属于后者的状态归属，不另造全局答案状态框架。
+
+### 254.2 实施与验收计划
+
+准备产物→原件仅改Begin登记坐标，消费当前Preparer/AttachedTraceMaterial的精确路径与完整来源、派生和成员代次，复核宿主原件授权后匹配当前catalog。查询、自动补窗、source绑定与Finish保持原路；同参数保计划且每次调用单记attempt，不因相同payload抹去真实执行；改对象/窗口独立observed，合法失败仍留失败。公开工具RED复现4次准备路径调用后attempt仍4，GREEN为8且导出逐项一致。复制manifest、内部子文件、旧JSON、跨运行、换件和撤权不继承原件登记身份。
+
+最终器的受管交付专用上下文区只给受信接受target和真实失败/取消，不给中途状态、计数、路径快照；原始ToolResult仍pending接受态。唯一终态组件在实际结束后提供真实发布结果，不预测成功，不改写Primary/Principal或自由散文。公开工具→实际BuildInitialInstruction的RED/GREEN、相邻交付/L1/活跃流保护及race已通过；standalone完整物理凭证、取消/撤权负例保留。此修复不保证模型不会从其它历史上下文复述阶段状态，真实答案另验。
+
+固定两例新根`eval/results/hmc_prepared_execution_20261016/`，沿§253原自然问题各一次并行；问题SHA保持`19790d0ed0bbab55816701c35cb79e4f447ce987edbc5cb105637e00cb0016f7`，不给工具名、oracle或护栏。独立构造SQLite、零模型准备、一历史查询；B明确旧报告184字节保原。验收四轴分开：实际物理交付、全分支所有真实调用登记、原生自然入口、完整答案；相同内容重复调用仍对账，`current_match`不充当全调用证明。相关回归后冻结，再统一全仓与固定两例；正式结果未取得前不销账。
+
+分析交付路由用可选schema enum `delivery_owner`精确区分自产包/报告与独立文件/设备操作。只在investigate、分析结果+外部交付、无源码变更/独立computer_action/审批/高风险等精确组合纠正路由，不撤真源码义务。旧操作planner初始可发无steps的`needs_native_reader`，原JSON先过完整条件schema，私有交接只携当前命名普通文件；CLI/REPL复用现有只读管线、不改原问句。重计划、续执、已有执行、历史路径、混合tool决策及审批负控保留，不重放副作用。参考仓分析closure与后置报告变更职责分离在此落地，不复制其全局文件选择或修改策略。
+
+公开原版prepared回原件RED、首版独立catalog manifest兼容RED均保原；6新根测试覆盖真实重复/同payload/改对象窗口/合法失败/并发livefork/attached来源/代次及撤权等。路由8新根覆盖actual classifier、CLI→两份真实prepared input→native measurement、REPL未变问句及20边界；初版旧dispatcher普查漏登记正式FAIL保留，补精确新旧调用点与交换参数负控，不弱化普查。最终器2新根从真实公开export进入BuildInitialInstruction验证target-only与取消/撤权/standalone。相邻/race、L1字节一致、行数/工具教学和活跃流保护均有正式收据；不把过滤未命中包算覆盖，catalog另整包46根/race通过。
+
+### 254.3 固定双例、全部调用与物理结果
+
+冻结7041输入，实际binary SHA `4732c0fb4ceef500427f607af9e894d547577c3f5102fc27d02a8053920fd3bd`。A PID71885 UTC07:33:09.857293–07:38:42.306539；B PID71966 UTC07:33:10.983576–07:38:20.743463；各一次并行、正式exit0。两例均自然进入repo/native，恢复四计划并完成四个原件×对象查询（3success+1empty），历史成功不冒充当前。未自然命中准备manifest别名重查或初始operation回交，只有对应公开真实路径回归，不伪称live覆盖。
+
+A全部实际trace_query仅4个ref-only，与4attempt逐项对齐；同名export被接纳两次但终态只物化一次。六物理轴verified：正式过程、当前fixture执行、当前登记集合/包匹配、材料完整、五文件SHA、退出后真实渲染链接；显式报告N/A。精确logger3582抽取真实receipt，不从manifest造收据。manifest SHA `c134e97d13e22eb761a483fb76808fd2f9286329433dc19fadbd950c13be3b68`；默认MD12932字节/SHA `7a684ca09c856a301fdfddee60efc0e9a336d9cdb898aa22d8c83463cac2467d`。
+
+B自然路由记录delivery_owner=analysis_pipeline，无operation；仍错误携source_explanation。共12个trace_query工具请求：4个if容器schema拒绝在原生执行前；4个ref-only真实原件查询；4个后续把结果JSON误作采集输入，零解析事件仍ok。这后4个不是准备manifest/原件请求，不能为计数强绑原件；原件四attempt无漏记。原名capture-review终态发布、同当前登记集合一致，七物理轴verified含报告字节。logger5065抽取真实receipt，manifest SHA `a60a213a5b3944e3600295cc1f035c172fe0ad827a64a775c898c7a671ef7ef9`；新显式报告7227字节/SHA `8c341267eb862a94aa2cd5927ac21bfb8b54acdd2f5470dccc1214abaf1b2153`与默认MD逐字节一致；旧184字节保原。物理helper只核已登记集合，独立全调用审计补齐其能力边界。
+
+### 254.4 完整人工FAIL及共享上下文缺口
+
+完整人工0/2。A把empty查询算成第6个事件、源单位补B、同深度帧串箭头、源帧连续误称真实展开完整；正文/Primary/Principal仍说发布待确认，而末尾是真实published。四组5事件14帧和全部summary/member选择器已经送达，0预算省略；新交付专用区确实只有target，但紧随的调查摘要又携“已导出…pending_publication”和错误B单位。这是并行交接通道的状态所有权缺口，不是物理发布失败，也不能仅删原生事实或按词替换正文。
+
+B整答主文件202误写10.005s/512（实10.015s/128）、单位/帧顺序错误，称包内有checkpoint原件亦无文件清单依据；正文“已提交”与最终发布本轮无pending冲突。两来源TID101原生事实完整，但202与合法empty在最终器缺失，且不是预算：首次分析含双目标因profile引文缺失被拒；修复后只发101，虽profile引文与子题仍有双线程。`resourceStackDisplayMembers`及共享量测选择按此target roster排他过滤，最终只剩2组4事件11帧，原四结果/包并未丢。结果JSON误查是独立来源，未覆盖原查询。不能将原文数字、被拒对象或rationale提升为授权；需要区分投影/主因目标与完整合法查询事实集合，不以补全事实授根因链。
+
+源码链同样有精确冲突：turn outcome的source_explanation把optional升级required，analyzer明确不问源码却将调用位置标为通用source_location；该role再次保源码义务并合成function/method/type清单。checkpoint配置被当代码实体、第1行`{`成字段锚点，产生多路无关探索。结果JSON被文本native reader接纳、生成零事件外部观察并引入额外跨源关系噪音，下一修复应依据私有产物角色而非文件名/内容关键词。当前仍缺公开反例施工，发现/设计不记实现交付。
+
+两例无Mermaid和根因断言，不签图自然修复或浏览器布局通过。正确来源/窗口、无泄漏/等待因果越权和逐侧计数正证保留；全答案不能因此改PASS，亦无证据称全部为偶发波动。详见[摘要](../../eval/parallel_selected_summary_hmc_prepared_execution_20261016.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_prepared_execution_20261016_manual_audit.md)，以及本地A独审/B逐调用独审原件。
+
+### 254.5 结算与下一有限队列
+
+完整能力新增0，三组有界子能力分别交付，不按commit数量计能力；79唯一=23交付+56开放，重复0，状态细分不变。11.3仍部分实施的有限理由是A阶段/终态口径冲突，不把全部16.4散文正确性并入父项。三组欠项归11.3/16.4/16.5/18.4而不重复加总：交付状态所有权、来源/完整集合交接、同源自由成文。
+
+下一能力轨先贯通调查摘要与终态组件的交付状态归属；缺陷轨先区分运行时调用位置/源码义务及完整已执行事实/投影目标，继而隔离结果载荷与采集输入。公共RED应覆盖两来源/多对象/合法empty、显式源码正控、缺引文自然修复、旧/复制结果JSON负控，不增加关键词硬门或削弱Trace投影。旧operation实际5次算6轮、新catalog未胜出分支授权、长ID仍记原账；随后轮换sample-only和只读登记，不再为相同自由句子追第三例。
+
+唯一冻结全仓正式exit0：UTC2026-10-16 07:33:04.884824–07:47:02.065160，`go test -json -timeout 20m ./...`，94包PASS/13SKIP、零失败及非JSON错误行，16个HMC254新根同次通过；日志SHA `ea9ff6d2227f6bb9b5f536bb7cf3c69aed957309d7336390ae3d48854b823c0c`。7041输入/binary在评测后复核一致，没有后置产品变化或第三例。代码已拆三笔`4952ada9f`准备来源登记、`fad95ac2f`原生交付路由、`e7f2070e1`交付上下文；文档另笔收尾。
+
+三笔代码普通推送正式exit0：UTC07:49:05.977248–07:49:10.598166，PID59826，`95cffaf50..e7f2070e1 main -> main`；日志SHA `6c3cee398cc032ad41a03db6a6a2b206311c6c5517d94cb562e7223c22cbe077`。自然FAIL与未触发边界不随推送改签。
+
+归档v2正式exit0（UTC07:54:42.432023）：92份临时材料及1份同SHA冻结binary复制到`eval/results/hmc_prepared_execution_20261016/verification-receipts/`，245份原有工件逐字节未改，338工件索引SHA `aa2d2bf834749536f18a35b418e2c52c3820d4eab1457fc60245ef1d1c9d5179`；收据SHA `5b1cfea83361782c2b4e161e2584d1dad8054b9f029b91b16e5041fcb61e900c`另存、不计入复制数或索引以避免循环。v1仅归档辅助脚本`File.mkdir`调用错误、正式exit1，复制前失败；原脚本/失败记录/先生成的验证JSON均归档，v2改用`Dir.mkdir`后成功，无产品变更/重跑/证据覆盖。归档不签人审或物理交付；A/B独审、B逐调用审计及原始失败均保留。本地大工件不宣称已推远端；账本、摘要及人工审计另笔提交。
