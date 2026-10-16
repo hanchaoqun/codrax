@@ -8623,3 +8623,61 @@ B完整read_file137行后发布导航，resume初次混catalog_id被拒、自然
 末版全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件/0非JSON错误行，UTC 2026-10-16 03:36:57.992443–03:53:51.471691。完整JSONL SHA `6b56ae0e0cbf8d5ac358a5d4914340f752a191dc3d677eeaeda00eed139f2e3e`，33个关键根测试在同次记录全PASS；末次7007输入、binary、79唯一任务、两例原件/checkpoint和旧报告字节核验一致。首轮中断及v2正式FAIL仍保留，不拼接、不改签。
 
 三组生产提交已普通推送origin/main：`343890c49`不可变原生结果，`16dc94458`多分支交付/最终路径及相邻预算修补，`ab5d43f6c`显式报告安全发布。本批[摘要](../../eval/parallel_selected_summary_hmc_delivery_report_20261015.md)与[人工审计](../../eval/parallel_selected_summary_hmc_delivery_report_20261015_manual_audit.md)分列实现和自然验收。本地忽略根`eval/results/hmc_delivery_report_20261015/`保原失败、中断、完整工具原件和收据，90份逐字节复制核验、227工件SHA索引；归档v1的Ruby filter_map兼容失败保留，v2等价修复后正式exit0，非产品缺陷。最终收据`verification-receipts/codrax-hmc251-final-verification-v1.json`明确完整能力新增0、3组子能力、真实2例INTERRUPTED/人工N/A。大原件、日志和可执行文件不冒称推送远端。
+
+## 252. 显式交付生命周期与结构化意图重试（2026-10-15，子能力已交付、整答人工0/2）
+
+### 252.1 起点与两轨有限范围
+
+起点`d39659e3f`干净、远端一致；独立两次核账79唯一=23已交付+56开放，重复0，状态细分不变。§250两份完整人工FAIL与§251两例INTERRUPTED/整答N/A分别保留。先完整交付能力、再已证高影响共享缺陷，不为自由成文中的每句错误新增无限退出门。
+
+能力轨11.3：用户已命名请求的证据包不应随查询临时根或blob保留策略删除。复用已有宿主runtimeAnchor，当前运行独立、跨fork共享的受控交付根；没有明确export不创建交付目录，没有宿主授权不猜客户路径。core显式root API与来源/引用代次校验保持，磁盘JSON不能重建当前写入/引用权限。默认自然双例验正常Run返回后的真实交付，legacy临时清理与会话prune公开回归单列。
+
+缺陷轨16.4/18.4：§251的运行时调用位置与导出维度错分先由模型错误声明，当前没有足以自动改判的独立结构信号。可证系统放大是missing diagram_hint重试把尚未通过的role=diagram称为已接纳的不可变义务；应允许模型依据当前请求完整修正分类，保真实必需图与源码义务，不把“导出/调用位置”等词串做硬门。语义教学去歧、来源权威及精确校验分开；不声称修改文案已根除模型幻觉。
+
+主代理亲读参考`core/batch/AGENTS.md`、`closure/package.py::build_package`和`merge.py::merge_analysis`：复用显式成员/路径关联、验证后发布和失败留账的意图；不照搬mtime找Excel、默认目标回退、直接覆盖与机械领域verdict。新增物理验收helper只能核真实包/报告字节、当前引用和正式退出后的可读性，不替模型产生结论、不能给历史JSON赋权。
+
+固定两例沿§251自然问题各一次并行，B只由宿主显式报告参数授权旧报告替换；保持默认配置、不把边界答案写入问题。相关测试→冻结→统一全仓和真实评测→完整人工审计后再记有限验收，未完成/未触发如实留账。
+
+### 252.2 实现与确定性证据
+
+公开`Run`中由stub agent实际调用目录、原生查询和导出，复现legacy返回后包被清理及同会话第二次Run同名目标被上轮包阻止；这是宿主生命周期测试，不冒称真实模型完整答案。新宿主私有句柄延迟创建`runtimeAnchor/deliveries/run-<随机ID>/evidence-exports/<target>`，当前各分支共享、跨Run隔离，不随查询根清理或blob保留策略删除。句柄不序列化，nil/JSON/未初始化/取消/符号链接/目录换件均拒绝；创建和读取复核held/path身份与祖先。不改core显式root、来源授权、引用强代次、Trace因果投影或自动补齐。交付保留至用户清理，不承诺永久归档；失败请求可能留下空宿主命名空间，不把它称为交付。
+
+实现期负控另发现零值句柄在拒绝前创建空工作目录，已用私有已初始化状态前置拒绝修复；原RED保留，核为空目录后`rmdir`，无用户数据被删。初版漏import的编译错误与产品RED分列。末版6包相关23顶层、5包定向race14顶层、完整tracecatalog race44顶层均正式0；实际legacy清理和session prune后manifest/全部成员SHA复核通过，L1字节一致、字段投影/clone普查及LOC门均通过。
+
+意图缺陷复现的是错误重试强化，不是已证自动语义识别能力：共享维度教学区分所求信息/材料来源/载体/交付动作，工具schema仅在role字段持完整教学，实际analyzer消息证实workflow和schema各一份。missing diagram_hint仍拒相同不完整typed tuple，但不把被拒role说成不可变已接纳义务；允许模型重交完整纠正分类，独立明确图/源码义务仍在。公开错分类→重交无图、真图仍需载体负控及实际analyzer/因果保护通过；相关4包546根、skill全包197根、末版race6根正式0。旧两条schema位置断言随单一owner迁移、不减语义；首版race筛选漏新测试已另轮补验，原件均保留。
+
+新增只读物理审计helper复用既有独立SQL及当前index核验，接实际export收据/正式退出/精确终稿路径，逐文件SHA/大小、原producer字节、query-attempt-role引用、当前集合与冻结包、运行后链接和B新旧报告字节分轴。不猜mtime、不查询或导出、不恢复JSON权限、不签模型语义；无证据为not_verified，输出始终human_pending，命令exit0只表示新审计保存成功。11根相关测试正式0，缺正式退出/旧报告/伪代码链接/错引用/篡改/路径逃逸和合法部分材料保负控。
+
+真实评测版标准make正式0；冻结7016输入，binary SHA `b9f1d77be40a70a9a476fdfb097212002caa4242fc278af4f302fb44510cd98e`。两例准备各0模型/1历史查询，question SHA均`19790d0ed0bbab55816701c35cb79e4f447ce987edbc5cb105637e00cb0016f7`，与上批相同；A/B零模型启动均正式0。首轮全仓与两例真实并行启动，收齐正式结果后才解冻作后置补救，不将定向绿代签全仓或自然验收。
+
+### 252.3 固定双例与完整人工审计
+
+A PID75484于UTC04:10:46.743572–04:13:52.155439，B PID75559于04:10:47.903245–04:13:44.750690，各一次真实普通CLI，均正式exit0且无信号；不追第三例。最终完整MD、主答案表面、原生工具原件及交付字节分层审阅，完整人工均FAIL；没有Mermaid/根因，不虚签图或因果验收。未独立浏览器验HTML布局。
+
+A实际resume后四计划全查询，最终4计划/8当前attempt，原同字节结果未再出现陈旧。第一次指定`capture-review`包冻结4attempt/8refs，5文件全部hash可验；后续分支新增至8attempt/16refs，原目标重导出正确报`execution_changed`，模型另造`capture-review-v2`。两包退出后均可读，系统交付区正确区分冻结/当前，但主文把原目标说成本轮全部，不能用另名v2替用户目标签收。只读原目标smoke为`physical_delivery_smoke_incomplete_human_pending`，current_package_match未验证，其余物理轴通过。上下文完整供4组/14源帧，主文仍把总数/Alloc/Free值放到Alloc/Free/其它表头，把未知单位512写字节、depth0/0/1串成有序调用链、四个源×线程载荷写成同源两线程各两份。原生正确附表不抵销正文；成员符号歧义被显示为深度问题的未选展示风险挂16.4，不另造一例已发生最终失败。
+
+B当前query/catalog/export均0，完整137行checkpoint已给正确历史负资格及resume动作，却因后述读取封装冲突被限制到两个emit工具。终稿将历史1/4写成当前25%，把存在原件写成尚未采集，未回答资源事实，完整人工FAIL。显式报告物理发布独立PASS：旧184字节SHA `3189ee2f9a03beee2c1fc433768c946414db10dc253a218a1c1ba00a0f05e560`；新4137字节SHA `5846326f9f373ce5787111a14dcd1d34bbb433de030e602ecccce4989271fdfe`，与默认MD逐字节一致，实际发布日志目标/大小/SHA吻合。Previous只在进程内，不伪造持久凭证，不把物理发布代签内容。
+
+两例采集与checkpoint均保原SHA；CLI仅正常新增未跟踪`.gitignore`以忽略`.codrax/`，不能称工作树完全零变更。主代理校验脚本先因相对原件路径、再因该正常未跟踪文件而报错，修正核验路径及明确记录副作用后正式0；两个脚本失败原件与产品失败分开保留。正式收据、完整答案和独审详见[摘要](../../eval/parallel_selected_summary_hmc_delivery_lifecycle_20261015.md)与[人工审计](../../eval/parallel_selected_summary_hmc_delivery_lifecycle_20261015_manual_audit.md)。
+
+### 252.4 首轮全仓及后置共享接缝修复
+
+首轮全仓正式exit1，UTC04:10:45.556063–04:22:23.213453，93包PASS/13SKIP/1FAIL；唯一失败是`TestNoInternalTermsInToolSourceLiterals`发现新增重试说明含内部口吻“the system does”。改为直接说明模型纠正角色的责任，保原语义与门，不增加allowlist；原全仓SHA `fac58b4bc41103637617ab92ee2f75388376fc859f2d282e37fabfdbc244b1b7`及定向补救收据保留。不是未收齐时叠跑另一套全仓。
+
+B的确定性根因不是Phase0→1：`finishTraceCatalogReadNavigation`在原read banner前置导航，导致ground行索引拒绝整个实际正文；typed ReadCoverage却仍覆盖19/28行，证据修复判为已读并进入emit-only。相邻私有送达凭证只接受原正文精确前缀，也因此不能绑定。后置修复只把导航改为尾随，保原字节、typed导航及全部校验；不改phase、ground parser、coverage阈值或工具权限。公开ReadFile→ground/私有送达RED与actual Explorer读取→字面证据→resume→真实query的回归验证该接缝；部分/裁剪/JSON/read-mode负控区分只读行证据与完整送达/执行权。更广跨lane修复不能因任意导航而自动授工具权限，另待精确反例，不膨胀本轮。
+
+物理辅助审计独审另发现非空request与词面Markdown链接检查过宽；实际A由人工已核精确argv和HTML链接，未发生误签。后置工具收紧到准备的精确question/workspace、唯一完整CLI参数，并复用现有Markdown渲染器与HTML节点只认实际路径链接，拒inline code/comment/escape/image/fragment/query伪链接；不新增依赖、生产关键词门或语义自动PASS。原A审计文件不覆盖，补救版本不回签原答案。末版冻结与完整验证结算见下节。
+
+后置公开targeted/race各22顶层通过，types精确读取凭证/并发race另11顶层通过（前组选例未命中types不冒称已验）。actual Explorer夹具漏CLI emitter注册/建议、旧预读测试首行假设的中间失败全部保留，分别修夹具bootstrap和精确导航位置比较，未改变生产工具面。helper完整相关13顶层/13命名子例通过；独立只读审阅未见窄修阻断。末版make正式0，冻结7019输入、binary SHA `81be06edec0ed91bfaea5f46ed6218b3428eeec34b7f093b2383d529a7936b39`；与真实评测版只有11个实现/测试输入变化（含3新增），原真实binary另存，不追加模型或迁签。
+
+### 252.5 结算与下一有限队列
+
+完整能力新增0；2组主线生产子能力、1组后置共享读取修复、1组验收工具分别记账，不按commit数充父能力。累计79唯一=23已交付+56开放、重复0；33待实施/16部分实施/3待验收/3验收中/1持续执行。11.3继续部分实施；剩余验收3组不与56重复相加：命名目标终态交付、来源义务与历史/当前状态自然入口、同源事实自由成文。§250完整FAIL、§251中断、§252两份完整FAIL均保留，尚无证据称为偶发波动。
+
+下一能力轨优先已有接受的命名交付意图与当前执行收束：探索阶段登记pending，既有最后答案记录点由agent统一物化原目标，并让屏幕/默认/显式报告复用同一收据。不是第一次finalizer就发布（仍可能回探），也不以所有查询成功、固定次数或静默时间作终态。保core集合指纹、原包不覆盖及部分材料分轴；orchestrator只走agent，不直接执行工具。实际自然请求未形成交付意图（B）另需精确typed交接，不能仅修A后便宣称完整入口；不扫描问句推名字。只读设计及3个待写public RED存本地`verification-receipts/codrax-hmc252-next-delivery-design-v1.md`，未实施不记交付。
+
+缺陷轨优先同源成文/当前状态复用的共享结构，而非为每句“字节/完整/25%”叠词门；保根因链与业务线索、时窗和自动补齐。轮换验恢复窄修、代表选择、sample-only诚实边界与只读登记；不让既有完整事实后的单句误述无限阻塞新能力。
+
+末版统一全仓正式exit0：UTC2026-10-16 04:29:20.237160–04:43:10.962966，`go test -json -timeout 20m ./...`，94包PASS/13SKIP、零失败、10个本批新根测试同次通过。日志`codrax-hmc252-full-test-v2.jsonl` SHA `b62f0d481ff9fe4bd8e2e231e872d282d0b8731278b91fbb9743d59793da8731`，不以定向/race拼接总通过。7019冻结输入和末版二进制复核一致；真实评测二进制另存、后置11处输入变化明列，不把修后代码冒称已经跑过模型。原件/checkpoint、正式双例收据、B新旧报告及全仓原件一并复核，`codrax-hmc252-final-verification-v1.json` SHA `b5fb5fdc6d096c3e66a4575efa70552975f2b2720732716784ed437f7079b262`。
+
+本地忽略归档`eval/results/hmc_delivery_lifecycle_20261015/`已完成137份原件/凭证逐字节与SHA复核复制，`artifact-sha256-v1.json`索引315工件；包括首轮全仓FAIL、全部中间失败、两个版本binary和两份完整人工FAIL。大日志/二进制只保本地，未复制credentials，也不宣称已推远端。代码/工具四笔`0519ace87`（持久交付）、`f79597b20`（语义重试）、`c3a42fb77`（读取封装）、`fd4c2e506`（只读物理验收）已普通推送main，正式exit0，远端`d39659e3f→fd4c2e506`；架构、任务、账本及两份小型审计报告另笔收尾。11.3未销账，完整能力新增0与56开放保持。
