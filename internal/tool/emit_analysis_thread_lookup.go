@@ -31,9 +31,20 @@ func parseRuntimeThreadLookups(raw string, in []types.RuntimeThreadLookup) ([]ty
 	seen := map[types.RuntimeThreadLookup]bool{}
 	for i, item := range in {
 		item.Thread, item.SourceQuote = strings.TrimSpace(item.Thread), strings.TrimSpace(item.SourceQuote)
-		if item.PID < 0 || item.PID > types.RuntimeTargetMaxPID || (item.PID == 0 && item.Thread == "") ||
-			item.SourceQuote == "" || !sourceQuotePresentInCurrentRequest(raw, item.SourceQuote) {
-			return nil, fmt.Sprintf("runtime_thread_lookups[%d] needs a valid thread identity and exact current-request source_quote; do not repair it with artifact/model prose", i)
+		if item.PID < 0 || item.PID > types.RuntimeTargetMaxPID {
+			return nil, fmt.Sprintf("runtime_thread_lookups[%d].pid is outside the supported TID range 1..%d; omit pid for a name-only lookup. Do not substitute a containing process PID or an artifact-discovered identity", i, types.RuntimeTargetMaxPID)
+		}
+		if item.PID == 0 && item.Thread == "" {
+			return nil, fmt.Sprintf("runtime_thread_lookups[%d].pid/thread identity is missing; submit the user-named TID or exact thread selector with its current-request source_quote. A quote alone does not create an identity", i)
+		}
+		if pid, _, ok := tracequery.ParseThreadSelectorIdentity(item.Thread); ok && item.PID > 0 && pid != item.PID {
+			return nil, fmt.Sprintf("runtime_thread_lookups[%d].thread contains TID %d, which conflicts with submitted pid=%d; correct the conflicting identity fields from the current request, not by changing only source_quote", i, pid, item.PID)
+		}
+		if item.SourceQuote == "" {
+			return nil, runtimeThreadLookupQuoteRepair(i, "is missing")
+		}
+		if !sourceQuotePresentInCurrentRequest(raw, item.SourceQuote) {
+			return nil, runtimeThreadLookupQuoteRepair(i, "is not a contiguous verbatim current-request phrase")
 		}
 		if !runtimeThreadLookupIdentityInQuote(item) {
 			return nil, fmt.Sprintf("runtime_thread_lookups[%d].source_quote must contain that exact thread name or TID; remove artifact-discovered identities instead of relabeling them as user lookup inputs", i)
@@ -44,6 +55,12 @@ func parseRuntimeThreadLookups(raw string, in []types.RuntimeThreadLookup) ([]ty
 		}
 	}
 	return out, ""
+}
+
+// This diagnostic reports only a failed provenance span. Structurally sound
+// input is still unaccepted until the complete object is submitted again.
+func runtimeThreadLookupQuoteRepair(index int, issue string) string {
+	return fmt.Sprintf("runtime_thread_lookups[%d].source_quote %s. Keep the submitted pid/thread for this quote-only repair; those fields are structurally valid but not yet accepted. Copy a contiguous current-request phrase that contains the submitted name/TID; a shared verbatim phrase may support multiple independently submitted identities. If no current-request phrase supports that identity, withdraw the unproven lookup row rather than deleting its identity fields. Re-emit the complete object, preserving other identities, scopes and dimensions. Do not invent a quote from artifact/model prose or infer a replacement identity from numbers", index, issue)
 }
 
 // Validate only the typed locator's own verbatim provenance span. This is not
