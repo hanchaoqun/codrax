@@ -43,7 +43,7 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 	if p.TargetPID == 0 {
 		label = "资源事实 — 请求线程名 " + p.TargetThread
 	}
-	summary := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementSummary, Label: label,
+	summary := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementSummary, Label: label, DefaultPresentation: true,
 		Columns: []string{"源事件", "事件时刻（ns）", "观测主体", "资源操作", "栈记录质量", "深度形态"}, Notes: notes}
 	members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: label + " — 源帧记录（不是有序调用链）",
 		Columns: []string{"源事件", "事件时刻（ns）", "观测主体", "源帧", "原深度", "符号", "库", "帧地址信息"}, Notes: append([]string(nil), notes...)}

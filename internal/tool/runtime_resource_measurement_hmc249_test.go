@@ -208,7 +208,7 @@ func TestHMC249ResourcePublicationBoundaries(t *testing.T) {
 		})
 	}
 	for _, table := range resourceNativeTablesHMC249(view) {
-		if table.MemberSet != nil || table.HasCompleteNativeDisplayPopulation() || table.EventData != nil || table.HasNativeSamplingFacts() || table.DefaultPresentation {
+		if table.MemberSet != nil || table.HasCompleteNativeDisplayPopulation() || table.EventData != nil || table.HasNativeSamplingFacts() || table.DefaultPresentation != (table.View == types.RuntimeMeasurementSummary) {
 			t.Fatal("resource facts acquired another producer's authority")
 		}
 		r := &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}

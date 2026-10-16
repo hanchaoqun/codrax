@@ -30,7 +30,10 @@ func PublishRuntimeResourceMeasurement(r ObservationRecord, tables []RuntimeMeas
 		if i == 1 {
 			view = RuntimeMeasurementMembers
 		}
-		if !t.IsValid() || t.View != view || t.ObservationID != r.ID || t.MemberSet != nil || t.DisplayPopulation != nil || t.EventData != nil || t.DefaultPresentation {
+		// Only the event summary is the producer's default. Physical frames
+		// remain separately selectable; neither view supplies population or
+		// relationship authority. The current request still owns display scope.
+		if !t.IsValid() || t.View != view || t.ObservationID != r.ID || t.MemberSet != nil || t.DisplayPopulation != nil || t.EventData != nil || t.DefaultPresentation != (i == 0) {
 			return r, false
 		}
 	}
