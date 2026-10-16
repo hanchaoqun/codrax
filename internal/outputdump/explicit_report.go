@@ -1,9 +1,9 @@
 package outputdump
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,6 +41,10 @@ type ExplicitReport struct {
 	// paths were requested: the explicit CLI request overrides the
 	// default dump gate without re-enabling the default dump.
 	SuppressDefaultDir bool
+
+	// publication is minted only by SetExplicitReport. Serialized report
+	// paths or delivery receipts cannot restore this write capability.
+	publication *explicitReportPublication
 }
 
 func (r ExplicitReport) hasTarget() bool {
@@ -76,9 +80,13 @@ type ExplicitRootCauseArtifact struct {
 // "[plan written: …]" / "plan file write failed" precedent). Err == nil
 // means the file landed on disk.
 type ExplicitReportWrite struct {
-	Kind string // "markdown" | "html" | "root-causes"
-	Path string
-	Err  error
+	Kind      string // "markdown" | "html" | "root-causes"
+	Path      string
+	Err       error
+	Published bool                   `json:"published"`
+	Bytes     int64                  `json:"bytes,omitempty"`
+	SHA256    string                 `json:"sha256,omitempty"`
+	Previous  *ExplicitReportVersion `json:"previous,omitempty"`
 }
 
 var (
@@ -91,8 +99,16 @@ var (
 // report targets and resets the recorded write statuses. Best-effort dump
 // semantics are unchanged when no target is set.
 func SetExplicitReport(r ExplicitReport) {
+	// Registration observes the old target without creating directories or
+	// files. A failed observation is retained as a per-target delivery error.
+	r.publication = newExplicitReportPublication(r)
 	explicitReportMu.Lock()
 	defer explicitReportMu.Unlock()
+	if old := explicitReportCfg.publication; old != nil {
+		old.mu.Lock()
+		old.active = false
+		old.mu.Unlock()
+	}
 	explicitReportCfg = r
 	explicitReportWrites = nil
 }
@@ -104,7 +120,14 @@ func SetExplicitReport(r ExplicitReport) {
 func ExplicitReportWrites() []ExplicitReportWrite {
 	explicitReportMu.Lock()
 	defer explicitReportMu.Unlock()
-	return append([]ExplicitReportWrite(nil), explicitReportWrites...)
+	writes := append([]ExplicitReportWrite(nil), explicitReportWrites...)
+	for i := range writes {
+		if writes[i].Previous != nil {
+			previous := *writes[i].Previous
+			writes[i].Previous = &previous
+		}
+	}
+	return writes
 }
 
 func explicitReportSnapshot() ExplicitReport {
@@ -113,9 +136,12 @@ func explicitReportSnapshot() ExplicitReport {
 	return explicitReportCfg
 }
 
-func recordExplicitReportWrite(w ExplicitReportWrite) {
+func recordExplicitReportWrite(r ExplicitReport, w ExplicitReportWrite) {
 	explicitReportMu.Lock()
 	defer explicitReportMu.Unlock()
+	if r.publication != explicitReportCfg.publication {
+		return // A prior registration cannot append receipts to a new run.
+	}
 	explicitReportWrites = append(explicitReportWrites, w)
 }
 
@@ -127,24 +153,16 @@ func recordExplicitReportWrite(w ExplicitReportWrite) {
 // delivery.
 func writeExplicitReportCopies(r ExplicitReport, body string, rootCauses *types.TraceRootCauseReportV2, unavailableReason string) string {
 	if p := strings.TrimSpace(r.MarkdownPath); p != "" {
-		recordExplicitReportWrite(ExplicitReportWrite{
-			Kind: "markdown",
-			Path: p,
-			Err:  writeExplicitReportFile(p, []byte(body)),
-		})
+		recordExplicitReportWrite(r, publishExplicitReport(context.Background(), r, "markdown", p, []byte(body)))
 	}
 	p := strings.TrimSpace(r.HTMLPath)
 	if p != "" {
 		htmlBody, err := BuildHTML(filepath.Base(p), body)
 		if err != nil {
 			logging.Warning("[output_dump] render html for explicit report %s failed: %v", p, err)
-			recordExplicitReportWrite(ExplicitReportWrite{Kind: "html", Path: p, Err: err})
+			recordExplicitReportWrite(r, ExplicitReportWrite{Kind: "html", Path: p, Err: err})
 		} else {
-			recordExplicitReportWrite(ExplicitReportWrite{
-				Kind: "html",
-				Path: p,
-				Err:  writeExplicitReportFile(p, []byte(htmlBody)),
-			})
+			recordExplicitReportWrite(r, publishExplicitReport(context.Background(), r, "html", p, []byte(htmlBody)))
 		}
 	}
 	write := writeExplicitRootCauseArtifact(r, rootCauses, unavailableReason)
@@ -196,29 +214,15 @@ func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCau
 		}
 	}
 	body, err := json.MarshalIndent(artifact, "", "  ")
+	write := ExplicitReportWrite{Kind: "root-causes", Path: p}
 	if err == nil {
 		body = append(body, '\n')
-		err = writeExplicitReportFile(p, body)
+		write = publishExplicitReport(context.Background(), r, "root-causes", p, body)
 	} else {
 		err = fmt.Errorf("encode explicit root-cause artifact: %w", err)
 		logging.Warning("[output_dump] %v", err)
+		write.Err = err
 	}
-	write := ExplicitReportWrite{Kind: "root-causes", Path: p, Err: err}
-	recordExplicitReportWrite(write)
+	recordExplicitReportWrite(r, write)
 	return write
-}
-
-func writeExplicitReportFile(path string, data []byte) error {
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			logging.Warning("[output_dump] mkdir %s for explicit report %s failed: %v", dir, path, err)
-			return err
-		}
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		logging.Warning("[output_dump] write explicit report %s failed: %v", path, err)
-		return err
-	}
-	logging.Info("[output_dump] wrote explicit report %s (%d bytes)", path, len(data))
-	return nil
 }
