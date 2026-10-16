@@ -25,7 +25,7 @@ func (*TraceCatalog) Description() string {
 	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
+	return traceCatalogPlanSchema(json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
 	"action":{"type":"string","enum":["discover","status","resume","representatives","representative_status"],"description":"Default discover; status reads a current catalog; resume re-admits a historical roster. representatives freezes soft-ranked representatives of exact query-specification groups; representative_status pages that fixed selection with current execution states."},
 	"representatives":{"type":"object","additionalProperties":false,"properties":{"per_cluster":{"type":"integer","minimum":1,"maximum":5,"description":"Default 1; resource limit, not statistical coverage."},"max_clusters":{"type":"integer","minimum":1,"maximum":50,"description":"Default 10; resource limit. Other groups remain listed as budget-skipped."},"priority":{"type":"string","enum":["unexecuted_first","retry_first","largest_input_first"],"description":"Default unexecuted_first. Navigation metadata only, not severity; unknown sizes are not zero. Exact query IDs break ties."}},"description":"Only action=representatives. Does not execute or prohibit any member; a new explicit selection replaces the previous run-local selection."},
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
@@ -34,7 +34,7 @@ func (*TraceCatalog) Parameters() json.RawMessage {
 	"queries":{"type":"array","maxItems":16,"items":{"type":"object"},"description":"Optional expected trace_query calls for every candidate. Reuse that tool's argument contract, omit source/path. No execution or evidence is produced by planning."},
 	"catalog_id":{"type":"string","description":"Exact ID returned by discover or resume; required for status."},
 	"offset":{"type":"integer","minimum":0,"description":"Navigation page offset, default 0."}
-	}}`)
+	}}`))
 }
 
 type traceCatalogParams struct {
@@ -239,11 +239,15 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, 
 		page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query. Plans, attempts, and artifact-object pairs are different counts; no count here is a runtime measurement."
 		page["query_calls"] = queryCalls
 	} else if len(s.Queries) == 0 {
-		page["execution"] = "Only candidate files were discovered; no executable query plans exist. Candidate artifact IDs are not query IDs. Use an ordinary trace_query with a selected candidate path and explicit query arguments, or discover with expected queries."
+		page["execution"] = "Only candidate files were discovered; no executable query plans exist. Candidate artifact IDs are not query IDs. For planned comparison, discover again with the same root and queries before selecting representatives; each query requires view and task-supported object/window/filter fields (see queries.items in the current schema). This adds plans without resetting existing attempts. An ordinary trace_query with a selected candidate path remains available for direct investigation."
 	} else if offset == total {
 		page["execution"] = "End of the current catalog: no more records or query_calls on this page."
 	} else {
 		page["execution"] = "This page contains candidates only; use next_call to reach planned query_calls. Candidate artifact IDs are not query IDs."
+	}
+	if len(s.Queries) > 0 {
+		page["representatives_call"] = map[string]any{"action": "representatives", "catalog_id": s.ID}
+		page["representatives_guidance"] = "Optional comparison navigation: use representatives_call if representative selection fits the task; supply an explicit representative budget when needed. This page does not select or execute any representative."
 	}
 	if len(s.History) > 0 {
 		page["historical_runs"] = len(s.History)

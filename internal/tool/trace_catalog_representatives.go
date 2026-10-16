@@ -10,7 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceCatalogRepresentativesTeaching = `For representative comparison, use {"action":"representatives","catalog_id":"<current id>","representatives":{"per_cluster":1}}; then pass a returned query_calls object unchanged to trace_query. action="representative_status" refreshes states without changing the selected members. Groups mean exact query specifications, not shared physical identities or common causes. Unselected, source-skipped and unmatched candidates are not proven normal; success/empty/failure/pending remain separate.`
+const traceCatalogRepresentativesTeaching = `For representative comparison, first register the requested per-capture query specifications with discover.queries (view is required; object/window/filter fields come from the task). Re-discover the same root to add plans without resetting attempts. Then use {"action":"representatives","catalog_id":"<current id>"} with an optional representatives budget, and pass a returned query_calls object unchanged to trace_query. action="representative_status" refreshes states without changing the selected members. Groups mean exact query specifications, not shared physical identities or common causes. Unselected, source-skipped and unmatched candidates are not proven normal; success/empty/failure/pending remain separate.`
 
 func traceCatalogRepresentativePage(ctx *types.BusContext, c *tracecatalog.Catalog, catalogRef string, offset int) (string, error) {
 	s, ok := c.Representatives()
