@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -12,20 +13,9 @@ import (
 // authority. Event inventory uses another publication lane and is not offered.
 func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
 	const field = "native_fact_handoff"
-	var choices []types.AnswerRuntimeMeasurementReceipt
-	if ctx != nil && ctx.Mutable != nil {
-		if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil {
-			for _, table := range view.RuntimeMeasurementContract.Choices() {
-				if table.EventData != nil {
-					continue
-				}
-				choices = append(choices, types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View})
-				if len(choices) == 32 {
-					break
-				}
-			}
-		}
-	}
+	bus := types.ToolBusContext(ctx, types.AgentExplorer)
+	choices := tool.NativeFactHandoffChoices(bus)
+	required := tool.ManagedDeliveryRequiresNativeFactHandoff(bus)
 	out := append([]llm.ToolSchema(nil), schemas...)
 	for i, schema := range out {
 		if schema.Name != explorerCompletionToolName {
@@ -47,11 +37,28 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 		selections["items"], _ = json.Marshal(items)
 		fields["runtime_measurements"], _ = json.Marshal(selections)
 		handoff["properties"], _ = json.Marshal(fields)
+		if required {
+			handoff["description"], _ = json.Marshal(tool.ManagedDeliveryNativeFactHandoffTeaching)
+			var fieldsRequired []string
+			_ = json.Unmarshal(root["required"], &fieldsRequired)
+			found := false
+			for _, name := range fieldsRequired {
+				found = found || name == field
+			}
+			if !found {
+				fieldsRequired = append(fieldsRequired, field)
+			}
+			root["required"], _ = json.Marshal(fieldsRequired)
+		}
 		properties[field], _ = json.Marshal(handoff)
 		var reason map[string]json.RawMessage
 		var description string
 		if json.Unmarshal(properties["reason"], &reason) == nil && json.Unmarshal(reason["description"], &description) == nil {
-			reason["description"], _ = json.Marshal("When native_fact_handoff is selected, reason is lifecycle rationale only; put every independent conclusion, diagnosis and scope boundary in its interpretation. Otherwise use the following legacy reason contract: " + description)
+			if required {
+				reason["description"], _ = json.Marshal("Lifecycle rationale only. Keep all independent analysis in native_fact_handoff.interpretation, not in reason. Delivery status and links belong to the terminal component.")
+			} else {
+				reason["description"], _ = json.Marshal("When native_fact_handoff is selected, reason is lifecycle rationale only; put every independent conclusion, diagnosis and scope boundary in its interpretation. Otherwise use the following legacy reason contract: " + description)
+			}
 			properties["reason"], _ = json.Marshal(reason)
 		}
 		root["properties"], _ = json.Marshal(properties)

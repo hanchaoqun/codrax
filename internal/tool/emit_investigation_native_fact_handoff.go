@@ -12,10 +12,17 @@ type completionNativeFactHandoff struct {
 }
 
 func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNativeFactHandoff) (*types.InvestigationNativeFactHandoff, error) {
+	required := ManagedDeliveryRequiresNativeFactHandoff(ctx)
 	if p == nil {
+		if required {
+			return nil, managedDeliveryNativeHandoffError{}
+		}
 		return nil, nil
 	}
 	fail := func() (*types.InvestigationNativeFactHandoff, error) {
+		if required {
+			return nil, managedDeliveryNativeHandoffError{}
+		}
 		return nil, fmt.Errorf("emit_investigation_complete rejected: native_fact_handoff requires current published runtime_measurements observation_id/view pairs and an explicit interpretation string (empty only when no independent interpretation is needed). Do not copy values or invent IDs; keep diagnostic hypotheses, missing evidence, source findings and boundaries in interpretation. Omit the optional handoff to retain the legacy reason path")
 	}
 	if ctx == nil || ctx.Mutable == nil || p.Interpretation == nil {

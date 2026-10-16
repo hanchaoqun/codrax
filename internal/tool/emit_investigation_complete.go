@@ -2461,7 +2461,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	nativeFactHandoff, nativeFactHandoffErr := completionNativeFactHandoffSelection(ctx, p.NativeFactHandoff)
 	if nativeFactHandoffErr != nil {
-		return types.ToolResult{ToolName: t.Name(), Summary: nativeFactHandoffErr.Error(), Success: false, Timestamp: time.Now()}, nil
+		return types.ToolResult{ToolName: t.Name(), Summary: nativeFactHandoffErr.Error(), Repair: managedDeliveryNativeHandoffRepair(nativeFactHandoffErr), Success: false, Timestamp: time.Now()}, nil
 	}
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
