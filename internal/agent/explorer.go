@@ -22,7 +22,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
-	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -21602,56 +21601,7 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 		if totalLines == 0 {
 			recordEmptyPreReadCoverage(closure, repoRoot, file)
 		}
-	})
-}
-
-func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool, observe func(file string, totalLines int, lines []string)) string {
-	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
-		return ""
-	}
-	var b strings.Builder
-	injected := 0
-	for _, f := range files {
-		if injected >= maxFiles {
-			break
-		}
-		if excludeRead != nil {
-			if excludeRead[canonicalExplorerPath(f)] {
-				continue
-			}
-		}
-		absPath := filepath.Join(repoRoot, f)
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-		lines := textfmt.PhysicalLines(string(content))
-		totalLines := len(lines)
-		truncated := false
-		if totalLines > maxLines {
-			lines = lines[:maxLines]
-			truncated = true
-		}
-		fmt.Fprintf(&b, "#### `%s`", f)
-		if truncated {
-			// Disclose the total line count so the model does not
-			// mistake a head slice for the whole file and skip a
-			// read_file with offset>0 that it genuinely needs.
-			fmt.Fprintf(&b, " (first %d of %d total lines — issue read_file with line_offset to see the rest)", maxLines, totalLines)
-		} else {
-			fmt.Fprintf(&b, " (full file, %d lines)", totalLines)
-		}
-		b.WriteString("\n```\n")
-		for i, line := range lines {
-			fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
-		}
-		b.WriteString("```\n\n")
-		if observe != nil {
-			observe(f, totalLines, append([]string(nil), lines...))
-		}
-		injected++
-	}
-	return b.String()
+	}, preReadCatalogNavigation(ctx))
 }
 
 // excludeReadFromCtx pulls the canonical-path set from

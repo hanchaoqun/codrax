@@ -35,16 +35,23 @@ func traceCatalogCounts(queries []tracecatalog.QueryRecord) traceCatalogNavigati
 	return c
 }
 
-// finishTraceCatalogReadNavigation only decorates a successful complete visible
-// file read. It never inspects a preview/gutter or installs a live catalog.
-// A copied or subsequently changed action must pass normal resume admission.
-func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []byte, complete bool, out *types.ToolResult) {
-	if !complete || out == nil || !out.Success || contextFromBus(ctx).Err() != nil {
-		return
+// TraceCatalogReadNavigation is advisory, never a tool receipt, source-read
+// credential, live catalog, or measurement.
+type TraceCatalogReadNavigation struct {
+	Summary    string
+	Refinement *types.ToolRefinementHint
+}
+
+// BuildTraceCatalogReadNavigation projects only bytes already delivered in
+// full. It reads no new bytes and grants no access; resume rechecks admission.
+// A caller's complete flag cannot restore old results or install a catalog.
+func BuildTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []byte, complete bool) *TraceCatalogReadNavigation {
+	if !complete || contextFromBus(ctx).Err() != nil {
+		return nil
 	}
 	s, err := tracecatalog.DecodeSnapshot(data)
 	if err != nil {
-		return
+		return nil
 	}
 	nav := struct {
 		Kind             string                       `json:"kind"`
@@ -79,8 +86,19 @@ func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data [
 	}
 	b, err := json.Marshal(nav)
 	if err == nil && contextFromBus(ctx).Err() == nil {
-		out.Refinement = hint
-		out.Summary = "Checkpoint navigation (not query evidence): " + string(b) + "\n" + out.Summary
+		return &TraceCatalogReadNavigation{Summary: "Checkpoint navigation (not query evidence): " + string(b), Refinement: hint}
+	}
+	return nil
+}
+
+// Keep read_file's existing public result and source-line anchors unchanged.
+func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []byte, complete bool, out *types.ToolResult) {
+	if out == nil || !out.Success {
+		return
+	}
+	if nav := BuildTraceCatalogReadNavigation(ctx, path, data, complete); nav != nil {
+		out.Refinement = nav.Refinement
+		out.Summary = nav.Summary + "\n" + out.Summary
 	}
 }
 
