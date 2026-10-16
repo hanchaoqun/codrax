@@ -1,0 +1,3 @@
+package tool
+
+const runtimeResourceFactTeaching = "Published native resource facts support the summary/table/diagram kinds allowed by the current schema using the same observation_id/view pair, without copied text/items/columns/diagram. summary preserves each source event and its observed owner/quality; members preserves physical frame rows, original depth and symbol status. Request names are not observed identity, especially for empty queries; never borrow a name from another source. Missing depths and duplicate depths are not an ordered call chain. Fact diagrams contain independent rows with no edges; no execution, leak or causal claim is granted."

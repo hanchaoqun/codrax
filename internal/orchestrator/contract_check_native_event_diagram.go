@@ -8,7 +8,7 @@ import "github.com/hanchaoqun/codrax/internal/types"
 func isBoundNativeEventFactDiagram(block types.AnswerBlock) bool {
 	ref := block.RuntimeMeasurement
 	return block.Kind == types.BlockDiagram && ref.IsBound() &&
-		(ref.EventSelection != nil && ref.BoundTable.EventData != nil || ref.BoundTable.HasNativeSamplingFacts()) &&
+		(ref.EventSelection != nil && ref.BoundTable.EventData != nil || ref.BoundTable.HasNativeFixedFacts()) &&
 		block.Diagram == nil && block.Text == "" &&
 		len(block.Items) == 0 && len(block.Columns) == 0 && block.RuntimeWorkRelation == nil &&
 		len(block.EdgeAnchors) == 0 && len(block.ParticipantBoundaries) == 0 &&

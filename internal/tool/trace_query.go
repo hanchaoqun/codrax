@@ -10489,6 +10489,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	out = traceQueryApplyArtifactProvenance(result, out)
+	out = traceQueryResourceMeasurementPublications(out)
 	out = traceQueryFilteredPerfMemberReceipts(result, out)
 	out = traceQuerySamplingMeasurementPublications(result, out)
 	return traceQueryBusinessMeasurementPublications(result, out)

@@ -49,7 +49,7 @@ import (
 // (patch emit) — this function only carries the typed projection
 // + per-record validation.
 func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string, contracts ...*types.RuntimeMeasurementContract) (types.AnswerBlock, error) {
-	nativeSampling := runtimeSamplingSelectorAvailable(raw.RuntimeMeasurement, contracts...)
+	nativeSampling := runtimeFixedSelectorAvailable(raw.RuntimeMeasurement, contracts...)
 	if strings.TrimSpace(raw.ID) == "" {
 		return types.AnswerBlock{}, fmt.Errorf("%s: id is required and must be non-empty", fieldPath)
 	}

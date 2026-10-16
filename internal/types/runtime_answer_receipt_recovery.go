@@ -70,7 +70,7 @@ func runtimeRecoveredMeasurementSurfaceValid(block AnswerBlock) bool {
 	if r == nil || !r.IsBound() {
 		return false
 	}
-	native := r.EventSelection != nil && r.BoundTable.EventData != nil || r.BoundTable.HasNativeSamplingFacts()
+	native := r.EventSelection != nil && r.BoundTable.EventData != nil || r.BoundTable.HasNativeFixedFacts()
 	if block.Kind != BlockTable && (!native || block.Kind != BlockSummary && block.Kind != BlockDiagram) {
 		return false
 	}

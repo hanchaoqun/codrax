@@ -628,7 +628,7 @@ func projectKindPayloadConditionals(blockItems map[string]any, view *types.Answe
 		if runtimeEventChoicesAvailable(view) && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
 			payloadSchema = map[string]any{"if": runtimeEventSelectorRequiredSchema(), "then": runtimeEventSelectorRequiredSchema(), "else": payloadSchema}
 		}
-		if pairs := runtimeSamplingFactPairs(view.RuntimeMeasurementContract.Choices()); len(pairs) > 0 && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
+		if pairs := runtimeFixedFactPairs(view.RuntimeMeasurementContract.Choices()); len(pairs) > 0 && (k == string(types.BlockSummary) || k == string(types.BlockDiagram)) {
 			selected := runtimeMeasurementFactRequiredSchema(false, pairs)
 			payloadSchema = map[string]any{"if": selected, "then": selected, "else": payloadSchema}
 		}

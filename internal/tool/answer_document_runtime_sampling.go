@@ -4,10 +4,10 @@ import "github.com/hanchaoqun/codrax/internal/types"
 
 const runtimeSamplingFactTeaching = "Published native sampling facts also support summary/table/diagram using the same observation_id/view pair, with no copied text/items/columns/diagram. Summary separates each cohort's record-share and weight-share denominators and full-set recorded-time envelopes; preview timestamps never replace those bounds. Distribution is query-population quality/recorded-CPU inventory, not hotspot-subset quality. Counts measure sample records, not stack frames; recorded CPU is not execution state. Never add weights across events/units or infer elapsed time, calls or causes. A fact diagram contains no relationship edges."
 
-func runtimeSamplingFactPairs(choices []types.RuntimeMeasurementTable) []any {
+func runtimeFixedFactPairs(choices []types.RuntimeMeasurementTable) []any {
 	var pairs []any
 	for _, table := range choices {
-		if table.HasNativeSamplingFacts() {
+		if table.HasNativeFixedFacts() {
 			pairs = append(pairs, map[string]any{"observation_id": table.ObservationID, "view": string(table.View)})
 		}
 	}
@@ -15,8 +15,8 @@ func runtimeSamplingFactPairs(choices []types.RuntimeMeasurementTable) []any {
 }
 
 // This is shape normalization only. Exact current-pair binding subsequently
-// rejects every non-event/non-sampling summary or diagram. No JSON can grant
-// the private native sampling capability.
+// rejects every non-native summary or diagram. No JSON can grant the private
+// capability of any fixed native fact producer.
 func runtimeMeasurementFactSurfaceCandidate(kind types.AnswerBlockKind, ref *types.AnswerRuntimeMeasurementReceipt) bool {
 	return ref != nil && (kind == types.BlockSummary || kind == types.BlockTable || kind == types.BlockDiagram)
 }
@@ -24,15 +24,15 @@ func runtimeMeasurementFactSurfaceCandidate(kind types.AnswerBlockKind, ref *typ
 func runtimeMeasurementBoundFactSurface(block types.AnswerBlock) bool {
 	r := block.RuntimeMeasurement
 	return runtimeMeasurementFactSurfaceCandidate(block.Kind, r) && r.IsBound() &&
-		(r.EventSelection != nil && r.BoundTable.EventData != nil || r.BoundTable.HasNativeSamplingFacts())
+		(r.EventSelection != nil && r.BoundTable.EventData != nil || r.BoundTable.HasNativeFixedFacts())
 }
 
-func runtimeSamplingSelectorAvailable(ref *types.AnswerRuntimeMeasurementReceipt, contracts ...*types.RuntimeMeasurementContract) bool {
+func runtimeFixedSelectorAvailable(ref *types.AnswerRuntimeMeasurementReceipt, contracts ...*types.RuntimeMeasurementContract) bool {
 	if ref == nil || len(contracts) != 1 {
 		return false
 	}
 	copy := *ref
-	return types.BindRuntimeMeasurementReceipt(&copy, contracts[0]) && copy.BoundTable.HasNativeSamplingFacts()
+	return types.BindRuntimeMeasurementReceipt(&copy, contracts[0]) && copy.BoundTable.HasNativeFixedFacts()
 }
 
 func runtimeMeasurementContractForBusContext(ctx *types.BusContext) *types.RuntimeMeasurementContract {

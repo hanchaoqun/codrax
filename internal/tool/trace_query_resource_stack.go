@@ -11,7 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const TraceResourceStackPredicate = "resource_stack_observation"
+const TraceResourceStackPredicate = types.RuntimeResourceMeasurementPredicate
 
 func traceQueryResourceStackSchema(schema json.RawMessage) json.RawMessage {
 	var obj map[string]any
@@ -47,7 +47,8 @@ func traceQueryResourceStackObservations(p *tracequery.ResourceStackResult, ref 
 	if err != nil {
 		return nil
 	}
-	return []types.ObservationRecord{{ID: "trace_query:" + scope + "#resource_stack", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, Span: types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs}, ClaimKey: TraceResourceStackPredicate, Predicate: TraceResourceStackPredicate, Subject: "native resource stacks", Object: p.Status, Summary: "Same-capture owner-bound resource stack observations, not execution or response causality", RichNotes: []string{types.TraceNoteKeyResourceStack + "=" + string(data)}, ObservedAt: at, Confidence: 1}}
+	r := types.ObservationRecord{ID: "trace_query:" + scope + "#resource_stack", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, Span: types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs}, ClaimKey: TraceResourceStackPredicate, Predicate: TraceResourceStackPredicate, Subject: "native resource stacks", Object: p.Status, Summary: "Same-capture owner-bound resource stack observations, not execution or response causality", RichNotes: []string{types.TraceNoteKeyResourceStack + "=" + string(data)}, ObservedAt: at, Confidence: 1}
+	return []types.ObservationRecord{r}
 }
 
 func DecodeTraceResourceStack(r types.ObservationRecord) (tracequery.ResourceStackResult, bool) {

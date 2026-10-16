@@ -224,6 +224,7 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
 	runtimeSamplingPublication *runtimeSamplingPublicationWitness
+	runtimeResourcePublication *runtimeResourcePublicationWitness
 	ioRequestIdentity          *traceIORequestIdentity
 	IORequestEndpoints         *TraceIORequestEndpoints          `json:"-"`
 	EventSearchInventory       *TraceEventSearchInventory        `json:"event_search_inventory,omitempty"`

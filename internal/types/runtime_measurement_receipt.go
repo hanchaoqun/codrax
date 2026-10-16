@@ -55,6 +55,7 @@ type RuntimeMeasurementTable struct {
 	// source receipt. Never serialized or used as member/completion authority.
 	nativeFactIdentity        string
 	nativeSamplingFactsDigest string
+	nativeResourceFactsDigest string
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {
@@ -87,6 +88,9 @@ func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
+	if t.nativeResourceFactsDigest != "" && !t.HasNativeResourceFacts() {
+		return false
+	}
 	if t.nativeSamplingFactsDigest != "" && !t.HasNativeSamplingFacts() {
 		return false
 	}
