@@ -50,11 +50,11 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 	for _, e := range p.Events {
 		event, ts := strconv.FormatInt(e.RowID, 10), strconv.FormatInt(e.TimestampNS, 10)
 		owner := fmt.Sprintf("线程ID=%d；进程ID=%d；线程名=%s", e.Source.TID, e.Source.PID, resourceFactName(e.Source.Thread))
-		operation := fmt.Sprintf("%s；源数量/大小=%s（单位未在该载体声明）；地址（signed）=%s", e.Source.Operation, resourceFactScalar(e.Source.Size), resourceFactScalar(e.Source.Address))
+		operation := fmt.Sprintf("%s；%s；地址（signed）=%s", e.Source.Operation, resourceQuantityText(e.Source.Size), resourceFactScalar(e.Source.Address))
 		quality := fmt.Sprintf("源帧=%d；缺深度=%d；重复深度=%d；无效深度=%d；未知符号=%d；展示省略帧=%d", e.Source.FrameCount, e.MissingDepths, e.DuplicateDepths, e.InvalidDepths, e.UnknownSymbols, e.OmittedFrames)
 		quality += fmt.Sprintf("；源帧载体完整=%t；栈记录=%s；真实展开=%s", e.SourceFramesComplete, resourceFactState(e.Source.StackStatus), resourceFactState(e.UnwindCompleteness))
-		summary.Rows = append(summary.Rows, []string{event, ts, owner, operation, quality, resourceFactState(e.DepthStatus)})
-		members.Notes = append(members.Notes, "源事件 "+event+"："+quality+"；"+resourceFactState(e.DepthStatus)+"。")
+		summary.Rows = append(summary.Rows, []string{event, ts, owner, operation, quality, resourceDepthState(e.DepthStatus)})
+		members.Notes = append(members.Notes, "源事件 "+event+"："+quality+"；"+resourceDepthState(e.DepthStatus)+"。")
 		for _, f := range e.Frames {
 			frame := fmt.Sprintf("物理行=%d；原ID=%s；证据行=%d", f.RowID, resourceFactScalar(f.SourceID), f.Line)
 			address := fmt.Sprintf("IP（signed）=%s；offset=%s；symbol offset=%s；vaddr=%s", resourceFactScalar(f.IP), resourceFactScalar(f.Offset), resourceFactScalar(f.SymbolOffset), resourceFactText(f.VAddr))
@@ -91,16 +91,14 @@ func resourceFactState(state string) string {
 	switch state {
 	case "known":
 		return "已知"
+	case "null":
+		return "空值"
 	case "unavailable":
 		return "未提供"
 	case "invalid":
 		return "无效"
-	case "incomplete":
-		return "深度有缺层"
 	case "ambiguous":
-		return "存在重复或无效深度"
-	case "contiguous_observed":
-		return "已记录深度连续"
+		return "有歧义"
 	case "observed":
 		return "已记录"
 	case "unknown":
@@ -114,6 +112,27 @@ func resourceFactState(state string) string {
 	default:
 		return state
 	}
+}
+
+// DepthStatus and ResourceText.Status are distinct typed fields: an ambiguous
+// dictionary lookup does not imply a duplicate or invalid frame depth.
+func resourceDepthState(state string) string {
+	switch state {
+	case "incomplete":
+		return "存在缺失或无效深度"
+	case "ambiguous":
+		return "存在重复深度"
+	case "contiguous_observed":
+		return "已记录深度连续"
+	default:
+		return resourceFactState(state)
+	}
+}
+
+// The wire carries an exact scalar, not a unit. Both public displays share
+// this boundary without inferring bytes from the resource operation name.
+func resourceQuantityText(size tracewire.ResourceScalar) string {
+	return "源数量/大小=" + resourceFactScalar(size) + "（单位未在该载体声明）"
 }
 
 func resourceFactName(name string) string {

@@ -95,7 +95,7 @@ func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string 
 		}
 		shown++
 		fmt.Fprintf(&b, "源事件物理rowid=%d；原始id=%s；\n", e.RowID, resourceScalarText(e.Source.SourceID))
-		fmt.Fprintf(&b, "事件行%d；时间=%sns；线程=%s（tid=%d，pid=%d）；操作=%s；栈键=%s；资源大小=%s；地址signed=%s", e.Line, fmt.Sprint(e.TimestampNS), resourceStackEscape(e.Source.Thread), e.Source.TID, e.Source.PID, e.Source.Operation, resourceScalarText(e.Source.CallchainID), resourceScalarText(e.Source.Size), resourceScalarText(e.Source.Address))
+		fmt.Fprintf(&b, "事件行%d；时间=%sns；线程=%s（tid=%d，pid=%d）；操作=%s；栈键=%s；%s；地址signed=%s", e.Line, fmt.Sprint(e.TimestampNS), resourceStackEscape(e.Source.Thread), e.Source.TID, e.Source.PID, e.Source.Operation, resourceScalarText(e.Source.CallchainID), resourceQuantityText(e.Source.Size), resourceScalarText(e.Source.Address))
 		if n, ok := e.Source.Address.Integer(); ok {
 			fmt.Fprintf(&b, "，地址位型=0x%016x", uint64(n))
 		}
@@ -109,26 +109,17 @@ func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string 
 			}
 			fmt.Fprintf(&b, "|%s|%s|%s|%s|%s|%s|%s|%s|%d / %s|%d|\n", resourceScalarText(f.Depth), resourceTextText(f.Symbol), resourceTextText(f.Library), resourceScalarText(f.IP), bits, resourceScalarText(f.Offset), resourceScalarText(f.SymbolOffset), resourceTextText(f.VAddr), f.RowID, resourceScalarText(f.SourceID), f.Line)
 		}
-		fmt.Fprintf(&b, "本事件展示省略帧=%d；深度形态=%s；不按最深帧或固定倒数层指定业务根因。\n", e.OmittedFrames, e.DepthStatus)
+		fmt.Fprintf(&b, "本事件展示省略帧=%d；深度形态=%s；不按最深帧或固定倒数层指定业务根因。\n", e.OmittedFrames, resourceDepthState(e.DepthStatus))
 	}
 	fmt.Fprintf(&b, "展示事件=%d，省略事件=%d。资源时间是事件时间，栈帧没有独立执行时长；资源生命周期不等于线程运行/等待，栈关联不证明泄漏或响应根因。\n", shown, p.MatchedEvents-shown)
 	return b.String()
 }
 
 func resourceScalarText(s tracewire.ResourceScalar) string {
-	if s.Status == "known" {
-		return s.Value
-	}
-	return "未知（" + s.Status + "）"
+	return resourceFactScalar(s)
 }
 func resourceTextText(s tracewire.ResourceText) string {
-	if s.Status == "known" {
-		if s.Value == "" {
-			return "空文本"
-		}
-		return resourceStackEscape(s.Value)
-	}
-	return "未知（" + s.Status + "）"
+	return resourceStackEscape(resourceFactText(s))
 }
 func resourceStackEscape(s string) string {
 	return strings.NewReplacer("|", "&#124;", "\r", " ", "\n", "<br/>", "<", "&lt;", ">", "&gt;").Replace(s)
