@@ -58,6 +58,11 @@ func main() {
 	out := flag.String("out", "", "new absolute evidence directory; parent must exist")
 	fixture := flag.String("fixture", "eval/fixtures/hmosperf_catalog_objects", "existing offline constructed fixture directory")
 	currentIndex := flag.String("audit-index", "", "optional exact current CLI catalog path; inspect structured status only, not model prose")
+	exportReceipt := flag.String("audit-export", "", "exact export receipt JSON or successful original ToolResult; read-only physical audit")
+	processReceipt := flag.String("audit-process", "", "formal live CLI process receipt for the export audit")
+	finalAnswer := flag.String("audit-answer", "", "exact final default Markdown path for the export audit")
+	priorReport := flag.String("audit-report-before", "", "optional preserved original report bytes for explicit replacement audit")
+	finalReport := flag.String("audit-report", "", "optional exact explicitly selected report target")
 	exportTarget := flag.String("export-target", "", "optional explicit package name requested by the natural question; preparation does not export")
 	flag.Parse()
 	if flag.NArg() != 0 {
@@ -65,7 +70,11 @@ func main() {
 		os.Exit(2)
 	}
 	var err error
-	if *currentIndex != "" {
+	if *exportReceipt != "" {
+		err = auditExport(context.Background(), exportAuditInputs{Out: *out, Index: *currentIndex, Receipt: *exportReceipt, Process: *processReceipt, Answer: *finalAnswer, PriorReport: *priorReport, Report: *finalReport})
+	} else if *processReceipt != "" || *finalAnswer != "" || *priorReport != "" || *finalReport != "" {
+		err = errors.New("export audit inputs require -audit-export")
+	} else if *currentIndex != "" {
 		err = audit(context.Background(), *out, *currentIndex)
 	} else {
 		_, err = prepareScenario(context.Background(), *out, *fixture, *exportTarget)
@@ -236,33 +245,46 @@ func verifySQLiteOracle(ctx context.Context, path, rel, destination string) erro
 // audit inspects an explicitly selected product index. It never elects an
 // index by mtime, reads model prose, executes a query, or grants evidence.
 func audit(ctx context.Context, out, index string) error {
-	var seed preparation
-	body, err := os.ReadFile(filepath.Join(out, "preparation.json"))
+	current, err := inspectCurrent(ctx, out, index)
 	if err != nil {
 		return err
 	}
+	return writeJSON(filepath.Join(out, "current-index-audit.json"), map[string]any{
+		"status": "manifest_smoke_pass_human_pending", "current_index": index, "snapshot": current,
+		"limits": "Navigation only: actual model selection, original payloads, complete answer and source/window authority require independent log/payload/human audit.",
+	})
+}
+
+// inspectCurrent shares the existing fixture oracle without writing a receipt
+// or executing queries. Returned navigation never recreates live authority.
+func inspectCurrent(ctx context.Context, out, index string) (current tracecatalog.Snapshot, err error) {
+	var seed preparation
+	body, err := os.ReadFile(filepath.Join(out, "preparation.json"))
+	if err != nil {
+		return current, err
+	}
 	if err := json.Unmarshal(body, &seed); err != nil {
-		return err
+		return current, err
 	}
 	if !filepath.IsAbs(index) {
-		return errors.New("audit-index must be an exact absolute current catalog path")
+		return current, errors.New("audit-index must be an exact absolute current catalog path")
 	}
 	checkpoint, err := os.ReadFile(seed.Checkpoint)
 	if err != nil || hash(checkpoint) != seed.CheckpointSHA {
-		return errors.New("operator checkpoint changed")
+		return current, errors.New("operator checkpoint changed")
 	}
 	for rel, digest := range seed.SourceSHA {
 		body, err := os.ReadFile(filepath.Join(seed.Workspace, rel))
 		if err != nil || hash(body) != digest {
-			return fmt.Errorf("capture changed: %s", rel)
+			return current, fmt.Errorf("capture changed: %s", rel)
 		}
 	}
-	current, err := tracecatalog.Load(ctx, index)
+	current, err = tracecatalog.Load(ctx, index)
 	if err != nil {
-		return err
+		return current, err
 	}
 	if current.Root != filepath.Join(seed.Workspace, "captures") || len(current.Artifacts) != 2 || len(current.Queries) != 4 {
-		return errors.New("current catalog differs from the requested input roster")
+		return current, errors.New("current catalog differs from the requested input roster")
 	}
 	paths := map[string]string{}
 	for _, artifact := range current.Artifacts {
@@ -272,7 +294,7 @@ func audit(ctx context.Context, out, index string) error {
 	for _, query := range current.Queries {
 		key := paths[query.ArtifactID] + "#" + query.Object.ID
 		if seen[key] {
-			return errors.New("duplicate current member")
+			return current, errors.New("duplicate current member")
 		}
 		seen[key] = true
 		var want *expectedQuery
@@ -284,7 +306,7 @@ func audit(ctx context.Context, out, index string) error {
 			}
 		}
 		if want == nil || query.Object.Kind != "thread" || query.View != "resource_stack" || query.Window == nil || query.Window.StartNS != 10_000_000_000 || query.Window.EndNS != 10_050_000_000 || len(query.Attempts) == 0 {
-			return errors.New("current member selector/window/attempt is missing or mismatched")
+			return current, errors.New("current member selector/window/attempt is missing or mismatched")
 		}
 		outcome := tracecatalog.OutcomeSuccess
 		if want.Events == 0 {
@@ -292,22 +314,19 @@ func audit(ctx context.Context, out, index string) error {
 		}
 		last := query.Attempts[len(query.Attempts)-1]
 		if query.Outcome != outcome || last.Outcome != outcome || last.SourceRevision == "" || last.PayloadRef == "" || last.Truncated {
-			return fmt.Errorf("current member is not freshly complete: %s", key)
+			return current, fmt.Errorf("current member is not freshly complete: %s", key)
 		}
 		var declared, executed map[string]any
 		if json.Unmarshal(query.Parameters, &declared) != nil || json.Unmarshal(last.ExecutedParameters, &executed) != nil || !reflect.DeepEqual(declared, executed) {
-			return fmt.Errorf("effective query differs from the bounded explicit plan: %s", key)
+			return current, fmt.Errorf("effective query differs from the bounded explicit plan: %s", key)
 		}
 		for _, old := range seed.OldRawRefs {
 			if old != "" && (old == last.PayloadRef || old == last.RawRef) {
-				return errors.New("current member reused an operator historical result reference")
+				return current, errors.New("current member reused an operator historical result reference")
 			}
 		}
 	}
-	return writeJSON(filepath.Join(out, "current-index-audit.json"), map[string]any{
-		"status": "manifest_smoke_pass_human_pending", "current_index": index, "snapshot": current,
-		"limits": "Navigation only: actual model selection, original payloads, complete answer and source/window authority require independent log/payload/human audit.",
-	})
+	return current, nil
 }
 
 func hash(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }

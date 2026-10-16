@@ -142,3 +142,45 @@ receipt outside the question. No automatic retries or simulated disk faults
 are part of this live lane; public deterministic tests cover failed writes,
 external changes and the per-file transaction boundary. Successful physical
 report publication and complete answer correctness receive separate verdicts.
+
+## Read-only post-return delivery smoke
+
+After the real CLI formally exits, use only exact paths from that run's original
+tool responses and output record (never choose by mtime):
+
+```sh
+go run ./eval/trace_catalog_resume -out /absolute/case \
+  -audit-index /absolute/exact/current/catalog.json \
+  -audit-export /absolute/original-export-tool-result.json \
+  -audit-process /absolute/formal-live-process-receipt.json \
+  -audit-answer /absolute/exact/default-answer.md
+```
+
+`-audit-export` accepts an original successful `trace_catalog` ToolResult or its
+exact ExportReceipt JSON. The process receipt has `mode: "live"`, `started_at`,
+`finished_at` (RFC3339), `exit_code`, `signal`, and actual `argv`. For explicit
+report replacement, add `-audit-report-before /absolute/preserved-old.md` and
+`-audit-report /absolute/selected-report.md`; the process receipt also carries
+the pre-run `prior_report_sha256` and the exact `--report-md` argument.
+
+The actual `--request` must equal the preparation's question and `--repo` its
+workspace; duplicate or missing-value request/repository/report flags are not
+verified. Link checks use the saved preview's Markdown renderer and actual
+anchor destinations, not Markdown-looking text in code, comments, images or
+escaped examples. A different query/fragment is not the exact delivery path.
+
+This writes a new, no-overwrite `export-delivery-audit.json`. Exit 0 means the
+audit was saved, not that the product passed: inspect its separate process,
+current fixture execution, package integrity, current-package match, material,
+post-return links, and report-byte axes. Incomplete or interrupted runs remain
+`physical_delivery_smoke_incomplete_human_pending`. A complete smoke still ends
+`human_pending`; it neither checks diagnostic prose nor restores live authority.
+It compares manifest files to their exact original producer bytes, so keep
+those originals available; absence after cleanup is unverified provenance, not
+proof of a corrupt archive. B's new report must equal the default Markdown and
+differ from its preserved prior bytes. The helper does not execute queries,
+export, or overwrite reports, and does not invent a persisted Previous receipt.
+
+The natural pair uses ordinary host configuration. Temporary-session cleanup
+and later blob pruning are separately covered by zero-model host regressions;
+do not claim the natural pair exercised those modes or permanent archival.
