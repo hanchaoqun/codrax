@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -20,16 +21,19 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
 			break
 		}
-		s := c.Snapshot()
+		execution := c.CurrentExecution()
+		s := execution.Snapshot
 		if b.Len() == 0 {
 			b.WriteString("Capture/object query directory — navigation and last recorded execution status only. Window numbers are argument bounds; endpoint inclusion is unknown unless explicitly recorded, so use the actual query's boundary contract. Revalidate sources before reuse. It does not prove measurements, capture completeness, cross-capture clock alignment or causality. Use the actual query evidence for findings; do not count failed, stale or unexecuted work as zero.\n")
+			b.WriteString(tracecatalog.ExecutionCoverageBoundary + "\n")
 		}
 		counts := map[string]int{}
 		for _, q := range s.Queries {
 			counts[string(q.Outcome)]++
 		}
 		countJSON, _ := json.Marshal(counts)
-		header := fmt.Sprintf("catalog_id=%q root=%q candidates=%d planned_queries=%d discovery_complete=%t query_status_counts=%s\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON)
+		coverageJSON, _ := json.Marshal(execution.Coverage)
+		header := fmt.Sprintf("catalog_id=%q root=%q candidates=%d registered_query_records=%d discovery_complete=%t query_status_counts=%s\ncurrent_execution=%s\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON, coverageJSON)
 		if b.Len()+len(header) > (24<<10)-512 {
 			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
 			break
@@ -62,7 +66,7 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			if shown >= 16 {
 				break
 			}
-			row, _ := json.Marshal(map[string]any{"source": paths[q.ArtifactID], "query": q})
+			row, _ := json.Marshal(map[string]any{"source": paths[q.ArtifactID], "query": q, "query_origin": execution.QueryOrigins[q.ID]})
 			if b.Len()+len(row) > 24<<10 {
 				break
 			}

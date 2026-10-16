@@ -160,6 +160,8 @@ type runIdentity struct {
 	sequence    atomic.Uint64
 	publication sync.Mutex
 	published   map[string]*Catalog
+	exportMu    sync.Mutex
+	exportRefs  map[string]exportAttemptBinding
 }
 
 type Catalog struct {

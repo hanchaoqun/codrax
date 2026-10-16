@@ -204,7 +204,10 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			completion.Outcome = tracecatalog.OutcomeStale
 			completion.Error = &tracecatalog.Issue{Code: "source_changed", Path: t.artifact.Path, Message: currentErr.Error()}
 		}
-		_, completionErr := t.catalog.Complete(contextFromBus(ctx), t.queryID, completion)
+		completed, completionErr := t.catalog.Complete(contextFromBus(ctx), t.queryID, completion)
+		if completionErr == nil && len(completed.Attempts) > 0 {
+			t.catalog.CaptureExportReferences(contextFromBus(ctx), completed.ID, completed.Attempts[len(completed.Attempts)-1].ID, ctxWorkDir(ctx))
+		}
 		if completionErr != nil {
 			out.Summary += "\nCapture index update failed: " + completionErr.Error()
 		}

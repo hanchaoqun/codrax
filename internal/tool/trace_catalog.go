@@ -22,11 +22,12 @@ type TraceCatalog struct {
 
 func (*TraceCatalog) Name() string { return "trace_catalog" }
 func (*TraceCatalog) Description() string {
-	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching
+	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching + " " + traceCatalogExportTeaching
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
 	return traceCatalogPlanSchema(json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
-	"action":{"type":"string","enum":["discover","status","resume","representatives","representative_status"],"description":"Default discover; status reads a current catalog; resume re-admits a historical roster. representatives freezes soft-ranked representatives of exact query-specification groups; representative_status pages that fixed selection with current execution states."},
+	"action":{"type":"string","enum":["discover","status","resume","representatives","representative_status","export"],"description":"Default discover; status reads a current catalog; resume re-admits a historical roster. representatives freezes soft-ranked representatives of exact query-specification groups; representative_status pages that fixed selection with current execution states. export archives current native references to a new explicit managed package target without running queries."},
+	"export":{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"type":"string","minLength":1,"maxLength":120,"description":"Explicit new package name, not a path. Published below the host-managed evidence-exports directory; no overwrite or customer source/report mutation."}},"description":"Only action=export with current catalog_id. Package manifest and report separate execution coverage, material copying, and unknown native availability; export is not analysis completion."},
 	"representatives":{"type":"object","additionalProperties":false,"properties":{"per_cluster":{"type":"integer","minimum":1,"maximum":5,"description":"Default 1; resource limit, not statistical coverage."},"max_clusters":{"type":"integer","minimum":1,"maximum":50,"description":"Default 10; resource limit. Other groups remain listed as budget-skipped."},"priority":{"type":"string","enum":["unexecuted_first","retry_first","largest_input_first"],"description":"Default unexecuted_first. Navigation metadata only, not severity; unknown sizes are not zero. Exact query IDs break ties."}},"description":"Only action=representatives. Does not execute or prohibit any member; a new explicit selection replaces the previous run-local selection."},
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
@@ -46,6 +47,7 @@ type traceCatalogParams struct {
 	Offset          int                                 `json:"offset"`
 	SnapshotPath    string                              `json:"snapshot_path"`
 	Representatives *tracecatalog.RepresentativeOptions `json:"representatives"`
+	Export          *traceCatalogExportParams           `json:"export"`
 }
 
 func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (types.ToolResult, error) {
@@ -57,6 +59,9 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	if ctx == nil || ctx.Mutable == nil {
 		out.Summary = "trace_catalog needs current run state"
 		return out, nil
+	}
+	if p.Export != nil || p.Action == "export" {
+		return traceCatalogExport(ctx, p, out)
 	}
 	if p.Representatives != nil && p.Action != "representatives" {
 		out.Summary = "representatives configuration requires action=representatives"
@@ -112,7 +117,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 			out.Summary = err.Error()
 			if c != nil {
 				if retained, installErr := ctx.Mutable.InstallTraceCatalog(c); installErr == nil {
-					if page, pageErr := traceCatalogPage(retained.Snapshot(), "", p.Offset); pageErr == nil {
+					if page, pageErr := traceCatalogLivePage(retained, "", p.Offset); pageErr == nil {
 						out.Summary += "\nPartial discovery retained in this run (not persisted): " + page
 					}
 				}
@@ -190,7 +195,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	if p.Action == "representatives" || p.Action == "representative_status" {
 		out.Summary, err = traceCatalogRepresentativePage(ctx, c, ref, p.Offset)
 	} else {
-		out.Summary, err = traceCatalogPage(c.Snapshot(), ref, p.Offset)
+		out.Summary, err = traceCatalogLivePage(c, ref, p.Offset)
 	}
 	if err != nil {
 		out.Summary = err.Error()
@@ -214,7 +219,7 @@ func saveTraceCatalog(ctx *types.BusContext, c *tracecatalog.Catalog) (string, e
 	return path, c.Save(contextFromBus(ctx), path)
 }
 
-func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, error) {
+func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int, live ...tracecatalog.ExecutionView) (string, error) {
 	const pageSize = 16
 	total := len(s.Artifacts) + len(s.Queries)
 	if offset > total {
@@ -227,14 +232,21 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, 
 			records = append(records, traceCatalogRecord("candidate_artifact", s.Artifacts[i]))
 		} else {
 			q := s.Queries[i-len(s.Artifacts)]
-			records = append(records, traceCatalogRecord("current_query_plan", q))
+			if len(live) == 1 {
+				records = append(records, traceCatalogExecutionRecord(q, live[0].QueryOrigins[q.ID]))
+			} else {
+				records = append(records, traceCatalogRecord("current_query_plan", q))
+			}
 			queryCalls[q.ID] = map[string]any{"catalog_query_ref": map[string]string{"catalog_id": s.ID, "query_id": q.ID}}
 		}
 	}
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
-		"candidate_count": len(s.Artifacts), "planned_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
+		"candidate_count": len(s.Artifacts), "registered_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
 		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
-	page["current_counts"] = traceCatalogCounts(s.Queries)
+	if len(live) == 1 {
+		page["current_execution"] = live[0].Coverage
+		page["coverage_boundary"] = tracecatalog.ExecutionCoverageBoundary
+	}
 	if len(queryCalls) > 0 {
 		page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query. Plans, attempts, and artifact-object pairs are different counts; no count here is a runtime measurement."
 		page["query_calls"] = queryCalls
