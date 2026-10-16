@@ -8571,3 +8571,55 @@ B自然8次export中3次同名被拒、5包物理发布；capture-review（序�
 末版`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件/0非JSON错误行，UTC 2026-10-16 02:28:00.839919–02:40:43.029018。首轮因迟到contracts失败而中止的原日志与SIGTERM收据保留，不能把两轮拼成唯一成功运行。末次6988冻结输入/binary、两例四份完整原件拷贝、自然问题/历史checkpoint、两例真实重叠退出与五包逐文件/引用复核均过；`codrax-hmc250-final-verification-v1.json`明确人工0/2和自动预读未触发。
 
 双例完整过程与正式结论见[摘要](../../eval/parallel_selected_summary_hmc_recovery_export_20261015.md)及[人工审计](../../eval/parallel_selected_summary_hmc_recovery_export_20261015_manual_audit.md)。本地忽略证据根`eval/results/hmc_recovery_export_20261015/`保全部失败、原件、输出与验证收据；72份逐字节复制复核，362工件SHA索引，归档边界见`batch-audit.md`。大原件/可执行文件不冒称已推送。
+
+## 251. 不可变结果、统一证据交付与显式报告安全回写（2026-10-15）
+
+### 251.1 起点、参考意图与有限合同
+
+起点`5228d076128c81dfc3fec4f611bf7453d7fca539`干净且远端同步。79唯一=23已交付+56开放、重复0；33待实施/16部分实施/3待验收/3验收中/1持续执行。保留§250两份完整人工FAIL、自动预读自然未触发、同源自由成文债，不用新的确定性绿回签。
+
+主代理及独审对照参考`core/batch/AGENTS.md`、`closure/package.py::build_package`、`closure/merge.py::merge_analysis`。其通用意图是显式成员随包交接、统一校验后写入；参考还按mtime发现Excel、直接wb.save、由领域verdict生成汇总，不能照搬成当前源码/诊断权限。本项目复用已有catalog私有运行身份、原精确Merge、受信原件代次与既有显式CLI报告路径，不新造执行内核，不自动猜新目标或以机械规则代模型诊断。
+
+有限退出：修同字节生产者重写，保强代次门；当前多分支一个已命名交付目标，最终路径不靠模型记忆；已明确授权报告目标原子完整替换，异常保旧。包发布、材料完整、本轮集合匹配、分析正确分轴。跨进程CAS、历史备份、任意工作簿合并和多目标全局事务不暗加为原11.3退出条件；未实现边界仍明示。
+
+### 251.2 三组生产子能力
+
+**原生结果不可变发布。** 只对精确trace_query生产者的完整结构化原件/大文本结果采用完整SHA256文件名、同目录完整暂存/Sync/Close、原子no-replace。已有相同结果只读比对全部字节及held/path generation，不再以rename/Link后unlink改变旧引用代次。错误字节、目录、符号链接不覆盖；原件同字节被外部替换仍拒绝。实际查询不跳过，两个attempt保各自来源和结果见证，不是query cache。非Trace blob、附加输入修复和既有memo不改。Darwin/Linux/Windows有对应发布实现，本轮原生执行证据仅macOS；其它不支持平台fail-closed。
+
+**当前多分支交付协调及最后路径。** 私有run只登记真正变更的live分支；Export才用原Merge汇合当前计划/尝试/代表选择，不向别分支Snapshot/Query广播权限。host输出根+明确target限定交付slot，同版本需完整复核原来源、引用强代次、manifest及全部文件SHA才复用原收据；当前集合变化保旧冻结包并报冲突，不自动另名覆盖。发布前重查当前集合，成功rename即签私有物理记录，后置校验失败/取消不抹掉已发布事实。64分支/32目标是资源上限，超限不签部分集合为完整。
+
+tool消费再次授权当前根及所有成员；其它JSON/模型散文不能铸交付权。finalizer在既有typed_handoff中提供最多16条/16KiB完整收据，并在正常、恢复及raw fallback的系统交付区给已验证执行报告/manifest链接。无权或坏包不发有效路径；已验证旧冻结包明确不代表本轮完成。Primary/Principal仍为模型原答案，系统区不代签其正确。report.md明确是执行记录，不冒充诊断报告。文件链接、执行计数与包范围同一来源，不扫描正文补关键词。
+
+**显式报告安全回写。** SetExplicitReport只读捕获目标旧SHA、强代次、权限及存在性；实际WriteResult同目录完整暂存/同步/关闭、重验旧版本/alias/父目录，再原子替换。短写/Write/Sync/Close/rename失败保旧，成功才记Published/bytes/SHA/Previous；自己的连续发布更新预期版本，外部修改、同字节换inode、旧注册/JSON恢复被拒。现有普通文件保持明确授权覆盖，symlink保原链接更新referent，多hardlink明确拒绝，避免静默破坏别名。MD/HTML/root-causes各自结果独立，默认dump及用户源码无新增写入。Previous是旧版本审计信息，不是备份。当前公开调用仍context.Background，不把内部取消测试说成CLI运行取消全链；版本复核是optimistic而非外部writer的filesystem CAS。
+
+### 251.3 确定性验证与冻结补救
+
+原公开RED：双fork真实查询同字节重写导致4引用中2陈旧；分支导出只见局部；最终答案没有已发布路径；报告外部修改仍被覆盖及缺私有发布收据。测试API/编译夹具错误与产品RED区分，所有原日志保留。完整SHA前8位实际碰撞、24并发发布、外部同字节换件、错源/JSON/权限/取消、当前集合变化、包文件篡改、正常/恢复最终路径、短写及I/O各阶段故障均有正反；相关race和独审收据单列。
+
+第一版冻结7005输入、binary SHA `3ac71338aa7d8b12aee31a671fb885c2ae95da31ded2c9ca603c9e53e168ef0e`。首轮全仓与两例真实模型因会话中断停止：首轮仅78包PASS/12SKIP、无正式退出，不算全仓通过。主代理记录观察收据后只重启确定性全仓，没有增加模型运行。
+
+重启轮正式exit1（93包PASS/13SKIP/1FAIL包），只有两个事件展示预算失败：固定逐查询份额在总预算仍有约24KiB空闲时省掉来源字段；最终提示反复打印同一完整来源，达到134669B。完整SHA路径增长是触发器，不缩短hash、改强代次校验或抬上限。后置修复在保留行预算公平份额后回收未使用字节给摘要；实际完整发布库存且完整SourceRef逐字段相同才共享短来源引用，不删除任何generic事实、span、角色、说明或权威。冲突ID/不同源窗/未发布或元数据省略均不借引用，ledger及因果投影保持不变。
+
+末版定向实际finalizer为126424B，库存46638B；原两失败、32查询×32共享行×13档metadata、来源负控及generic保留通过。成员引用/selector IDs的完整JSON开销提前扣入预算，此为独审后的防御收紧，旧probe未复现溢出，不能另造一个已发生故障。库存128KiB及32查询/32显示对象上限不变。标准make正式exit0，冻结v2为7007输入、binary SHA `4698e37461e231b77d23cd34d438b09df2e99f9282bb6d29b531f8051fea7099`；与v1只差5个agent实现/测试文件。末版正式全仓结算见下方；最初真实binary与后置版本分开，未追加模型，旧模型结果不迁签。
+
+### 251.4 两例真实运行与人工审计
+
+两例原自然目标各一次并行，问题不变，仅B宿主另给既有--report-md明确目标。operator每例0模型/1历史查询，构造SQLite/checkpoint不冒称新实机采集或模型自然中断。零模型/exit预检均正式0，但REPL预检不带仅非交互支持的report参数，不能替代回写验收。
+
+真实模型已启动：A6request/5response，停analyze第5轮请求在途，尚无accepted analysis；B11/10，停explore第4轮请求在途。两例进程均由会话中断停止，没有正式exit收据、终稿或导出，不推定退出码。状态2 INTERRUPTED，整答人工N/A，不写成0/2 FAIL或PASS。两例当前trace_query/export均0，最终链接/报告发布NOT_TRIGGERED；B只armed，不是published。
+
+B完整read_file137行后发布导航，resume初次混catalog_id被拒、自然重试成功，精确当前清单2原件/4计划全not_executed/0attempt，历史1success独立。日志预览2000字节不代表结果截断，审计读取完整6765-byte工具原件。原自动预读自然未触发，不能代签。B旧报告172bytes/SHA `547d72acef79fc795f0fb810596716c1f20d8e0e684e842a00597eff51368e9f`不变，两例SQLite/checkpoint与preparation SHA全符。
+
+本轮过程风险归旧编号：A模型导出维度错误role=diagram被系统接受并要求补diagram_hint，用户未要求图；A/B运行时调用位置又升源码义务；B同dispatch读取后的历史摘要被标缺read_file凭证留调查线索，未变成可信运行时事实。历史“剩3个”散文出现在resume成功回交4项之前，缺后续响应，不补推最终漏查。以typed意图/义务和来源交接复现修复，不添“导出/调用位置”关键词门。§250空身份、单位和栈顺序整答FAIL全保留，未证模型偶发。
+
+### 251.5 结算与下一有限队列
+
+完整能力新增0；三组生产子能力与后置预算回归修复分别记账；累计23/79实现交付、56开放不变。11.3不再把不可变结果/多分支协调/报告安全实现笼统列未施工，仍待自然完整交付验收。当前剩余验收两组：11.3自然交付与物理回写；16.4/16.5/18.4来源义务及同源自由成文一致性，不与56重复相加。
+
+下一能力轨只验原11.3有限合同：明确目标、全部当前计划/引用、最终可用路径及报告实际新旧版本；不能把任意正确自由诊断新增为包能力的无限退出门。缺陷轨优先已证共享意图/来源消费，避免继续逐句叠警告。之后轮换11.2代表自然入口、18.3 sample-only诚实边界及只读登记终态。合法target含反引号的标签转义欠缺记16.5低优先级，独立链接/权限不受影响，不挤占完整能力。
+
+路径生命周期另列11.3既有交付可用性待验：代码链确认explorer/fork/tool/finalizer均沿同一host WorkDir，不因跨阶段改根丢收据；但包仍在WorkDir/evidence-exports。legacy blob_max_sessions=0的临时根会在Run返回时清理，默认session根本Run不清理但受下次启动保留策略管理，不能宣称永久存档或已验临时模式返回后的可用链接。此为静态识别风险，尚无该入口公开回放，不虚构自然失败；后续区分临时查询材料与用户交付物的宿主生命周期，不靠猜路径或文字声明恢复权限。
+
+末版全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件/0非JSON错误行，UTC 2026-10-16 03:36:57.992443–03:53:51.471691。完整JSONL SHA `6b56ae0e0cbf8d5ac358a5d4914340f752a191dc3d677eeaeda00eed139f2e3e`，33个关键根测试在同次记录全PASS；末次7007输入、binary、79唯一任务、两例原件/checkpoint和旧报告字节核验一致。首轮中断及v2正式FAIL仍保留，不拼接、不改签。
+
+三组生产提交已普通推送origin/main：`343890c49`不可变原生结果，`16dc94458`多分支交付/最终路径及相邻预算修补，`ab5d43f6c`显式报告安全发布。本批[摘要](../../eval/parallel_selected_summary_hmc_delivery_report_20261015.md)与[人工审计](../../eval/parallel_selected_summary_hmc_delivery_report_20261015_manual_audit.md)分列实现和自然验收。本地忽略根`eval/results/hmc_delivery_report_20261015/`保原失败、中断、完整工具原件和收据，90份逐字节复制核验、227工件SHA索引；归档v1的Ruby filter_map兼容失败保留，v2等价修复后正式exit0，非产品缺陷。最终收据`verification-receipts/codrax-hmc251-final-verification-v1.json`明确完整能力新增0、3组子能力、真实2例INTERRUPTED/人工N/A。大原件、日志和可执行文件不冒称推送远端。

@@ -125,3 +125,20 @@ failed or missing material is not a completed analysis. Historical results
 remain navigation and must not become current evidence. A model that never
 invokes export leaves this entrance NOT_TRIGGERED, even if another output
 file happens to exist. No automatic replay is allowed.
+
+## Explicit final-report replacement variant
+
+Use the same natural export question in a separate fresh workspace, and pass
+the existing host CLI option `--report-md /absolute/selected-report.md`. Seed
+that exact file with a known prior report and record its SHA before startup.
+The CLI flag, not a model path or hidden question constraint, authorizes the
+replacement. An `/exit` startup preflight omits single-shot report flags and
+must leave the prior report intact; separate public flag tests reject them in
+REPL mode. This preflight checks startup, not the report publication path.
+Run the real question once; independently compare the published Markdown with
+the normal final-answer dump and verify its logged byte count/SHA. Preserve
+the prior bytes, source hashes, package receipts, final answer, and process
+receipt outside the question. No automatic retries or simulated disk faults
+are part of this live lane; public deterministic tests cover failed writes,
+external changes and the per-file transaction boundary. Successful physical
+report publication and complete answer correctness receive separate verdicts.
