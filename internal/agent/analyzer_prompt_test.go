@@ -988,7 +988,7 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		".log",
 		"no stack-frame locations were verified in the current repository",
 		"do NOT run a source-code pre-scan",
-		"External observations default to mixed external + current-source analysis",
+		"Current-source evidence is available, not automatically required",
 		"external_observation_policy.current_source_mode=exclude",
 		"current_source_exclusion_quote",
 		"artifact_citation_quotes",

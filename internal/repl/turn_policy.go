@@ -385,7 +385,7 @@ var turnPolicyTool = llm.ToolSchema{
     "source": {
       "type": "string",
       "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact", "data"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation (including native runtime records and measurements), operation result, or external skill result. data = general-purpose datasets processed by route=data; storage in a database does not by itself select this source. Read-only MCP rows/resources are external observations, not command operations by themselves."
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = evidence about the current checkout's implementation. mixed = combines independently requested evidence domains. external_tool/artifact = external observation (including native runtime records and measurements), operation result, or external skill result. An artifact's storage location does not determine its evidence domain: recorded callsites, stacks, paths, and inspection status remain observations even inside the repository. data = general-purpose datasets processed by route=data; storage in a database does not by itself select this source. Read-only MCP rows/resources are external observations, not command operations by themselves."
     },
     "risk_level": {
       "type": "string",
@@ -689,12 +689,15 @@ source:
                     (transform, summarize, translate, elaborate)
   prior_context   — answer derives from earlier conversation (not
                     just the immediate previous turn)
-  repo            — answer requires repository access
-  mixed           — combination (typical for hybrid)
+  repo            — evidence about the current checkout's implementation
+  mixed           — combines independently requested evidence domains
   external_tool   — derives from an external tool/skill
   artifact        — derives from an input observation artifact or an output
                     artifact to be produced
   data            — derives from supported general-purpose datasets
+An artifact's storage location does not determine its evidence domain:
+recorded callsites, stacks, paths, and inspection status remain observations
+even inside the repository.
 
 confidence: 0..1 self-rating. Below 0.4 the dispatcher demotes to
 repo because the cost of being wrong is higher for local / hybrid

@@ -5104,6 +5104,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — pre-complete citation preflight failed.\n\n")
 	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
 		min, eligible)
+	b.WriteString(completionDeclaredSourceObligationDiagnostic(ctx))
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
 }
@@ -12898,6 +12899,7 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — typed current-source lane is required but no current-source evidence/read coverage exists.\n\n")
+	b.WriteString(completionDeclaredSourceObligationDiagnostic(ctx))
 	if fatalZeroWitness {
 		if quote := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx).FirstVerbatimCurrentSourceDemandQuote(); quote != "" {
 			fmt.Fprintf(&b, "The request explicitly asks for a current-source explanation (%q). ", quote)
