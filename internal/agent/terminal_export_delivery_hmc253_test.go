@@ -85,7 +85,7 @@ func TestHMC253FailedDeliveryTargetRendersOnlyLiteralMetadata(t *testing.T) {
 
 func TestHMC253DraftDeliveryAndTerminalOwnership(t *testing.T) {
 	ctx := pendingAnswerContextHMC253(t)
-	if got := renderAnswerExportDeliveryContext(ctx); !strings.Contains(got, "pending_publication") || strings.Contains(got, `"physical_success":true`) {
+	if got := renderAnswerExportDeliveryContext(ctx); !strings.Contains(got, `"target":"capture-review"`) || strings.Contains(got, `"physical_success":true`) {
 		t.Fatalf("pending context: %s", got)
 	}
 	if got := renderAnswerExportDeliveries(ctx, "en"); got != "" {

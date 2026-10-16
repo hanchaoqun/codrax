@@ -9,20 +9,42 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// The prompt has a bounded whole-record preview. The final system delivery
-// below enumerates all private receipts; a preview is never a completion claim.
+// Managed prompts carry stable delivery intent, not a mutable execution
+// snapshot. Only the terminal component owns publication state and links.
+// Standalone callers still need the verified physical receipts here.
 func renderAnswerExportDeliveryContext(ctx *types.AgentContext) string {
-	rows, _ := tool.AuthorizedTraceCatalogDeliveries(types.ToolBusContext(ctx, types.AgentFinalizer))
-	requests, _ := tool.AuthorizedPendingTraceCatalogExports(types.ToolBusContext(ctx, types.AgentFinalizer))
-	if len(rows) == 0 && len(requests) == 0 {
-		return ""
-	}
 	var records []any
-	for _, row := range rows {
-		records = append(records, row)
+	teaching := "Published receipts describe files, not diagnostic evidence or whole-question completion; report.md is an execution record. A frozen package with current_match=false describes an earlier revision."
+	if ctx != nil && ctx.PipelineExports != nil {
+		requests, err := tool.AuthorizedPendingTraceCatalogExports(types.ToolBusContext(ctx, types.AgentFinalizer))
+		if err != nil {
+			return fmt.Sprintf("\n\n## Evidence-package delivery\nThe private delivery request could not be inspected: %s. Do not infer publication or completion.\n", err)
+		}
+		type deliveryIssue struct {
+			Status string `json:"status"`
+			Code   string `json:"code"`
+			Reason string `json:"reason"`
+		}
+		type deliveryIntent struct {
+			Target string         `json:"target"`
+			Issue  *deliveryIssue `json:"delivery_issue,omitempty"`
+		}
+		for _, request := range requests {
+			intent := deliveryIntent{Target: request.Target}
+			if request.Status == "failed" || request.Status == "cancelled" {
+				intent.Issue = &deliveryIssue{Status: request.Status, Code: request.ReasonCode, Reason: request.Reason}
+			}
+			records = append(records, intent)
+		}
+		teaching = "These named deliveries are accepted by the analysis pipeline. Write the analysis and its evidence limits; the terminal component alone supplies actual delivery status, execution counts and links after current work ends. Do not restate intermediate delivery receipts as the answer's final status or ask the user to publish an already accepted target. This intent does not prove publication, diagnostic correctness or whole-question completion. Any delivery_issue below is an actual failure/cancellation, not success."
+	} else {
+		rows, _ := tool.AuthorizedTraceCatalogDeliveries(types.ToolBusContext(ctx, types.AgentFinalizer))
+		for _, row := range rows {
+			records = append(records, row)
+		}
 	}
-	for _, request := range requests {
-		records = append(records, request)
+	if len(records) == 0 {
+		return ""
 	}
 	const maxPromptReceipts = 16
 	const maxPromptBytes = 16384
@@ -37,7 +59,7 @@ func renderAnswerExportDeliveryContext(ctx *types.AgentContext) string {
 		bytes += len(data) + 1
 	}
 	data, _ := json.Marshal(shown)
-	return fmt.Sprintf("\n\n## Evidence-package delivery states\nAccepted pending_publication requests have no file yet: publication follows the final execution collection without another tool call. Keep their original target; do not rename or claim a pending package is already delivered. Actual delivery links are appended after publication. Published receipts describe files, not diagnostic evidence or whole-question completion; report.md is an execution record. A frozen package with current_match=false describes an earlier revision. Shown=%d of %d complete records.\n%s\n", len(shown), len(records), data)
+	return fmt.Sprintf("\n\n## Evidence-package delivery\n%s Shown=%d of %d complete records.\n%s\n", teaching, len(shown), len(records), data)
 }
 
 // File delivery is system-owned on normal, recovered and raw fallback paths.
