@@ -1474,6 +1474,10 @@ HMC251在run私有状态登记实际变动的分支，仅在导出时合并当�
 
 HMC252将上述host输出根从查询WorkDir分离：每次Run创建仅内存、不可JSON恢复的`ManagedExportRoot`，沿Bus/Agent/Tool/SubAgent共享，实际export才在`runtimeAnchor/deliveries/<随机本轮ID>/evidence-exports/<明确target>/`创建目录。不同Run同名目标隔离，当前fork仍共享原交付槽；无导出不产生目录，无host句柄明确失败，不回退客户目录。已创建根及祖先换件拒绝，查询临时清理与blob session prune不删除用户交付物；它们保留到用户明确清理，但不是备份或跨进程权限凭证。core显式root API、源/结果强代次与冻结包复核不变。
 
+HMC253新增每Run与交付根绑定的私有`PipelineExports`，沿上述宿主投影共享且不序列化。受管pipeline中的合法export先返回原目标的`pending_publication`接受态，不创建文件/完成收据；同目标同活跃目录谱系去重，继续查询仍走原权限。既有`recordTaskFinalize`在全部回探/恢复结束后通过agent一次物化全部接受目标，再以同一最终答案交付屏幕、默认dump和显式报告；不是首次finalizer派发、静默计时或全部查询成功触发。终态逐项复核当前谱系和来源，沿原Catalog.Export取得最终活跃集合，不重查、不自动改名、不覆盖冲突。无接受请求/无答案不生成包；失败/取消有限留账，重复终态只复核已发布物。没有私有能力的standalone调用保持立即导出，stage字符串不能授予该能力。正文归属在追加前精确绑定，局部扩展Answer用于同次输出，不把交付尾部计入Primary/Principal或再次回放原附注；未绑定raw仍不可签正文归属。接受工具参数并非独立人类意图证明，自然遗漏export仍须另验。
+
+该交付集合仅指同谱系已登记计划/尝试，`current_match`不是全工具调用覆盖证明。HMC253自然审计发现准备产物直接路径查询未回原件登记，须后续以私有准备来源贯通，不能读任意manifest路径描述即授登记权。未胜出分支独立新建而父侧未持有的catalog也会在终态明确授权失败，不声称所有新目录均已合并。自由正文中的旧阶段状态仍待typed状态归属治理；物理交付成功不使旧pending叙述自动正确。
+
 **原生结果不可变发布（HMC251）**：仅`trace_query`的完整payload和大raw保存边界使用完整SHA内容寻址、同目录暂存及排他发布；同字节已有普通文件经完整比较和代次复核后只读复用，不重写。真实查询仍各自执行/登记attempt，跨源身份和失败重试不共享权限；外部同字节换件仍使旧引用失效。非trace工具和附加原件修复路径保持旧行为。Darwin/Linux/Windows有平台实现，当前实测macOS；其它平台明确拒绝不可变发布，不降为可覆盖rename。
 
 **显式最终报告安全覆盖（HMC251，有限回写子能力）**：既有CLI `--report-md/--report-html/--root-causes-out`仍授权精确路径，普通已有文件可覆盖、缺父目录可创建，不采用证据包的禁止覆盖规则。`SetExplicitReport`只读冻结旧文件SHA/强代次；写入复用同一最终BuildBody，经完整暂存→Sync→Close→再次核旧版本与父目录→单文件原子替换，失败保旧字节，成功才记录新SHA/bytes/previous。Markdown/HTML/根因文件独立，不宣称多文件事务。symlink保留并更新固定referent；已有多硬链接目标明确拒绝，避免静默破坏旧别名传播。此为发布前乐观版本检查，不是针对外部写入者的文件系统CAS，不提供备份、崩溃全局耐久性、Excel局部合并或manifest/终稿版本联合回写。CLI仍使用既有有限后台发布上下文，内部取消测试不冒称已接线运行取消；无最终答案不写MD/HTML，mandatory不可用根因信封保持原合同。

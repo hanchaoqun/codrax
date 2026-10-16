@@ -8681,3 +8681,55 @@ B的确定性根因不是Phase0→1：`finishTraceCatalogReadNavigation`在原re
 末版统一全仓正式exit0：UTC2026-10-16 04:29:20.237160–04:43:10.962966，`go test -json -timeout 20m ./...`，94包PASS/13SKIP、零失败、10个本批新根测试同次通过。日志`codrax-hmc252-full-test-v2.jsonl` SHA `b62f0d481ff9fe4bd8e2e231e872d282d0b8731278b91fbb9743d59793da8731`，不以定向/race拼接总通过。7019冻结输入和末版二进制复核一致；真实评测二进制另存、后置11处输入变化明列，不把修后代码冒称已经跑过模型。原件/checkpoint、正式双例收据、B新旧报告及全仓原件一并复核，`codrax-hmc252-final-verification-v1.json` SHA `b5fb5fdc6d096c3e66a4575efa70552975f2b2720732716784ed437f7079b262`。
 
 本地忽略归档`eval/results/hmc_delivery_lifecycle_20261015/`已完成137份原件/凭证逐字节与SHA复核复制，`artifact-sha256-v1.json`索引315工件；包括首轮全仓FAIL、全部中间失败、两个版本binary和两份完整人工FAIL。大日志/二进制只保本地，未复制credentials，也不宣称已推远端。代码/工具四笔`0519ace87`（持久交付）、`f79597b20`（语义重试）、`c3a42fb77`（读取封装）、`fd4c2e506`（只读物理验收）已普通推送main，正式exit0，远端`d39659e3f→fd4c2e506`；架构、任务、账本及两份小型审计报告另笔收尾。11.3未销账，完整能力新增0与56开放保持。
+
+## 253. 命名证据包终态交付与同源字段解释（2026-10-15，子能力已交付、整答人工0/2）
+
+### 253.1 起点、参考意图与有限范围
+
+起点`ac5b09270`干净且远端一致；79唯一=23已交付+56开放，重复0，33待实施/16部分实施/3待验收/3验收中/1持续执行。§250/252完整人工FAIL、§251中断保原，不回签，不扩大11.3为全部自由成文正确性保证。
+
+主代理亲读参考`core/batch/closure/package.py`、`merge.py`，沿用显式成员/路径关联及验证后统一发布；不复制mtime选Excel、默认落点或任意覆盖。`core/llm_contract.py`将证据绑定selected member和原JSON field的设计，启发区分同字符串在不同字段域的含义；不照搬全文数字扫描或散文雷同门。两轨分别交付命名包终态协调和已证同源展示错误；自然遗漏export、来源误分类和模型自由成文不靠关键词硬门补救。
+
+### 253.2 实现与定向证据
+
+受管Run创建与DeliveryRoot精确绑定、跨fork共享且不序列化的PipelineExports。公开export在原来源权限校验后仅登记原名pending请求，不创建文件/收据/查询；同名同活跃谱系去重，旧JSON/零值/错root/stage字符串不能重建能力。最终答案记录点仅通过agent一次物化，沿既有Export合并同谱系已登记的最终活跃分支及其真实attempt，再追加独立系统交付区；不按第一次finalizer、固定attempt数、全部成功或静默时间判终态，不重查、不改名。没有请求/答案保持无副作用；取消/撤权/冲突留失败，额外目标不能替代原目标。standalone无能力调用仍即时导出。接受tool参数仍不是独立的人类目标认证，自然未调用仍是独立验收轴。
+
+公开实际Run与真实工具RED复现旧版提前冻结集合；原baseline export overlay的同夹具RED也正式1。定向覆盖晚分支、合法重复、四类最终出口、正文归属、无意图、原冻结目标、取消/撤权/JSON、跨Run及真实legacy清理/session prune，包内逐文件SHA验证。新测试首版把临时WorkDir清理后的引用可用性当作包物理可用性，已拆开验：保留会话验current-match，清理例仅验独立包完整，不放松生产强代次。backtrack夹具补真实accepted doc后才检正文归属，不把raw无归属误当生产失败。
+
+独立审阅发现本批终态重复回放raw caveat会使原本合法的正文归属失配，已窄修为追加前精确绑定、同次dump复用局部归属，不回存成可重放基础稿；raw不借旧doc，系统尾部不进入Primary/Principal。此项真实集成缺陷与上述夹具修正分开留证。
+
+缺陷轨公开TraceQuery→原生绑定→emit路径复现符号ambiguous被错误解释成重复/无效栈深度，以及旧富文本没有未知单位说明。按真实字段分离value status/depth status，旧文本与原生表共用源数量/大小与未声明单位说明，保完整ID、地址位型、全部帧与独立深度。无关键词猜单位、无默认扩大成员选择。HMC252 A完整4组14帧已到finalizer且无调查摘要回放，不能把其自由表头/单位/顺序误述归咎缺事实或重复摘要；原错述仍待真实复验。
+
+两例沿原自然问题各一次并行，A普通命名包、B额外显式旧报告目标；准备为构造SQLite与0模型/1历史查询，不冒称实机采集或自然中断。两例准备及原件核验正式0，question SHA同上批`19790d0ed0bbab55816701c35cb79e4f447ce987edbc5cb105637e00cb0016f7`。完整能力不预销账，实际结算如下。
+
+### 253.3 两例真实过程、物理验收与完整人工审计
+
+同一冻结binary SHA `7b6bca0ba9b26cb78a6529156be91db9994070c8b9ae736e7871ae28a7269490`，7031输入；A PID17933 UTC06:34:52.829667–06:40:25.320310，B PID18011 06:34:53.985036–06:37:38.056117，各一次真实CLI、正式exit0、无信号，不追第三例。两例原件/checkpoint/question保原SHA，CLI正常新增忽略运行产物的`.gitignore`不冒称零变更。完整人工0/2；无Mermaid/根因结论，不签自然图或因果PASS，未独立浏览器验布局。
+
+A经过完整read_file导航，自然修正resume额外id和query wrapper后，4原计划都由ref-only真实执行，3success+1empty、事件/帧为3/8、1/3、1/3、0/0。原名capture-review于末尾物化，日志3931/3932是真实request/receipt；按精确行逐字节提取记录并固定日志SHA/偏移，没有从manifest反造收据。现有只读helper六轴verified：formal process、fixture current、registered current-match、材料完整、五个包文件完整性、退出后真实渲染链接。manifest SHA `69fefef38a13a96c2e1b1511b7a5bef9b95ab5601a1fe0f6367fdc58af3b7867`；默认MD SHA `bb0b44b815095baef539ab2f1580106bc6eb7abdf11afd5e66ceaeed5345f3d3`。这证明已接受目标未提前冻结、未另名替签，不能代签整答。
+
+A独审补获高ROI登记边界：日志2409–2440另有4次成功trace_query，直接使用已准备manifest路径，仍为相同四组/窗口并返回相同payload SHA。`traceCatalogBeginQuery`仅以原件精确path匹配，未将这些准备产物的私有来源还原到原件登记，current/manifest仍4attempt。内容覆盖和执行尝试覆盖必须分开；物理current-match只覆盖已登记集合，不能声称本轮仅执行4次或已覆盖全部工具执行。11.3继续开放，下一批优先该私有来源交接；不按同名/后缀/JSON描述扩大授权，不把合法重复执行静默抹掉。
+
+A自由正文仍将未知单位512/256/128写成字节，将0/0/1歧义和0/2缺层拼有序箭头，完整源帧未复用；旧pending_publication句与最终published系统区冲突。runtime位置又被挂源码义务，checkpoint成为源码锚点、长内部路径噪音仍在。原生事实完整并非充分消除自由误述；不能归因为缺数据或已证偶发。pending阶段状态是当时真实，但没有交给最终唯一状态组件导致用户视角矛盾，下一修复按字段所有权而非散文替换。
+
+上下文独审补充：日志3467–3529的4查询/5事件/14帧零预算省略且单位/缺层/歧义正确；无typed refs的aggregate已排除，但3573的独立advisory仍传“无泄漏”，继续与原生事实竞争。最终未复述无泄漏/摘要错时间，不能把中间错误当已发生最终根因错述。primary/principal保旧pending，末尾Answer有真实published；应以typed状态所有权统一，不将系统区直接混入主结论。checkpoint第1行仅`{`却被源码补表关联参数路径，是导航/当前实现证据角色冲突，继续归共享来源审计。
+
+B在原生入口前即raw hybrid→operation（日志41：current_source=required、file_artifact/local_file_write）。该lane不具备原生reader，evaluator第3轮已识别需要trace_query仍只能继续shell，无typed委托。5次真实计划后预算终止；SQL错把TID当itid，后去掉时间/线程条件，将全局5行归TID101、TID202报0并纳入10.050右界，正文另误单位/深度/覆盖率。原生resume/query/export与报告发布均NOT_TRIGGERED；没实际export收据就不跑伪物理helper。显式旧报告保原184字节、SHA `0464b367df35fe5e4e0d8577e5cbb136f630d7987b8eefbb30fb2b7e71468047`；未产final transcript所以未替换，不叫成功回写。§252已验报告物理PASS仍是历史证据。
+
+B另确认共享计数缺陷：第五轮已执行且一步失败，之后追加同plan无StepResults的budget terminal；`messages.go`以len(records)报6，实际5。不能只数StatusExecuted（会漏真实失败执行），应将本轮执行attempt与状态/历史记录分开、同一精确计数供模型和系统展示；不增轮数掩盖工具能力缺口。
+
+### 253.4 验证、结算与下一有限队列
+
+相关/race/教学普查、L1字节一致/投影/LOC及因果保护正式通过。原版公开RED、fixture编译/空白比较/清理模式断言错误、raw caveat真实集成缺陷及失败target真实Markdown链接缺陷分别保原，不将中间失败抹去。后者用动态code-span仅展示合法目标原字面，10类双语链接/图片/反引号/实体负控经真实HTML验证；不扫描模型正文，未改目标/权限。
+
+唯一冻结全仓`go test -json -timeout 20m ./...`正式exit0，UTC2026-10-16 06:34:51.660965–06:48:40.081217，94包PASS/13SKIP、零失败事件和非JSON错误行，16个本批新根测试同次通过。日志SHA `eecbfbdcd69e55df2686e066b8bb623511f1c05b8a3e006c5704755827b8debd`。冻结实现与真实binary未发生后置改动；新增文档不冒称新的产品版本已跑模型。
+
+本批完整能力新增0，两组生产子能力；累计23/79、56开放、重复0，状态细分33待实施/16部分实施/3待验收/3验收中/1持续执行。两组验收欠项归11.3/16.4/16.5/18.4，不重复增加总数：①来源与能力交接（准备产物回原件登记优先，继而分析自产交付的原生入口）；②同源事实、运行状态与终态的成文复用。无足够证据把自然失败称偶发波动；也不为单句错误继续重复叠提示或无限扩大父项退出范围。
+
+下一能力轨先修当前私有准备来源与catalog执行登记，保真正不同原件/代次/窗口；随后统一typed acquisition与delivery-owner，分析自产证据包不应等于独立文件操作，但slides/拷贝/浏览器/源码写仍保原路由和审批。必要初始委托只接无执行steps/provider动作的结构化needs_native_reader；不重放已执行副作用，也不靠用户/模型词串自动改路由。源码义务独立保留，不能因本地文件位置制造，也不能因交付类型清掉真源码请求。
+
+另留有限边界：未胜出分支独立发现、父侧从未拥有的新catalog当前未合并授权，会明确source_authorization失败；同谱系分支合并已验，不能泛称所有新catalog均可交付。旧合法成功目标反引号标签问题、内部长ID仍归16.5低优先级；不挤占完整能力。后续轮换代表、sample-only与只读登记，所有§250/252FAIL、§251中断及本批FAIL原样保留。[摘要](../../eval/parallel_selected_summary_hmc_terminal_delivery_20261015.md)和[完整人工审计](../../eval/parallel_selected_summary_hmc_terminal_delivery_20261015_manual_audit.md)分列物理/流程/答案，不以局部绿代全绿。
+
+两笔生产提交`2b18260bc`（命名包终态交付）与`18284a212`（资源值/深度语义）已普通推送origin/main，正式exit0；未修改参考仓，未强推。文档及完整审计另笔收尾，原始日志/二进制仅本地保存，不混同远端代码交付与自然答案验收。
+
+本地忽略根`eval/results/hmc_terminal_delivery_20261015/`完成105份逐字节复制（104份本批临时凭证/脚本/失败原件与1份真实binary），269工件SHA索引、164既有raw确认不变；A/B完整独审、正式双例/全仓、包/原引用复核均在案，未复制credentials。只读最终核验正式0：`verification-receipts/codrax-hmc253-final-verification-v1.json` SHA `7cf39dc2ff6e652f706941e0476a613efc9ad0fba8babc5cb9eb315ad4be7c6d`；归档receipt SHA `439eb7974f6c149db1a1ebce0f76f49d779900b40798c142cbb771055a339304`，索引SHA `a666b14db11cf95ec6b99160de24687946224e1b2a422b821a72bf1f8a4be2e4`。明确六物理轴仅覆盖当前已登记4attempt，未认证漏登记的另外4次；完整FAIL及56开放不变。
