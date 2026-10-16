@@ -93,6 +93,8 @@ func PreviewTailBytesValue() int { return previewTailBytes }
 //     to <WorkDir>/<toolName>-<sha8>.txt, summary is a preview that
 //     names the path and tells the LLM how to retrieve more via
 //     read_file (offset/limit) or grep.
+//     Native trace_query results use immutable full-SHA256 publication instead
+//     so identical recomputations cannot invalidate prior export generations.
 //
 // The hint embedded in the preview is the only contract by which a
 // downstream agent learns about the ref — keep it explicit.
@@ -105,6 +107,10 @@ func StoreBlob(ctx *types.BusContext, toolName string, output string) (summary, 
 
 	if ctx == nil || ctx.WorkDir == "" {
 		return buildPreview(data, ""), ""
+	}
+	if toolName == "trace_query" {
+		path := storeImmutableTraceResult(ctx.WorkDir, toolName+".txt", output)
+		return buildPreview(data, path), path
 	}
 
 	if err := os.MkdirAll(ctx.WorkDir, 0o755); err != nil {
@@ -193,8 +199,16 @@ func LoadBlobText(ref string, maxBytes int) (string, bool) {
 // StoreBlobArtifact writes structured auxiliary payloads that are meant to be
 // referenced from another prompt surface rather than displayed as a tool result
 // preview. It reuses the same WorkDir/session directory and filename sanitizing
-// policy as StoreBlob, but always writes when WorkDir is available.
+// policy as StoreBlob, but always stores when WorkDir is available. Native
+// trace_query results reuse only exact immutable material; other writers keep
+// the established overwrite policy.
 func StoreBlobArtifact(workDir, toolName, nameHint, output string) string {
+	if toolName == "trace_query" {
+		if strings.TrimSpace(output) == "" {
+			return ""
+		}
+		return storeImmutableTraceResult(workDir, nameHint, output)
+	}
 	return storeBlobArtifact(workDir, toolName, nameHint, output, false)
 }
 
