@@ -8455,3 +8455,65 @@ B原生root101三事件8帧、root202一事件3帧、nested101一事件3帧、ne
 唯一冻结全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0 Action=fail、0非JSON错误行，tool最终package耗时673.780秒；已收进程正式退出，不取stdout PASS代替。6957输入与binary、两SQLite原件及checkpoint复核不变；本批没有后置Go修补或第三例追绿。详细原件见[双例摘要](../../eval/parallel_selected_summary_hmc_representative_resource_20261015.md)及[完整人工审计](../../eval/parallel_selected_summary_hmc_representative_resource_20261015_manual_audit.md)。本地忽略证据根`eval/results/hmc_representative_resource_20261015/`保原始失败、当前清单、工具blob和所有成文sidecar，不冒称大文件已推远端。
 
 本批56份归档复制逐字节核验，335份产物入SHA索引；含两例完整输入/独立oracle、操作器checkpoint、真实失败和成功工具调用、全部终稿、精确当前清单、三份独立审计及唯一全仓正式收据。`batch-audit.md`与`verification-receipts/codrax-hmc248-verification-status-v1.json`固定执行/验收/任务计数；`.go.txt`源码快照不进入包普查，没有providers凭据。三片代码/测试提交后汇总提交架构、任务清单、中央账本和双例摘要，普通推送不包含本地忽略原件。
+
+## 249. 原生来源域与资源事实复用（2026-10-15，子能力交付、整答人工0/2；累计树能力收口）
+
+### 249.1 起点与有限范围
+
+起点`3f362ddfc`工作区干净、远端一致，79唯一=22已交付+57开放、重复0；34待实施/17部分实施/2待验收/3验收中/1持续执行。§248原始两份完整人工FAIL与11.2自然NOT_TRIGGERED保持，11.1已交付不因其无关成文余项重新打开。两轨分别是自然采集来源/义务到代表入口，以及原生身份/栈帧深度/顺序的同源展示复用。
+
+再次核参考`core/batch/closure/select.py`、`config/skills/cluster_analysis.yaml`完整选择/闭环流程和`core/query_engine.py::_accumulate_result/_build_empty_result`：代表名单及未选范围是导航，逐成员item与原始result才是事实，summary/data必须分层，空结果显式携原因。采用来源/成员身份与事实引用的设计意图，不复制强制代理拓扑、词语相似度硬拒、缺值补零或以摘要代全量。
+
+不把运行时调用位置放大为当前源码义务，也不因原生数据存在删除真正的mixed/source-only义务；首先统一producer共享语义及精确拒绝诊断，禁止关键词重分类/自动waiver。资源事实复用以同源事件owner/当前查询边界及源帧深度身份为基础，空结果不能借另一原件线程名，同深度/缺层/未知符号不自动形成有序边。关系显示不赋CPU时间、等待、泄漏或Trace根因权，合法因果投影/补齐保持原路。
+
+固定§248原两道自然问题，各一次并行，完整原件与独立oracle不改，用户不背系统约束。相关公开正反、JSON/schema/skill和必要race先行，代码冻结后统一全仓；实际过程/成文上下文/正文/表/图/sidecar人工审计，不以CLI exit0或确定性绿销账。新增发现先挂原ID，不扩散第三大实施轨，不改旧失败。
+
+### 249.2 原位修复与公开验收
+
+`126e6a3cb`统一TurnPolicy、analyzer、观测维度及emit schema的来源定义：仓内采集文件仍是运行时材料，记录的调用位置不是当前checkout源码定位，检查进度也不自动成为源码功能解释。当前源码可用不等于本轮必需；真实mixed/source-only义务、源码引用门和L1不变。精确拒绝附上已有typed义务的mode/outcome/维度索引/角色及有界原始引用，方便模型修正错误声明；不新增关键词扫描、自动重分类或waiver。公开REPL与单次分类器、actual Analyzer.Execute投递及completion正反闭包通过，原RED与相关/race原件保留。
+
+`fd70a49e1`让代表入口先看到真实可复用的查询计划：从当前`TraceQuery.Parameters`派生计划schema，剥离目录代管的source/path等身份字段，保view必填、类型、枚举、边界及别名；大段说明压缩而不复制第二套参数规范。无计划明确先plan，不生成假调用；已有计划返回实际representatives调用导航，rediscover不丢原计划/尝试。未来参数及顶层约束有普查负控。此处准确提供模型schema，没有额外收紧历史DirectExecute兼容路径，也不自动选择代表或执行查询。
+
+`49d7ec5c4`复用既有`runtime_measurement:{observation_id,view}`，精确原生resource_stack查询提供summary/members固定事实，正文、表格和已许可无边图共享绑定内容。producer在最终来源装饰后签私有witness，完整来源/载荷/发布内容受校验；当前合同还核原件代次、窗口和对象，历史JSON不能恢复资格。空查询观测身份未知，不跨源借名；源帧物理身份、原深度、缺层、同层重复、未知符号、实际省略分别保留，不自动推调用顺序。资源size保原值及该载体未声明单位，不把FD/THREAD等统一当字节。
+
+参考`config/indicators/memory/heap.yaml`按源depth/ip/symbol/library投影的意图；不照搬固定倒数层业务叶启发式，也不把ORDER BY depth变成已证执行边。现有选择资格、因果池与Trace投影/自动补齐未改；广查保旧专用展示，新事实不授MemberSet/DisplayPopulation/default presentation，不自动开放图或满足required关系图。6/8列表保事件时间、同源owner与完整帧字段；原始资源上下文仍可用于合法解释。
+
+资源公开四次实际查询→actual finalizer共14帧、8个可选视图通过；emit/patch/三恢复入口、改变来源/窗口/目标/代次/载荷/JSON、空结果/大小写/右界/预算、FD/THREAD单位及旧sampling/event/关系图负控通过。相关末版六包、精确tracequery、skill整包、L1/结构和窄race四个实际命中包正式exit0；未命中包不算验证通过。独审无新增阻断；真实自然采用及整答结论另验，不以公开三表面正例代签无图请求会生成图。
+
+### 249.3 冻结与真实验收范围
+
+标准make正式exit0，冻结HEAD`49d7ec5c43527668e5a4a402050e8d96ea7eb39d`、6971输入，binary SHA256 `da5a7a507c869bd99268f659dd4ed2b0ef5fd3a078a17efb564c18a3656128f3`。同一最终binary通过两例零模型CLI预检，唯一全仓与固定两例并行启动，期间不改Go/测试。A正式01:35:56.426101Z–01:42:12.368205Z，B为01:35:57.579221Z–01:40:23.353931Z（UTC，均属本地10月15日），CLI均exit0、完整人工均FAIL。
+
+A保原四路径完整SQLite，a/c与b/d分别复制两份原件，不冒称四次独立实机录制；准备零模型/零查询/无预选计划。B保原自然恢复题，operator只执行一条历史计划后保存checkpoint（SHA `13c47566e1a7dc44a70e85bf2f42f8fc29cba275e3bfa67dcfab3bb421f0b147`），构造检查点不冒称自然模型中断。独立oracle在workspace之外，不向问题塞入来源/单位/边界答案；原件与问题均复核不变。新固定展示尚须真实采用，额外合法查询与本例精确代表结构验收分别报告。
+
+### 249.4 双例人工结果与已证系统接缝
+
+A没有representatives/status、没有选择快照，结构验收NOT_TRIGGERED，不跑无真实路径的假smoke。18次直接trace_query=4无目标timeline+4缺PID拒绝process_profile+8pattern event_search+2带pattern的resource_stack；均用10..10.06。两资源载荷实际unavailable/requires_time_and_owner_selectors_only，不是空结果或已发布后丢失；catalog14项execution success也不代表14项native available。原生owner查询与代表集合未成立，用户调用位置/检查进度没有完成。
+
+A最终202错配为b/c有、a/d空（原件为a/c有、b/d空），漏b101，纳入10.050右界；end_ns丢一个0，NULL被写成仍使用/主动释放，-1写动态分配，同栈键跨源推同路径。实际成文仍保这些正文/表格错误；系统边界附注不抵销。初始source=mixed/current_source=required仍错，accepted analysis不再用source_location但进度仍错function_or_purpose；两次完成降级是member_set/support_refs，不是上批citation-floor重演。实际二进制read_coverage被计exact_current_source_support也是后继要公开复现的来源域接缝，不用一条来源分数或问答关键词建门。
+
+B的checkpoint137行被INIT自动预读，没走read_file导航发布；只discover、3次普通resource_stack，无resume/ref。旧operator读取被明确拒绝，没有返回旧结果或发生引用碰撞；模型一度将nested101复制成root101，后续调查纠正未查却不补执行。当前只有root202/nested101/nested202三槽，2success+1empty，root101的3事件/8帧根本未本轮取得；旧成功不能补本轮完成。上批11.1有界PASS保留，本轮NOT_TRIGGERED独立留档。
+
+B实际finalizer完整实收三组资源原生事实、六个summary/members选择项，共9行、0省略；空名/原深度/未知展开/未声明单位明确。最终emit/patch未采用selector，新固定事实的自然答案复用NOT_TRIGGERED。正文将局部2Alloc/无Free扩为请求全集，表格root101借editor-main、nested空202借background；malloc→render与表格反箭头方向冲突，-1语义及单位擅填。没有模型图，不能代签图闭环；两例root-causes均无可选链上根因，未新增背景为根因凭证。
+
+两个共享接缝列高ROI：①完整预读材料与实际read_file应共享受校验的导航发布，历史/当前计划及执行集合不能靠散文复述；②来源域确认后仍残留source_explanation/current_source教学，已有原生事实与自由综合/手填表默认消费不统一。先公开复现typed状态/来源冲突，再泛化修；不强制关键词选工具、不按输出禁词补丁、不改Trace投影/自动补齐或真正源码义务。可读性中的长准备路径、编码引用和内部schema术语继续挂16.5。
+
+### 249.5 累计能力核账、验证及下一队列
+
+为避免旧任务行落后于已交付能力，另对照初始`da4a33d5fde13d76a0f04dd3284525646d125849`的09.4/18.3原合同及实际原件，未追加模型或改旧答案。09.4原定义只有无损前缀树展开/折叠、原引用/省略、独立cohort，不删系统栈/不改分母/不错窗回退/不从显示父子铸call。逐项结果：
+
+| 原退出条目 | 已验证证据 |
+| --- | --- |
+| 展开/折叠与分母 | `TestPerfSamplingTreePublicCohortsAndExpansion`实际公开查询折叠/展开，35分母与节点ID不变；错窗空/未知root不回退 |
+| 录得帧与引用/省略 | SQLite/default preparation/unknown/legacy/withheld/overflow公开测试保`sys;root`字面、DSO/IP、原source_ref；node/child/reference省略独立 |
+| 独立总体 | 旧view和精确树共享来源/producer/事件单位/线程总体；35/7/100分离、原始物理来源不合并，合法过滤不被移除 |
+| 当前成文与负权限 | actual finalizer公开handoff、有限bundle/selection保错源/错窗/目标拒绝，不授source/call/因果资格 |
+| 自然真实产出 | §244当前完整二进制`trace-query-result-7bd6b9f5.json`中tree=available，164记录/259权重、2完整节点，每节点82引用、显式省略78；不是私有helper或converter stub |
+
+主代理亲读该实际payload、关键公开断言，并在§248及本批§249正式全仓原始JSONL复核18个精确根测试PASS；当前逐条完成时间写入最终复核收据。09.4按原实现合同收口，不把自然主动展开/重试、BRBE、所有图或任意最终措辞加为无限退出门。原§236/237/244–247人工FAIL全部保留；unknown提升执行态、次数/权重混用等真实用户可见错误继续归16.4/18.3–18.5，不标成无害措辞或已证随机波动。
+
+18.3原合同是生产端到端反例，保守不销账：§238 A2自然REPL当前子进程取得1024B预览外1.011秒tail-target/424242（8个machine check真，原始payload亲读），§244–247完整30,062,585B真实二进制→12000样本→显式窗1393、目标164/259均有原件；但sample-only最终仍写CPU执行和错分母，原反例诚实边界未过。状态由部分实施转待验收，修正“入口/完整尾部仍未做”的旧文字，不改原FAIL。
+
+结算79唯一=23已交付+56开放、重复0；34待实施/15部分实施/3待验收/3验收中/1持续执行。本批完整能力收口1（09.4累计实现验收），生产子能力3组，本批2组真实验收缺陷不与56叠加。11.2仍部分实施。下一新增完整能力优先11.3明确目标的版本化证据包/事务输出，缺陷轨先完整预读导航和当前执行集合/同源事实默认消费；只读登记§245有界PASS继续轮换，17.7先区分原安全适配与新增在线快照/viewer债，不重复重做稳定WAL。
+
+唯一冻结全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件、0非JSON错误行，01:35:51.397305Z–01:48:39.584456Z；正式receipt与完整JSONL均保存，不以stdout PASS代退出。双例完整过程、全部答案面与结算见[摘要](../../eval/parallel_selected_summary_hmc_native_source_resource_20261015.md)和[人工审计](../../eval/parallel_selected_summary_hmc_native_source_resource_20261015_manual_audit.md)。本地忽略证据根为`eval/results/hmc_native_source_resource_20261015/`：末次复核6971输入、binary、6份完整原件拷贝、原问题/历史checkpoint均未变；71份逐字节复制已核，370工件SHA索引保存。`verification-receipts/codrax-hmc249-final-verification-v1.json`含真实退出、计数与18根测试当前PASS，`batch-audit.md`保归档边界；大原件和可执行文件不冒称已推远端。
