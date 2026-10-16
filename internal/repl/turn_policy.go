@@ -231,6 +231,7 @@ func SetMemoryContextTimeout(timeout time.Duration) {
 // or self-contradictory fields cannot drive a wrong route.
 type TurnPolicy struct {
 	RequiredOutcomes          types.TurnOutcomeSet
+	DeliveryOwner             string // empty | analysis_pipeline | independent_operation; navigation, not write authority
 	Route                     TurnRoute
 	NeedsRepoAccess           bool
 	NeedsOperationAccess      bool
@@ -338,8 +339,14 @@ var turnPolicyTool = llm.ToolSchema{
 	Parameters: json.RawMessage(`{
   "type": "object",
   "x-codrax-native-validation-required": ["requires_diagram"],
+  "x-codrax-native-validation-properties": ["delivery_owner"],
   "properties": {
     "required_outcomes": ` + turnOutcomesSchema + `,
+    "delivery_owner": {
+      "type": "string",
+      "enum": ["", "analysis_pipeline", "independent_operation"],
+      "description": "` + turnDeliveryOwnershipContract + `"
+    },
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
@@ -436,6 +443,8 @@ var turnPolicyTool = llm.ToolSchema{
 const turnPolicySystemPrompt = `You route each user turn in a code-analysis REPL into a structured TurnPolicy and emit it via emit_turn_policy.
 
 ` + turnOutcomesTeaching + `
+
+Use delivery_owner according to its schema to distinguish analysis-owned publication from an independent operation; it is routing metadata, not permission.
 
 The seven routes:
 
@@ -672,7 +681,7 @@ risk_level / side_effects / target_surface / requires_confirmation:
     target_surface="", requires_confirmation=false.
   - data route: risk_level="none" or "low", side_effects=[],
     target_surface="", requires_confirmation=false.
-  - low-risk local artifact generation: risk_level=low,
+  - independent low-risk local artifact generation: risk_level=low,
     side_effects may include local_file_write, confirmation usually false.
   - desktop/browser manipulation: include desktop_ui or browser_ui.
   - software install/uninstall: include package_install or
@@ -1102,6 +1111,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 	)
 	return TurnPolicy{
 		RequiredOutcomes:     parsed.RequiredOutcomes,
+		DeliveryOwner:        parsed.DeliveryOwner,
 		Route:                route,
 		NeedsRepoAccess:      bool(parsed.NeedsRepoAccess),
 		NeedsOperationAccess: bool(parsed.NeedsOperationAccess),
@@ -1168,6 +1178,7 @@ func turnPolicyPresentationProvenanceRepairPrompt() string {
 
 type turnPolicyParams struct {
 	RequiredOutcomes          types.TurnOutcomeSet     `json:"required_outcomes"`
+	DeliveryOwner             string                   `json:"delivery_owner"`
 	Route                     string                   `json:"route"`
 	NeedsRepoAccess           flexiblePolicyBool       `json:"needs_repo_access"`
 	NeedsOperationAccess      flexiblePolicyBool       `json:"needs_operation_access"`
@@ -1506,6 +1517,7 @@ const presentationDirectiveCap = 200
 // is demoted to repo.
 func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) TurnPolicy {
 	p.WriteIntent = normalizeWriteIntent(p.WriteIntent)
+	p = reconcileAnalysisDelivery(p)
 	p = applyTurnOutcomeObligations(p)
 	p.CurrentSourceEvidenceMode = types.NormalizeTurnRouteCurrentSourceEvidenceMode(
 		string(p.CurrentSourceEvidenceMode),
@@ -2040,6 +2052,9 @@ func targetSurfaceLooksOperation(raw string) bool {
 }
 
 func isAnalysisOnlyPolicy(p TurnPolicy) bool {
+	if analysisOwnsRequestedDelivery(p) {
+		return true
+	}
 	if p.RequiredOutcomes.Has(types.TurnOutcomeExternalArtifact | types.TurnOutcomeComputerAction) {
 		return false
 	}
@@ -2225,7 +2240,7 @@ func (r *llmChitchatResponder) RespondLocal(ctx context.Context, userLine, prior
 // log file.
 func turnPolicyDebugLine(p TurnPolicy) string {
 	return fmt.Sprintf(
-		"route=%s operation=%s operation_kind=%s write_intent=%s needs_repo=%t current_source=%s needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
+		"route=%s operation=%s operation_kind=%s write_intent=%s needs_repo=%t current_source=%s needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q delivery_owner=%s",
 		string(p.Route),
 		clipForLog(p.Operation, 32),
 		clipForLog(p.OperationKind, 32),
@@ -2241,6 +2256,7 @@ func turnPolicyDebugLine(p TurnPolicy) string {
 		clipForLog(p.Source, 32),
 		oneLineClamp(p.Reason, 120),
 		clipForLog(p.PresentationDirective, 80),
+		clipForLog(p.DeliveryOwner, 32),
 	)
 }
 

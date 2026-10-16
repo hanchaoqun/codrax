@@ -2578,7 +2578,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) (native
 // the user a structured, localized operation preflight without entering the
 // source-analysis pipeline or executing side-effecting tools.
 func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
-	if isCommandOperationPolicy(policy) {
+	// Clarification/resume callers deliberately cannot change execution lanes.
+	_ = r.operationDispatchWithNativeReader(line, display, policy, false)
+}
+
+func (r *REPL) operationDispatchWithNativeReader(line, display string, policy TurnPolicy, allowNativeReader bool) error {
+	if isCommandOperationPolicy(policy) || allowNativeReader && commandNativeReaderPolicyEligible(policy) {
 		req := fallbackCommandOperationClarification(line, r.repoRoot)
 		if r.operationPlanner != nil {
 			r.startOperationSynthesisSpinner()
@@ -2595,8 +2600,15 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			} else {
 				planned, err = r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
 			}
+			_, nativeHandoff := NativeOperationHandoffPolicy(policy, err)
+			nativeHandoff = nativeHandoff && allowNativeReader && ctx.Err() == nil
 			r.endTurn()
 			r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
+			if nativeHandoff {
+				r.finishOperationAutoStartSpinner()
+				logging.Info("[repl/operation] initial typed plan delegates unchanged request to native observation pipeline")
+				return err
+			}
 			if err != nil {
 				logging.Warning("[repl/operation] command planner failed; asking for clarification: %v", err)
 			} else {
@@ -2611,7 +2623,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.finishOperationAutoStartSpinner()
 			r.renderBordered(commandOperationAutoValidateMarkdown(r.language, plan))
 			r.executeCommandOperationPlan(plan, line, display)
-			return
+			return nil
 		}
 		initialDecision := operation.DecideCommandPlanApproval(r.operationPolicy, plan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalInitial})
 		plan = operation.ApplyCommandPlanApprovalDecision(plan, initialDecision)
@@ -2621,7 +2633,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.finishOperationAutoStartSpinner()
 			r.renderBordered(commandOperationAutoExecuteMarkdown(r.language, plan))
 			r.executeCommandOperationPlan(plan, line, display)
-			return
+			return nil
 		}
 		if plan.Status == operation.StatusReady {
 			r.pendingCommandClarification = nil
@@ -2647,7 +2659,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		r.finishOperationRouteSpinner(plan.Status)
 		r.renderBordered(msg)
 		r.recordTurn(display, line, msg, memory.KindPipeline)
-		return
+		return nil
 	}
 
 	plan := operation.BuildPlan(operation.Request{
@@ -2682,7 +2694,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.pendingProviderOperation = nil
 			r.clearPendingOperationState()
 			r.executeProviderOperationFlow(context.Background(), pending)
-			return
+			return nil
 		}
 		r.pendingProviderOperation = &pending
 		r.savePendingOperationState()
@@ -2706,6 +2718,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	r.finishProviderOperationPlanHeader(plan)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
+	return nil
 }
 
 func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, policy, rawPolicy TurnPolicy) bool {
@@ -7282,8 +7295,14 @@ func (r *REPL) dispatch(line, display string) {
 					r.operationUnavailableDispatch(line, display, policy)
 					return
 				}
-				r.operationDispatch(line, display, policy)
-				return
+				handoff := r.operationDispatchWithNativeReader(line, display, policy, true)
+				delegated, ok := NativeOperationHandoffPolicy(policy, handoff)
+				if !ok {
+					return
+				}
+				resolvedTurnPolicy = delegated
+				turnRouteHint = TurnRouteHintFromPolicy(delegated)
+				presentation = policy.PresentationAuthority()
 			case UserModeData:
 				handoff := r.dataTaskDispatch(line, display, policy)
 				if handoff == nil {
@@ -7385,8 +7404,14 @@ func (r *REPL) dispatch(line, display string) {
 						r.operationUnavailableDispatch(line, display, policy)
 						return
 					}
-					r.operationDispatch(line, display, policy)
-					return
+					handoff := r.operationDispatchWithNativeReader(line, display, policy, true)
+					delegated, ok := NativeOperationHandoffPolicy(policy, handoff)
+					if !ok {
+						return
+					}
+					resolvedTurnPolicy = delegated
+					turnRouteHint = TurnRouteHintFromPolicy(delegated)
+					presentation = policy.PresentationAuthority()
 				case RouteData:
 					handoff := r.dataTaskDispatch(line, display, policy)
 					if handoff == nil {

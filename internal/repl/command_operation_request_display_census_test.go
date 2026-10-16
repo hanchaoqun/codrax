@@ -122,7 +122,8 @@ func requestDisplayCensusFailure(problems []string, report requestDisplayCensusR
 // self-recursion (dead since before b6f7eeec3, deleted) — and labelled the
 // executeCommandOperationPlan wrapper body "one-shot user mode".
 var requestDisplayDispatchSiteRoster = map[string]int{
-	"operationDispatch":                     3, // clarification resume, user-mode arm, RouteOperation arm
+	"operationDispatch":                     1, // clarification resume (cannot delegate)
+	"operationDispatchWithNativeReader":     3, // legacy wrapper, fresh user-mode arm, fresh RouteOperation arm
 	"executeCommandOperationPlan":           2, // validate-and-run, initial auto-execute
 	"executeCommandOperationPlanAttempt":    5, // follow-up lint / auto-execute, /approve (carry resume), executeCommandOperationPlan wrapper body, provider-to-command continuation
 	"dispatch":                              6, // follow-up replay ×3, template expansion, typed line, one-shot user mode
@@ -158,6 +159,7 @@ func requestDisplayRosterProblems(counts, roster map[string]int) []string {
 // and stay outside the census.
 var requestDisplayDispatchers = map[string][2]int{
 	"operationDispatch":                     {0, 1},
+	"operationDispatchWithNativeReader":     {0, 1},
 	"executeCommandOperationPlan":           {1, 2},
 	"executeCommandOperationPlanAttempt":    {1, 2},
 	"dispatch":                              {0, 1},

@@ -16,6 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/operation"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -178,9 +179,10 @@ var commandOperationPlanTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "continue", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible"],
-      "description": "ready/continue when the command steps are concrete; needs_clarification when user-owned details are missing; blocked when the request should not be attempted. complete, budget_exhausted, and partial_answer_possible are valid for continuation/evaluation after prior command results."
+      "enum": ["ready", "continue", "needs_clarification", "needs_native_reader", "blocked", "complete", "budget_exhausted", "partial_answer_possible"],
+      "description": "ready/continue when the command steps are concrete; needs_clarification when user-owned details are missing; blocked when the request should not be attempted. complete, budget_exhausted, and partial_answer_possible are valid for continuation/evaluation after prior command results. ` + commandNativeReaderTeaching + `"
     },
+    "input_paths": {"type":"array","maxItems":8,"items":{"type":"string"},"description":"Exact current named regular files for initial needs_native_reader navigation; not source admission or prepared evidence."},
     "risk_level": {
       "type": "string",
       "enum": ["none", "low", "medium", "high"],
@@ -273,7 +275,8 @@ var commandOperationPlanTool = llm.ToolSchema{
       "description": "Concrete command steps when status=ready."
     }
   },
-  "required": ["status", "risk_level", "requires_confirmation"]
+  "required": ["status", "risk_level", "requires_confirmation"],
+  "allOf": [` + commandNativeReaderShape + `]
 	}`),
 }
 
@@ -340,7 +343,7 @@ Hard rules:
 - Batch related commands into a small ordered plan instead of asking approval for each tiny command.
 - Do not plan destructive commands unless the user explicitly asked for that destructive action. For obviously catastrophic operations, emit blocked.
 - Use the supplied repo root as work_dir by default.
-- This is not source-code investigation, trace analysis, or write-mode code editing. Only produce command-operation plans.
+- This is not source-code investigation, native observation analysis, or write-mode code editing. For a misplaced initial analysis request, use the schema's command-free needs_native_reader decision; otherwise only produce command-operation plans.
 - Operation approval is independent from write-mode write_enabled. Do not mention write_enabled for command-operation approval.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - capability_snapshot is advisory context, not a substitute for requested facts. For factual computer/environment queries, plan real read-only commands that retrieve the requested facts; do not answer by echoing or paraphrasing the snapshot unless the exact requested field is explicitly present there.
@@ -736,6 +739,9 @@ func validateCommandOperationEvaluationCoverage(d operationEvaluationDraft, reco
 // The gate reads only recorded payload refs and their exact excerpt metadata;
 // it never scans the user request, planner prose, or final answer text.
 func validateCommandOperationPlanTerminalCoverage(d commandPlanDraft, req commandOperationPlannerRequest, rawLen int) error {
+	if err := validateCommandNativeReaderDraft(d, req); err != nil {
+		return err
+	}
 	if !req.Replan && !req.Continuation {
 		return nil
 	}
@@ -822,6 +828,9 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 			return operation.CommandOperationRequest{}, err
 		}
 	}
+	if err := initialCommandNativeHandoff(ctx, req, parsed); err != nil {
+		return operation.CommandOperationRequest{}, err
+	}
 	result := parsed.toRequest(req.UserLine, req.RepoRoot)
 	result.RequiredOutcomes = req.Policy.RequiredOutcomes
 	return result, nil
@@ -881,8 +890,8 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 	b.WriteString(strings.TrimSpace(req.RepoRoot))
 	b.WriteString("\n\n## route_policy\n")
 	b.WriteString(renderTurnOutcomesForPrompt(req.Policy.RequiredOutcomes))
-	b.WriteString(fmt.Sprintf("operation=%s operation_kind=%s risk=%s side_effects=%s target=%s requires_confirmation=%t\n",
-		req.Policy.Operation, req.Policy.OperationKind, req.Policy.RiskLevel, strings.Join(req.Policy.SideEffects, ","), req.Policy.TargetSurface, req.Policy.RequiresConfirmation))
+	b.WriteString(fmt.Sprintf("operation=%s operation_kind=%s delivery_owner=%s current_source=%s risk=%s side_effects=%s target=%s requires_confirmation=%t\n",
+		req.Policy.Operation, req.Policy.OperationKind, req.Policy.DeliveryOwner, req.Policy.CurrentSourceEvidenceMode, req.Policy.RiskLevel, strings.Join(req.Policy.SideEffects, ","), req.Policy.TargetSurface, req.Policy.RequiresConfirmation))
 	if rendered := req.Snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
 		b.WriteString("\n")
 		b.WriteString(rendered)
@@ -945,6 +954,9 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		return zeroDraft, newOperationPlannerUnexpectedToolError("command operation planner", call.Name, nil)
 	}
 	parsed, err := unmarshalCommandOperationPlan(call.Params)
+	if err == nil && string(parsed.Status) == commandNativeReaderStatus && len(resp.ToolCalls) != 1 {
+		return zeroDraft, fmt.Errorf("needs_native_reader requires exactly one command-free tool decision")
+	}
 	if err == nil {
 		err = validateCommandOperationPlanTerminalCoverage(parsed, req, len(call.Params))
 	}
@@ -1028,6 +1040,12 @@ func (p *llmCommandOperationPlanner) repairOperationStructuredToolParams(ctx con
 	if call.Name != tool.Name {
 		return nil, newOperationPlannerUnexpectedToolError("operation compact tool-param repair", call.Name, parseErr)
 	}
+	if tool.Name == commandOperationPlanTool.Name && len(resp.ToolCalls) != 1 {
+		parsed, parseErr := unmarshalCommandOperationPlan(call.Params)
+		if parseErr == nil && string(parsed.Status) == commandNativeReaderStatus {
+			return nil, fmt.Errorf("needs_native_reader repair requires exactly one command-free tool decision")
+		}
+	}
 	return call.Params, nil
 }
 
@@ -1068,8 +1086,9 @@ func operationPlannerRepairContext(req commandOperationPlannerRequest) string {
 	}
 	fmt.Fprintf(&b, "mode=%s\n", mode)
 	fmt.Fprintf(&b, "repo_root=%s\n", strings.TrimSpace(req.RepoRoot))
-	fmt.Fprintf(&b, "route_policy operation=%s operation_kind=%s risk=%s target=%s requires_confirmation=%t side_effects=%s\n",
-		req.Policy.Operation, req.Policy.OperationKind, req.Policy.RiskLevel, req.Policy.TargetSurface, req.Policy.RequiresConfirmation, strings.Join(req.Policy.SideEffects, ","))
+	fmt.Fprintf(&b, "route_policy operation=%s operation_kind=%s delivery_owner=%s current_source=%s risk=%s target=%s requires_confirmation=%t side_effects=%s\n",
+		req.Policy.Operation, req.Policy.OperationKind, req.Policy.DeliveryOwner, req.Policy.CurrentSourceEvidenceMode, req.Policy.RiskLevel, req.Policy.TargetSurface, req.Policy.RequiresConfirmation, strings.Join(req.Policy.SideEffects, ","))
+	b.WriteString(renderTurnOutcomesForPrompt(req.Policy.RequiredOutcomes))
 	if rendered := req.Snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
 		fmt.Fprintf(&b, "capability_snapshot=%q\n", oneLineClamp(rendered, 800))
 	}
@@ -1605,6 +1624,7 @@ func indentPromptBlock(text, prefix string) string {
 
 type commandPlanDraft struct {
 	Status                 flexiblePolicyString       `json:"status"`
+	InputPaths             []string                   `json:"input_paths"`
 	RiskLevel              flexiblePolicyString       `json:"risk_level"`
 	WorkDir                flexiblePolicyString       `json:"work_dir"`
 	Goal                   flexiblePolicyString       `json:"goal"`
@@ -1741,6 +1761,15 @@ func unmarshalCommandOperationPlan(raw []byte) (commandPlanDraft, error) {
 	var parsed commandPlanDraft
 	if err := unmarshalReplStructuredToolParams(commandOperationPlanTool, raw, &parsed, "command operation planner"); err != nil {
 		return parsed, err
+	}
+	if string(parsed.Status) == commandNativeReaderStatus {
+		// Only the new navigation branch opts into strict full-shape validation;
+		// legacy command compatibility remains unchanged. Validate the original
+		// normalized object, not the cleaned flexible step slice.
+		normalized, _ := normalizeReplStructuredToolParams(commandOperationPlanTool, raw, "native reader navigation")
+		if err := toolparam.Validate(normalized, commandOperationPlanTool.Parameters); err != nil {
+			return parsed, &replStructuredToolParamError{ToolName: commandOperationPlanTool.Name, Scope: "native reader navigation", RawLen: len(raw), Err: err, Hint: replStructuredToolRetryHint(commandOperationPlanTool)}
+		}
 	}
 	return parsed, nil
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const turnOutcomesTeaching = "First record all user-requested result kinds in required_outcomes, independently of route and of which subtask seems primary. source_explanation means an explanation grounded in the current code's implementation, including a secondary explanation alongside a count or measurement; describing your own command/receipt is not that result. measurement is a requested observed statistic. external_artifact and computer_action are requested deliverables/actions, not shell commands used internally to gather evidence. source_change requires separate explicit write authorization. Use answer for other answer-only results; do not list inferred implementation steps."
+const turnOutcomesTeaching = "First record all user-requested result kinds in required_outcomes, independently of route and of which subtask seems primary. source_explanation means an explanation grounded in the current code's implementation, including a secondary explanation alongside a count or measurement; describing your own command/receipt is not that result. measurement is a requested observed statistic. external_artifact and computer_action are requested deliverables/actions, not shell commands used internally to gather evidence; an external_artifact may be produced by the analysis pipeline itself and does not alone require a computer action. source_change requires separate explicit write authorization. Use answer for other answer-only results; do not list inferred implementation steps."
 
 const turnOutcomesSchema = `{"type":"array","maxItems":6,"uniqueItems":true,"items":{"type":"string","enum":["answer","measurement","source_explanation","external_artifact","computer_action","source_change"]}}`
 

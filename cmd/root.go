@@ -1476,7 +1476,13 @@ func runSingleShot(_ *cobra.Command, request string) (runErr error) {
 		}
 		return nil
 	}
-	if handled, result, err := maybeRunSingleShotOperation(request, routePolicy, routePolicyOK); handled {
+	handledOperation, operationResult, operationErr := maybeRunSingleShotOperation(request, routePolicy, routePolicyOK)
+	if delegated, ok := repl.NativeOperationHandoffPolicy(routePolicy, operationErr); ok {
+		routePolicy = delegated
+		handledOperation = false
+		logging.Info("[cmd/route] initial typed command plan delegates unchanged request to native observation pipeline")
+	}
+	if handled, result, err := handledOperation, operationResult, operationErr; handled {
 		if err != nil {
 			printAnswerSeparator()
 			return err
@@ -1759,7 +1765,7 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 		return repl.TurnPolicy{}, false
 	}
 	policy := repl.ApplyTurnPolicyGuards(rawPolicy, false, hasAttachment)
-	logging.Info("[cmd/route] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s data_task_kind=%s needs_data=%t needs_repo=%t current_source=%s needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s diagram_required=%t presentation=%q reason=%q",
+	logging.Info("[cmd/route] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s data_task_kind=%s needs_data=%t needs_repo=%t current_source=%s needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s diagram_required=%t presentation=%q reason=%q delivery_owner=%s",
 		rawPolicy.Route,
 		policy.Route,
 		policy.Operation,
@@ -1776,7 +1782,8 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 		strings.Join(policy.SideEffects, ","),
 		policy.RequiresDiagram,
 		oneLineForLog(policy.PresentationDirective),
-		oneLineForLog(policy.Reason))
+		oneLineForLog(policy.Reason),
+		oneLineForLog(policy.DeliveryOwner))
 	return policy, true
 }
 

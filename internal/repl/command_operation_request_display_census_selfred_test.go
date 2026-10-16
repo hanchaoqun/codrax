@@ -61,6 +61,8 @@ func TestCommandOperationRequestDisplayCensusSelfRed(t *testing.T) {
 		// review round five #5: the follow-up dispatcher is on the route
 		{"followup_direct_control", lineMethod(`r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy)`), "", 1},
 		{"followup_swapped_pair", lineMethod(`r.maybeDispatchCommandOperationFollowup(display, line, policy, rawPolicy)`), "request slot carries display (display lane", 1},
+		{"native_reader_dispatch_control", lineMethod(`r.operationDispatchWithNativeReader(line, display, policy, true)`), "", 1},
+		{"native_reader_dispatch_swapped_pair", lineMethod(`r.operationDispatchWithNativeReader(display, line, policy, true)`), "request slot carries display (display lane", 1},
 		// review round five #5: receiver rebinding shapes, each red on the
 		// binding itself (the call on the rebound name is still counted, so
 		// the roster arm is unaffected)
