@@ -9,8 +9,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// SetTraceRuntimeAnchor binds derived trace material to the stable runtime
-// directory. It must never use BusContext.WorkDir: that directory may be a
+// SetTraceRuntimeAnchor binds derived trace material and requested deliveries
+// to the stable runtime directory. It must never use BusContext.WorkDir: it may be a
 // per-Run temporary blob directory removed before citations are consumed.
 func (o *Orchestrator) SetTraceRuntimeAnchor(anchor string) {
 	if o != nil {

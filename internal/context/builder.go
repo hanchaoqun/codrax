@@ -58,6 +58,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Branch:                      bus.Branch,
 		Commit:                      bus.Commit,
 		WorkDir:                     bus.WorkDir,
+		DeliveryRoot:                bus.DeliveryRoot,
 		MainRepoRoot:                bus.MainRepoRoot,
 		WorktreePath:                bus.WorktreePath,
 		WorktreeBaseSHA:             bus.WorktreeBaseSHA,

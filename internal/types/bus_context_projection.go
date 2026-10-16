@@ -82,6 +82,7 @@ var projectionTypedSignalFields = []string{
 	"AttachedLogCatalog",
 	"AttachedLog",
 	"TraceInputPreparer",
+	"DeliveryRoot",
 	"AttachedHitrace",
 	"AttachedHitraceSource",
 }
@@ -130,6 +131,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		Branch:                 ctx.Branch,
 		Commit:                 ctx.Commit,
 		WorkDir:                ctx.WorkDir,
+		DeliveryRoot:           ctx.DeliveryRoot,
 		MainRepoRoot:           ctx.MainRepoRoot,
 		WorktreePath:           ctx.WorktreePath,
 		WorktreeBaseSHA:        ctx.WorktreeBaseSHA,
@@ -231,6 +233,7 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
 		WorkDir:      bus.WorkDir,
+		DeliveryRoot: bus.DeliveryRoot,
 		MainRepoRoot: bus.MainRepoRoot,
 		WorktreePath: bus.WorktreePath,
 		Mode:         bus.Mode,

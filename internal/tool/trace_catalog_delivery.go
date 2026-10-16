@@ -32,12 +32,19 @@ func AuthorizedTraceCatalogDeliveries(ctx *types.BusContext) ([]tracecatalog.Exp
 	}
 	var out []tracecatalog.ExportDelivery
 	var failures []error
+	if ctx.DeliveryRoot == nil {
+		return nil, nil
+	}
+	outputRoot, err := ctx.DeliveryRoot.Directory(contextFromBus(ctx), false)
+	if err != nil || outputRoot == "" {
+		return nil, err
+	}
 	for _, c := range ctx.Mutable.TraceCatalogs() {
 		if err := authorizeTraceCatalogExport(ctx, c); err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		deliveries, err := c.ExportDeliveries(contextFromBus(ctx), ctxWorkDir(ctx))
+		deliveries, err := c.ExportDeliveries(contextFromBus(ctx), outputRoot)
 		if err != nil {
 			failures = append(failures, err)
 			continue

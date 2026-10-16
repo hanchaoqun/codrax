@@ -32,6 +32,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -1611,6 +1612,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		TurnRouteHint:               turnRouteHint,
 		// Fresh per Run, shared by all agents/tools inside this Run only.
 		TraceInputPreparer: o.newTraceInputPreparer(),
+		DeliveryRoot:       tracecatalog.NewManagedExportRoot(o.traceRuntimeAnchor),
 		RuntimeArtifactPreflight: runtimeArtifactPreflightProfileForRun(
 			request,
 			repoRoot,

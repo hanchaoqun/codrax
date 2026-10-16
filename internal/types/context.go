@@ -8339,6 +8339,10 @@ type BusContext struct {
 	// inline previews without persisting full content.
 	WorkDir string `json:"work_dir,omitempty"`
 
+	// DeliveryRoot is the host-only, per-Run persistent output scope. It is
+	// independent of disposable query blobs and cannot be restored from JSON.
+	DeliveryRoot *tracecatalog.ManagedExportRoot `json:"-"`
+
 	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
@@ -8903,10 +8907,11 @@ type AgentContext struct {
 	// this enum is the only supported control-plane carrier for hint semantics.
 	RetryHintKind RetryHintKind `json:"retry_hint_kind,omitempty"`
 
-	RepoRoot string `json:"repo_root"`
-	Branch   string `json:"branch"`
-	Commit   string `json:"commit"`
-	WorkDir  string `json:"work_dir,omitempty"`
+	RepoRoot     string                          `json:"repo_root"`
+	Branch       string                          `json:"branch"`
+	Commit       string                          `json:"commit"`
+	WorkDir      string                          `json:"work_dir,omitempty"`
+	DeliveryRoot *tracecatalog.ManagedExportRoot `json:"-"`
 
 	// EvalDisableGitHistory mirrors BusContext.EvalDisableGitHistory
 	// through agent/tool projections. Eval-only; default false.

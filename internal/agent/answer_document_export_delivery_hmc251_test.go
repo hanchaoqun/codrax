@@ -16,6 +16,7 @@ import (
 func exportedAnswerContextHMC251(t *testing.T) (*types.AgentContext, tracecatalog.ExportReceipt) {
 	t.Helper()
 	ctx, _ := resourceSelectionPublicContextHMC248(t)
+	ctx.DeliveryRoot = tracecatalog.NewManagedExportRoot(t.TempDir())
 	catalogs := ctx.Mutable.TraceCatalogs()
 	if len(catalogs) != 1 {
 		t.Fatalf("current catalogs: %d", len(catalogs))

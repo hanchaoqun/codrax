@@ -32,7 +32,7 @@ func catalogPublicFixture(t *testing.T) (*types.BusContext, string) {
 	if err := os.WriteFile(filepath.Join(root, "broken.systrace"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	return &types.BusContext{RepoRoot: root, WorkDir: work, Mutable: types.NewMutableState("inspect captures"), TraceInputPreparer: traceinput.NewCoordinator(traceinput.Options{RuntimeAnchor: filepath.Join(work, "prepared")})}, root
+	return &types.BusContext{RepoRoot: root, WorkDir: work, DeliveryRoot: tracecatalog.NewManagedExportRoot(t.TempDir()), Mutable: types.NewMutableState("inspect captures"), TraceInputPreparer: traceinput.NewCoordinator(traceinput.Options{RuntimeAnchor: filepath.Join(work, "prepared")})}, root
 }
 
 func catalogPublicDiscover(t *testing.T, bus *types.BusContext) *tracecatalog.Catalog {

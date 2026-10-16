@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceCatalogExportTeaching = `For an explicitly requested evidence package, use action=export with current catalog_id and the requested export.target, e.g. {"action":"export","catalog_id":"<id>","export":{"target":"capture-evidence-v1"}}. Complete the intended current queries before export. It publishes manifest.json, an execution report.md and bound result copies under managed output; live branches share the same target and identical verified receipt. Repeating an unchanged export reuses that receipt, not query execution. A changed execution returns the frozen delivery and its mismatch; do not invent another target to hide this conflict. Export does not run missing queries, restore historical access, infer native availability, or diagnose the results.`
+const traceCatalogExportTeaching = `For an explicitly requested evidence package, use action=export with current catalog_id and the requested export.target, e.g. {"action":"export","catalog_id":"<id>","export":{"target":"capture-evidence-v1"}}. Complete the intended current queries before export. It publishes manifest.json, an execution report.md and bound result copies under persistent per-run managed delivery, independent of temporary query storage; live branches share the same target and identical verified receipt. Repeating an unchanged export reuses that receipt, not query execution. A changed execution returns the frozen delivery and its mismatch; do not invent another target to hide this conflict. Export does not run missing queries, restore historical access, infer native availability, or diagnose the results.`
 
 type traceCatalogExportParams struct {
 	Target string `json:"target"`
@@ -33,7 +33,12 @@ func traceCatalogExport(ctx *types.BusContext, p traceCatalogParams, out types.T
 		out.Summary = "export source authorization: " + err.Error()
 		return out, nil
 	}
-	receipt, err := current.Export(contextFromBus(ctx), ctxWorkDir(ctx), p.Export.Target)
+	outputRoot, err := ctx.DeliveryRoot.Directory(contextFromBus(ctx), true)
+	if err != nil {
+		out.Summary = "Evidence-package host destination unavailable: " + err.Error()
+		return out, nil
+	}
+	receipt, err := current.Export(contextFromBus(ctx), outputRoot, p.Export.Target)
 	if err != nil {
 		var conflict *tracecatalog.ExportConflictError
 		if errors.As(err, &conflict) {

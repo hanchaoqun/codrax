@@ -175,7 +175,11 @@ func TestTraceCatalogExportTargetAuthorityAndCancellation250(t *testing.T) {
 	if string(before) != string(after) || m.PackageID == "" {
 		t.Fatal("old output changed")
 	}
-	external := filepath.Join(bus.WorkDir, "evidence-exports", "external")
+	deliveryRoot, err := bus.DeliveryRoot.Directory(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(deliveryRoot, "evidence-exports", "external")
 	if err := os.Mkdir(external, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -201,10 +205,10 @@ func TestTraceCatalogExportTargetAuthorityAndCancellation250(t *testing.T) {
 	if got := exportCatalogCall250(t, canceled, c, "canceled"); got.Success {
 		t.Fatal("canceled publication succeeded")
 	}
-	if _, err := os.Stat(filepath.Join(bus.WorkDir, "evidence-exports", "canceled")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(deliveryRoot, "evidence-exports", "canceled")); !os.IsNotExist(err) {
 		t.Fatal("canceled package visible")
 	}
-	entries, err := os.ReadDir(filepath.Join(bus.WorkDir, "evidence-exports"))
+	entries, err := os.ReadDir(filepath.Join(deliveryRoot, "evidence-exports"))
 	if err != nil {
 		t.Fatal(err)
 	}
