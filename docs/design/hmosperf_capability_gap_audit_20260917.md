@@ -8517,3 +8517,57 @@ B实际finalizer完整实收三组资源原生事实、六个summary/members选�
 结算79唯一=23已交付+56开放、重复0；34待实施/15部分实施/3待验收/3验收中/1持续执行。本批完整能力收口1（09.4累计实现验收），生产子能力3组，本批2组真实验收缺陷不与56叠加。11.2仍部分实施。下一新增完整能力优先11.3明确目标的版本化证据包/事务输出，缺陷轨先完整预读导航和当前执行集合/同源事实默认消费；只读登记§245有界PASS继续轮换，17.7先区分原安全适配与新增在线快照/viewer债，不重复重做稳定WAL。
 
 唯一冻结全仓`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件、0非JSON错误行，01:35:51.397305Z–01:48:39.584456Z；正式receipt与完整JSONL均保存，不以stdout PASS代退出。双例完整过程、全部答案面与结算见[摘要](../../eval/parallel_selected_summary_hmc_native_source_resource_20261015.md)和[人工审计](../../eval/parallel_selected_summary_hmc_native_source_resource_20261015_manual_audit.md)。本地忽略证据根为`eval/results/hmc_native_source_resource_20261015/`：末次复核6971输入、binary、6份完整原件拷贝、原问题/历史checkpoint均未变；71份逐字节复制已核，370工件SHA索引保存。`verification-receipts/codrax-hmc249-final-verification-v1.json`含真实退出、计数与18根测试当前PASS，`batch-audit.md`保归档边界；大原件和可执行文件不冒称已推远端。
+
+## 250. 完整预读导航、当前执行集合与证据包导出（2026-10-15，子能力已实现、整答人工0/2）
+
+### 250.1 起点与有限退出范围
+
+起点`2fc4692ad`干净、远端同步，79唯一=23已交付+56开放、重复0；34待实施/15部分实施/3待验收/3验收中/1持续执行。保留§249完整人工0/2和两个入口NOT_TRIGGERED，不改旧答案、原件或oracle。优先已证系统缺口与参考新增完整能力两轨，不让已供齐事实后的错误措辞无限独占施工。
+
+缺陷轨：完整自动预读与成功完整read_file共用受校验的历史导航发布；不从gutter/截断预览还原，不重读扩大授权，不装成当前查询凭证。当前明确声明/恢复计划与仅已观测直接查询分栏，尝试、最终执行状态与原生事实可用性分开，历史success不能补本轮完成，未登记预期覆盖不能从已查子集推全集。保持自由组合查询、精确来源/窗口及Trace因果投影/自动补齐，不关键词硬门或自动替模型选择工具。
+
+能力轨：11.3原合同的显式目标证据包/事务输出，版本manifest、成员及引用完整性；不把导航JSON当事实、不复制旧成功为新结果、不覆写客户源码或旧报告、不把导出成功等同分析完整。参考代码、公开正反与自然采用分别验收；具体实现及回执在本节后续统一补齐。
+
+固定两个自然问题各一次并行：原恢复资源问题不改护栏；新增显式目标导出问题只表达业务所求。相关测试、必要race、schema/skill快检后冻结，统一全仓和真实评测以正式退出为准；最终完整人工含持久化主文/表/图/sidecar，失败不销账、不第三例追绿。
+
+### 250.2 参考意图、公开反例与通用实现
+
+亲读参考`core/batch/AGENTS.md`、`closure/package.py`、`closure/merge.py`以及`query_engine.py::accumulate_result`/空结果构造、`engine.py::run`；并由分工审查`runner.py`的manifest/result交接。值得复用的是成员身份随结果传递、空结果明确、包与报告配对、写前校验；不照搬mtime选“最新报告”、默认推断目标、按stem合并身份、旧cache结果授权或模型叙述代计量。
+
+三组生产子能力分别交付：
+
+1. `c962af315`及`75e9aa8ab`的执行视图：完整自动预读和read_file共用严格原字节导航，取消/裁剪/无权/坏JSON均不发恢复动作，不伪造观察或当前凭证。当前declared/resumed/observed-only分别计数；不把三次直接查询称四项计划已完成。core锁内detached快照同时供上下文/分页/导出，历史成功重新pending，窗口声明权限不复活。
+2. `d0817754f`：资源summary成为有限事实域中的唯一默认，私有publisher同步校验固定形状，members源帧独立可选。实际finalizer四查询→四摘要六行（五事件加一个空状态），原14帧保留；显式summary不重复，members不吞summary，patch/恢复同源，错源/错窗/JSON/关系与源码义务不借默认表升权。它不会改写自由正文或自动修正所有关系。
+3. `75e9aa8ab`：真实Complete后私有登记精确结果字节SHA与generation，导出显式新名称、版本manifest/逐引用状态/执行报告及原结果副本。当前源和输出根复核；每文件16MiB/合计64MiB/512项，整项缺失而非截字节。Darwin/Linux复用既有no-replace系统调用防外部空目标竞争；其它平台fail-closed。物理发布、材料齐全、执行名册、原生可用/分析完成互相独立，不复制历史结果或客户源码，不取代模型诊断。
+
+11.3只从待实施转部分实施：客户报告回写原范围未交付。当前同字节blob重写会使较早generation凭证保守陈旧，保明示原因，不由文件名/hash8/mtime恢复；自然多分支共享交付的协调单独验收。`fb7a7e158`仅新增自然导出验收变体，未在问题塞工具名/schema/安全答案，operator准备仍0模型/1真实种子查询，不冒称自然中断或新设备采集。
+
+### 250.3 开发验证与冻结补救边界
+
+公开RED保留：完整自动预读实链无导航；三次普通查询被当预期名册；actual finalizer原生选择存在但零默认表；公开四查询后export被旧schema拒绝。夹具API/编译错误、恢复块计数错误与真正产品RED分开记录；完整原命令、正式退出、相关正反、race及独审均在本地`verification-receipts/codrax-hmc250-*`归档，不覆盖旧文件。
+
+冻结生产`fb7a7e158`，6988个输入与binary SHA `8c92666fdb4a47dec8dfbc4912291cd782dc9bf390d233695158df7290242cbd`。后到的contracts-v1正式exit1发现`CurrentExecution`两处Outcome消费漏登记；不是运行时结果错误。主代理中止尚在跑的首轮全仓（SIGTERM，39包PASS/10SKIP，不称全仓通过），`f91197f58`仅在原census登记精确catalog-domain并加入既有self-red矩阵；定向正式exit0。v1/v2冻结逐件对比唯一变化为该测试文件的两行，所有生产和真实双例二进制不变。末版全仓重新运行，原contracts FAIL与中止收据均保留；不追加模型或改旧答案。
+
+### 250.4 固定双例真实过程与人工结论
+
+两例普通CLI各一次并行，UTC均为2026-10-16、本地10月15日：A PID10806，02:25:45.220916–02:27:39.607910；B PID10805，02:25:45.220883–02:31:12.958241，正式exit均0。同一冻结binary，两个完整SQLite原件与独立SQL oracle不变；operator每例0模型、4计划1条真实种子查询，不冒称自然中断/新设备采集。B只在原问题加“导出为capture-review”的业务所求，不向模型问题塞schema/护栏或答案。
+
+A实际完整read_file→resume→四ref-only查询，旧root101重查，当前4attempt、最终3success+1empty。B四分支恢复各查四计划，20次提交中4次混ref与自由参数被精确拒绝、16次真实attempt，合并当前仍4计划、最终3success+1empty；不是20次成功或16个请求成员。两例均按实际resume返回的精确saved_index运行公开audit-index，正式exit0、结构2/2；不按mtime猜路径，不用导航结构通过代签整答。
+
+两例自然均未走新增自动预读分支，实际走read_file共享导航，自动预读自然NOT_TRIGGERED，确定性公开Explorer实链另计。最终器已完整收到同源5事件/14逐事件帧、四组summary/members、0省略；两例模型都没有选runtime_measurement，但新默认四表六行均正确落盘。原先漏查root101和自然零默认事实，本批实际未重现；members主动复用、图修复没有触发，不代签。
+
+完整MD、HTML、primary/principal和root-causes审计均FAIL：空nested202借另源background，size未声明单位却写B，root101原depth0/0/1被串成有序调用，记录帧完整被称完整展开；A还把缺层/重复两个异常事件写一个，B将buffer_cleanup从depth0错写为depth1未知。原生附表正确不抵销主文。调查草稿曾混源且作为advisory继续投递，但终稿正向3+1/1+0归属已纠正，不能误记为最终两文件整体倒置。root-causes为空，无新CPU/等待/泄漏/响应根因；没有Mermaid，不把正文箭头当图渲染失败。事实供给完整，不再将这些归为漏上下文，也未证随机模型波动。
+
+B自然8次export中3次同名被拒、5包物理发布；capture-review（序号5–8）、capture-review-v2（9–12）、capture-review-10150（13–16）各8copied引用/4唯一原结果加report、材料完整；capture-review-20261015（1–4）和capture-review-v3（9–12）各8stale引用、只report、明确材料不完整。逐文件bytes/SHA和query/attempt/source/window映射均一致。每包冻结fork-local4attempt，与run合并16attempt是不同范围，不称计数矛盾；native_availability=unknown和analysis_completion=not_asserted保持。指定capture-review本身真实完整且没有覆盖，但最终答案没有导出路径/结果交付，用户问题中的包名不算答案交付。
+
+已证共享接缝：`StoreBlobArtifact`按hash8路径无条件重写，同字节亦变generation，导致较早完成见证被正确保守拒绝；`Save`仅对同输出snapshot合并，Export仍用fork-local clone且锁按target，不同分支另名输出没有同一交付责任。应修producer不可变发布和当前交付协调，不放松原件/结果generation门、以同SHA豁免外部换件或把旧JSON复活为凭证。两项归11.3，正文/身份/单位/关系噪音归16.4/16.5/18.4，所有原FAIL保留。
+
+### 250.5 结算、末版验证与后继有限范围
+
+结算79唯一=23已交付+56开放、重复0；当前33待实施/16部分实施/3待验收/3验收中/1持续执行。完整能力新增0，交付生产子能力3组，本批剩余验收缺陷2组（同源成文一致性、交付协调/报告回写），不另加到56。11.3部分实施，09.4/11.1有限交付保持；11.2自然代表、18.3 sample-only诚实边界和只读登记轮换未由本例代验。
+
+下一批缺陷轨优先原生payload/raw不可变内容发布：完整内容hash、同字节不重写、并发排他发布/冲突不覆盖；真实query仍各自执行并绑定各源/代次，不变查询缓存、不跳失败重试。能力轨以已有agent/fork合并接点建立一个当前已接纳交付意图，发布/失败收据进入最终成文；随后复用显式报告出口，明确目标授权、旧报告SHA和当前manifest/终稿版本绑定、单目标原子更新。包发布和报告更新分轴，不冒称跨目录多文件全局事务，不扩大到任意Excel/源码写入或第二执行内核。只读设计保存在`verification-receipts/codrax-hmc250-next-delivery-design-v1.md`，未实施不记交付。
+
+末版`go test -json -timeout 20m ./...`正式exit0：94包PASS/13SKIP、0失败事件/0非JSON错误行，UTC 2026-10-16 02:28:00.839919–02:40:43.029018。首轮因迟到contracts失败而中止的原日志与SIGTERM收据保留，不能把两轮拼成唯一成功运行。末次6988冻结输入/binary、两例四份完整原件拷贝、自然问题/历史checkpoint、两例真实重叠退出与五包逐文件/引用复核均过；`codrax-hmc250-final-verification-v1.json`明确人工0/2和自动预读未触发。
+
+双例完整过程与正式结论见[摘要](../../eval/parallel_selected_summary_hmc_recovery_export_20261015.md)及[人工审计](../../eval/parallel_selected_summary_hmc_recovery_export_20261015_manual_audit.md)。本地忽略证据根`eval/results/hmc_recovery_export_20261015/`保全部失败、原件、输出与验证收据；72份逐字节复制复核，362工件SHA索引，归档边界见`batch-audit.md`。大原件/可执行文件不冒称已推送。
