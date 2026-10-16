@@ -30,7 +30,7 @@ func TestHMC250ResourceDefaultActualFinalizer(t *testing.T) {
 		t.Fatalf("public emit: %v %s", err, out.Summary)
 	}
 	doc := ctx.Mutable.AnswerDocumentV2()
-	count, rows := 0, 0
+	count, rows, empty := 0, 0, 0
 	for _, block := range doc.Blocks {
 		if block.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts {
 			continue
@@ -44,9 +44,12 @@ func TestHMC250ResourceDefaultActualFinalizer(t *testing.T) {
 		}
 		count++
 		rows += len(table.Rows)
+		if len(table.Rows) == 0 {
+			empty++ // Executed-empty is still a query, not a sixth event.
+		}
 	}
-	if count != 4 || rows != 6 {
-		t.Fatalf("actual finalizer emission has %d resource summaries/%d rows, want 4/6", count, rows)
+	if count != 4 || rows != 5 || empty != 1 {
+		t.Fatalf("actual finalizer emission has %d summaries/%d event rows/%d empty queries, want 4/5/1", count, rows, empty)
 	}
 	if doc.Blocks[0].Text != interpretation {
 		t.Fatal("native defaults rewrote independent interpretation")

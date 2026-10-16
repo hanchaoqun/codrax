@@ -61,9 +61,9 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 			members.Rows = append(members.Rows, []string{event, ts, owner, frame, resourceFactScalar(f.Depth), resourceFactText(f.Symbol), resourceFactText(f.Library), address})
 		}
 	}
-	if p.MatchedEvents == 0 {
-		summary.Rows = [][]string{{"无匹配记录", "未知", "未知", "未知", "无观测", "无观测"}}
-	}
+	// Empty is a query disposition in Notes, not an observed event row.
+	// Retain both selectors and the source/window boundary without inventing
+	// a placeholder member that downstream row counts could treat as data.
 	if published, ok := types.PublishRuntimeResourceMeasurement(r, []types.RuntimeMeasurementTable{summary, members}, p.Window.EndInclusive); ok {
 		return published
 	}
