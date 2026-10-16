@@ -100,9 +100,14 @@ func traceCatalogBeginQuery(ctx *types.BusContext, p traceQueryParams, raw json.
 	if canonical, err := filepath.EvalSymlinks(path); err == nil {
 		path = canonical
 	}
+	originalPath := traceCatalogQueryOriginalPath(ctx, path)
 	var tickets []traceCatalogQueryTicket
 	for _, c := range ctx.Mutable.TraceCatalogs() {
-		a, ok := c.ArtifactForPath(path)
+		a, ok := c.ArtifactForPath(originalPath)
+		if !ok && originalPath != path {
+			// A separately admitted manifest remains its own catalog input.
+			a, ok = c.ArtifactForPath(path)
+		}
 		if !ok {
 			continue
 		}
