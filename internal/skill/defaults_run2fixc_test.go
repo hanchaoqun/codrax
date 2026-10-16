@@ -83,7 +83,7 @@ func TestRun2FixCUserNamedLatencyAnchorCarry(t *testing.T) {
 	}
 	for _, want := range []string{
 		"emit those boundary rows as evidence with their timestamps verbatim",
-		"carry the derived end-to-end quantity, with both boundary timestamps, into the completion `reason`",
+		"carry the derived end-to-end quantity, with both boundary timestamps, into the completion narrative",
 		"never reaches the final evidence surfaces",
 	} {
 		if !strings.Contains(item.Body, want) {

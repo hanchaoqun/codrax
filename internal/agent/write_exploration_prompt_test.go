@@ -25,7 +25,7 @@ func TestRenderExplorerWriteExplorationRequest_ReadOnlyHandoffBoundary(t *testin
 		"do not edit files",
 		"do not call shell commands",
 		"do not try to implement the fix in this stage",
-		"record it as evidence or in the completion reason",
+		"record it as evidence or in the completion narrative",
 		"the controller will hand it to the planner",
 		"src/duration.rs",
 		"max_rounds: 2",

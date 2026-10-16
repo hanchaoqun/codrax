@@ -2371,6 +2371,9 @@ func buildOrLoadGraph() {}
 	if !strings.Contains(prompt, "Focused Depth Start") {
 		t.Fatalf("focused-depth prompt missing, got: %s", prompt)
 	}
+	if !strings.Contains(prompt, explorerCompletionNarrativeOwnership) {
+		t.Fatal("focused-depth initial instruction omitted conditional completion ownership")
+	}
 	if strings.Contains(prompt, "Breadth Scan") {
 		t.Fatalf("focused-depth start should bypass breadth prompt, got: %s", prompt)
 	}
@@ -2648,6 +2651,9 @@ func TestBuildInitialInstruction_CapabilityQueryStartsFocusedAuthorityDepth(t *t
 	if eval.phase != 1 {
 		t.Fatalf("capability query should start in depth phase, got phase=%d", eval.phase)
 	}
+	if !strings.Contains(prompt, explorerCompletionNarrativeOwnership) {
+		t.Fatal("capability initial instruction omitted conditional completion ownership")
+	}
 	for _, want := range []string{
 		"Capability Surface Start",
 		"## Capability Authority",
@@ -2765,6 +2771,9 @@ var defaultRoutes = map[string]string{
 	if !strings.Contains(prompt, "Declarative Registration Start") {
 		t.Fatalf("declarative-focused prompt missing, got: %s", prompt)
 	}
+	if !strings.Contains(prompt, explorerCompletionNarrativeOwnership) {
+		t.Fatal("declarative initial instruction omitted conditional completion ownership")
+	}
 	if strings.Contains(prompt, "Breadth Scan") {
 		t.Fatalf("declarative-focused start should bypass breadth prompt, got: %s", prompt)
 	}
@@ -2832,6 +2841,9 @@ func helper() string { return "ok" }
 	}
 	if !strings.Contains(prompt, "Primary Entity Depth Start") {
 		t.Fatalf("primary-entity focused prompt missing, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, explorerCompletionNarrativeOwnership) {
+		t.Fatal("primary-entity initial instruction omitted conditional completion ownership")
 	}
 	if strings.Contains(prompt, "Breadth Scan") {
 		t.Fatalf("primary-entity focused start should bypass breadth prompt, got: %s", prompt)
@@ -8124,7 +8136,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"`trace_query`",
 			"`root_cause_rank`",
 			"`wakeup_chain`",
-			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 		} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("runtime read hint missing %q:\n%s", want, sig.Hint)
@@ -8169,7 +8181,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			`grep(path="app.log"`,
 			"`grep -n`/awk filter",
 			"`read_file` around the selected line window",
-			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 		} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("log runtime read hint missing %q:\n%s", want, sig.Hint)
@@ -8207,7 +8219,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		if strings.Contains(sig.Hint, "broad/header page of a runtime/log/trace artifact") {
 			t.Fatalf("mixed code/runtime reads should not suppress source-evidence guidance:\n%s", sig.Hint)
 		}
-		for _, want := range []string{"batch only for real current-source anchors", "Preserve non-source observations", "`emit_investigation_complete.reason` plus `aggregate_facts`"} {
+		for _, want := range []string{"batch only for real current-source anchors", "Preserve non-source observations", "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`"} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("mixed code/runtime reads must retain source proof and separate observation handoff, missing %q:\n%s", want, sig.Hint)
 			}
@@ -8247,7 +8259,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"artifact-only read backlog",
 			"not current-source code evidence",
 			"Do not convert trace/log rows into current-source `emit_evidence` citations",
-			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 			"`trace_query`",
 			"explicit window/target/view parameters",
 			"If a later step also needs current-code proof",
@@ -8303,7 +8315,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 		for _, want := range []string{
 			"Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources)",
-			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 			"artifact line numbers do not make them current-source citations",
 		} {
 			if !strings.Contains(sig.Hint, want) {
@@ -8999,7 +9011,7 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 	}
 	if !strings.Contains(first.Hint, "Current-source claims left only in prose notes are not citeable evidence") ||
 		!strings.Contains(first.Hint, "batch only for real current-source anchors") ||
-		!strings.Contains(first.Hint, "`emit_investigation_complete.reason` plus `aggregate_facts`") {
+		!strings.Contains(first.Hint, "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
 		t.Fatalf("first hint should remain full guidance, got: %s", first.Hint)
 	}
 
@@ -9028,7 +9040,7 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 		t.Fatalf("second same-family hint should not repeat full template:\n%s", second.Hint)
 	}
 	if !strings.Contains(second.Hint, "batch only for real current-source anchors") ||
-		!strings.Contains(second.Hint, "`emit_investigation_complete.reason` plus `aggregate_facts`") {
+		!strings.Contains(second.Hint, "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
 		t.Fatalf("compact hint must retain both source obligations and observation handoff:\n%s", second.Hint)
 	}
 	if len(second.Hint) >= len(first.Hint) {
@@ -10757,7 +10769,7 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 	if !strings.Contains(sig.Hint, "current checkout already bounds the answer surface") {
 		t.Fatalf("hint should warn against reopening older-build-only branches, got: %s", sig.Hint)
 	}
-	if !strings.Contains(sig.Hint, "keep `reason` no stronger than") {
+	if !strings.Contains(sig.Hint, "keep the completion narrative no stronger than") {
 		t.Fatalf("hint should provide a bounded completion reason, got: %s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "Stay within the grounded current-branch anchor") {
@@ -11973,7 +11985,7 @@ func TestObserveMidLoop_DriftBoundedCompletionReadyClosureOnlyFastTracks(t *test
 	if !strings.Contains(sig.Hint, "older-build-only branches") {
 		t.Fatalf("fast-track closure-only should explicitly block older-build-only drift, got: %s", sig.Hint)
 	}
-	if !strings.Contains(sig.Hint, "Reuse this bounded `reason` surface") {
+	if !strings.Contains(sig.Hint, "Reuse this bounded completion narrative") {
 		t.Fatalf("fast-track closure-only should carry the bounded reason surface, got: %s", sig.Hint)
 	}
 	if !eval.midLoopCompletionReadyEscalated {

@@ -63,7 +63,7 @@ func TestCompletionHandoffTeachingAgreesWithAggregateValueKinds(t *testing.T) {
 	for _, want := range []string{
 		"native JSON array of objects",
 		"`behavior_outcome` and `error_granularity_verdict` keep category strings",
-		"narrative conclusions belong in `reason`",
+		"narrative conclusions belong in the completion narrative",
 		"the count kinds accept integer values only",
 		"`kind=\"scalar_value\"`",
 	} {

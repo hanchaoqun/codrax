@@ -865,7 +865,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	writeExplorationPrefix := renderExplorerWriteExplorationRequest(ctx)
 	dimensionEvidenceOwnershipGuide := renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx)
 	composeInitialInstruction := func(body string) string {
-		return joinExplorerInstructionSections(writeExplorationPrefix, dimensionEvidenceOwnershipGuide, body)
+		return joinExplorerInstructionSections(writeExplorationPrefix, dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, body)
 	}
 	if explorerDurableProgressContinuationActive(ctx) {
 		e.phase = 1
@@ -1024,6 +1024,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.phase = 0 // start in breadth-scan phase
 
 	var b strings.Builder
+	b.WriteString(explorerCompletionNarrativeOwnership)
+	b.WriteString("\n\n")
 	if writeExplorationPrefix != "" {
 		b.WriteString(writeExplorationPrefix)
 		b.WriteString("\n\n")
@@ -1055,11 +1057,16 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("\n\n")
 	}
 	b.WriteString("### Completion Handoff\n\n")
-	b.WriteString("When you call `emit_investigation_complete`, make `reason` the concise investigation conclusion you want later answer writing to preserve, not just a generic \"done\" statement.\n")
-	b.WriteString("- Include the terminal judgment, important scope boundaries, cross-repository or cross-component distinctions, no-hit/exclusion findings, and caveats that should not disappear.\n")
-	b.WriteString("- Do not leave those conclusions only in free-form text before the tool call; put them in `reason` so the next stages receive them even when prose is absent or parallel investigations are merged.\n")
+	if teaching := explorerCompletionNarrativeGuidance(ctx, ""); teaching != "" {
+		b.WriteString(teaching + "\n")
+	} else {
+		b.WriteString("The following legacy reason guidance applies only while native_fact_handoff is neither required nor selected. If current tools later publish native facts, follow the current schema and the completion narrative ownership rule above.\n")
+		b.WriteString("When you call `emit_investigation_complete`, make `reason` the concise investigation conclusion you want later answer writing to preserve, not just a generic \"done\" statement.\n")
+		b.WriteString("- Include the terminal judgment, important scope boundaries, cross-repository or cross-component distinctions, no-hit/exclusion findings, and caveats that should not disappear.\n")
+		b.WriteString("- Do not leave those conclusions only in free-form text before the tool call; put them in `reason` so the next stages receive them even when prose is absent or parallel investigations are merged.\n")
+	}
 	b.WriteString("- Keep counts, complete member sets, and per-bucket facts in `aggregate_facts`; use `absence_justification` for a genuine zero or not-found result.\n")
-	b.WriteString("- Follow the current tool schema: pass `aggregate_facts` as a native JSON array of objects, not a quoted JSON string; narrative conclusions belong in `reason`.\n")
+	b.WriteString("- Follow the current tool schema: pass `aggregate_facts` as a native JSON array of objects, not a quoted JSON string; narrative conclusions belong in " + explorerCompletionNarrativeField(ctx) + ".\n")
 	b.WriteString("- Decimal measurement values (durations, densities, percentages, ratios) belong in `aggregate_facts` entries with `kind=\"scalar_value\"` even when they describe a group, bucket, or per-CPU slice; the count kinds accept integer values only, so a measurement like value=\"12.5\" with unit=\"ms\" is a `scalar_value`, never a `grouped_count`/`bucket_count`/`total_count`.\n")
 	b.WriteString("- SUPPORT REF DECISION FIRST: for positional current-source `member_set` refs, emit exactly one `support_refs[i]` per `members[i]` (so both arrays have equal length). Choose the one bounded source span that proves that row's `member_notes[i]`, not an identity-only declaration when the note claims behavior or responsibility. Never append a second parallel batch of bare refs; use a labeled ref only when a non-positional mapping is genuinely required.\n")
 	b.WriteString("- For principal `member_set` rows over current-source symbols, paths, routes, config keys, operation sites, or display aliases copied from source evidence, put the answer members in `members` and attach `support_refs` when the member is not already an exact emitted evidence anchor. The simplest safe form is positional: `support_refs` contains one already-read `file:line` per `members[]` entry in the same order. Use `member_notes` only for row explanations; notes do not ground or identify members.\n")
@@ -1067,7 +1074,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- A per-member table demand (\"每个 X 一行\" / \"a table with one row per X\" / \"list every X from A to B with its ...\") is a member-set obligation even when the overall question is an explanation: once the members are verified, emit the complete list as an `aggregate_facts` entry with `kind=\"member_set\"` so the final table's row set cannot silently drop a member.\n")
 	b.WriteString("- For a verified zero-result search inside a repository or sub-repo, use `aggregate_facts` with `kind=\"negative_search\"`, `value=\"0\"`, and dimensions for `repo`, `query` or `pattern`, `scope`, and `searched_at`. Do not emit fake file:line evidence such as `repo:0` for a not-found result.\n")
 	b.WriteString("- For verified absence in non-repo evidence such as git history/diff output, an attached log, a trace, command output, or repo-map/index output, use `aggregate_facts` with `kind=\"negative_observation\"`, `value=\"0\"`, and dimensions for `origin`, `target` or `query`/`pattern`/`predicate`, `scope`, and `searched_at`. Do not invent repo dimensions for these cases.\n")
-	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
+	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The completion narrative is preserved as context, not as a citation.\n\n")
 	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		b.WriteString("### Repository Command Scope\n\n")
 		fmt.Fprintf(&b, "`exec_command` runs from the active repository root: `%s`. Use repo-relative paths; do not guess absolute checkout directories or run `cd` / `git -C` / `--git-dir` outside this root. For commit history and diff questions, prefer `git_log`, `git_show`, `git_diff`, and `git_history_search` before free-form shell; use `git_show` for a specific commit/ref's metadata/patch/stat/name-only output, and use `git_history_search.order=recent` for latest/last-N windows or `order=oldest` for first-introduced / earliest-occurrence windows.\n\n",
@@ -1078,7 +1085,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		if explorerHistoryPrefersVCSNarrativePrincipal(ctx) {
 			b.WriteString("### VCS History Narrative Handoff\n\n")
 			b.WriteString("This question's principal evidence is repository history: commits, refs, subjects, authorship, diff/stat/name-only output, and verified history-search results. Use the VCS tools first and do not turn commit metadata into fake source `emit_evidence` rows.\n")
-			b.WriteString("- Put the concise history conclusion in `emit_investigation_complete.reason`, including the relevant commits, what each changed, how the changes relate, and any scope boundary.\n")
+			b.WriteString("- Put the concise history conclusion in " + explorerCompletionNarrativeField(ctx) + ", including the relevant commits, what each changed, how the changes relate, and any scope boundary.\n")
 			b.WriteString("- Use `aggregate_facts` only as supporting VCS metadata unless the user asked for a scalar/count/list; the narrative answer should remain richer than one commit hash or one raw value.\n")
 			b.WriteString("- Current-source files are optional support in this lane. Read them only when the VCS diff points to a file whose current state is needed for a caveat; do not keep searching source files solely to satisfy a source-code coverage habit.\n")
 			b.WriteString("- A grounded VCS conclusion may close the investigation without reading preselected current-source files.\n\n")
@@ -1086,7 +1093,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("### Mixed History / Current-source Handoff\n\n")
 			b.WriteString("This history question also needs current-source, diagram, diagnostic, comparison, or change-impact evidence. Keep the lanes separate: VCS tools establish what changed and why; `read_file` evidence establishes current implementation, current risk, or code-flow claims.\n")
 			b.WriteString("- Do not let a commit hash or diff stat replace the user's requested code explanation.\n")
-			b.WriteString("- Do not let current source evidence erase the VCS conclusion. Preserve both in `emit_investigation_complete.reason`, and emit source `emit_evidence` only for current-code claims that the final answer must cite.\n\n")
+			b.WriteString("- Do not let current source evidence erase the VCS conclusion. Preserve both in " + explorerCompletionNarrativeField(ctx) + ", and emit source `emit_evidence` only for current-code claims that the final answer must cite.\n\n")
 		}
 	}
 
@@ -1819,28 +1826,28 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			if capabilityQuery := detectStageToolCapabilityQueryFromContext(ctx); capabilityQuery != nil {
 				e.phase = 1
 				e.requiredFiles = capabilityFocusedFiles(capabilityQuery, e.requiredFiles)
-				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildCapabilityFocusedStartInstruction(ctx, analyzerKeywords, capabilityQuery))
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.buildCapabilityFocusedStartInstruction(ctx, analyzerKeywords, capabilityQuery))
 			}
 			if e.shouldStartFocusedDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenFocusedFrontier()
-				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords))
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartDeclarativeDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenDeclarativeFrontier()
-				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords))
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartDeclarativeCandidateDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenDeclarativeCandidateFrontier()
-				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildDeclarativeCandidateStartInstruction(ctx, analyzerKeywords))
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.buildDeclarativeCandidateStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartPrimaryEntityDepth(analyzerKind) {
 				e.phase = 1
 				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles, ctx)
 				e.tightenPrimaryEntityFrontier()
-				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords))
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords))
 			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
@@ -1915,7 +1922,7 @@ func renderExplorerWriteExplorationRequest(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Write-mode targeted source exploration\n\n")
 	b.WriteString("This is a read-only source exploration subflow for a code-change task. Do not edit files, do not call shell commands, and do not try to implement the fix in this stage. Keep the investigation bounded to this request, discover existing patterns/invariants/test surfaces, and preserve the useful findings through `emit_evidence` and `emit_investigation_complete` so the later write planner can use them.\n")
-	b.WriteString("If you know the repair shape, record it as evidence or in the completion reason; the controller will hand it to the planner. Your available tools are for repository reading and structured handoff only.\n")
+	b.WriteString("If you know the repair shape, record it as evidence or in the completion narrative; the controller will hand it to the planner. Your available tools are for repository reading and structured handoff only.\n")
 	if req.BatchID != "" {
 		fmt.Fprintf(&b, "- batch_id: %s\n", req.BatchID)
 	}
@@ -2011,7 +2018,7 @@ func (e *explorerEvaluator) buildDurableProgressContinuationInstruction(ctx *typ
 	b.WriteString("Next action choices:\n")
 	b.WriteString("- If the checkpoint is already enough, call `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary / count / member-set facts there.\n")
 	b.WriteString("- If exactly one concrete anchor is missing, do one narrow `grep` / `read_file` / `repo_map` follow-up for that anchor, then materialize the result with `emit_evidence` or close.\n")
-	b.WriteString("- If the remaining uncertainty is origin-specific (command output, VCS, log, trace, repo-index, external document, web, MCP, connector), keep it in `reason` / `aggregate_facts` rather than re-anchoring it to unrelated current-source lines.\n")
+	b.WriteString(explorerCompletionNarrativeGuidance(ctx, "- If the remaining uncertainty is origin-specific (command output, VCS, log, trace, repo-index, external document, web, MCP, connector), keep it in `reason` / `aggregate_facts` rather than re-anchoring it to unrelated current-source lines.") + "\n")
 	b.WriteString("- If the model-authored answer boundary is smaller than a broad navigation result, state the boundary or caveat; do not silently widen the answer just because adjacent files exist.\n\n")
 	if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
 		b.WriteString(advisory)
@@ -2143,7 +2150,7 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
 	b.WriteString("- If the slate matches what you need, use its counts/members/locations/row-local attributes as the candidate universe, verify only selected or disputed behavior/text claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	if explorerSourceInventoryMechanicalRowsOnly(ctx) {
-		b.WriteString("- Mechanical inventory closure: name/location/count/package/module/namespace rows can be carried directly from this typed slate. A complete typed row-set is already a structured landing artifact; do not call `emit_evidence` merely to repackage repo_map rows, and do not read every listed file just to restate those row fields. Use `emit_investigation_complete.reason` / `aggregate_facts` for the final handoff; read source text only for a selected contradiction or a requested summary/value/body detail.\n")
+		b.WriteString("- Mechanical inventory closure: name/location/count/package/module/namespace rows can be carried directly from this typed slate. A complete typed row-set is already a structured landing artifact; do not call `emit_evidence` merely to repackage repo_map rows, and do not read every listed file just to restate those row fields. Use the completion narrative / `aggregate_facts` for the final handoff; read source text only for a selected contradiction or a requested summary/value/body detail.\n")
 	}
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
@@ -3894,7 +3901,7 @@ func renderExplorerRuntimeQuestionScopeWorkflow(ctx *types.AgentContext) string 
 	profile := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
 	var b strings.Builder
 	if profile.RequestsRuntimeWorkRelation() {
-		b.WriteString("Typed runtime work-relation subquestion: keep the scheduler and semantic-work inventories distinct. Only a `trace_query` row explicitly typed as semantic span/work, with its own span name, class, and duration, may be described as deterministic semantic work. A scheduler-state row (`runnable`, `running`, `sleep`, D-state, or IO wait) remains scheduler occupancy even when it is on the wakeup chain; a thread name or chain membership does not reclassify it. For an edge `A -> B`, A is the recorded waker/source and B is the wakee/target. `runnable` means eligible but waiting for CPU, while `running` means executing on CPU. A chain-ranked runnable row alone does not prove same-CPU competition: preserve CPU placement as unknown unless a typed same-CPU relation is present, and require a compatible typed running/runnable overlap or competitor carrier before claiming direct competition. Preserve these typed meanings and evidence ceilings in `emit_investigation_complete.reason` and `aggregate_facts`; do not title a mixed scheduler roster as a semantic-work roster. This is evidence calibration only and does not pre-decide the model-owned relation or root-cause conclusion.\n\n")
+		b.WriteString("Typed runtime work-relation subquestion: keep the scheduler and semantic-work inventories distinct. Only a `trace_query` row explicitly typed as semantic span/work, with its own span name, class, and duration, may be described as deterministic semantic work. A scheduler-state row (`runnable`, `running`, `sleep`, D-state, or IO wait) remains scheduler occupancy even when it is on the wakeup chain; a thread name or chain membership does not reclassify it. For an edge `A -> B`, A is the recorded waker/source and B is the wakee/target. `runnable` means eligible but waiting for CPU, while `running` means executing on CPU. A chain-ranked runnable row alone does not prove same-CPU competition: preserve CPU placement as unknown unless a typed same-CPU relation is present, and require a compatible typed running/runnable overlap or competitor carrier before claiming direct competition. Preserve these typed meanings and evidence ceilings in the completion narrative and `aggregate_facts`; do not title a mixed scheduler roster as a semantic-work roster. This is evidence calibration only and does not pre-decide the model-owned relation or root-cause conclusion.\n\n")
 	}
 	switch profile.Scope {
 	case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
@@ -3968,7 +3975,7 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	}
 	b.WriteString("- Keep direct observations and inferred upstream causes separate. The artifact can directly establish the error message, observed operation/property, frame/span, signal, duration, and trace order.\n")
 	b.WriteString(runtimeArtifactObservationCausalityCalibration())
-	b.WriteString("- Do not call `emit_evidence` for unresolved artifact frames: that tool is for current-checkout source anchors. Preserve artifact facts in `emit_investigation_complete.reason` and, when useful, `aggregate_facts`.\n")
+	b.WriteString("- Do not call `emit_evidence` for unresolved artifact frames: that tool is for current-checkout source anchors. Preserve artifact facts in the completion narrative and, when useful, `aggregate_facts`.\n")
 	b.WriteString("- If the artifact is sufficient, call `emit_investigation_complete` with a resolved result and, when needed, `evidence_floor_waiver.reason=\"external_only_log\"` or `\"external_only_trace\"` so the final answer preserves the observation-only boundary.\n\n")
 	if ctx != nil && ctx.LogTriage != nil && !logQueryToolVisible(ctx) {
 		if len(ctx.LogTriage.Errors) > 0 {
@@ -3992,9 +3999,9 @@ func (e *explorerEvaluator) buildExternalObservationFirstStartInstruction(ctx *t
 	b.WriteString("- Use external observation tools/resources first. Typed rows with line, row, selector, JSON pointer, page, or time-window addresses are valid external observations; do not convert them into current-source citations.\n")
 	if authority.CurrentSourceRequired {
 		b.WriteString(explorerExternalObservationRequiredSourceGuidance(authority.CurrentSourceRequirement))
-		b.WriteString("- Preserve the exact external origin and addressable facts in `emit_investigation_complete.reason` and, for counts/lists/scalars, `aggregate_facts`; this does not supply current-source proof.\n")
+		b.WriteString("- Preserve the exact external origin and addressable facts in the completion narrative and, for counts/lists/scalars, `aggregate_facts`; this does not supply current-source proof.\n")
 	} else {
-		b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in `reason` and, for counts/lists/scalars, `aggregate_facts`.\n")
+		b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in the completion narrative and, for counts/lists/scalars, `aggregate_facts`.\n")
 	}
 	b.WriteString("- Do not run repository breadth search (`repo_map`, repo-wide `grep`, `list_files`) just to collect source sidecars. Current-source exploration remains available only when a current-source question is still unresolved or a contradiction would materially change the answer.\n")
 	b.WriteString("- If you do need current source, make it a focused follow-up and keep the lanes separate: external observations establish what the external artifact/tool reported; current-source evidence establishes implementation behavior.\n")
@@ -4011,7 +4018,7 @@ func explorerExternalObservationRequiredSourceGuidance(precision types.RuntimeSo
 	var b strings.Builder
 	fmt.Fprintf(&b, "- The current-source lane remains required (%s); external-lane sufficiency is not whole-question sufficiency or an accepted waiver. Use relevant grounded source evidence, or a focused source read for still-missing implementation facts. Keep source proof separate from runtime observations.\n", precision)
 	if precision == types.RuntimeSourceRequirementSoft {
-		b.WriteString("- If source proof cannot be established, preserve that unresolved boundary in the completion reason and use the existing typed waiver/caveat path when applicable. A soft obligation does not create a new hard gate, but a citation-count waiver alone does not erase a separately requested source question. Do not claim missing implementation facts as verified.\n")
+		b.WriteString("- If source proof cannot be established, preserve that unresolved boundary in the completion narrative and use the existing typed waiver/caveat path when applicable. A soft obligation does not create a new hard gate, but a citation-count waiver alone does not erase a separately requested source question. Do not claim missing implementation facts as verified.\n")
 	}
 	return b.String()
 }
@@ -6196,7 +6203,7 @@ func (e *explorerEvaluator) postRestrictedToolSurfaceSignal(obs LoopObservation)
 		allowedText = strings.Join(allowedNames, ", ")
 	}
 	hint := fmt.Sprintf(
-		"Progress check: `%s` is not available in this turn. Available tools now: %s. Do not retry unavailable navigation tools. If already-visible line gutters are enough, call `emit_evidence` with grounded replacement rows; if accepted evidence is enough, call `emit_investigation_complete`. If neither is possible, omit stale recovered rows and preserve the limitation in the completion reason.",
+		"Progress check: `%s` is not available in this turn. Available tools now: %s. Do not retry unavailable navigation tools. If already-visible line gutters are enough, call `emit_evidence` with grounded replacement rows; if accepted evidence is enough, call `emit_investigation_complete`. If neither is possible, omit stale recovered rows and preserve the limitation in the completion narrative.",
 		obs.LastToolResult.ToolName, allowedText)
 	return LoopSignal{
 		HintRequested:  true,
@@ -6453,7 +6460,7 @@ func explorerReadHandoffGuidance() string {
 // Both mixed and source-excluded lanes hand non-source observations to the
 // same closure fields. Excluding source inspection must not erase this route.
 func explorerExternalObservationHandoffGuidance() string {
-	return "Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through `emit_investigation_complete.reason` plus `aggregate_facts`; artifact line numbers do not make them current-source citations. "
+	return "Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`; artifact line numbers do not make them current-source citations. "
 }
 
 func (e *explorerEvaluator) renderCompactReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
@@ -9050,7 +9057,7 @@ func explorerReadinessFaces(
 	return ready, missing
 }
 
-func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopSignal {
+func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation, contexts ...*types.AgentContext) LoopSignal {
 	if e.midLoopCompletionReadySent || e.investigationComplete {
 		return LoopSignal{}
 	}
@@ -9120,7 +9127,8 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
 	b.WriteString("Progress check: the basic evidence-collection checks suggest trying to finish the current branch. ")
-	b.WriteString("Once any returned typed repairs are addressed, try `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. Put your concise conclusion and any important boundary in `reason`. ")
+	b.WriteString("Once any returned typed repairs are addressed, try `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. ")
+	b.WriteString(explorerCompletionNarrativeGuidance(firstExplorerCompletionContext(contexts), "Put your concise conclusion and any important boundary in `reason`.") + " ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- the current evidence-breadth guidance checks are satisfied\n")
@@ -9145,7 +9153,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if e.driftBoundedCompletionReadyMode() && readiness.AuthoritativeClosure {
 		b.WriteString("- the current checkout already bounds the answer surface; do not reopen older-build-only or upstream-provenance branches unless a new contradiction appears on this same grounded path\n")
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
-			fmt.Fprintf(&b, "- if you close now, keep `reason` no stronger than: %s\n", reason)
+			fmt.Fprintf(&b, "- if you close now, keep the completion narrative no stronger than: %s\n", reason)
 		}
 	}
 	if scalarLocateReady {
@@ -10012,7 +10020,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if driftFastTrack {
 		hint = "Progress check: this batch reopened navigation after the current-branch evidence-collection hint. Avoid tracing upstream-provenance or older-build-only branches unless a targeted contradiction changes the current-branch answer. Materialize returned repairs or such a contradiction from the opened lines, then try `emit_investigation_complete(reason, confidence, result_kind)`."
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
-			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
+			hint += " Reuse this bounded completion narrative (or a weaker one): " + reason
 		}
 	} else if verifyGraceUsed {
 		hint = "Progress check: this verification turn returned to navigation without emitting new structured evidence. An earlier collection hint did not validate completion. Emit the evidence from the opened lines that addresses returned repairs or changes the answer, then try `emit_investigation_complete(reason, confidence, result_kind)`. Keep further verification bounded to the remaining evidence gap."
@@ -10061,7 +10069,7 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 		return LoopSignal{}
 	}
 	e.midLoopLowNoveltyHintSent = true
-	hint := "Progress check: this lane already has accepted structured facts, and recent navigation did not add new typed evidence, aggregate facts, or external observation records. Do not keep widening the same lane by default. If the opened lines/output reveal one concrete answer-changing fact, emit that structured fact now; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary in `reason`. Do not discard previously emitted summaries."
+	hint := "Progress check: this lane already has accepted structured facts, and recent navigation did not add new typed evidence, aggregate facts, or external observation records. Do not keep widening the same lane by default. If the opened lines/output reveal one concrete answer-changing fact, emit that structured fact now; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary in the completion narrative. Do not discard previously emitted summaries."
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.same-lane-low-novelty",
@@ -10248,7 +10256,7 @@ func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObs
 	if kinds := externalObservationSufficiencySourceKindLabels(sufficiency.SourceKinds); kinds != "" {
 		fmt.Fprintf(&b, "- source kinds: %s\n", kinds)
 	}
-	b.WriteString("- Preserve line/row/selector/time-window details in `reason` and use `aggregate_facts` for answer counts, lists, scalar values, or verified negative observations.\n")
+	b.WriteString("- Preserve line/row/selector/time-window details in the completion narrative and use `aggregate_facts` for answer counts, lists, scalar values, or verified negative observations.\n")
 	b.WriteString("- Only read current-source files if a focused implementation question remains unresolved; keep that source evidence separate from the external observation lane.\n")
 	return LoopSignal{
 		HintRequested:  true,
@@ -11990,7 +11998,7 @@ func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, o
 	// widening scope even after the answer faces are already covered.
 	// The post-anchor and read-without-emit nudges below still fire
 	// when completion readiness is not established.
-	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {
+	if sig := e.postCompletionReadySignal(obs, ctx); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postCompletionReadyEscalationSignal(obs); sig.HintRequested {
@@ -12552,7 +12560,7 @@ func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, o
 // The old `e.lastToolResultCount`-based tool-growth detector is also
 // GONE: loopPolicyState.Apply tracks the tool-result count growth
 // itself and resets the idle streak on growth.
-func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
+func (e *explorerEvaluator) observeSoftStop(obs LoopObservation, contexts ...*types.AgentContext) LoopSignal {
 	e.ensureHeuristics()
 	e.syncEmitBacklogWindow(obs.AllToolResults)
 	resp := obs.Response
@@ -13252,7 +13260,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			HintKey:       "explorer.completion-tool-reminder",
 			Hint: "You stopped without calling emit_investigation_complete. " +
 				"Continue the investigation yourself — do not ask the user what to do next. " +
-				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence, result_kind) now, with the concise conclusion and boundary in reason. " +
+				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence, result_kind) now. " +
+				explorerCompletionNarrativeGuidance(firstExplorerCompletionContext(contexts), "Put the concise conclusion and boundary in reason.") + " " +
 				"If you still need more evidence, keep reading files / running greps, and avoid `Answer:` / `Evidence:` style headings in your notes.",
 			Progress: progress,
 		}
@@ -13492,7 +13501,7 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		e.refreshSourceInventoryInlineFollowup(ctx, obs)
 		return e.observeMidLoopWithContext(ctx, obs)
 	case PhaseSoftStop:
-		return e.observeSoftStop(obs)
+		return e.observeSoftStop(obs, ctx)
 	}
 	return LoopSignal{}
 }
