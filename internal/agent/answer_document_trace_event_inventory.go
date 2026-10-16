@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -119,12 +118,12 @@ func renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger typ
 	b.WriteString("- Each inventory.row_refs lists its members in original order; resolve each ID in display_rows below. Identical full rows under the same source/clock envelope share display storage only: a shared ID is not a unique-event identity or a reason to merge counts, scopes, generations or causes. There are at most 32 display objects, selected round-robin across queries; repeated references cost no extra object. prompt_metadata_omission identifies omitted fields and the SHA-256/byte length of their original JSON, not replacement values. Omitted metadata is not an exact source/filter reference. Full accepted receipts remain in the ledger.\n")
 	b.WriteString("- When inventory.selector_row_ids is present, zip it with inventory.row_refs in order: each selector ID addresses that exact original-query member for runtime_measurement.event_selection.row_ids. IDs remain local to observation_id, even when different queries share a display object. Absent IDs offer no selector correspondence; shared display storage does not combine membership or counts.\n")
 	members := traceEventInventoryMembers(records)
-	// Reserve half the remaining bytes for all query summaries before any
-	// member consumes space. The remainder is shared by the selected rows.
+	// Keep the existing fair row share, reclaiming only its unused bytes for
+	// exact query metadata. The remaining bytes are shared by selected rows.
 	const trailerReserve = 1024
-	summaryBudget := (traceEventInventoryPromptByteLimit - b.Len() - trailerReserve) / 2 / len(records)
 	views := make([]map[string]any, len(records))
 	remaining := traceEventInventoryPromptByteLimit - b.Len() - trailerReserve
+	summaryBudget := traceEventInventorySummaryBudget(remaining, len(records), members.rows)
 	rowCount := len(members.rows)
 	for n, record := range records {
 		count := len(members.refs[n])
@@ -147,7 +146,15 @@ func renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger typ
 			PromptRowsOmitted int                              `json:"prompt_rows_omitted"`
 			ScopeProjection   *traceInventoryScopeProjection   `json:"prompt_scope_projection,omitempty"`
 		}{record.ID, record.ObservedAt, record.SourceRef, inventory, producerNotes[n], count, inventory.Coverage.Emitted - count, projections[n]}
-		views[n] = traceEventInventoryBoundedPromptObject(view, summaryBudget)
+		bindings := map[string]any{"row_refs": members.refs[n]}
+		if ids := selectorMembers[n].selectIDs(record, members.positions[n]); ids != nil {
+			bindings["selector_row_ids"] = ids
+		}
+		bindingBytes, _ := json.Marshal(bindings)
+		// Member references are never clipped. Account for their exact encoded
+		// size before bounding free-form metadata, including key/clock-label
+		// changes below, so reclaimed row space cannot be spent twice.
+		views[n] = traceEventInventoryBoundedPromptObject(view, summaryBudget-len(bindingBytes)-16)
 		projected := views[n]["inventory"].(map[string]any)
 		// Only rename the legacy envelope on the model-facing copy. Durable
 		// receipts retain their compatibility keys and original query identity.
@@ -160,9 +167,8 @@ func renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger typ
 			}
 		}
 		delete(projected, "rows")
-		projected["row_refs"] = members.refs[n]
-		if ids := selectorMembers[n].selectIDs(record, members.positions[n]); ids != nil {
-			projected["selector_row_ids"] = ids
+		for key, value := range bindings {
+			projected[key] = value
 		}
 		data, _ := json.Marshal(views[n])
 		remaining -= len(data) + 3 // '- ' and newline
@@ -184,14 +190,7 @@ func renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger typ
 	rows := make([]map[string]any, 0, rowCount)
 	rowMetadataComplete := make(map[string]bool, rowCount)
 	for n, row := range members.rows {
-		if len(row.Raw) > traceEventInventoryPromptRawLimit {
-			end := traceEventInventoryPromptRawLimit
-			for end > 0 && !utf8.RuneStart(row.Raw[end]) {
-				end--
-			}
-			row.Raw, row.RawTruncated = row.Raw[:end], true
-		}
-		bounded := traceEventInventoryBoundedPromptObject(row, rowBudget)
+		bounded := traceEventInventoryBoundedPromptObject(traceEventInventoryPromptRow(row), rowBudget)
 		if bounded["prompt_metadata_omission"] != nil {
 			metadataOmissions++
 		}

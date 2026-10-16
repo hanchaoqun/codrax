@@ -157,25 +157,31 @@ type sourceBinding struct {
 }
 
 type runIdentity struct {
-	sequence    atomic.Uint64
-	publication sync.Mutex
-	published   map[string]*Catalog
-	exportMu    sync.Mutex
-	exportRefs  map[string]exportAttemptBinding
+	sequence               atomic.Uint64
+	publication            sync.Mutex
+	published              map[string]*Catalog
+	exportMu               sync.Mutex
+	exportRefs             map[string]exportAttemptBinding
+	deliveryMu             sync.Mutex
+	deliveryBranches       map[*Catalog]uint64
+	deliveryBranchOverflow bool
+	deliveries             map[string]*deliveryIntent
 }
 
 type Catalog struct {
-	mu          sync.Mutex
-	run         *runIdentity
-	id          string
-	root        string
-	discovery   Discovery
-	artifacts   map[string]Artifact
-	generations map[string]filegeneration.Identity
-	bindings    map[string]sourceBinding
-	queries     map[string]QueryRecord
-	declared    map[string]bool
-	history     []HistoricalRun
+	// Internal detached export views must not register themselves as live forks.
+	deliveryView bool
+	mu           sync.Mutex
+	run          *runIdentity
+	id           string
+	root         string
+	discovery    Discovery
+	artifacts    map[string]Artifact
+	generations  map[string]filegeneration.Identity
+	bindings     map[string]sourceBinding
+	queries      map[string]QueryRecord
+	declared     map[string]bool
+	history      []HistoricalRun
 	// Fresh Resume admission only; distinct from declared-window authority.
 	resumedPlans map[string]bool
 	// Soft run-local selection; it cannot be restored from navigation JSON.
@@ -319,6 +325,7 @@ func (c *Catalog) Resolve(ctx context.Context, artifactID string) (Artifact, err
 }
 
 func (c *Catalog) markStale(artifactID string, cause error) {
+	defer c.trackDeliveryBranch()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := c.artifacts[artifactID]
@@ -349,6 +356,7 @@ func (c *Catalog) markStale(artifactID string, cause error) {
 // BindSource retains a producer's complete source-universe check privately.
 // Matching display fingerprints alone can never replace this check.
 func (c *Catalog) BindSource(ctx context.Context, artifactID, fingerprint string, validate func(context.Context) error) error {
+	defer c.trackDeliveryBranch()
 	if fingerprint == "" || validate == nil {
 		return fmt.Errorf("source fingerprint and live validator are required")
 	}

@@ -646,7 +646,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "typed_tool_handoff", func() string {
-		return renderAnswerDocToolHandoffCarriers(ctx)
+		return renderAnswerDocToolHandoffCarriers(ctx) + renderAnswerExportDeliveryContext(ctx)
 	}) {
 		return b.String()
 	}
@@ -5903,6 +5903,8 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	}
 	queryScopes := make(map[string]string)
 	measurementWindows := make(map[string]string)
+	inventorySources, inventorySourceRoster := traceEventInventoryPromptSourceAliases(records, traceEventInventorySourceReferences(promptLedger.Records, publishedInventoryMetadata))
+	b.WriteString(inventorySourceRoster)
 	for _, record := range promptLedger.Records {
 		measurementWindows[record.ID] = types.TraceObservationMeasurementWindowDisplayRole(record, false)
 		if scope := traceQueryObservationSourceRequestedScopeNote(record, promptLedger, extractAnswerDocLang(ctx)); scope != "" {
@@ -5913,12 +5915,16 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		if publishedInventoryMetadata[record.ID] && record.Claim == types.TraceEventSearchInventoryPredicate {
 			continue // Same verified envelope already displayed in full above.
 		}
+		source := record.Source
+		if inventory := inventorySources[record.ID]; inventory != "" {
+			source = inventory
+		}
 		fmt.Fprintf(&b,
 			"- `%s`: origin=`%s`; producer=`%s`; source=`%s`; role=`%s`; policy=`%s`",
 			record.ID,
 			record.Origin,
 			record.Producer,
-			record.Source,
+			source,
 			record.Role,
 			record.GroundingPolicy,
 		)
@@ -21548,6 +21554,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 	combined = render.SanitizeDegradedMermaidBlocks(combined, e.language)
+	combined = appendAnswerSupplementDeduped(combined, renderAnswerExportDeliveries(ctx, e.language), e.language)
 	logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 		len(lastContent))
 	markAnswerDocumentDegradedFallback(out, combined, "answer_document_missing")
@@ -22407,6 +22414,7 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	}
 	surfaces := render.RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, e.language)
 	prose := tool.DeduplicateDiagramIsolationNotice(surfaces.Answer, e.language)
+	prose = appendAnswerSupplementDeduped(prose, renderAnswerExportDeliveries(ctx, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {

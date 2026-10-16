@@ -79,21 +79,40 @@ func TestCatalogExportCloneMergeAndTransaction250(t *testing.T) {
 	}
 	// Concurrent publishers must not replace an existing complete package.
 	var wg sync.WaitGroup
-	results := make(chan error, 2)
+	results := make(chan ExportReceipt, 2)
+	errors := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); _, err := c.Export(context.Background(), work, "race"); results <- err }()
+		go func() {
+			defer wg.Done()
+			r, err := c.Export(context.Background(), work, "race")
+			results <- r
+			errors <- err
+		}()
 	}
 	wg.Wait()
 	close(results)
-	success := 0
-	for err := range results {
-		if err == nil {
-			success++
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
-	if success != 1 {
-		t.Fatalf("atomic destination ownership: success=%d", success)
+	physical, reused := 0, 0
+	var packageID string
+	for result := range results {
+		if result.Reused {
+			reused++
+		} else {
+			physical++
+		}
+		if packageID != "" && result.PackageID != packageID {
+			t.Fatal("same target produced two packages")
+		}
+		packageID = result.PackageID
+	}
+	if physical != 1 || reused != 1 {
+		t.Fatalf("atomic destination ownership: physical=%d reused=%d", physical, reused)
 	}
 }
 

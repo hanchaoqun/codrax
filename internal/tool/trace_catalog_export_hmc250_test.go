@@ -162,15 +162,25 @@ func TestTraceCatalogExportTargetAuthorityAndCancellation250(t *testing.T) {
 	}
 	first := exportCatalogCall250(t, bus, c, "keep")
 	m := exportedManifest250(t, first)
-	if second := exportCatalogCall250(t, bus, c, "keep"); second.Success {
-		t.Fatal("existing output overwritten")
-	}
 	var r tracecatalog.ExportReceipt
 	_ = json.Unmarshal([]byte(first.Summary), &r)
 	before, _ := os.ReadFile(r.ManifestPath)
+	second := exportCatalogCall250(t, bus, c, "keep")
+	var reused tracecatalog.ExportReceipt
+	_ = json.Unmarshal([]byte(second.Summary), &reused)
+	if !second.Success || !reused.Reused || reused.PackageID != r.PackageID || reused.ManifestSHA256 != r.ManifestSHA256 {
+		t.Fatalf("unchanged live target did not share its verified receipt: %s", second.Summary)
+	}
 	after, _ := os.ReadFile(r.ManifestPath)
 	if string(before) != string(after) || m.PackageID == "" {
 		t.Fatal("old output changed")
+	}
+	external := filepath.Join(bus.WorkDir, "evidence-exports", "external")
+	if err := os.Mkdir(external, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if got := exportCatalogCall250(t, bus, c, "external"); got.Success {
+		t.Fatal("external target overwritten or adopted")
 	}
 	for _, raw := range []string{`{"action":"status","export":{"target":"x"}}`, `{"action":"export","catalog_id":"` + c.ID() + `","export":{"target":"x","overwrite":true}}`, `{"action":"export","catalog_id":"` + c.ID() + `","root":".","export":{"target":"x"}}`} {
 		got, err := (&TraceCatalog{}).Execute(bus, []byte(raw))

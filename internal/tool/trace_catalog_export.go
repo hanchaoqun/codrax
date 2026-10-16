@@ -2,12 +2,12 @@ package tool
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceCatalogExportTeaching = `For an explicitly requested evidence package, use action=export with current catalog_id and export.target set to a new package name, e.g. {"action":"export","catalog_id":"<id>","export":{"target":"capture-evidence-v1"}}. It publishes manifest.json, report.md and current bound result copies under managed output only. Export does not run missing queries, restore historical access, infer native availability, or diagnose the results.`
+const traceCatalogExportTeaching = `For an explicitly requested evidence package, use action=export with current catalog_id and the requested export.target, e.g. {"action":"export","catalog_id":"<id>","export":{"target":"capture-evidence-v1"}}. Complete the intended current queries before export. It publishes manifest.json, an execution report.md and bound result copies under managed output; live branches share the same target and identical verified receipt. Repeating an unchanged export reuses that receipt, not query execution. A changed execution returns the frozen delivery and its mismatch; do not invent another target to hide this conflict. Export does not run missing queries, restore historical access, infer native availability, or diagnose the results.`
 
 type traceCatalogExportParams struct {
 	Target string `json:"target"`
@@ -29,21 +29,19 @@ func traceCatalogExport(ctx *types.BusContext, p traceCatalogParams, out types.T
 		out.Summary = "export needs a current live catalog_id; historical JSON does not restore export or source access"
 		return out, nil
 	}
-	if _, err := traceCatalogAuthorizedRoot(ctx, current.Snapshot().Root); err != nil {
+	if err := authorizeTraceCatalogExport(ctx, current); err != nil {
 		out.Summary = "export source authorization: " + err.Error()
 		return out, nil
 	}
-	// Reauthorize each exact current member as well as the root. A catalog cannot
-	// retain a revoked repository/host pin, and a saved path grants nothing.
-	for _, a := range current.Snapshot().Artifacts {
-		if _, err := traceCatalogAuthorizedRoot(ctx, a.Path); err != nil {
-			out.Summary = fmt.Sprintf("export member authorization %s: %v", a.ID, err)
-			return out, nil
-		}
-	}
 	receipt, err := current.Export(contextFromBus(ctx), ctxWorkDir(ctx), p.Export.Target)
 	if err != nil {
-		out.Summary = "Evidence package was not published: " + err.Error()
+		var conflict *tracecatalog.ExportConflictError
+		if errors.As(err, &conflict) {
+			data, _ := json.Marshal(conflict.Delivery)
+			out.Summary = "Existing frozen delivery is not current completion; no new package was published: " + string(data)
+			return out, nil
+		}
+		out.Summary = "Evidence-package delivery could not be verified: " + err.Error()
 		return out, nil
 	}
 	data, err := json.Marshal(receipt)

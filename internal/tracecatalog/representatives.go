@@ -129,6 +129,7 @@ func normalizeRepresentativeOptions(o RepresentativeOptions) (RepresentativeOpti
 // perform current host authorization/source checks before this navigation
 // action. No query is executed and no input/window permission is added here.
 func (c *Catalog) SelectRepresentatives(ctx context.Context, options RepresentativeOptions) (RepresentativeSnapshot, error) {
+	defer c.trackDeliveryBranch()
 	o, err := normalizeRepresentativeOptions(options)
 	if err != nil {
 		return RepresentativeSnapshot{}, err

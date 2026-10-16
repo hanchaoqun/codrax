@@ -123,6 +123,7 @@ func (c *Catalog) IndependentInput(artifactID string) bool {
 // RecordPreparationFailure is navigation, not a fictitious query attempt or
 // measurement. Source generation validation remains required on every read.
 func (c *Catalog) RecordPreparationFailure(path string, cause error) {
+	defer c.trackDeliveryBranch()
 	if c == nil || cause == nil {
 		return
 	}

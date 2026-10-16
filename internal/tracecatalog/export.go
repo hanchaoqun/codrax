@@ -49,6 +49,7 @@ type ExportManifest struct {
 }
 
 type ExportReceipt struct {
+	Reused             bool              `json:"reused,omitempty"`
 	SchemaVersion      int               `json:"schema_version"`
 	PackageID          string            `json:"package_id"`
 	Target             string            `json:"target"`
@@ -67,7 +68,7 @@ const ExportBoundary = "This versioned package archives current-run native resul
 // Export publishes a NEW named package below a host-owned output root. The
 // caller must separately reauthorize the catalog inputs. Paths or JSON loaded
 // from disk cannot construct a Catalog or private reference binding.
-func (c *Catalog) Export(ctx context.Context, outputRoot, target string) (ExportReceipt, error) {
+func (c *Catalog) exportNew(ctx context.Context, outputRoot, target string, publicationGuard func() (func(), error), published func(ExportReceipt, []ExportFile)) (ExportReceipt, error) {
 	if c == nil || c.run == nil {
 		return ExportReceipt{}, fmt.Errorf("current live catalog required")
 	}
@@ -251,6 +252,13 @@ func (c *Catalog) Export(ctx context.Context, outputRoot, target string) (Export
 	if err := ctx.Err(); err != nil {
 		return ExportReceipt{}, err
 	}
+	if publicationGuard != nil {
+		release, err := publicationGuard()
+		if err != nil {
+			return ExportReceipt{}, err
+		}
+		defer release()
+	}
 	if _, err := root.Lstat(target); err == nil {
 		return ExportReceipt{}, fmt.Errorf("export target appeared during publication")
 	} else if !os.IsNotExist(err) {
@@ -261,7 +269,11 @@ func (c *Catalog) Export(ctx context.Context, outputRoot, target string) (Export
 	}
 	sum := sha256.Sum256(data)
 	packagePath := filepath.Join(outputRoot, "evidence-exports", target)
-	return ExportReceipt{SchemaVersion: ExportSchemaVersion, PackageID: m.PackageID, Target: target, ManifestPath: filepath.Join(packagePath, "manifest.json"), ManifestSHA256: hex.EncodeToString(sum[:]), ReportPath: filepath.Join(packagePath, "report.md"), PhysicalSuccess: true, MaterialComplete: m.MaterialComplete, ExecutionCoverage: m.ExecutionCoverage, NativeAvailability: m.NativeAvailability, AnalysisCompletion: m.AnalysisCompletion}, nil
+	receipt := ExportReceipt{SchemaVersion: ExportSchemaVersion, PackageID: m.PackageID, Target: target, ManifestPath: filepath.Join(packagePath, "manifest.json"), ManifestSHA256: hex.EncodeToString(sum[:]), ReportPath: filepath.Join(packagePath, "report.md"), PhysicalSuccess: true, MaterialComplete: m.MaterialComplete, ExecutionCoverage: m.ExecutionCoverage, NativeAvailability: m.NativeAvailability, AnalysisCompletion: m.AnalysisCompletion}
+	if published != nil {
+		published(receipt, m.Files)
+	}
+	return receipt, nil
 }
 
 func exportPublishNoReplace(root *os.Root, stage, target string) error {

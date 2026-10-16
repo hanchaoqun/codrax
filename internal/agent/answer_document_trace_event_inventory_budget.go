@@ -7,7 +7,42 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// Reserve the existing fair row share before summaries, but return bytes that
+// the selected rows do not need. Fixed half-budget partitions otherwise omit
+// exact source locators while leaving unused space in the same section. This
+// does not change the total budget, query/member roster or omission contract.
+func traceEventInventorySummaryBudget(remaining, queries int, rows []types.TraceEventSearchInventoryRow) int {
+	reserved := 0
+	if len(rows) > 0 {
+		rowShare := remaining / 2
+		perRow := rowShare/len(rows) - 64
+		for _, row := range rows {
+			bounded := traceEventInventoryBoundedPromptObject(traceEventInventoryPromptRow(row), perRow)
+			encoded, _ := json.Marshal(bounded)
+			reserved += len(encoded) + 64
+		}
+		if reserved > rowShare {
+			reserved = rowShare
+		}
+	}
+	return (remaining - reserved) / queries
+}
+
+func traceEventInventoryPromptRow(row types.TraceEventSearchInventoryRow) types.TraceEventSearchInventoryRow {
+	if len(row.Raw) > traceEventInventoryPromptRawLimit {
+		end := traceEventInventoryPromptRawLimit
+		for end > 0 && !utf8.RuneStart(row.Raw[end]) {
+			end--
+		}
+		row.Raw, row.RawTruncated = row.Raw[:end], true
+	}
+	return row
+}
 
 type traceInventoryBudgetField struct {
 	parent      map[string]any

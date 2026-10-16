@@ -23,6 +23,7 @@ const (
 // RegisterPlannedQuery freezes expected work before any execution. Repeating
 // the same plan is idempotent. It neither reads payloads nor executes a query.
 func (c *Catalog) RegisterPlannedQuery(ctx context.Context, plan Plan) (QueryRecord, error) {
+	defer c.trackDeliveryBranch()
 	if err := ctx.Err(); err != nil {
 		return QueryRecord{}, err
 	}
@@ -55,6 +56,7 @@ func (c *Catalog) RegisterPlannedQuery(ctx context.Context, plan Plan) (QueryRec
 // An ordinary actual-query registration cannot acquire this private marker by
 // repeating a prior call; serialization contains no field that can restore it.
 func (c *Catalog) RegisterDeclaredQuery(ctx context.Context, plan Plan) (QueryRecord, error) {
+	defer c.trackDeliveryBranch()
 	q, err := c.RegisterPlannedQuery(ctx, plan)
 	if err != nil {
 		return QueryRecord{}, err
@@ -193,6 +195,7 @@ func canonicalValue(d *json.Decoder, depth int) (any, error) {
 // empty, the caller must first BindSource using the actual query producer's
 // complete source-universe validator, and retain the original payload ref.
 func (c *Catalog) Complete(ctx context.Context, queryID string, completion Completion) (QueryRecord, error) {
+	defer c.trackDeliveryBranch()
 	if c == nil {
 		return QueryRecord{}, ErrUnknownQuery
 	}
@@ -319,7 +322,7 @@ func (c *Catalog) Clone() *Catalog {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	copy := &Catalog{run: c.run, id: c.id, root: c.root, discovery: c.discovery,
+	copy := &Catalog{deliveryView: c.deliveryView, run: c.run, id: c.id, root: c.root, discovery: c.discovery,
 		artifacts: map[string]Artifact{}, generations: make(map[string]filegeneration.Identity),
 		bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}}
 	copy.independentInputs = c.independentInputs
@@ -358,6 +361,7 @@ func (c *Catalog) Clone() *Catalog {
 // never positions, display tags, object IDs without artifact scope, or paths
 // found in a historical JSON file. A stale source cannot be rescued by a fork.
 func (c *Catalog) Merge(other *Catalog) error {
+	defer c.trackDeliveryBranch()
 	if c == nil || other == nil || c.run == nil || c.run != other.run || c.id != other.id {
 		return ErrForeignRun
 	}

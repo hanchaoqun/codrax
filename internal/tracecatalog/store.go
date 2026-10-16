@@ -39,6 +39,8 @@ func (c *Catalog) Save(ctx context.Context, path string) error {
 	}
 	abs = filepath.Join(dir, filepath.Base(abs))
 	publication := c.Clone()
+	// This detached union is persistence-only, not another executing fork.
+	publication.deliveryView = true
 	if prior := c.run.published[abs]; prior != nil {
 		if err := publication.Merge(prior); err != nil {
 			return err
