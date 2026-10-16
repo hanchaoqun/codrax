@@ -38,8 +38,12 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 	}
 	var b strings.Builder
 	seen := map[identity]bool{}
+	excluded := map[identity]bool{}
 	accepted, shown := 0, 0
-	for _, r := range ledger.Records {
+	records := resourceStackSupplementaryQueries(ctx, ledger)
+	supplementaryAccepted, supplementaryShown, targetExcluded := 0, 0, 0
+	for _, candidate := range records {
+		r := candidate.record
 		p, ok := tool.DecodeTraceResourceStack(r)
 		if !ok {
 			continue
@@ -51,10 +55,18 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 		text := tool.TraceResourceStackText(p, 12)
 		if rm := resourceStackNamedDisplayRequest(ctx); rm != nil {
 			selected, eligible := resourceStackDisplayMembers(p, rm)
-			if !eligible {
+			if candidate.supplementary {
+				text = types.RuntimeResourceSupplementaryScopeNote + "\n" + text
+				text = fmt.Sprintf("原查询目标：scope=%s，id=%d，name=%q；\n", p.TargetScope, p.TargetPID, p.TargetThread) + text
+			} else if !eligible {
+				if !excluded[keyOf(r)] {
+					excluded[keyOf(r)] = true
+					targetExcluded++
+				}
 				continue
+			} else {
+				text = tool.TraceResourceStackSelectedText(p, selected, 12)
 			}
-			text = tool.TraceResourceStackSelectedText(p, selected, 12)
 			if text == "" {
 				continue
 			}
@@ -65,6 +77,9 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 		}
 		seen[key] = true
 		accepted++
+		if candidate.supplementary {
+			supplementaryAccepted++
+		}
 		if shown == 4 {
 			continue
 		}
@@ -81,10 +96,16 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 		}
 		b.WriteString(query.String())
 		shown++
+		if candidate.supplementary {
+			supplementaryShown++
+		}
 		out.published = append(out.published, r)
 	}
 	if accepted > 0 {
 		fmt.Fprintf(&b, "资源栈展示受查询数与64KiB预算约束，另省略查询=%d；完整数据仍在原始查询载荷。不同来源/窗口不合并。栈帧只支持资源事件的调用位置线索，不证明函数执行时长、等待或响应根因；不固定某个深度为业务叶子。\n\n", accepted-shown)
+	}
+	if accepted > 0 && (supplementaryAccepted > 0 || targetExcluded > 0) {
+		fmt.Fprintf(&b, "独立补充查询已展示=%d，受预算省略=%d；未匹配目标且无当前精确补充凭证的查询=%d。范围筛选与预算省略分开，不是未执行或零事件。\n\n", supplementaryShown, supplementaryAccepted-supplementaryShown, targetExcluded)
 	}
 	out.text = b.String()
 	return out

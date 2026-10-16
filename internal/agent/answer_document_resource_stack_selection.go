@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/threadidentity"
@@ -8,6 +10,64 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// An exact current native contract is required for the supplementary lane.
+// A structurally valid copied resource carrier is not a source-read receipt.
+type resourceStackDisplayCandidate struct {
+	record        types.ObservationRecord
+	supplementary bool
+}
+
+func resourceStackSupplementaryQueries(ctx *types.AgentContext, ledger types.ObservationLedger) []resourceStackDisplayCandidate {
+	ordered := make([]resourceStackDisplayCandidate, len(ledger.Records))
+	for i, r := range ledger.Records {
+		ordered[i].record = r
+	}
+	rm := resourceStackNamedDisplayRequest(ctx)
+	if rm == nil {
+		return ordered
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 0)
+	choices := types.BuildRuntimeMeasurementContract(input).Choices()
+	current := map[string]bool{}
+	for _, table := range choices {
+		if table.HasNativeResourceFacts() {
+			current[table.ObservationID] = true
+		}
+	}
+	originals := map[string]types.ObservationRecord{}
+	for _, results := range [][]types.ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
+		for _, result := range results {
+			if !result.Success || result.ToolName != "trace_query" || result.ReusedFromRunMemo {
+				continue
+			}
+			for _, r := range result.Observations {
+				if current[r.ID] && types.RuntimeResourceSupplementaryQueryCurrent(input, result, r) {
+					originals[r.ID] = r
+				}
+			}
+		}
+	}
+	for i, r := range ledger.Records {
+		original, ok := originals[r.ID]
+		aRef, bRef := original.SourceRef, r.SourceRef
+		// CompileObservationLedger supplies the call-position navigation ID;
+		// it is not a physical-source/query identity or native fact field.
+		aRef.ToolCallID, bRef.ToolCallID = "", ""
+		if !ok || !reflect.DeepEqual(aRef, bRef) {
+			continue
+		}
+		a, validA := tool.DecodeTraceResourceStack(original)
+		b, validB := tool.DecodeTraceResourceStack(r)
+		if validA && validB && reflect.DeepEqual(a, b) {
+			ordered[i].supplementary = true // ledger normalization is not a new source seal
+		}
+	}
+	// Accepted targets retain first use of the existing query/byte budgets;
+	// supplementary execution facts cannot displace requested facts.
+	sort.SliceStable(ordered, func(i, j int) bool { return !ordered[i].supplementary && ordered[j].supplementary })
+	return ordered
+}
 
 // Resource members are not a single Subject. Only this finite display lane
 // projects their decoded same-capture owners; the audit/causal ledger is never

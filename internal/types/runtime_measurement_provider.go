@@ -171,35 +171,19 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 			}
 			participants := NewTraceEventParticipantDisplayRoster(result.Observations)
 			for _, r := range result.Observations {
-				if !runtimeSamplingMeasurementMatchesRequest(r, input.RequestModel) || !runtimeResourceMeasurementMatchesRequest(r, input.RequestModel) {
+				supplementary := !result.ReusedFromRunMemo && RuntimeResourceQueryIsSupplementary(r, input.RequestModel)
+				if !runtimeSamplingMeasurementMatchesRequest(r, input.RequestModel) || !runtimeResourceMeasurementMatchesRequest(r, input.RequestModel) && !supplementary {
 					continue
 				}
 				p, ok := DecodeRuntimeMeasurementPublication(r)
 				if !ok {
 					continue
 				}
-				var requested *RuntimeArtifactScopeProfile
-				if input.RequestModel != nil {
-					requested = input.RequestModel.RuntimeArtifactScopeProfile
-				}
-				start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
-				original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
-				if r.Predicate == RuntimeResourceMeasurementPredicate && original == "" {
-					continue // A copied JSON/path is not a current physical-source receipt.
-				}
-				requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
+				requested, original, qualified := runtimeMeasurementQueryDisplayScope(input, result, r)
 				if !qualified {
 					continue
 				}
-				if !runtimeSamplingMeasurementWithinWindows(r, requested) || !runtimeResourceMeasurementWithinWindows(r, requested) {
-					continue
-				}
-				// Event receipts own individual points. A wider lookup envelope
-				// must be projected row-by-row, not discard legitimate members or
-				// count its right boundary as part of the user's half-open window.
-				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate {
-					continue
-				}
+				_, _, known := TraceObservationContinuousQueryWindow(r.SourceRef)
 				validTables := true
 				for i, table := range p.Tables {
 					table = table.Clone()
@@ -215,6 +199,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					}
 					if requested.HasExplicitTimeWindows() && (!known || r.Predicate == "unpositioned_measurements_observation") {
 						table = runtimeMeasurementUnverifiedWindowTable(table)
+					}
+					if supplementary {
+						table = supplementaryRuntimeResourceTable(table)
 					}
 					p.Tables[i] = table
 				}

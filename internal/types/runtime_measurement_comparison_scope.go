@@ -5,6 +5,44 @@ import (
 	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
+// Both the shared table contract and specialized fact handoff use this same
+// current-result origin/window check. An observation ID cannot borrow another
+// result's valid read receipt, even when that ID is present in the contract.
+func runtimeMeasurementQueryDisplayScope(input ObservationLedgerInput, result ToolResult, r ObservationRecord) (*RuntimeArtifactScopeProfile, string, bool) {
+	var requested *RuntimeArtifactScopeProfile
+	if input.RequestModel != nil {
+		requested = input.RequestModel.RuntimeArtifactScopeProfile
+	}
+	start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
+	original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
+	if r.Predicate == RuntimeResourceMeasurementPredicate && original == "" {
+		return nil, "", false
+	}
+	requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
+	if !qualified || !runtimeSamplingMeasurementWithinWindows(r, requested) || !runtimeResourceMeasurementWithinWindows(r, requested) {
+		return nil, "", false
+	}
+	// Event receipts own individual points and are projected row-by-row from a
+	// wider lookup envelope; other native query windows must be contained.
+	if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate {
+		return nil, "", false
+	}
+	return requested, original, true
+}
+
+// RuntimeResourceSupplementaryQueryCurrent validates this exact native result,
+// not a same-ID contract entry. It grants only supplementary fact display.
+func RuntimeResourceSupplementaryQueryCurrent(input ObservationLedgerInput, result ToolResult, r ObservationRecord) bool {
+	if !result.Success || result.ToolName != "trace_query" || result.ReusedFromRunMemo || !RuntimeResourceQueryIsSupplementary(r, input.RequestModel) {
+		return false
+	}
+	if _, valid := DecodeRuntimeMeasurementPublication(r); !valid {
+		return false
+	}
+	_, _, valid := runtimeMeasurementQueryDisplayScope(input, result, r)
+	return valid
+}
+
 // The original input comes from a current private prepared/replay receipt,
 // not SourceRef display strings, model parameters or a derived-file basename.
 func runtimeMeasurementOriginalSource(input ObservationLedgerInput, result ToolResult, source ObservationSourceRef) string {

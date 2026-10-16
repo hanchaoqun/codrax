@@ -99,6 +99,39 @@ func runtimeResourceMeasurementMatchesRequest(r ObservationRecord, rm *RequestMo
 	return !hasTarget
 }
 
+// RuntimeResourceQueryIsSupplementary separates an executed factual selector
+// from the current answer target roster. It does not restore dropped targets,
+// prove user intent, or admit causal evidence. Callers still need the current
+// physical-source receipt and the original request-window checks.
+func RuntimeResourceQueryIsSupplementary(r ObservationRecord, rm *RequestModel) bool {
+	if rm == nil || rm.RuntimeQuestionProfile == nil || rm.RuntimeQuestionProfile.Scope != RuntimeQuestionScopeBoundedFactSet ||
+		!rm.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() || !rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() ||
+		!runtimeResourcePublicationValid(r) || !runtimeResourceExactSelector(r.SourceRef) || runtimeResourceMeasurementMatchesRequest(r, rm) {
+		return false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if !RuntimeTargetIsExplorationCursorSource(target.Source) && (target.Kind == RuntimeTargetKindThread || target.Kind == RuntimeTargetKindProcess) {
+			return true
+		}
+	}
+	return false
+}
+
+const RuntimeResourceSupplementaryScopeNote = "补充查询：这是实际执行的独立精确查询，未匹配当前分析目标名册；名册缺项不等于没有查询或没有事件，也不证明用户要求或排除此主体。按原问题需要引用其同源事实，不替代已选目标、不合并总体、不授根因或请求成员全集资格。"
+
+func supplementaryRuntimeResourceTable(table RuntimeMeasurementTable) RuntimeMeasurementTable {
+	table = table.Clone()
+	table.DefaultPresentation = false
+	table.coverageScope = nil
+	table.nativeTraceDisplayPopulation = false
+	table.Label = "补充查询 / Supplementary query: " + table.Label
+	table.Notes = append(table.Notes, RuntimeResourceSupplementaryScopeNote)
+	// This is a deterministic display projection of already validated native
+	// rows. Changing its scope metadata must reseal the unchanged fact payload.
+	table.nativeResourceFactsDigest = runtimeSamplingDigest(table)
+	return table
+}
+
 func runtimeResourceMeasurementWithinWindows(r ObservationRecord, scope *RuntimeArtifactScopeProfile) bool {
 	if r.Predicate != RuntimeResourceMeasurementPredicate || !scope.HasExplicitTimeWindows() {
 		return true

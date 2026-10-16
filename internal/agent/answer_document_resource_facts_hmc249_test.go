@@ -130,6 +130,21 @@ func TestHMC249ResourceFactsActualScope(t *testing.T) {
 				}
 			}
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: results})
+			if mode == "target" || mode == "process" {
+				// Current exact executions remain readable, but neither a
+				// different ID nor thread/process resemblance owns the answer.
+				view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+				choices := view.RuntimeMeasurementContract.Choices()
+				if len(choices) != 8 || len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) != 0 {
+					t.Fatal("target mismatch lost execution facts or acquired default scope")
+				}
+				for _, table := range choices {
+					if !strings.Contains(table.Label, "补充查询") || table.CoversMemberSet(&ctx.AnalysisIR.RequestModel) {
+						t.Fatal("mismatched target acquired requested coverage")
+					}
+				}
+				return
+			}
 			for _, table := range types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices() {
 				if table.HasNativeResourceFacts() {
 					t.Fatalf("%s accepted stale/out-of-request facts", mode)
