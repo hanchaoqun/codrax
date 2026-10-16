@@ -1651,6 +1651,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// than waiting for a cooperative checkpoint.
 		Ctx: o.cancelTokenLoad().Context(),
 	}
+	o.busCtx.PipelineExports = tracecatalog.NewPipelineExports(o.busCtx.DeliveryRoot)
 	defer o.persistReadRunSnapshot()
 	outputBus = o.busCtx
 	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {

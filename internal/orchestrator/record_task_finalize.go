@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -28,6 +29,16 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	answer := ""
 	if out != nil {
 		answer = out.FinalAnswer
+	}
+	// This existing terminal record point follows all exploration/recovery.
+	// Delivery executes through the agent, never as a scheduler tool call.
+	surfaces := o.finalAnswerRenderedSurfaces(answer)
+	answer = agent.FinalizeTraceCatalogExports(promptctx.BuildAgentContext(o.busCtx, types.AgentFinalizer, types.StageFinalize), answer, o.language)
+	if surfaces != nil {
+		surfaces.Answer = answer
+	}
+	if out != nil {
+		out.FinalAnswer = answer
 	}
 	o.busCtx.Mutable.SetResult(answer)
 	// INFO (post-2026-04-30): default log level captures the agent-
@@ -61,12 +72,14 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		dumpRequest := o.outputTranscriptRequestForDump()
 		rootCauses := o.busCtx.Mutable.TraceRootCauseReport()
 		result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
-			dir:            o.outputDumpDir,
-			max:            o.outputDumpMax,
-			language:       o.language,
-			request:        dumpRequest,
-			answer:         answer,
-			answerSurfaces: o.finalAnswerRenderedSurfaces(answer),
+			dir:      o.outputDumpDir,
+			max:      o.outputDumpMax,
+			language: o.language,
+			request:  dumpRequest,
+			answer:   answer,
+			// Already bound before the terminal-only delivery append. Replaying
+			// registered raw caveats again would duplicate them and lose binding.
+			answerSurfaces: surfaces,
 			hasLog:         o.attachedLog != "",
 			logBytes:       len(o.attachedLog),
 			hasTrace:       o.attachedHitrace != "",

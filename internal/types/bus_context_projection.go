@@ -83,6 +83,7 @@ var projectionTypedSignalFields = []string{
 	"AttachedLog",
 	"TraceInputPreparer",
 	"DeliveryRoot",
+	"PipelineExports",
 	"AttachedHitrace",
 	"AttachedHitraceSource",
 }
@@ -132,6 +133,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		Commit:                 ctx.Commit,
 		WorkDir:                ctx.WorkDir,
 		DeliveryRoot:           ctx.DeliveryRoot,
+		PipelineExports:        ctx.PipelineExports,
 		MainRepoRoot:           ctx.MainRepoRoot,
 		WorktreePath:           ctx.WorktreePath,
 		WorktreeBaseSHA:        ctx.WorktreeBaseSHA,
@@ -224,19 +226,20 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		constraints = append(append([]string{}, req.Scope...), req.Constraints...)
 	}
 	ac := &AgentContext{
-		AgentName:    subAgentName,
-		Stage:        bus.PipelineStage,
-		Objective:    objective,
-		Constraints:  constraints,
-		MissingPiece: bus.TaskState.Missing,
-		RepoRoot:     bus.RepoRoot,
-		Branch:       bus.Branch,
-		Commit:       bus.Commit,
-		WorkDir:      bus.WorkDir,
-		DeliveryRoot: bus.DeliveryRoot,
-		MainRepoRoot: bus.MainRepoRoot,
-		WorktreePath: bus.WorktreePath,
-		Mode:         bus.Mode,
+		AgentName:       subAgentName,
+		Stage:           bus.PipelineStage,
+		Objective:       objective,
+		Constraints:     constraints,
+		MissingPiece:    bus.TaskState.Missing,
+		RepoRoot:        bus.RepoRoot,
+		Branch:          bus.Branch,
+		Commit:          bus.Commit,
+		WorkDir:         bus.WorkDir,
+		DeliveryRoot:    bus.DeliveryRoot,
+		PipelineExports: bus.PipelineExports,
+		MainRepoRoot:    bus.MainRepoRoot,
+		WorktreePath:    bus.WorktreePath,
+		Mode:            bus.Mode,
 		// A3 (customer feedback 2026-07-28): Language was the one-sided
 		// omission of this projection (ToolBusContext carries it) — parallel
 		// sub-explorer units silently lost the language directive entirely.

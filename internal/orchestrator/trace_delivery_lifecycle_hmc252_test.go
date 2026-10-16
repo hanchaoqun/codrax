@@ -34,9 +34,10 @@ func TestHMC252ManagedExportSurvivesHostCleanup(t *testing.T) {
 			var receipt tracecatalog.ExportReceipt
 			var calls int
 			fns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-				types.AgentAnalyzer: func(ac *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+				types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+				types.AgentExplorer: func(ac *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 					if calls == 0 {
-						bus := types.ToolBusContext(ac, types.AgentAnalyzer)
+						bus := types.ToolBusContext(ac, types.AgentExplorer)
 						r, err := (&tool.TraceCatalog{}).Execute(bus, []byte(`{"queries":[{"view":"resource_stack","pid":101,"time_start":10,"time_end":10.05}]}`))
 						if err != nil || !r.Success {
 							t.Fatalf("discover: %v %s", err, r.Summary)
@@ -54,12 +55,19 @@ func TestHMC252ManagedExportSurvivesHostCleanup(t *testing.T) {
 						if err != nil || !r.Success {
 							t.Fatalf("export: %v %s", err, r.Summary)
 						}
-						if err := json.Unmarshal([]byte(r.Summary), &receipt); err != nil {
+						var accepted tracecatalog.ExportRequest
+						if err := json.Unmarshal([]byte(r.Summary), &accepted); err != nil {
 							t.Fatal(err)
+						}
+						if accepted.Status != "pending_publication" || accepted.Delivery != nil {
+							t.Fatalf("export must wait for terminal publication: %s", r.Summary)
 						}
 					}
 					calls++
-					return &agent.StageOutput{Error: "bounded lifecycle fixture stops after actual export"}, nil
+					return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+				},
+				types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+					return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "Capture inspection finished."}, nil
 				},
 			}
 			ar, sr, sar := buildRegistries(fns)
@@ -76,8 +84,18 @@ func TestHMC252ManagedExportSurvivesHostCleanup(t *testing.T) {
 			var paths []string
 			for run := 0; run < 2; run++ {
 				calls = 0
-				bus, _ := o.Run("Export the current capture evidence as capture-review", repo, "main")
-				if bus == nil || !receipt.PhysicalSuccess || !receipt.MaterialComplete {
+				bus, err := o.Run("Export the current capture evidence as capture-review", repo, "main")
+				if err != nil || bus == nil {
+					t.Fatalf("Run: %v", err)
+				}
+				deliveries, err := tool.AuthorizedTraceCatalogDeliveries(bus)
+				// Cleanup may remove producer references; the physical package
+				// remains independently readable, not retrospectively current.
+				if err != nil || len(deliveries) != 1 || !deliveries[0].PackageValid {
+					t.Fatalf("actual terminal delivery: %+v %v", deliveries, err)
+				}
+				receipt = deliveries[0].Receipt
+				if !receipt.PhysicalSuccess || !receipt.MaterialComplete {
 					t.Fatalf("missing actual publication: %+v", receipt)
 				}
 				if mode == "session" && run == 1 {

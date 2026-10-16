@@ -286,6 +286,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "DeliveryRoot":
 		ac.DeliveryRoot = tracecatalog.NewManagedExportRoot("/host/runtime")
+	case "PipelineExports":
+		ac.PipelineExports = tracecatalog.NewPipelineExports(tracecatalog.NewManagedExportRoot("/host/runtime"))
 	case "AttachedHitrace":
 		ac.AttachedHitrace = "trace preview"
 	case "AttachedHitraceSource":
@@ -360,6 +362,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "DeliveryRoot":
 		bc.DeliveryRoot = tracecatalog.NewManagedExportRoot("/host/runtime")
+	case "PipelineExports":
+		bc.PipelineExports = tracecatalog.NewPipelineExports(tracecatalog.NewManagedExportRoot("/host/runtime"))
 	case "AttachedHitrace":
 		bc.AttachedHitrace = "trace preview"
 	case "AttachedHitraceSource":
