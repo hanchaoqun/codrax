@@ -864,17 +864,17 @@ func buildEmitAnalysisSchema() {
 			"tool_documentation_request": toolDocumentationRequestSchema(),
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, a directed relation path, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension whose source_quote is verbatim from the CURRENT request is itself a typed current-turn visual carrier: it requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge. " + skill.AnalysisMultiSurfaceDimensionTeaching,
+				"description": "Required typed declaration of visible answer dimensions requested in the CURRENT request. Set is_dimensioned_answer=false when none are requested. Choose each dimension's meaning with its role field; the profile is not an evidence origin. Most roles remain soft presentation guidance. A required role=diagram with a verbatim current-request source_quote requires the sibling diagram_hint and a final visual, but proves no participant or edge.",
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
 						"type":        "array",
-						"description": "Requested visible answer surfaces in user-requested order. Use the user's own label when possible. Shared evidence does not merge a diagram with a sibling list, table, or explanation. " + skill.AnalysisMultiSurfaceDimensionTeaching,
+						"description": "Requested visible answer surfaces in user-requested order. Use the user's own label when possible. Classification semantics belong to each row's role field.",
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means an actual user-visible source file/path or file:line location in the current checkout's implementation; it never means a package name, module name, namespace name, native-library name, or logical component identity. Use relation_path for one requested call/data/control/dependency/wakeup/handoff path or directed relation sequence. Use member_set only when the request independently asks which/all names or entities participate as a roster; path endpoints and hops do not by themselves create that separate roster obligation. A call-chain request that independently asks for a roster must also declare the typed enumeration/per-member/completeness boundary that owns that member universe. Use source_attribute only for a per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields. A detached citation pool alone is not a per-member location inventory, although a citation attached to a principal structured item renders its exact file:line for a single non-inventory location dimension. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisBranchBehaviorDimensionTeaching + " " + skill.AnalysisRuntimeDimensionSchemaTeaching},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. " + skill.AnalysisMultiSurfaceDimensionTeaching + " source_location means an actual user-visible source file/path or file:line location in the current checkout's implementation; it never means a package name, module name, namespace name, native-library name, or logical component identity. A call-chain request that independently asks for a roster must also declare the typed enumeration/per-member/completeness boundary that owns that member universe. Use source_attribute only for a per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields. A detached citation pool alone is not a per-member location inventory, although a citation attached to a principal structured item renders its exact file:line for a single non-inventory location dimension. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisBranchBehaviorDimensionTeaching + " " + skill.AnalysisRuntimeDimensionSchemaTeaching},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -1657,13 +1657,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		// it cannot mint facts, endpoints, relations, or answer conclusions.
 		hardDiagramAuthorized = true
 	}
-	// A required diagram dimension is already a schema-validated,
-	// current-request-proven presentation obligation.  Do not let a repair of
-	// an unrelated missing analysis field silently erase the richer
-	// diagram_hint carrier on the next complete emit.  Requiring the analyzer
-	// to re-emit that carrier preserves its model-authored family, relation
-	// scope, and participant roster; the system still does not infer an edge,
-	// participant, diagram body, or conclusion.
+	// The submitted role is schema-valid and quote-anchored, but neither
+	// property proves that the model interpreted the quoted request correctly.
+	// Reject the incomplete tuple without publishing it; the repair can supply
+	// its missing carrier or deliberately reclassify the complete request. Do
+	// not teach that a rejected model role became irrevocable accepted intent.
+	// The system never infers a visual, an edge, or a replacement role.
 	//
 	// Keep the condition on the accepted required dimension rather than the
 	// typed boolean alone.  Some compatibility callers expose only the
@@ -2650,7 +2649,7 @@ func emitAnalysisMissingTopLevelFieldsSummary(missing []string) string {
 	for _, field := range missing {
 		switch field {
 		case "diagram_hint":
-			summary += " The accepted current-turn diagram dimension remains required: re-emit diagram_hint with its model-chosen kind, exact relation_scope_quote, and explicit participant roster; this carrier is presentation authority and does not prove any edge."
+			summary += " Your submitted dimensions declare a required visual but omit its diagram_hint carrier. If that classification matches the current request, re-emit diagram_hint with its model-chosen kind, exact relation_scope_quote, and explicit participant roster; this carrier is presentation authority and does not prove any edge. If the role was mistaken, reclassify the complete object from the current request rather than invent a visual to satisfy this error. An output carrier or delivery action alone is not a diagram. Preserve independently requested visual and source obligations; select any corrected role from the current request and satisfy its typed fields."
 		case "call_chain_endpoints":
 			summary += " For call_chain_endpoints, emit only ordered endpoint identity: source, sink, and sink_mode. If the CURRENT request is not a source-code call-chain request, use source=\"\", sink=\"\", sink_mode=exact; never promote repository pre-scan, search, or evidence candidates into endpoint authority."
 		case "runtime_selection_profile":

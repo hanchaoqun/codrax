@@ -12675,19 +12675,20 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 		}
 	}
 	dimensions, _ := properties["requested_answer_dimensions"].(map[string]any)
-	dimensionDescription, _ := dimensions["description"].(string)
-	for _, want := range []string{"independent `requested_answer_dimensions.dimensions[]` row", "A diagram never absorbs a sibling list", "role=`relation_path`", "Path endpoints and hops do not by themselves create a member_set", "Preserve the requested visible order with `index`"} {
-		if !strings.Contains(dimensionDescription, want) {
-			t.Fatalf("requested_answer_dimensions multi-surface teaching missing %q: %q", want, dimensionDescription)
-		}
-	}
 	dimensionProperties, _ := dimensions["properties"].(map[string]any)
 	dimensionList, _ := dimensionProperties["dimensions"].(map[string]any)
 	items, _ := dimensionList["items"].(map[string]any)
 	itemProperties, _ := items["properties"].(map[string]any)
 	role, _ := itemProperties["role"].(map[string]any)
 	roleDescription, _ := role["description"].(string)
-	for _, want := range []string{"source_location", "actual user-visible source file/path", "never means a package name, module name, namespace name", "relation_path", "path endpoints and hops do not by themselves create that separate roster obligation", "member_set", "observed_value", "source_attribute", "principal structured item", "stage_or_workflow", "does not imply a source declaration inventory"} {
+	// Role semantics have one schema owner; parent/array descriptions refer
+	// to this field instead of repeating the full teaching twice.
+	for _, want := range []string{"independent `requested_answer_dimensions.dimensions[]` row", "A diagram never absorbs a sibling list", "role=`relation_path`", "Path endpoints and hops do not by themselves create a member_set", "Preserve the requested visible order with `index`"} {
+		if !strings.Contains(roleDescription, want) {
+			t.Fatalf("requested_answer_dimensions multi-surface teaching missing %q: %q", want, roleDescription)
+		}
+	}
+	for _, want := range []string{"source_location", "actual user-visible source file/path", "never means a package name, module name, namespace name", "relation_path", "Path endpoints and hops do not by themselves create a member_set", "member_set", "observed_value", "source_attribute", "principal structured item", "stage_or_workflow", "does not imply a source declaration inventory"} {
 		if !strings.Contains(roleDescription, want) {
 			t.Fatalf("requested_answer_dimensions role teaching missing %q: %q", want, roleDescription)
 		}

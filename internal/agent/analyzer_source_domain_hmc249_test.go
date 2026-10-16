@@ -60,6 +60,16 @@ func TestHMC249AnalyzerActualSourceDomainSurface(t *testing.T) {
 			if strings.Count(role, skill.AnalysisObservedDimensionTeaching) != 1 {
 				t.Fatal("observation semantics duplicated or lost")
 			}
+			if strings.Count(role, skill.AnalysisMultiSurfaceDimensionTeaching) != 1 || strings.Count(prompt.String(), skill.AnalysisMultiSurfaceDimensionTeaching) != 1 {
+				t.Fatal("actual prompt/schema must each deliver the shared dimension meaning once")
+			}
+			for _, surface := range []string{role, prompt.String()} {
+				for _, want := range []string{"information requested", "output carrier", "delivery action", "not a visual surface"} {
+					if !strings.Contains(surface, want) {
+						t.Errorf("actual analyzer dimension surface missing %q", want)
+					}
+				}
+			}
 		})
 	}
 }
