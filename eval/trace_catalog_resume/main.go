@@ -51,12 +51,14 @@ type preparation struct {
 	Expected      []expectedQuery              `json:"expected_current_queries"`
 	SeedOutcomes  map[tracecatalog.Outcome]int `json:"seed_outcomes"`
 	OldRawRefs    []string                     `json:"old_result_refs"`
+	ExportTarget  string                       `json:"export_target,omitempty"`
 }
 
 func main() {
 	out := flag.String("out", "", "new absolute evidence directory; parent must exist")
 	fixture := flag.String("fixture", "eval/fixtures/hmosperf_catalog_objects", "existing offline constructed fixture directory")
 	currentIndex := flag.String("audit-index", "", "optional exact current CLI catalog path; inspect structured status only, not model prose")
+	exportTarget := flag.String("export-target", "", "optional explicit package name requested by the natural question; preparation does not export")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "unexpected arguments")
@@ -66,7 +68,7 @@ func main() {
 	if *currentIndex != "" {
 		err = audit(context.Background(), *out, *currentIndex)
 	} else {
-		_, err = prepare(context.Background(), *out, *fixture)
+		_, err = prepareScenario(context.Background(), *out, *fixture, *exportTarget)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -75,7 +77,21 @@ func main() {
 }
 
 func prepare(ctx context.Context, out, fixture string) (preparation, error) {
+	return prepareScenario(ctx, out, fixture, "")
+}
+
+func prepareScenario(ctx context.Context, out, fixture, exportTarget string) (preparation, error) {
 	var receipt preparation
+	if exportTarget != "" {
+		for _, ch := range exportTarget {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_') {
+				return receipt, errors.New("-export-target must be a simple package name")
+			}
+		}
+		if len(exportTarget) > 64 {
+			return receipt, errors.New("-export-target exceeds 64 bytes")
+		}
+	}
 	if !filepath.IsAbs(out) {
 		return receipt, errors.New("-out must be a new absolute directory")
 	}
@@ -95,7 +111,10 @@ func prepare(ctx context.Context, out, fixture string) (preparation, error) {
 	}
 	receipt = preparation{Kind: "constructed_sqlite_operator_checkpoint_not_natural_interruption", Workspace: workspace,
 		Question: question, OperatorPID: os.Getpid(), SourceSHA: map[string]string{}, Expected: expected,
-		SeedOutcomes: map[tracecatalog.Outcome]int{}, Checkpoint: filepath.Join(workspace, "checkpoint.json")}
+		SeedOutcomes: map[tracecatalog.Outcome]int{}, Checkpoint: filepath.Join(workspace, "checkpoint.json"), ExportTarget: exportTarget}
+	if exportTarget != "" {
+		receipt.Question += " 并将本次检查的证据包导出为 " + exportTarget + "。"
+	}
 	for _, rel := range []string{"captures/capture.data", "captures/nested/capture.data"} {
 		body, err := os.ReadFile(filepath.Join(fixture, rel))
 		if err != nil {
@@ -169,7 +188,7 @@ func prepare(ctx context.Context, out, fixture string) (preparation, error) {
 		return receipt, err
 	}
 	receipt.CheckpointSHA = hash(checkpoint)
-	if err := os.WriteFile(filepath.Join(out, "question.txt"), []byte(question+"\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "question.txt"), []byte(receipt.Question+"\n"), 0600); err != nil {
 		return receipt, err
 	}
 	if err := writeJSON(filepath.Join(out, "preparation.json"), receipt); err != nil {

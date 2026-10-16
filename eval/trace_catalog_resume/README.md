@@ -107,3 +107,21 @@ SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
 
 Requirements: existing fixture originals, Go toolchain, Git and SQLite CLI.
 The live child alone uses the configured provider; do not archive credentials.
+
+## Evidence export variant
+
+Pass `-export-target capture-review` during preparation to append only the
+natural deliverable request “并将本次检查的证据包导出为 capture-review。” to the
+same question. The operator checkpoint, four expected queries and zero-model
+preparation are unchanged; preparation must not export anything. Run this in
+a separate fresh directory from the unchanged recovery case, once each.
+
+Audit the precise package path returned by the actual successful export call,
+not a newest-directory guess. Keep its manifest, report and original member
+files. Check manifest hashes and every current query/attempt against the real
+tool outputs and source windows. Physical export success, registered execution
+coverage and material completeness are separate axes; an export of pending,
+failed or missing material is not a completed analysis. Historical results
+remain navigation and must not become current evidence. A model that never
+invokes export leaves this entrance NOT_TRIGGERED, even if another output
+file happens to exist. No automatic replay is allowed.
