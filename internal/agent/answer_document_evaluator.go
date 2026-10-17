@@ -975,11 +975,11 @@ func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string 
 	if !authority.Incomplete {
 		return ""
 	}
-	boundaries := authority.Boundaries
+	boundaries := authority.ScopedBoundaries
 	scopes := make([]string, 0, len(boundaries))
 	seenScopes := make(map[string]bool, len(boundaries))
-	for _, boundary := range boundaries {
-		scope := firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown")
+	for _, entry := range boundaries {
+		scope := firstNonEmptyString(strings.TrimSpace(entry.Boundary.Scope), "unknown")
 		if !seenScopes[scope] {
 			seenScopes[scope] = true
 			scopes = append(scopes, scope)
@@ -994,20 +994,28 @@ func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string 
 	if limit > answerDocRuntimeEnumerationBoundaryLimit {
 		limit = answerDocRuntimeEnumerationBoundaryLimit
 	}
-	for _, boundary := range boundaries[:limit] {
+	locatorBudget := 4096
+	for _, entry := range boundaries[:limit] {
+		if !entry.BoundaryKnown {
+			fmt.Fprintf(&b, "  - coverage_kind=`%s`; status=`incomplete`; exact boundary/counts unknown (not zero)\n", entry.CoverageKind)
+			renderRuntimeEnumerationScopeLocator(&b, entry, &locatorBudget)
+			continue
+		}
+		boundary := entry.Boundary
 		total := "unknown"
 		if boundary.TotalKnown {
 			total = strconv.Itoa(boundary.Total)
 		}
-		fmt.Fprintf(&b, "  - scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`\n",
+		fmt.Fprintf(&b, "  - scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`; coverage_kind=`%s`\n",
 			firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown"),
 			firstNonEmptyString(strings.TrimSpace(boundary.Dimension), "rows"),
-			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason))
+			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason), entry.CoverageKind)
+		renderRuntimeEnumerationScopeLocator(&b, entry, &locatorBudget)
 	}
 	if omitted := len(boundaries) - limit; omitted > 0 {
 		fmt.Fprintf(&b, "  - omitted_exact_boundaries=%d (the authority remains incomplete)\n", omitted)
 	}
-	b.WriteString("- These emitted rows are bounded samples or lower bounds, not an exhaustive census. Keep totals/counts/extrema/absence claims within the typed boundaries above and state the incomplete scope when it matters. You still own the diagnosis, prioritization, summary, and recommendations; this handoff supplies no conclusion and never replaces yours.\n\n")
+	b.WriteString(runtimeEnumerationScopeGuidance(authority))
 	return b.String()
 }
 
@@ -1030,24 +1038,70 @@ func answerDocRuntimeEnumerationAuthorityForAnswer(ctx *types.AgentContext) type
 		!ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
 		return authority
 	}
-	projected := make([]types.ToolEnumerationBoundary, 0, len(authority.Boundaries))
-	seenScopes := make(map[string]bool, len(authority.Scopes))
-	var scopes []string
-	for _, boundary := range authority.Boundaries {
-		if strings.EqualFold(strings.TrimSpace(boundary.Scope), "root_cause_rank") {
-			continue
+	return authority.WithoutScope("root_cause_rank")
+}
+
+func renderRuntimeEnumerationScopeLocator(b *strings.Builder, entry types.RuntimeEnumerationBoundary, budget *int) {
+	if entry.UnavailableSourceLocators > 0 {
+		fmt.Fprintf(b, "    unavailable_source_locators=%d; coordinates remain unknown\n", entry.UnavailableSourceLocators)
+	}
+	if entry.UnlocatedResultOrdinal > 0 {
+		fmt.Fprintf(b, "    unlocated_result=%d; no unique source/query locator; do not merge with other sets\n", entry.UnlocatedResultOrdinal)
+	}
+	if entry.ReadPage != nil {
+		p := entry.ReadPage
+		fmt.Fprintf(b, "    page coordinates: lines=%d..%d; total_lines=%d\n", p.LineStart, p.LineEnd, p.TotalLines)
+		locator := fmt.Sprintf("    page_path=%q\n", p.RequestedPath)
+		if p.TraceQueryBlob {
+			locator = "    page_locator=producer_published_result_page (exact storage locator retained by system)\n"
 		}
-		projected = append(projected, boundary)
-		scope := strings.TrimSpace(boundary.Scope)
-		if scope != "" && !seenScopes[scope] {
-			seenScopes[scope] = true
-			scopes = append(scopes, scope)
+		if len(locator) <= *budget {
+			b.WriteString(locator)
+			*budget -= len(locator)
+		} else {
+			b.WriteString("    page_locator_omitted=1; scope remains local and incomplete\n")
 		}
 	}
-	authority.Boundaries = projected
-	authority.Scopes = scopes
-	authority.Incomplete = len(projected) > 0
-	return authority
+	if len(entry.SourceRefs) > 0 {
+		shown := 0
+		for _, source := range entry.SourceRefs {
+			encoded, err := json.Marshal(source)
+			if err != nil || shown >= 4 || len(encoded) > *budget {
+				continue
+			}
+			fmt.Fprintf(b, "    exact_query_source=%s\n", encoded)
+			*budget -= len(encoded)
+			shown++
+		}
+		if omitted := len(entry.SourceRefs) - shown; omitted > 0 {
+			fmt.Fprintf(b, "    exact_source_locators_omitted=%d; no completeness inferred for undisplayed scopes\n", omitted)
+		}
+	} else if entry.ReadPage == nil {
+		locator := fmt.Sprintf("    result_ref=%q; unlocated_result=%d; source/query coordinates not supplied; do not merge this with other sets.\n", entry.ResultRef, entry.UnlocatedResultOrdinal)
+		if len(locator) <= *budget {
+			b.WriteString(locator)
+			*budget -= len(locator)
+		} else {
+			b.WriteString("    result_locator_omitted=1; do not merge this with other sets\n")
+		}
+	}
+}
+
+func runtimeEnumerationScopeGuidance(authority types.RuntimeArtifactEnumerationAuthority) string {
+	query, page := false, false
+	for _, entry := range authority.ScopedBoundaries {
+		query = query || entry.CoverageKind == types.RuntimeEnumerationQueryResult
+		page = page || entry.CoverageKind == types.RuntimeEnumerationArtifactPage
+	}
+	var b strings.Builder
+	if query {
+		b.WriteString("- Query-result boundaries: these emitted rows are bounded samples or lower bounds, not an exhaustive census, only for that exact source/query/window/dimension. exhaustive_claim_permission=`forbidden`; exact_total_count_extrema_absence_permission=`requires_separate_complete_typed_authority` for that incomplete set. A complete sibling cannot cancel it.\n")
+	}
+	if page {
+		b.WriteString("- Artifact-page boundaries restrict verbatim read coverage at the given page coordinates. Partial page reading does not change independently published native rows or aggregates; do not apply page byte/line counts to event, frame, sample or query populations. This grants neither complete underlying artifact coverage nor a waiver of source/log reading obligations.\n")
+	}
+	b.WriteString("- Keep each completeness statement with its exact source/query/window; absent total remains unknown, empty query rows are not missing identity, and omitted boundary entries remain incomplete. Use the same native facts and units in prose, tables and diagrams. scope_local_complete_rowset_permission=`preserved_only_for_the_exact_separately_named_rowset`. You still own the diagnosis, prioritization, summary, and recommendations; this handoff supplies no conclusion and never replaces yours.\n\n")
+	return b.String()
 }
 
 func answerDocKeyAnchorsTitle(lang string) string {

@@ -4348,7 +4348,7 @@ func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.Observat
 	}
 	authorityText := runtimeTraceCoverageAuthorityText(authority, zh, typedChainRowsPresent)
 	needsProjectionCoverageText := len(reasons) > 0 || authority.causalUnproven ||
-		authority.enumerationIncomplete || runtimeTraceCoverageHasLifecycle(authority)
+		runtimeTraceCoverageHasLifecycle(authority)
 	text := strings.TrimSpace(authorityText)
 	if needsProjectionCoverageText && !causalRowsPresent {
 		text = runtimeTraceCausalProjectionCoverageText(reasons, zh)
@@ -4367,6 +4367,12 @@ func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.Observat
 	title := tracefence.SectionProjectionZH + "覆盖边界"
 	if !zh {
 		title = tracefence.SectionProjectionEN + " Coverage Boundary"
+	}
+	if !needsProjectionCoverageText && authority.enumerationIncomplete && len(authority.targetIdentities) == 0 {
+		title = "结果读取与查询范围"
+		if !zh {
+			title = "Result reading and query coverage"
+		}
 	}
 	return &types.AnswerBlock{
 		ID:        runtimeTraceCausalProjectionCoverageBlockID,
@@ -4516,6 +4522,7 @@ type runtimeTraceCoverageAuthorityBoundary struct {
 	enumerationIncomplete bool
 	compactedViews        []string
 	enumerationBoundaries []types.ToolEnumerationBoundary
+	enumerationScopes     []types.RuntimeEnumerationBoundary
 	lifecycleBoundaries   []types.TraceLifecycleBoundaryAuthority
 	lifecycleOmitted      int
 	lifecycleOutside      int
@@ -4540,9 +4547,13 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	var out runtimeTraceCoverageAuthorityBoundary
 	results := runtimeTraceCoverageResults(input)
 	enumeration := types.BuildRuntimeArtifactEnumerationAuthority(results)
+	if input.RequestModel != nil && input.RequestModel.RuntimeQuestionProfile != nil && input.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+		enumeration = enumeration.WithoutScope("root_cause_rank")
+	}
 	out.enumerationIncomplete = enumeration.Incomplete
 	out.compactedViews = append([]string(nil), enumeration.Scopes...)
 	out.enumerationBoundaries = append([]types.ToolEnumerationBoundary(nil), enumeration.Boundaries...)
+	out.enumerationScopes = enumeration.ScopedBoundaries
 	frameQuestion := types.FrameCausalityQualifierApplicable(input.RequestModel)
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
@@ -5075,18 +5086,90 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 		}
 	}
 	if authority.enumerationIncomplete {
-		views := runtimeTraceEnumerationScopeListReaderText(authority.compactedViews, zh)
-		boundaries := runtimeTraceEnumerationBoundariesReaderText(authority.enumerationBoundaries, zh)
-		if zh {
-			parts = append(parts, "枚举未完整：受展示上限或分页影响的范围为"+views+"；"+boundaries+"；当前返回项只能作为样本或下界，不能支撑“全部/仅有/总计/共N/最大/最小”结论")
-		} else {
-			parts = append(parts, "Enumeration is incomplete: the capped or paged scopes are "+views+"; "+boundaries+". Returned rows are examples or lower bounds and cannot support all/only/total/exact-count/max/min claims")
-		}
+		parts = append(parts, runtimeTraceScopedEnumerationReaderText(authority.enumerationScopes, zh))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return " " + strings.Join(parts, "。") + "。"
+}
+
+func runtimeTraceScopedEnumerationReaderText(entries []types.RuntimeEnumerationBoundary, zh bool) string {
+	var parts []string
+	limit := len(entries)
+	if limit > 16 {
+		limit = 16
+	}
+	locatorBudget := 4096
+	for i, entry := range entries[:limit] {
+		if !entry.BoundaryKnown {
+			if zh {
+				parts = append(parts, fmt.Sprintf("结果 %d 未完整，来源及具体边界未充分提供，数量未知而非零；不推断其他集合的完整性", i+1))
+			} else {
+				parts = append(parts, fmt.Sprintf("Result %d is incomplete without sufficient source/boundary coordinates; counts are unknown, not zero; no inference for other sets", i+1))
+			}
+			continue
+		}
+		boundary := runtimeTraceEnumerationBoundariesReaderText([]types.ToolEnumerationBoundary{entry.Boundary}, zh)
+		if entry.CoverageKind == types.RuntimeEnumerationArtifactPage {
+			coordinates := ""
+			if p := entry.ReadPage; p != nil && p.LineStart > 0 && p.LineEnd >= p.LineStart {
+				coordinates = fmt.Sprintf(" [%d–%d]", p.LineStart, p.LineEnd)
+			}
+			if zh {
+				parts = append(parts, fmt.Sprintf("结果页 %d%s 读取未完整：%s；仅限制该结果页的逐字读取覆盖，不改变独立原生集合的事件、栈帧或聚合完整性；原件及源码的读取义务仍单独判断", i+1, coordinates, boundary))
+			} else {
+				parts = append(parts, fmt.Sprintf("Result page %d%s is partially read: %s; only this page's verbatim reading coverage is limited, not independently published native rows or aggregates. Original-artifact and source-reading obligations remain separate", i+1, coordinates, boundary))
+			}
+			continue
+		}
+		var sources []string
+		seen := map[string]bool{}
+		for _, ref := range entry.SourceRefs {
+			label := strings.TrimSpace(types.RuntimeArtifactCaptureIdentityPath(ref))
+			if ref.QueryWindowKnown {
+				label += fmt.Sprintf(" [%s, %s) s", strconv.FormatFloat(ref.QueryWindowStartTs, 'g', -1, 64), strconv.FormatFloat(ref.QueryWindowEndTs, 'g', -1, 64))
+			}
+			if ref.QueryTargetPID != 0 {
+				label += fmt.Sprintf(" %s=%d", ref.QueryTargetScope, ref.QueryTargetPID)
+			}
+			if label != "" && !seen[label] {
+				seen[label] = true
+				sources = append(sources, label)
+			}
+		}
+		locator := strings.Join(sources, ", ")
+		if len(locator) > locatorBudget {
+			locator = "（来源定位未在本段展开，不与其他集合合并）"
+			if !zh {
+				locator = "(source locators omitted here; do not merge with other sets)"
+			}
+		} else {
+			locatorBudget -= len(locator)
+		}
+		if zh {
+			parts = append(parts, fmt.Sprintf("查询 %d %s 枚举未完整：受展示上限或分页影响，%s；该查询当前返回项只能作为样本或下界，不能支撑该范围的“全部/仅有/总计/共N/最大/最小”结论；其他独立集合分别判断", i+1, locator, boundary))
+		} else {
+			parts = append(parts, fmt.Sprintf("Query %d %s enumeration is incomplete: capped or paged %s. This query's returned rows are examples or lower bounds and cannot support all/only/total/exact-count/max/min claims for that scope; independent collections are assessed separately", i+1, locator, boundary))
+		}
+	}
+	if omitted := len(entries) - limit; omitted > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("另有 %d 个独立边界未在此展开，仍未完整，不改变其他集合的完整性", omitted))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d additional independent boundaries are not shown here and remain incomplete; other collections are unchanged", omitted))
+		}
+	}
+	if len(parts) == 0 {
+		if zh {
+			return "枚举未完整，具体查询及边界未知；不推断其他独立集合的完整性"
+		}
+		return "Enumeration is incomplete with unknown query/boundary coordinates; no completeness inference for other independent collections"
+	}
+	if zh {
+		return strings.Join(parts, "；")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func runtimeTraceTargetRoutingReaderLabel(raw string, zh bool) string {

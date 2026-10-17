@@ -78,9 +78,9 @@ func TestRuntimeArtifactReadEnumerationAuthorityIsNotACompleteCensus(t *testing.
 		t.Fatal("partial runtime-artifact read must publish an enumeration boundary")
 	}
 	for _, want := range []string{
-		"枚举未完整",
 		"其他结果范围的行已展示 3 项，共 10 项",
-		"展示上限或分页",
+		"读取未完整",
+		"仅限制该结果页的逐字读取覆盖",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("runtime read coverage block missing %q:\n%s", want, block.Text)

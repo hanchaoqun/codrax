@@ -6,8 +6,8 @@ func TestBuildRuntimeArtifactEnumerationAuthorityScopesAndDeduplicates(t *testin
 	boundaryA := ToolEnumerationBoundary{Scope: "root_cause_rank", Dimension: "candidates", Emitted: 12, Total: 61, TotalKnown: true, Reason: "capacity"}
 	boundaryB := ToolEnumerationBoundary{Scope: "span_window", Dimension: "spans", Emitted: 40, TotalKnown: false, Reason: "page_cap"}
 	results := []ToolResult{
-		{ToolName: "trace_query", EnumerationAuthority: &ToolEnumerationAuthority{Status: "incomplete", Boundaries: []ToolEnumerationBoundary{boundaryB, boundaryA}}},
-		{ToolName: "trace_query:run2", EnumerationAuthority: &ToolEnumerationAuthority{Status: "incomplete", Boundaries: []ToolEnumerationBoundary{boundaryA}}},
+		{ToolName: "trace_query", RawRef: "same-query-result", EnumerationAuthority: &ToolEnumerationAuthority{Status: "incomplete", Boundaries: []ToolEnumerationBoundary{boundaryB, boundaryA}}},
+		{ToolName: "trace_query:run2", RawRef: "same-query-result", EnumerationAuthority: &ToolEnumerationAuthority{Status: "incomplete", Boundaries: []ToolEnumerationBoundary{boundaryA}}},
 		{ToolName: "read_file", RuntimeArtifactRead: &ToolRuntimeArtifactRead{}, EnumerationAuthority: &ToolEnumerationAuthority{Status: "incomplete", Boundaries: []ToolEnumerationBoundary{{Scope: "runtime.log", Dimension: "lines", Emitted: 200, Total: 500, TotalKnown: true}}}},
 		// An ordinary current-source read and a complete trace result do not
 		// create an incomplete runtime authority.

@@ -1642,25 +1642,34 @@ func renderTraceFinalRuntimeEnumerationAuthority(ctx *types.AgentContext) string
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "- runtime_enumeration_final_authority status=`incomplete`; affected_scopes=`%s`; emitted_rows_role=`bounded_sample_or_lower_bound`; exhaustive_claim_permission=`forbidden`; exact_total_count_extrema_absence_permission=`requires_separate_complete_typed_authority`; scope_local_complete_rowset_permission=`preserved_only_for_the_exact_separately_named_rowset`. Do not describe the affected scopes as all, only, exhaustive, complete, or without omissions. You still own the conclusion and wording.\n",
+	fmt.Fprintf(&b, "- runtime_enumeration_final_authority status=`incomplete`; affected_scopes=`%s`; limitations are local to the following producer result/page, not every fact in the answer.\n",
 		strings.Join(authority.Scopes, ","))
 	limit := len(authority.Boundaries)
 	if limit > answerDocRuntimeEnumerationBoundaryLimit {
 		limit = answerDocRuntimeEnumerationBoundaryLimit
 	}
-	for _, boundary := range authority.Boundaries[:limit] {
+	locatorBudget := 4096
+	for _, entry := range authority.ScopedBoundaries[:limit] {
+		if !entry.BoundaryKnown {
+			fmt.Fprintf(&b, "  - coverage_kind=`%s`; status=`incomplete`; exact boundary/counts unknown (not zero)\n", entry.CoverageKind)
+			renderRuntimeEnumerationScopeLocator(&b, entry, &locatorBudget)
+			continue
+		}
+		boundary := entry.Boundary
 		total := "unknown"
 		if boundary.TotalKnown {
 			total = strconv.Itoa(boundary.Total)
 		}
-		fmt.Fprintf(&b, "  - incomplete_boundary scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`.\n",
+		fmt.Fprintf(&b, "  - incomplete_boundary scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`; coverage_kind=`%s`.\n",
 			firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown"),
 			firstNonEmptyString(strings.TrimSpace(boundary.Dimension), "rows"),
-			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason))
+			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason), entry.CoverageKind)
+		renderRuntimeEnumerationScopeLocator(&b, entry, &locatorBudget)
 	}
 	if omitted := len(authority.Boundaries) - limit; omitted > 0 {
 		fmt.Fprintf(&b, "  - omitted_exact_boundaries=%d; status remains incomplete.\n", omitted)
 	}
+	b.WriteString(runtimeEnumerationScopeGuidance(authority))
 	return b.String()
 }
 
