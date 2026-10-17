@@ -1642,6 +1642,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	// Both fields have passed their own schema/provenance checks. Reject only
+	// this exact contradiction; a recorded runtime callsite is not a request
+	// to inspect the current checkout, and the system must not rewrite roles.
+	if externalObservationPolicy != nil && externalObservationPolicy.ExcludesCurrentSource() && requestedAnswerDimensions != nil {
+		for _, dimension := range requestedAnswerDimensions.Dimensions {
+			if dimension.Required && dimension.Role == types.RequestedAnswerDimensionSourceLocation {
+				return types.ToolResult{
+					ToolName: t.Name(), Success: false, Timestamp: time.Now(),
+					Summary: fmt.Sprintf("emit_analysis rejected: requested_answer_dimensions dimension index=%d has required role=source_location, which conflicts with current_source_mode=exclude. This object is not yet accepted. For locations recorded inside runtime material, choose observed_value; if the request independently asks for current implementation locations, correct the source policy instead. Preserve all other requested dimensions and runtime scope, then re-emit the complete model-owned object; no role or policy was automatically rewritten", dimension.Index),
+				}, nil
+			}
+		}
+	}
 	if reconciled, reason := reconcileSetValuedCountPredicates(predicates, requestedAnswerDimensions); reason != "" {
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
@@ -5350,7 +5363,7 @@ func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeRequestDeclar
 			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeCausalDiagnosis, nil)
 			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=%s; For this diagnostic, omit runtime_question_profile.fact_families. runtime_question_profile.runtime_work_relation_requested is an independent model decision and must remain exactly %t on this structural retry unless the model deliberately reclassifies the current request itself; runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly %t; preserve every required causal_attribution/causal_contributor_set dimension and preserve every requested dimension, including any independently requested target_effect_verdict, in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", target, profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		default:
-			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. runtime_question_profile.runtime_work_relation_requested is an independent model decision; keep the submitted value exactly %t during this structural repair unless the model deliberately reclassifies the current request itself; keep runtime_question_profile.frame_causality_requested exactly %t likewise. Re-emit the complete object without asking the system to rewrite the model-owned scope", profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
+			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. This rejected object has no required causal dimension; the rejected scope does not establish a causal request. Choose one coherent breadth from the actual request: finite observed values use bounded_fact_set plus fact_families; an independently requested finite target-effect verdict uses bounded_effect_verdict plus fact_families and target_effect_verdict; an independently requested causal answer uses causal_diagnosis without fact_families and its corresponding causal dimension. Do not add a causal obligation merely to repair this schema conflict. Preserve the existing requested dimensions. runtime_question_profile.runtime_work_relation_requested is an independent model decision; keep the submitted value exactly %t during this structural repair unless the model deliberately reclassifies the current request itself; keep runtime_question_profile.frame_causality_requested exactly %t likewise. Re-emit the complete object without asking the system to rewrite the model-owned scope", profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		}
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {

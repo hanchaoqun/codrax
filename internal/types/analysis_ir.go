@@ -47,7 +47,10 @@ const AnalysisIRVersion = "v19"
 // ── RequestModel ────────────────────────────────────────────────────────
 
 type RequestModel struct {
-	RawRequest string `json:"raw_request"`
+	// runtimeMaterialDomain is a detached current-context applicability hint.
+	// It is rebuilt from current runtime receipts, never serialized as evidence.
+	runtimeMaterialDomain bool
+	RawRequest            string `json:"raw_request"`
 	// ToolDocumentationRequest selects static host-tool documentation without
 	// reclassifying source/runtime facts or granting evidence authority.
 	ToolDocumentationRequest *ToolDocumentationRequest `json:"tool_documentation_request,omitempty"`

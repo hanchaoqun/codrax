@@ -108,6 +108,8 @@ func RuntimeSourceAuthorityRequestModelFromAgentContext(ctx *AgentContext) *Requ
 		return nil
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	rm.runtimeMaterialDomain = RuntimeArtifactContextActiveFromAgent(ctx) ||
+		preparedRuntimeMaterialDomain(ctx.Context(), ctx.TraceInputPreparer, ctx.AttachedTraceMaterial)
 	if rm.LogTriage == nil {
 		if ctx.LogTriage != nil {
 			rm.LogTriage = ctx.LogTriage
@@ -132,6 +134,8 @@ func RuntimeSourceAuthorityRequestModelFromBusContext(ctx *BusContext) *RequestM
 		return nil
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	rm.runtimeMaterialDomain = RuntimeArtifactContextActiveFromBus(ctx) ||
+		preparedRuntimeMaterialDomain(ctx.Context(), ctx.TraceInputPreparer, ctx.AttachedTraceMaterial)
 	if ctx.Mutable != nil {
 		if rm.LogTriage == nil {
 			rm.LogTriage = ctx.Mutable.LogTriage()
@@ -328,6 +332,25 @@ func (s RuntimeSourceAnswerAuthoritySnapshot) HasRuntimeSourceHandoffSurface() b
 		s.CanCompleteWithCombinedProof
 }
 
+// HasIndependentCurrentSourcePromptBudgetCompetition distinguishes a source
+// lane competing for prompt space from runtime-only authority that merely has
+// a legacy soft source default. This is budgeting guidance, never a source
+// proof, completion gate, or permission to discard equivalent runtime facts.
+// Callers retain their runtime carrier and handoff applicability checks.
+func (s RuntimeSourceAnswerAuthoritySnapshot) HasIndependentCurrentSourcePromptBudgetCompetition(rm *RequestModel) bool {
+	if !s.Active {
+		return false
+	}
+	if s.CurrentSourceExplanationRequested || s.CurrentSourceRecordCount > 0 || s.KeepsCurrentSourceLaneLoadBearing() {
+		return true
+	}
+	// CurrentVersionCheck explicitly requests checking the current code. It
+	// can compete for budget without a precise source anchor, but cannot mint
+	// that anchor or overrule an accepted user exclusion of current source.
+	return rm != nil && rm.DiagnosticProfile.CurrentVersionCheck &&
+		!(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource())
+}
+
 // RuntimeSourceAuthorityRequestCarrierActiveForAgentContext reports whether an
 // agent prompt/budget consumer should treat the current turn as an intentional
 // runtime/source mixed surface. This is prompt and handoff budgeting guidance,
@@ -350,12 +373,7 @@ func RuntimeSourceAuthorityRequestCarrierActive(hint TurnRouteHint, rm *RequestM
 	if rm == nil || !authority.HasRuntimeCarrier() {
 		return false
 	}
-	if hint.ExternalObservationParticipates() ||
-		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference() ||
-		rm.HasRuntimeArtifactPathReference() ||
-		rm.LogTriage != nil ||
-		rm.PerfTrace != nil {
+	if runtimeSourceRequestHasExternalObservationCarrier(rm, hint) {
 		return true
 	}
 	return rm.HasCurrentSourceObligationSignal() ||
@@ -414,6 +432,7 @@ func runtimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint Tu
 		return hint.ExternalObservationParticipates()
 	}
 	return hint.ExternalObservationParticipates() ||
+		rm.hasRuntimeRequestDomain() ||
 		rm.HasExternalOnlyRuntimeArtifact() ||
 		rm.HasExternalObservationArtifactReference() ||
 		rm.HasRuntimeArtifactPathReference() ||
@@ -439,10 +458,16 @@ func runtimeSourceAuthorityRequestCurrentSourceRequired(rm *RequestModel, hint T
 	if rm == nil {
 		return false
 	}
+	// Named runtime material may still have a pre-analysis repo route. Retain
+	// that obligation unless the accepted explicit negative declaration has
+	// refined it; material domain alone never waives a source request.
+	if rm.hasRuntimeRequestDomain() && hint.RequiresCurrentSourceEvidence() {
+		return true
+	}
 	if sourceInventoryHasIndependentCurrentSourceRequirement(*rm) {
 		return true
 	}
-	if hint.ExternalObservationParticipates() &&
+	if (hint.ExternalObservationParticipates() || rm.hasRuntimeRequestDomain()) &&
 		NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) == TurnRouteCurrentSourceEvidenceOptional {
 		return runtimeSourceAuthorityHasIndependentCurrentSourceRequirement(rm)
 	}

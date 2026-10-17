@@ -13,7 +13,7 @@ package types
 func EffectiveRequestRouteHint(rm *RequestModel, hint TurnRouteHint) TurnRouteHint {
 	if rm == nil || rm.CurrentSourceExplanationProfile == nil ||
 		rm.CurrentSourceExplanationProfile.IsCurrentSourceExplanationRequested ||
-		!hint.ExternalObservationParticipates() ||
+		(!hint.ExternalObservationParticipates() && !rm.hasRuntimeRequestDomain()) ||
 		!hint.RequiredOutcomes.Has(TurnOutcomeSourceExplanation) ||
 		hint.RequiredOutcomes.Has(TurnOutcomeSourceChange) || hint.WriteIntent != "" ||
 		requestHasIndependentCurrentSourceObligation(rm) {

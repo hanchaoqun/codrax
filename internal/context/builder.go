@@ -1924,7 +1924,8 @@ func evidenceRenderUsesCompactRuntimeSourceAuthority(ac *types.AgentContext) boo
 	if !evidenceRenderRuntimeSourceRequestCarrierActive(ac, authority) {
 		return false
 	}
-	return authority.HasRuntimeSourceHandoffSurface()
+	return authority.HasRuntimeSourceHandoffSurface() &&
+		authority.HasIndependentCurrentSourcePromptBudgetCompetition(types.RuntimeSourceAuthorityRequestModelFromAgentContext(ac))
 }
 
 func evidenceRenderRuntimeSourceRequestCarrierActive(ac *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {

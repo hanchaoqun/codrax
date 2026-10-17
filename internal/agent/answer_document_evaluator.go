@@ -8160,7 +8160,8 @@ func answerDocRuntimeSourceAuthorityUsesCompactObservationPrompt(ctx *types.Agen
 	if !answerDocRuntimeSourceRequestCarrierActive(ctx, authority) {
 		return false
 	}
-	return authority.HasRuntimeSourceHandoffSurface()
+	return authority.HasRuntimeSourceHandoffSurface() &&
+		authority.HasIndependentCurrentSourcePromptBudgetCompetition(types.RuntimeSourceAuthorityRequestModelFromAgentContext(ctx))
 }
 
 func answerDocRuntimeSourceRequestCarrierActive(ctx *types.AgentContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {

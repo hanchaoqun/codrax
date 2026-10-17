@@ -19,8 +19,8 @@ func SourceInventoryCurrentSourceApplicable(rm RequestModel) bool {
 }
 
 func SourceInventoryCurrentSourceApplicableInContext(rm RequestModel, hint TurnRouteHint, attachedRuntime bool) bool {
-	if attachedRuntime && !runtimeSourceRequestHasExternalObservationCarrier(&rm, hint) {
-		rm = rm.withAttachedRuntimeArtifact()
+	if attachedRuntime {
+		rm.runtimeMaterialDomain = true
 	}
 	if !runtimeSourceRequestHasExternalObservationCarrier(&rm, hint) {
 		return true
@@ -58,8 +58,7 @@ func SourceInventoryCurrentSourceApplicableFromBus(ctx *BusContext) bool {
 func SourceInventoryRequestModelFromBusContext(ctx *BusContext) *RequestModel {
 	rm := RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
 	if rm != nil && (RuntimeArtifactContextActiveFromBus(ctx) || ctx.TurnRouteHint.ExternalObservationParticipates()) {
-		view := rm.withAttachedRuntimeArtifact()
-		return &view
+		rm.runtimeMaterialDomain = true
 	}
 	return rm
 }

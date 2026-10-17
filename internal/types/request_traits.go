@@ -1882,7 +1882,7 @@ func RuntimeArtifactContextActiveFromAgent(ctx *AgentContext) bool {
 // scope fields plus artifact/source policy state, never raw request prose,
 // analyzer rationale text, or model-authored narrative.
 func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
-	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() && !rm.hasRuntimeRequestDomain() {
 		return false
 	}
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
@@ -1952,7 +1952,7 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 	if rm.HasTypedCurrentSourceScopeRequest() {
 		return CurrentSourceLaneRequired
 	}
-	if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasExternalObservationArtifactReference()) &&
+	if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasExternalObservationArtifactReference() || rm.hasRuntimeRequestDomain()) &&
 		rm.ExternalObservationAllowsCurrentSource() {
 		return CurrentSourceLaneRequired
 	}
@@ -1960,7 +1960,15 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 		return CurrentSourceLaneExcluded
 	}
 	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
-		return CurrentSourceLaneRequired
+		// A newly typed/named runtime domain is not itself a negative source
+		// declaration. Legacy direct callers have no route hint, so preserve
+		// their source lane unless the accepted declaration is explicitly false
+		// and no independent current-source request survives it.
+		if !rm.hasRuntimeRequestDomain() || rm.CurrentSourceExplanationProfile == nil ||
+			rm.CurrentSourceExplanationProfile.IsCurrentSourceExplanationRequested ||
+			requestHasIndependentCurrentSourceObligation(&rm) {
+			return CurrentSourceLaneRequired
+		}
 	}
 	return CurrentSourceLaneAllowedOptional
 }
@@ -1971,8 +1979,12 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 // structured analyzer fields; stack-frame labels from an unresolved external
 // log are not enough by themselves.
 func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
-	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() && !rm.hasRuntimeRequestDomain() {
 		return false
+	}
+	if rm.hasRuntimeRequestDomain() && rm.HasRequiredSourceLocationDimension() &&
+		!(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
+		return true
 	}
 	if sourceInventoryHasIndependentCurrentSourceRequirement(rm) {
 		return true
