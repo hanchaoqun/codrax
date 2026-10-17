@@ -4548,7 +4548,7 @@ func (e *explorerEvaluator) deterministicEnrichmentFileSet(readSet map[string]bo
 		return nil
 	}
 	if !e.investigationComplete {
-		return e.activeFrontierFileSet(readSet, notesJoined)
+		return e.sourceEnrichmentFileSet(e.activeFrontierFileSet(readSet, notesJoined))
 	}
 	files := make(map[string]bool, len(readSet))
 	for file, read := range readSet {
@@ -4561,7 +4561,7 @@ func (e *explorerEvaluator) deterministicEnrichmentFileSet(readSet map[string]bo
 		}
 		files[file] = true
 	}
-	return files
+	return e.sourceEnrichmentFileSet(files)
 }
 
 func (e *explorerEvaluator) deterministicEnrichmentScopeKey() string {
@@ -14502,6 +14502,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	_, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
+	readSet = e.sourceEnrichmentFileSet(readSet)
 
 	// T1.1: two-phase dataflow decision. Build concrete values + chains
 	// early, merge with parsed LLM evidence, run ERM satisfaction check on
@@ -14562,7 +14563,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		}
 	}
 	var candidates []string
-	for file := range candidateSet {
+	for file := range e.sourceEnrichmentFileSet(candidateSet) {
 		candidates = append(candidates, file)
 	}
 	sort.Strings(candidates)
@@ -16316,6 +16317,7 @@ type chainAnchorInfo struct {
 // Subject is constant for the Run, so caching on (repoRoot, readSet)
 // alone is sound.
 func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+	readSet = e.sourceEnrichmentFileSet(readSet)
 	if ctx == nil {
 		ctx = context.TODO()
 	}
@@ -16900,6 +16902,7 @@ func (e *explorerEvaluator) filterConcreteValueScanFiles(files map[string]bool) 
 }
 
 func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure, sourceSnapshots ...concreteReturnSourceSnapshots) concreteValuesResult {
+	readSet = e.sourceEnrichmentFileSet(readSet)
 	if ctx == nil {
 		ctx = context.TODO()
 	}

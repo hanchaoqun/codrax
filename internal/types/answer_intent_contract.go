@@ -232,7 +232,7 @@ func CompileAnswerIntentContractWithPreflight(rm RequestModel, contract *AnswerC
 			addOrigin(AnswerEvidenceOriginVCSDiff)
 		}
 	}
-	if rm.HasExternalOnlyRuntimeArtifact() ||
+	if rm.hasRuntimeRequestDomain() || rm.HasExternalOnlyRuntimeArtifact() ||
 		rm.LogTriage != nil ||
 		rm.PerfTrace != nil ||
 		rm.ArtifactObservationProfile != nil ||
@@ -395,6 +395,9 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 }
 
 func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract, preflight RuntimeArtifactPreflightProfile) bool {
+	if rm.hasRuntimeRequestDomain() && !rm.CurrentSourceLaneDecision().RequiresCurrentSource() && !typesContractRequiresCurrentSource(contract) {
+		return false
+	}
 	// §29.151 UPTAIL-1 件1 (P3-a): the preflight arm defers to the typed
 	// current-verification anchor so the contract face agrees with the lane
 	// face (CurrentSourceLaneDecision consults the anchor BEFORE the

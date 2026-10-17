@@ -418,6 +418,7 @@ type MutableState struct {
 	traceSourceReadGeneration *traceSourceReadGeneration
 	toolDocumentation         toolDocumentationState
 	traceQuerySourceReads     map[string]TraceQuerySourceReadRef
+	recoveryNavigationRoles   *recoveryNavigationRoles
 	traceBusinessSpanRefs     map[string]TraceBusinessSpanRef
 	// Private completion/worker-success authority; never reconstructed from
 	// TurnA, ToolResults, retained closure prose, or serialized output.
@@ -1402,6 +1403,7 @@ func NewMutableState(objective string) *MutableState {
 		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
 		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
 		traceSourceReadGeneration:        &traceSourceReadGeneration{},
+		recoveryNavigationRoles:          &recoveryNavigationRoles{},
 		traceCatalogLineages:             &traceCatalogLineages{},
 		toolDocumentation:                toolDocumentationState{generation: &toolDocumentationGeneration{}},
 	}
@@ -1457,6 +1459,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
 		toolDocumentation:                           cloneToolDocumentationState(m.toolDocumentation),
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
+		recoveryNavigationRoles:                     m.recoveryNavigationRoles,
 		traceBusinessSpanRefs:                       cloneTraceBusinessSpanRefs(m.traceBusinessSpanRefs),
 		traceBusinessFocus:                          traceBusinessFocusState{epoch: m.traceBusinessFocus.epoch, lineage: m.traceBusinessFocus.ticket},
 		artifactReadNavigationGeneration:            m.artifactReadNavigationGeneration,
@@ -5586,6 +5589,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
 	m.toolDocumentation = toolDocumentationState{generation: &toolDocumentationGeneration{}}
 	m.traceQuerySourceReads = nil
+	m.resetRecoveryNavigationRolesLocked()
 	m.traceBusinessSpanRefs = nil
 	m.resetTraceBusinessFocusLocked()
 	m.artifactReadNavigationGeneration = &artifactReadNavigationGeneration{}

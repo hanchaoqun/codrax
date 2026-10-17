@@ -91,17 +91,34 @@ func BuildTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []
 	return nil
 }
 
-// Keep read_file's existing public result and source-line anchors unchanged.
-func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []byte, complete bool, out *types.ToolResult) {
+// Preserve readable bytes and navigation; qualify material purpose before any
+// current-source coverage or repository-read credential is minted.
+func finishTraceCatalogReadNavigation(ctx *types.BusContext, path string, data []byte, complete bool, out *types.ToolResult, reads ...types.RecoveryNavigationRead) {
 	if out == nil || !out.Success {
 		return
 	}
 	if nav := BuildTraceCatalogReadNavigation(ctx, path, data, complete); nav != nil {
+		if traceCatalogReadHasNavigationPurpose(ctx) && len(reads) == 1 {
+			ctx.Mutable.RecordValidatedRecoveryNavigation(contextFromBus(ctx), reads[0])
+		}
 		out.Refinement = nav.Refinement
 		// Preserve the read_file banner/gutters and registered producer bytes as
 		// an exact prefix; navigation is advisory, not source text.
 		out.Summary = out.Summary + "\n" + nav.Summary
 	}
+}
+
+// Snapshot syntax alone does not determine use: repository fixtures can be
+// source under analysis or write-mode input. An ordinary read establishes a
+// navigation purpose only in an accepted runtime task without a source duty.
+// A successful explicit resume provides its own stronger purpose witness.
+func traceCatalogReadHasNavigationPurpose(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mode.IsWrite() {
+		return false
+	}
+	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
+	return types.RuntimeSourceRequestHasExternalObservationCarrier(rm, ctx.TurnRouteHint) &&
+		types.RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, ctx.TurnRouteHint) == types.RuntimeSourceRequirementNone
 }
 
 func traceCatalogRecord(kind string, record any) any {

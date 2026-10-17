@@ -48,6 +48,7 @@ func traceCatalogResume(ctx *types.BusContext, p traceCatalogParams) (*tracecata
 	if err != nil {
 		return nil, fmt.Errorf("snapshot authorization: %w", err)
 	}
+	navigationRead := ctx.Mutable.PrepareRecoveryNavigationRead(path)
 	old, err := tracecatalog.Load(contextFromBus(ctx), path)
 	if err != nil {
 		return nil, err
@@ -66,7 +67,13 @@ func traceCatalogResume(ctx *types.BusContext, p traceCatalogParams) (*tracecata
 	if err != nil {
 		return nil, err
 	}
-	return ctx.Mutable.InstallTraceCatalog(c)
+	installed, err := ctx.Mutable.InstallTraceCatalog(c)
+	if err == nil {
+		if !ctx.Mode.IsWrite() {
+			ctx.Mutable.RecordValidatedRecoveryNavigation(contextFromBus(ctx), navigationRead)
+		}
+	}
+	return installed, err
 }
 
 // Cancellation may stop computation, not erase a completed navigation update.

@@ -133,6 +133,11 @@ func externalObservationSufficiencyCandidates(records []ObservationRecord) []Obs
 	}
 	out := make([]ObservationRecord, 0, len(records))
 	for _, record := range records {
+		// Recovery records locate historical work; their exact fields cannot
+		// satisfy the current query merely because they have external addresses.
+		if record.SourceRef.Kind == ObservationSourceRecoveryNavigation {
+			continue
+		}
 		if !AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
 			continue
 		}

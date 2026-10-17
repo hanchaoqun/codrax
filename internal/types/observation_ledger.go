@@ -28,17 +28,18 @@ const (
 type ObservationSourceKind string
 
 const (
-	ObservationSourceUnknown          ObservationSourceKind = ""
-	ObservationSourceCurrentSource    ObservationSourceKind = "current_source"
-	ObservationSourceVCSMetadata      ObservationSourceKind = "vcs_metadata"
-	ObservationSourceVCSDiff          ObservationSourceKind = "vcs_diff"
-	ObservationSourceRuntimeArtifact  ObservationSourceKind = "runtime_artifact"
-	ObservationSourceCommand          ObservationSourceKind = "command"
-	ObservationSourceCrossRepoIndex   ObservationSourceKind = "cross_repo_index"
-	ObservationSourceExternalDocument ObservationSourceKind = "external_document"
-	ObservationSourceWebPage          ObservationSourceKind = "web_page"
-	ObservationSourceMCPResource      ObservationSourceKind = "mcp_resource"
-	ObservationSourceConnector        ObservationSourceKind = "connector_resource"
+	ObservationSourceUnknown            ObservationSourceKind = ""
+	ObservationSourceCurrentSource      ObservationSourceKind = "current_source"
+	ObservationSourceVCSMetadata        ObservationSourceKind = "vcs_metadata"
+	ObservationSourceVCSDiff            ObservationSourceKind = "vcs_diff"
+	ObservationSourceRuntimeArtifact    ObservationSourceKind = "runtime_artifact"
+	ObservationSourceCommand            ObservationSourceKind = "command"
+	ObservationSourceCrossRepoIndex     ObservationSourceKind = "cross_repo_index"
+	ObservationSourceExternalDocument   ObservationSourceKind = "external_document"
+	ObservationSourceWebPage            ObservationSourceKind = "web_page"
+	ObservationSourceMCPResource        ObservationSourceKind = "mcp_resource"
+	ObservationSourceConnector          ObservationSourceKind = "connector_resource"
+	ObservationSourceRecoveryNavigation ObservationSourceKind = "recovery_navigation"
 	// ObservationSourceModelClaim marks an unwitnessed claim on the
 	// system_inference advisory lane. The legacy name also covers system
 	// heuristic derivations: their Producer and boundary note distinguish them
@@ -582,6 +583,7 @@ func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected 
 // ledger compiler. The compiler is intentionally side-effect free and must not
 // inspect raw user prose or model free text to classify facts.
 type ObservationLedgerInput struct {
+	recoveryNavigationConsumer *MutableState
 	// Current consumer epoch, not the producer fork's retained MutableState.
 	// Private pair receipts cannot grant authority after a receiving run resets.
 	runtimeMeasurementPairConsumer *MutableState
@@ -628,7 +630,8 @@ type ObservationRowSetWriter func(name, content string) string
 // CompileObservationLedger projects accepted producer outputs into one read-only
 // ledger. It deliberately consumes structured fields and system-authored tool
 // origin banners only; raw user prose and model free text must not classify
-// records.
+// records. Private material-purpose receipts revalidate physical generations;
+// this is qualification of existing evidence, not new content acquisition.
 func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	// CSR #64 ruling 2 (2026-07-05): under the typed explicit-user-exclusion
 	// boundary ("不分析代码"), a negative repo search is still a source-code
@@ -648,13 +651,14 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		input.RuntimeArtifactPreflight,
 		input.RepoRoot,
 	)
-	currentSourceSupport := compileCurrentSourceSupportWitnessIndex(input.EvidenceItems, input.ToolResults)
+	currentSourceSupport := input.currentSourceSupportWitnesses()
 	var out []ObservationRecord
 	add := func(record ObservationRecord) {
 		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
 			return
 		}
 		record = runtimeArtifactSources.requalify(record)
+		record = input.qualifyRecoveryNavigation(record)
 		if record.ID == "" {
 			record.ID = fmt.Sprintf("obs:%03d", len(out)+1)
 		}

@@ -4896,6 +4896,10 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	// slurping, so a GiB-scale artifact must be refused before allocation.
 	var data []byte
 	var readVersion repositoryFileReadVersion
+	var navigationRead types.RecoveryNavigationRead
+	if ctx != nil && ctx.Mutable != nil {
+		navigationRead = ctx.Mutable.PrepareRecoveryNavigationRead(fsPath)
+	}
 	if originalTraceRead {
 		data, err = readTraceQuerySourceFile(ctx, sourceRead)
 	} else {
@@ -5113,6 +5117,8 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 		),
 		Timestamp: now,
 	}
+	completeNavigationRead := sliceStart == 0 && sliceEnd == totalLines && summary == content && !clampedByInlineBudget
+	finishTraceCatalogReadNavigation(ctx, fsPath, data, completeNavigationRead, &result, navigationRead)
 	if originalTraceRead {
 		stampTraceQuerySourceReadResult(&result, p.Path, lineStart, sliceEnd, totalLines)
 	} else {
@@ -5123,7 +5129,6 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
 	readVersion.record(ctx, result, summary == content)
 	recordCompletionReadCoverage(ctx, fsPath, result)
-	finishTraceCatalogReadNavigation(ctx, fsPath, data, sliceStart == 0 && sliceEnd == totalLines && summary == content && !clampedByInlineBudget, &result)
 	return result, nil
 }
 
@@ -5164,6 +5169,9 @@ func readFileEnumerationAuthority(requestedPath string, lineStart, lineEnd, tota
 // (Q5-A P1-2). Returns nil for genuine current-source reads so ordinary
 // reads carry no marker and behave byte-identically.
 func readFileRuntimeArtifactMarker(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int) *types.ToolRuntimeArtifactRead {
+	if ctx != nil && !ctx.Mode.IsWrite() && ctx.Mutable.IsRecoveryNavigationMaterial(ctx.RepoRoot, fsPath) {
+		return nil // Historical navigation is not a current runtime measurement.
+	}
 	if readFileTypedSourcePath(ctx, requestedPath, fsPath) != "" {
 		return nil // genuine current source — not a runtime artifact
 	}
@@ -5354,6 +5362,9 @@ func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, raw
 }
 
 func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string) string {
+	if ctx != nil && !ctx.Mode.IsWrite() && ctx.Mutable.IsRecoveryNavigationMaterial(ctx.RepoRoot, fsPath) {
+		return ""
+	}
 	// Q5-A escape-lane reads target trace_query's own published blobs:
 	// runtime-state bytes, never current source. A basename-shaped
 	// request ("trace_query-<sha8>.txt") would otherwise survive the

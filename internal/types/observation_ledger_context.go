@@ -68,10 +68,11 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		}
 	}
 	return ObservationLedgerInput{
+		recoveryNavigationConsumer:         recoveryNavigationConsumerForMode(ctx.Mutable, ctx.Mode),
 		runtimeMeasurementPairConsumer:     ctx.Mutable,
 		runtimeMeasurementInputPreparer:    ctx.TraceInputPreparer,
 		runtimeMeasurementAttachedMaterial: ctx.AttachedTraceMaterial,
-		aggregateSourceClaims:              compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
+		aggregateSourceClaims:              compileAggregateSourceClaimContext(ObservationLedgerInput{recoveryNavigationConsumer: recoveryNavigationConsumerForMode(ctx.Mutable, ctx.Mode), RepoRoot: ctx.RepoRoot, EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
 		EvidenceItems:                      evidenceItems,
 		AggregateFacts:                     aggregateFacts,
 		SourceInventoryObservation:         sourceInventory,
@@ -154,10 +155,11 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		supplementResults = bus.Mutable.SystemTraceSupplementResults()
 	}
 	return ObservationLedgerInput{
+		recoveryNavigationConsumer:         recoveryNavigationConsumerForMode(bus.Mutable, bus.Mode),
 		runtimeMeasurementPairConsumer:     bus.Mutable,
 		runtimeMeasurementInputPreparer:    bus.TraceInputPreparer,
 		runtimeMeasurementAttachedMaterial: bus.AttachedTraceMaterial,
-		aggregateSourceClaims:              compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
+		aggregateSourceClaims:              compileAggregateSourceClaimContext(ObservationLedgerInput{recoveryNavigationConsumer: recoveryNavigationConsumerForMode(bus.Mutable, bus.Mode), RepoRoot: bus.RepoRoot, EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
 		EvidenceItems:                      evidenceItems,
 		AggregateFacts:                     aggregateFacts,
 		SourceInventoryObservation:         sourceInventory,

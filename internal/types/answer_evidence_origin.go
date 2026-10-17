@@ -266,10 +266,13 @@ type aggregateSourceInventoryMemberWitness struct {
 
 func compileAggregateSourceClaimContext(source ObservationLedgerInput) *aggregateSourceClaimContext {
 	if source.aggregateSourceClaims != nil {
-		return source.aggregateSourceClaims
+		return source.qualifyRecoverySourceClaims(source.aggregateSourceClaims)
 	}
-	out := &aggregateSourceClaimContext{coordinates: compileCurrentSourceSupportWitnessIndex(source.EvidenceItems, source.ToolResults)}
+	out := &aggregateSourceClaimContext{coordinates: source.currentSourceSupportWitnesses()}
 	for _, item := range source.EvidenceItems {
+		if source.recoveryNavigationConsumer.IsRecoveryNavigationMaterial(source.RepoRoot, item.Source) {
+			continue
+		}
 		if !currentSourceSupportGroundingAccepted(item.GroundingStatus) || EvidenceIsDerivationCandidate(item) ||
 			evidenceItemObservationOrigin(item) != AnswerEvidenceOriginCurrentSource || item.Source == "" || item.LineStart <= 0 {
 			continue
@@ -291,6 +294,9 @@ func compileAggregateSourceClaimContext(source ObservationLedgerInput) *aggregat
 		for _, set := range inventory.Sets {
 			for _, member := range set.Members {
 				name, path := strings.TrimSpace(member.Name), strings.TrimSpace(member.File)
+				if source.recoveryNavigationConsumer.IsRecoveryNavigationMaterial(source.RepoRoot, path) {
+					continue
+				}
 				if member.CoverageState != SourceInventoryCoverageObserved || name == "" || path == "" || member.Line <= 0 {
 					continue
 				}

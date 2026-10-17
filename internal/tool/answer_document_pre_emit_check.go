@@ -476,6 +476,9 @@ func newPreEmitEvidenceIndex(pctx *preEmitCheckContext) *preEmitEvidenceIndex {
 	idx.items = make([]types.EvidenceItem, 0, len(raw))
 	seen := make(map[string]struct{}, len(raw))
 	for _, ev := range raw {
+		if !ctx.Mode.IsWrite() && ctx.Mutable.IsRecoveryNavigationMaterial(ctx.RepoRoot, ev.Source) {
+			continue
+		}
 		ev.Source = pctx.canonicalPath(ev.Source)
 		key := strings.TrimSpace(ev.ID)
 		if key == "" {
