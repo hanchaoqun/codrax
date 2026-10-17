@@ -68,6 +68,7 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	// private coverage scope and native-log qualification must still agree.
 	a.Tables = append([]RuntimeMeasurementTable(nil), a.Tables...)
 	b.Tables = append([]RuntimeMeasurementTable(nil), b.Tables...)
+	a.answerDisplayIdentity, b.answerDisplayIdentity = "", ""
 	for i := range a.Tables {
 		a.Tables[i].nativeTraceDisplayPopulation = false
 		a.Tables[i].nativeFactIdentity = ""

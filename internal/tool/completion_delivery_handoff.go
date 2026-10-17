@@ -71,9 +71,10 @@ type nativeFactHandoffViolation struct {
 }
 
 type managedDeliveryNativeHandoffError struct {
-	required   bool
-	violations []nativeFactHandoffViolation
-	choices    []types.AnswerRuntimeMeasurementReceipt
+	required       bool
+	violations     []nativeFactHandoffViolation
+	choices        []types.AnswerRuntimeMeasurementReceipt
+	displayChoices []types.AnswerRuntimeMeasurementReceipt
 }
 
 func (e managedDeliveryNativeHandoffError) hint() string {
@@ -92,6 +93,14 @@ func (e managedDeliveryNativeHandoffError) hint() string {
 		b.Write(choices)
 	} else {
 		b.WriteString(" No eligible native measurement pairs are currently available; do not invent a replacement. Retain independent analysis through the legacy reason path when the handoff is optional.")
+	}
+	for _, issue := range e.violations {
+		if issue.Field == "native_fact_handoff.answer_display" {
+			b.WriteString(" " + types.NativeAnswerDisplayTeaching + " Remove unsupported display choices while retaining their independent investigation interpretation; retry with the current schema's answer_display pairs only.")
+			available, _ := json.Marshal(e.displayChoices)
+			b.WriteString(" Current answer_display pairs: " + string(available) + ".")
+			break
+		}
 	}
 	return b.String()
 }

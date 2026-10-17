@@ -19,8 +19,11 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	}
 	var samplingFacts samplingFactRosterPublication
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil || !view.RuntimeMeasurementContract.Active() {
+	if view == nil {
 		return ""
+	}
+	if !view.RuntimeMeasurementContract.Active() {
+		return renderAcceptedNativeAnswerDisplay(ctx, view)
 	}
 	const maxRosterGroups = 32
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
@@ -29,6 +32,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	if ctx.AnalysisIR != nil && len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) > 0 {
 		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
 	}
+	b.WriteString(renderAcceptedNativeAnswerDisplay(ctx, view))
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
 		fmt.Fprintf(&b, "- Complete native record tables can carry requested member-set display dimensions %v. Bind only the indices actually answered with block-level requested_dimension_indices beside runtime_measurement. One table can carry several dimensions (for example the event roster and its per-row identities); do not retype rows. For an automatically shown table, add an exact model selector with those indices; it replaces the duplicate default display. This is display ownership only, not source-code, causal or investigation-completion evidence.\n", indices)

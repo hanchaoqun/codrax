@@ -15,6 +15,7 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 	const field = "native_fact_handoff"
 	bus := types.ToolBusContext(ctx, types.AgentExplorer)
 	choices := tool.NativeFactHandoffChoices(bus)
+	displayChoices := tool.NativeFactAnswerDisplayChoices(bus)
 	required := tool.ManagedDeliveryRequiresNativeFactHandoff(bus)
 	out := append([]llm.ToolSchema(nil), schemas...)
 	for i, schema := range out {
@@ -36,6 +37,17 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 		items["enum"], _ = json.Marshal(choices)
 		selections["items"], _ = json.Marshal(items)
 		fields["runtime_measurements"], _ = json.Marshal(selections)
+		if len(displayChoices) == 0 {
+			delete(fields, "answer_display")
+		} else {
+			var display map[string]json.RawMessage
+			if json.Unmarshal(fields["answer_display"], &display) == nil {
+				items["enum"], _ = json.Marshal(displayChoices)
+				display["items"], _ = json.Marshal(items)
+				display["description"], _ = json.Marshal(types.NativeAnswerDisplayTeaching)
+				fields["answer_display"], _ = json.Marshal(display)
+			}
+		}
 		handoff["properties"], _ = json.Marshal(fields)
 		if required {
 			handoff["description"], _ = json.Marshal(tool.ManagedDeliveryNativeFactHandoffTeaching)

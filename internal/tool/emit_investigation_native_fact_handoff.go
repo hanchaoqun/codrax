@@ -8,6 +8,7 @@ import (
 
 type completionNativeFactHandoff struct {
 	RuntimeMeasurements []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
+	AnswerDisplay       []types.AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
 	Interpretation      *string                                 `json:"interpretation"`
 }
 
@@ -20,7 +21,7 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 		return nil, nil
 	}
 	fail := func(issues ...nativeFactHandoffViolation) (*types.InvestigationNativeFactHandoff, error) {
-		return nil, managedDeliveryNativeHandoffError{required: required, violations: issues, choices: NativeFactHandoffChoices(ctx)}
+		return nil, managedDeliveryNativeHandoffError{required: required, violations: issues, choices: NativeFactHandoffChoices(ctx), displayChoices: NativeFactAnswerDisplayChoices(ctx)}
 	}
 	if p.Interpretation == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation", "missing_interpretation"})
@@ -28,7 +29,7 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if ctx == nil || ctx.Mutable == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})
 	}
-	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, Interpretation: *p.Interpretation}
+	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if view == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})
@@ -36,7 +37,42 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if _, ok := types.BindInvestigationNativeFactHandoff(h, view.RuntimeMeasurementContract); !ok {
 		return fail(nativeFactHandoffSelectionViolations(h, view.RuntimeMeasurementContract)...)
 	}
+	if len(h.AnswerDisplay) > 0 && contextFromBus(ctx).Err() != nil || !types.SealInvestigationNativeAnswerDisplay(h, nativeAnswerDisplayRequest(ctx), view.RuntimeMeasurementContract) {
+		return fail(nativeFactHandoffViolation{"native_fact_handoff.answer_display", "not_current_requested_selected_view"})
+	}
 	return h.Clone(), nil
+}
+
+func nativeAnswerDisplayRequest(ctx *types.BusContext) *types.RequestModel {
+	if ctx != nil && ctx.AnalysisIR != nil {
+		return &ctx.AnalysisIR.RequestModel
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		return ctx.Mutable.RequestModel()
+	}
+	return nil
+}
+
+// Match the existing bounded handoff roster, not a second guessed catalog.
+func NativeFactAnswerDisplayChoices(ctx *types.BusContext) []types.AnswerRuntimeMeasurementReceipt {
+	if ctx == nil || ctx.Mutable == nil || contextFromBus(ctx).Err() != nil {
+		return nil
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, r := range types.NativeAnswerDisplayChoices(nativeAnswerDisplayRequest(ctx), view.RuntimeMeasurementContract) {
+		allowed[r.ObservationID+"\x00"+string(r.View)] = true
+	}
+	var out []types.AnswerRuntimeMeasurementReceipt
+	for _, r := range NativeFactHandoffChoices(ctx) {
+		if allowed[r.ObservationID+"\x00"+string(r.View)] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // Diagnose only after the shared binder rejects. This is field-local feedback,

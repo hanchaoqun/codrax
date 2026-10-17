@@ -12,10 +12,11 @@ import (
 // from answer prose, model aggregate facts, or abbreviated display notes.
 // Tables contain the native producer's formatted values, not model inputs.
 type RuntimeMeasurementPublication struct {
-	Version       int                       `json:"version"`
-	ObservationID string                    `json:"observation_id"`
-	Source        ObservationSourceRef      `json:"source"`
-	Tables        []RuntimeMeasurementTable `json:"tables"`
+	Version               int                       `json:"version"`
+	ObservationID         string                    `json:"observation_id"`
+	Source                ObservationSourceRef      `json:"source"`
+	Tables                []RuntimeMeasurementTable `json:"tables"`
+	answerDisplayIdentity string
 }
 
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
@@ -153,7 +154,9 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 // coalesced; conflicting publications withhold all views of that observation.
 // No values are merged across queries or sources.
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
-	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(collectRuntimeMeasurementPublications(input))}
+	publications := collectRuntimeMeasurementPublications(input)
+	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(publications)}
+	out.answerDisplayIdentities = nativeAnswerDisplayPublicationIdentities(publications)
 	out.qualifyNativeDisplayDimensions(input.RequestModel)
 	if !out.Active() {
 		return nil
@@ -211,6 +214,12 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				if !result.ReusedFromRunMemo {
 					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)
 					qualifyRuntimeBusinessMeasurementIdentity(&p, r, original, result.TraceQueryWindowReplay)
+					if !supplementary {
+						boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
+						if boundOriginal == original {
+							qualifyNativeAnswerDisplayPublication(&p, original, replay, requested)
+						}
+					}
 				}
 				publications = append(publications, p)
 			}

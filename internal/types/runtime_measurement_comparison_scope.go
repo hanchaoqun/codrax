@@ -46,33 +46,41 @@ func RuntimeResourceSupplementaryQueryCurrent(input ObservationLedgerInput, resu
 // The original input comes from a current private prepared/replay receipt,
 // not SourceRef display strings, model parameters or a derived-file basename.
 func runtimeMeasurementOriginalSource(input ObservationLedgerInput, result ToolResult, source ObservationSourceRef) string {
+	original, _ := runtimeMeasurementOriginalSourceReplay(input, result, source)
+	return original
+}
+
+// Return the same validated private witness with its original input. Native
+// display cannot infer a different replay lane from visible source strings.
+func runtimeMeasurementOriginalSourceReplay(input ObservationLedgerInput, result ToolResult, source ObservationSourceRef) (string, TraceQueryWindowReplayRef) {
 	consumer := input.runtimeMeasurementPairConsumer
 	if consumer == nil {
-		return ""
+		return "", TraceQueryWindowReplayRef{}
 	}
 	ref := result.TraceQueryWindowReplay
 	if nav := ref.preparedSource; nav != nil {
 		path, _, current := consumer.resolveTracePreparedQuerySource(context.Background(), nav)
 		if current && nav.material != nil && path == source.Path {
-			return runtimeMeasurementBoundOriginalSource(input, nav.material, nav.material.SourcePath())
+			return runtimeMeasurementBoundOriginalSource(input, nav.material, nav.material.SourcePath()), ref
 		}
-		return ""
+		return "", TraceQueryWindowReplayRef{}
 	}
 	if nav := ref.nativeNavigation; nav != nil {
 		path, _, current := consumer.resolveTracePreparedQuerySource(context.Background(), nav)
 		if current && path == source.Path {
-			return runtimeMeasurementBoundOriginalSource(input, nav.material, path)
+			return runtimeMeasurementBoundOriginalSource(input, nav.material, path), ref
 		}
-		return ""
+		return "", TraceQueryWindowReplayRef{}
 	}
 	path, _, current := consumer.ResolveTraceQueryWindowReplay(ref)
 	if !current {
-		path, _, current = consumer.ResolveTraceQueryWindowReplay(result.TraceStatistics.replay)
+		ref = result.TraceStatistics.replay
+		path, _, current = consumer.ResolveTraceQueryWindowReplay(ref)
 	}
 	if current && path == source.Path {
-		return path
+		return path, ref
 	}
-	return ""
+	return "", TraceQueryWindowReplayRef{}
 }
 
 func runtimeMeasurementBoundOriginalSource(input ObservationLedgerInput, material *attachment.TraceMaterial, original string) string {

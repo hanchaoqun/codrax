@@ -6,15 +6,24 @@ import "strings"
 // interpretation. It contains no copied measurements or evidence permission.
 // JSON retains intent for audit only; every consumer rebinds current sources.
 type InvestigationNativeFactHandoff struct {
-	RuntimeMeasurements []AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
-	Interpretation      string                            `json:"interpretation"`
+	RuntimeMeasurements   []AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
+	AnswerDisplay         []AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
+	Interpretation        string                            `json:"interpretation"`
+	answerDisplayBindings map[string]string
 }
 
 func (h *InvestigationNativeFactHandoff) Clone() *InvestigationNativeFactHandoff {
 	if h == nil {
 		return nil
 	}
-	return &InvestigationNativeFactHandoff{RuntimeMeasurements: cloneMeasurementMemberSetSelections(h.RuntimeMeasurements), Interpretation: h.Interpretation}
+	out := &InvestigationNativeFactHandoff{RuntimeMeasurements: cloneMeasurementMemberSetSelections(h.RuntimeMeasurements), AnswerDisplay: cloneMeasurementMemberSetSelections(h.AnswerDisplay), Interpretation: h.Interpretation}
+	if h.answerDisplayBindings != nil {
+		out.answerDisplayBindings = make(map[string]string, len(h.answerDisplayBindings))
+		for key, value := range h.answerDisplayBindings {
+			out.answerDisplayBindings[key] = value
+		}
+	}
+	return out
 }
 
 type investigationNativeFactCompletion struct {
