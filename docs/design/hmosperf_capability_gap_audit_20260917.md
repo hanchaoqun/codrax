@@ -9245,3 +9245,67 @@ B PID29857/恢复子39280，UTC06:29:56.796619–06:31:45.844485，exit0，原�
 UTC06:46:20.974147封存：54份既有材料前后不变，55份过程凭证＋实际冻结CLI＋39份A最终/查询/准备原件，共95件逐字节复制；149文件SHA索引`30241c53e1ea17d89bd1db71f10f6e1ca368e8a1670141c083b05f34b941c85e`，归档收据SHA`016a331e8ca74d22a951a3b2a10ee8f1f2904b93a2afa7993270f29a870f6dff`另存避免自循环。两份独立人工原文、实际finalizer完整日志、旧/新失败与真实查询均保留；未读取或复制provider凭据。
 
 代码`615e2a57e670f8e2bc30003e48affff6879e3fec`已普通推送；push PID19603，UTC06:46:47.023246–06:46:54.808802，exit0，日志SHA`aff45a3ae6508e33af6b9f153b70b75058e326d46ed8ecfd6b11c4ca2311f525`，推后origin/main...HEAD为0/0。文档另笔收尾，发布凭证独立存放，不改已封SHA索引或冻结源码。收尾仍79唯一/24交付/55开放；本批生产子能力1组，不宣称关闭完整17.6。
+
+## 263. 精确ZIP成员到正常查询及运行时路径教学（2026-10-19，子能力已交付，人工1/2）
+
+### 263.1 基线、参考意图与有界交付
+
+起点`2a8d8863d`工作区干净且远端一致；79唯一、重复0＝24已交付＋55开放（33待实施/15部分实施/3待验收/3验收中/1持续执行）。上批人工1/2与旧采样解释FAIL保原，不因正确取数销语义债。
+
+能力轨归17.6：已有高级convert可精确选ZIP成员，但正常source=path没有该交接；同外层不同成员还需独立准备/缓存/查询/执行身份，不能只加参数字段。新的成员选择只表达对象，不产生查询/执行/时钟/因果权限。保持未选歧义、非ZIP字段不静默忽略、源代次全局固定、不同成员并发及取消隔离，原普通Prepare调用兼容。
+
+主控重新实际读取参考`server.py::get_hitrace_path`候选路径/名称/大小列表，`_first_trace_in_dir`和`convert_hitrace_to_sqlite`的排序首项/mtime复用，以及`core/hiperf_converter.py`的server/preprocess共用core封装。借鉴发现与执行分层、统一准备，不能复制首项猜选、同stem覆盖或mtime证明，也不声称参考仓有可搬用ZIP API。相同字节的不同成员仍是不同选择，不能当两份独立设备捕获或合并统计。
+
+缺陷轨归16.4/16.5：上一批实际finalizer把有限运行时调用栈要求投成源码关系路径，当前helper只在root-cause family走runtime教学。先公开复现后修复同一共享选择，保留mixed/current_source真实源码义务、Trace因果投影/链上资格与独立业务线索；不为“系统调用”句子设计关键词硬门。
+
+固定两例并行各一次，先相关正反/race，冻结后统一全仓；A自然命名ZIP路径＋精确成员，启动时不附加歧义ZIP、不由operator预选；B真实父/planner/独立恢复子只读登记。真实PERFILE2原件SHA与12000/1393/164/259独立oracle复核，人工包有两个不同目录的同字节副本，只是一份采集。采样结论、最终状态、正文/表/图和实际上下文独立审计，失败保留，不追加第三例追绿。
+
+### 263.2 实现、公开反例与边界
+
+新增可选`TraceInputSelectionPreparer.PrepareSelection`，正常`trace_query`把原件与`archive_member`交给共享准备；现有path-only调用兼容，不能静默忽略不支持的选择。成员缓存和物理源守卫分离，同物理输入串行、同选择复用、兄弟失败隔离；新遇到的陈旧别名亦固定，不允许之后换向救回。原件换代使同包所有选择无效，坏派生A不污染健康B；显式成员/派生查询不能把裸ZIP当无选择别名。原完整目录、CRC、预算、取消、解码、发布/清理合同保留，没有新decoder。
+
+执行目录按外层物理代次绑定，每次计划保实际成员，自动唯一选择也披露成员而不改原无选择计划。已有派生窗口重放保来源；双侧工具量测逐侧成员独立。公开测试又发现实际bundle叶与manifest不同造成成功量测失配：完整准入后封存systrace/perftrace叶集合，工具与结果状态统一读取这一私有归属，JSON/普通binding/原始二进制不获权。普通文本提升sibling bundle是否还缺归属仅待公开复现，不冒称已证故障。
+
+已有typed trace命名路径在进入探索前path-only准备会被多成员歧义挡住；仅唯一生产者`multiple_trace_members`错误转为pending导航，错误join/取消/其它失败不软化。pending不算ready，比较中pending+fatal且无成功侧仍失败。公开Run使用typed carrier或预先接受的trace profile，**不能证明generic ZIP自然入口**；本批A正是该更上游缺口。
+
+运行时路径资格保原root-cause分支，另按已接受bounded fact任务、共享源码权威和source/window/target投影后可寻址原生记录支持运行时关系教学。保独立源码outcome、精确file:line、显式维度文件绑定和source-location义务；空投影不从其它ledger补权。初始/修复、中英文同源，不再要求原生栈伪造源码call锚；仅展示已有关系/帧序，单帧不造祖先，采样不升执行或因果。未扫描问答原文，不改链上根因/业务线索。
+
+开发失败完整保留：selector最初公开RED的tee外层未捕获Go退出码（日志Go FAIL明确，不补造receipt）；named RED-v1为并行构造期缺方法编译错，v2才是行为RED；runtime-path green-v1实际因精确源码负例失败，v2才通过。工具矩阵中错误EventCount断言与真正catalog/量测来源失败分列，不能都算生产bug或隐藏中间FAIL。最终相关race：公开成员29根/60含子项PASS、1opt-in默认SKIP；core29/53；typed命名12/39；runtime-path12/25。主控最后叶归属/准备/量测集成race正式exit0，最终保护测试亦exit0。更多精确命令/hash在归档的独立实施报告，不相加不同轮次数冒充唯一测试数。
+
+真实原件专项通过正常公开查询：同一PERFILE2完整副本在两个成员分别取得12000/164/259及164完整引用，CPU0/1分别82/82条、85/174权重、unknown类型。正式模型运输ZIP 6293172B/SHA`47b8c911c819cd03d02427ae8417d1a9559cef9e54160a5f860aec29c829112f`；原件30062585B/SHA`da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632`。独立参考parser确认12000全量/1393窗内/164目标/259权重，不注入模型。人工两成员只是选择隔离夹具，不是两次采集。
+
+### 263.3 同冻结双例与人工验收
+
+UTC07:21:21.538864评测冻结7116输入，SHA`3a07b05667d1ff5c113e748845a27f9d799c6aa55f8d0e2aaedb18f77a3f909e`；CLI SHA`d29bd694bc3b8c3c5d5736f657f5a339060f00de9f3d76317c5dc8e6719c1193`，B测试binary SHA`c3e1804a38124ecde4bbc115f6b3ac6b6f1899be86827444184df6d6229c6863`。生产代码与实际评测binary不变；随后只修一处旧测试schema字段清单，末版测试另冻v2（见263.5），不追第三例。
+
+A PID42835，UTC07:21:23.625568–07:25:26.568815，runner exit0但机器判卷FAIL（无成功trace_query、缺热点）。原日志SHA`f24941758df1826e7954d276d9f2957924c57a9dbefef9beb59afb22d46da077`。普通ZIP仅被探测为未知域容器，理由虽写artifact/optional，有效路由仍repo/required并注入source_explanation；探索没有trace_query面，目录发现因仓外边界拒绝。最终只有无法取得数据的说明，没有原生统计/热点/栈；人工完整入口FAIL。不能把该失败归因于selector字段、真实decoder或采样措辞波动，也不能为其放开任意仓外目录权限。调用栈被分析为member_set且未取得原生事实，本批relation_path新教学自然未命中，旧采样FAIL不销。
+
+B PID42950/恢复子51778，UTC07:21:24.694367–07:23:15.792537，exit0，日志SHA`6ae4b6aa999087ba719979586cb1476fdb75be5dce42c131aba95c84c9833981`，限定人工PASS。真实父控制器/planner/独立恢复子只读登记后新执行，当前1断言/2命令、累计2贡献报告/2结果/4命令一致；源/测试/HEAD不变，历史未验证尝试仍保原。父/子各7工件共14字节SHA、10canonical SHA、4最终说明→精确报告链接独立重算一致。旧final绑定`63c9…`保in_progress/weak，中间`042f…`保未验证，新complete/verified绑定`cdb9…`；真正WriteFinalReport与根目录ChangeReport快照分开。两次提前finish被控制层转为补证，只记效率观察。source-localization weak、apply-checkpoint unavailable边界保留，不扩签全能力。
+
+机器1/2、限定人工1/2；完整能力新增0，生产子能力2组，既有只读登记轮换验收1组。本批余下验收2组（generic ZIP自然入口；旧采样语义/未命中教学）归17.6/16.4/18.3，均含于55，不加重复编号。详见[汇总](../../eval/parallel_selected_summary_hmc_zip_member_selection_20261019.md)与[人工审计](../../eval/parallel_selected_summary_hmc_zip_member_selection_20261019_manual_audit.md)。
+
+### 263.4 下一优先级和未交付项
+
+先贯通用户命名ZIP的安全候选发现→typed导航→现有精确选择；参照参考候选清单的意图，复用现有全目录/封闭magic/有界探测，不按问句关键词或后缀授权限，不将候选、预览、裸ZIP当query-ready。自然问题只需成员和分析目标，不能让用户通过--htrace或“不要源码”等补偿系统交接。
+
+下一公开正反须覆盖候选→分类器与已接受任务→runtime admission两段：现命名内容准入仍要求结构化external-observation资格。日志只保raw_route，未保归一化前Source/CurrentSourceEvidenceMode，故reason与有效字段矛盾不能单凭该日志归罪模型或guard；不得解析reason补权，也不得因识别到ZIP候选取消用户独立要求的源码/mixed义务。
+
+随后为当前成功唯一成员建立自动补齐回接：现`RunTraceQuerySystemSupplement`无focus时空选择不能反查已选成员，保守skip不是可以取首缓存的理由；需公开RED，保存真实成功收据、来源/窗口，失败、仅准备、历史、换代或多选择仍不猜选。旧单源和显式窗能力通过保护矩阵，不将新多成员欠项说成原能力被删除。request-owned比较profile仍没有成员身份，不推造逐成员窗口；工具显式逐侧窗可用。
+
+目录计划独立复核同样保成员到精确`catalog_query_ref`回放；该回放带完整已声明参数，窗口正常。普通直接follow-up的显式多成员ZIP尚不因裸外层自动继承目录窗口，保守不借错成员；与成功选择回接一并留账，不宣称任意多成员隐式窗完成。
+
+普通文本promoted sibling量测归属先复现后决定，自动唯一与随后显式同成员重复准备只是可选缓存优化。更多真实RMQ/OHOSPROF/SIMPLEPERF、外部TS及原生平台仍缺证；参考Mac工具133B LFS指针不能当可执行工具。上述均归既有项，避免单题继续占用全轨。冻结全仓的正式退出、归档与提交推送结算见263.5–263.6，不以局部测试替代。
+
+### 263.5 全仓重验和版本边界
+
+首轮全仓PID42748，UTC07:21:22.309154–07:35:22.069639，正式exit1：95包PASS/13无测试包SKIP/1FAIL。唯一失败`TestHMC249CatalogPlanSchemaMirrorsOrdinaryQueryFields`要求审核新增字段；生产plan schema已自动复用`archive_member`类型/约束。复核其为逐候选的显式成员选择、不执行准备、不借裸ZIP授权后，只同步旧测试清单并增加合法成员/非法类型正反例，相关race正式exit0（日志SHA`9f08b1684be121f18c952766732d996359fe14d65817d02d3ed083353291a520`）。原全仓失败日志SHA`5737089703dd927a39a10958dab12d52b67f341deb034655881480a13f956091`与原测试字节保留，不抹成一次全仓成功。
+
+末版v2仍7116输入，仅`trace_catalog_plan_schema_hmc249_test.go`从SHA`04b7b805a352f6f080af69542389570326f8f57fb5b379d78b2eee5ba21bd8fd`改为`294a277eeeaacae54e3377f2a3e3623bed73cbf8dc691e005c8f61321b45d6f2`，冻结SHA`3504f7d6e1997fd8b8c65925ac92fa005f252b1053f7f77f248db79904ccbc7a`。生产代码、CLI、B实际测试binary、两例问题和原件全部未变；A/B仍是v1真实评测，不冒称v2重新模型回放。设置脚本首次内存键类型错误在写freeze前拒绝、未启动Go，修复后再冻结，操作错误亦留案。
+
+末版全仓PID50318，UTC07:43:18.355708–07:59:06.550572，正式exit0：96包PASS/13无测试包SKIP、零fail/非JSON行，包开始/终态完整吻合。21个HMC263新增根同次PASS，1个真实原件opt-in根默认SKIP，另有显式公开真实专项PASS。日志SHA`254ce14a6e34b973f65b617d2121e65080fa694b23da96670b81e70cf35fdcbf`。工具包打印PASS后仍等Go正式退出，未提前归档或将首轮FAIL改签。
+
+### 263.6 原件封存与发布
+
+UTC07:59:22.307982封存：54份既有材料前后不变；76份过程凭证、实际冻结CLI、正式输入ZIP及95份实际A答案/工具/状态原件，共173件逐字节复制。227文件SHA索引`114719ff58f5a5fec617567c6203bae41a1ca78c45bd5a8aea5cfb63d8c5336b`；归档收据SHA`19dc72c7f4f5982ac902ea81e946bdbc2baac835132ef7c9d8214fdcda2d787c`另存避免自循环。正式两例日志/问题/原件、独立人工报告、原失败与修后测试均保留；不读取或复制provider凭据。源码和评测输入前后再验，发布凭证独立保存，不改封存索引。
+
+代码`1d4fbf2b9c63d162be838880b88dd2b45d29a4a0`已普通推送；push PID34578，UTC07:59:41.840937–07:59:48.782283，exit0，日志SHA`a598e8dbba09d65785cc6dfebee89438d4cbd44d6f35331aa1da210a07eaa6e2`，推后origin/main...HEAD为0/0。文档另笔结算，最终远端/工作区凭证落`publication-receipts-v1/publication-v1.json`。收尾仍79唯一/24交付/55开放；完整能力新增0、生产子能力2组，本批欠项2组保原，不关闭17.6/18.3父项。
