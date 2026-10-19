@@ -9347,3 +9347,53 @@ B只读登记限定人工PASS：真实父/planner/独立恢复子，当前1条�
 UTC08:40:50.800735封存：54份原材料前后不变；93份过程凭证、实际冻结CLI、正式ZIP及137份A最终/运行blob，共232件逐字节复制。286文件SHA索引`8a076cd64c07bf7f9a9f1a1ac5c9f4ab82f755a14f37635e3b33aa16182ac041`，归档收据SHA`87a56d6df0b4e6517a7dfea6e3b64ee428389f7615fddfcff098cb5178c0c55c`另存避免自循环。A完整人工报告SHA`3d0238022be08a00fc2d08fb6c7fc433ac7ff59d913f816fb03dbf285cec5339`；B限定人工报告SHA`d4d91d2ebd945ab837a8b900288b0ddc0129f137e49a5aa3b7012a841eda7800`。失败工具调用、实际finalizer上下文与旧未验证执行保原；未读取或复制provider凭据。
 
 代码`864f4922bfbb7f5f4b5bd43e507bfd70e82f7dc4`已正常推送，push PID20121、UTC08:41:15.672248–08:41:26.499686、exit0，日志SHA`b940f52e7127031ba08f8888524b104af9845bc7c3c5114895d16770faaf926b`，推后origin/main...HEAD为0/0。文档分笔发布，最终远端/clean收据单独落`publication-receipts-v1/publication-v1.json`，不改封存索引。收尾仍79唯一/24交付/55开放，完整能力新增0、子能力2组、剩余验收2组，不关闭17.6/18.3。下一批导航/源码义务正交方案和普通文本sibling归属待证明候选已归档；后者未公开证实，不冒认新缺陷。详见[汇总](../../eval/parallel_selected_summary_hmc_zip_navigation_supplement_20261019.md)和[人工审计](../../eval/parallel_selected_summary_hmc_zip_navigation_supplement_20261019_manual_audit.md)。
+
+## 265. 命名材料入口与来源/执行状态分层（2026-10-19，子能力已交付，人工1/2）
+
+基线`2a0ac2787dc16f237fcfa158f906742487c17007`干净且远端一致；79唯一/24交付/55开放，重复0。保§264的自然A完整FAIL与旧采样语义欠项，不把正确候选发现或成功选择账当作自然全链路交付。
+
+主控重新读取参考`server.py::get_hitrace_path`和`core/hiperf_converter.py`：前者只发布候选路径/数量，后者共享真实转换和异常出口；可借鉴发现与执行分层，不能照搬扩展名/首文件/mtime或工具存在即成功。本项目优先解耦安全查询导航与源码义务，保持真实查询完整材料验证及现有强准备策略，不为源码-only的坏fixture强制解码。
+
+上批实际finalizer误导已定位到共享提示接缝：combined proof字段原义是来源/源码车道状态，不是目标查询完成；RuntimeObservation可合法来自read_file，计数不能冒充调用次数。成文读者卡还仅因ledger非空而展示请求的等待family。另StableAbsent摘要被无条件教成已验证no-hit，目录范围拒绝和不可用工具没有清楚区分文件可读性。按typed生产记录和已验证事实分层修复软交接，不改合法日志/MCP/源码完成硬门，不扫描用户/模型原文。
+
+### 265.1 泛化实现与确定性证据
+
+能力轨保强准备predicate不变，只将有界精确命名probe/可选导航与源码排除policy分开；通用Explorer复用原受限工具面和同一导航。最多8原件/共2秒可选probe，不递归外部父目录、不准备或宣称ready。真实mixed仍保源码证据，source-only提及坏fixture不强制解码；实际查询继续精确成员、CRC和来源代次准入。初始分类schema/教学只区分运行时调用栈与独立当前实现解释，原确定性义务guard未改。
+
+缺陷轨共用来源/操作/事实交接：旧combined位保原类型逻辑但不再无条件教成就绪；计数明确是观察记录不是工具调用。存在性来自真实origin-specific记录而非充分性布尔，0/1/9个MCP等反例保留。原件读取、查询结果、其它runtime、日志/MCP/command各归原scope。仅实际state/wait/frequency事实产生有限卡，未显示不等于零，真零与其它原始结构字段不丢。Extractor/Finalizer共用最多12整行/16KiB历史操作JSON，完整路径/范围、去重/遗漏计数、不把历史读成功等同当前可读；不可用工具和目录范围拒绝来自typed元数据，不解析自由错误文。StableAbsent与reason仅作advisory，精确重复不重传。
+
+三轨正式公开RED保原；末版入口race58根/194含子、readiness相邻race46根/85含子、共享handoff三包相邻race均exit0。主控显式窗/业务窗、链上根因/频率见证/RMQ/L1保护exit0。正常classifier parser→Run→Explorer→真实原生工具的省略/default/allow三策略均通过；源码-only、成员错误/CRC/换代/取消负例保留。正常Run的accepted-completion确实执行root_cause_rank与critical_blocking_calls，精确沿用成功成员及0.95–1.05秒显式窗，模型调用账仍原1条；scripted分类不是自然模型验收。初版bounded/resource-pressure夹具已满足families而正确跳过，诊断保原、只修夹具，不放宽生产。
+
+### 265.2 固定真实双例与人工判定
+
+UTC09:39:15.417141冻结7136输入，清单SHA`62ed39fcb6abb48f62a1fe627dbde8d7ee82dcec4f5c594b03214ced457c5336`；CLI SHA`71a25a29b88a5c8c5cf49be76b76bc43541e29e32abcb7d7cdce7f6761eef716`、B实际测试binary SHA`503fe89db8654c805baebb46c76d85ac480d806db25f2d11fcb39e7fe2c8f4e6`。两例恰好各一次并行，不追加第三例。真实PERFILE2仍30062585B/原SHA不变，人工ZIP两成员是同一独立采集副本；独立参考parser得12000全量/1393窗/164目标/259权重、CPU0/1分别82/82记录和85/174权重，oracle未注入模型。
+
+A PID18964，UTC09:39:21.156521–09:42:42.435968，wrapper exit0不等于验收，机器和完整人工均FAIL；日志SHA`8b65617dd12e1a29e5150826f4a6bbc454fe6b0f7f70931e6579719e601cf68c`。自然分类artifact/optional/measurement、完整两成员导航及trace_query工具面实际命中，上批不可见缺口未复现。10调用＝2次current参数schema拒绝＋1次未选成员的multiple_trace_members被包装SourceUnavailable＋7次终止门拒绝；后续正确archive_member也未执行。0原生结果，补齐因错误终止分类skip；不能用公开直调或补齐回归代签自然完整入口。
+
+实际Finalizer显示query记录0、没有空事实卡，也明确absence仅工作流状态；但模型negative_observation仍被通用aggregate教学描述为verified zero，且内层待选原因未传到紧凑Repair区，最终无证要求转换格式/重采。不能归因decoder或权限失败，更不是已证模型波动。A本例read_file=0，目录操作被终止门前置拒绝，不能把上批读取成功或本批目录未执行当实际访问证据。无表/图、无原生CPU/权重/unknown/栈，旧采样解释FAIL保原。26次Explorer迭代、8完成拒绝、198秒/77771上下文估计只记效率，不新设硬门。独立人工报告SHA`1b26e918a46c42a5d90ec8f836e4c1fb91dc0dd9585519c5035e0f2b97b4afe3`。
+
+B PID18952/独立恢复子34390，UTC09:39:21.066276–09:41:35.982884，exit0，日志SHA`8aac690d11951feea85f28d13e2854e2e9ae6085a88ff961b74caa3a87377e2b`，限定人工PASS。当前1断言/2命令、累计2贡献报告/2结果/4命令与真实最终原件一致；operator1＋流程3＝4实际invocation不与7工件混计。父/子各7字节原件、5canonical、3精确verify refs、2final→report链接逐项复算；旧未验证attempt及旧in_progress final保原，新complete绑定新精确报告。HEAD/源/测试/clean匹配，6逻辑包五视图无增殖；一个merged物理ID规范化有明确记录，不谎称全阶段字面相同。仍有source-localization weak及apply-checkpoint unavailable，不扩签从零完整CLI或整18.4。独立人工报告SHA`56852d080132263d1a3392f051513ee9116c9659b3852cff96c995d0575d18bf`。
+
+### 265.3 测试口径修订与剩余ROI
+
+首轮全仓发现旧TestReaderFieldScopePublicNativeFiniteInstruction要求marker-only结果也生成state/wait/frequency卡。复核真实fixture只有事件marker，无这些量测；保其全部原生字段精度/身份/来源/非内部元数据/因果边界断言，只改空卡期望，并新增zh/en×fact/effect四个真实state、测得零wait和frequency正控。独立RED/GREEN及相邻race13根/35含子正式exit0，原首轮失败保留。UTC09:49:01.893441另冻v2，仍7136输入，仅此一测试文件不同，清单SHA`8906e9c5d0e80e1e27e122b96cc34fa09f791003eb824befc24bb9f9d9d780bc`；生产、CLI/B实际binary、两问和原件未变，不冒称v2重新模型回放。
+
+本批完整能力新增0、实施子能力2组（可选材料导航/源码职责正交；来源/操作/已产事实共享展示），剩余验收2组含于55，不重复编号。最高ROI先修共享准备producer的错误分型：唯一typed成员选择缺口走已有source-selection/recommended，而物理不可用、CRC/命名空间/代次/预算/取消及joined fatal不被降级；不要重置全局终止门或扫error字符串。公开Run应覆盖先歧义→正确选择→真正查询及同轮多调用，不能只测直调tool。
+
+第二轨修未执行/模型声明与真实空查询的同源教学和证据权限，不只再加一句提示；合法日志/MCP仍可在其scope表达真实无匹配。旧采样解释继续原FAIL，更多实机格式、外部TS、原生平台仍归17.6。失败原件、两份独立审计及参考设计见[批汇总](../../eval/parallel_selected_summary_hmc_named_query_obligation_20261019.md)和[人工审计](../../eval/parallel_selected_summary_hmc_named_query_obligation_20261019_manual_audit.md)。全仓正式收尾/封存/发布另记，不用中途包PASS预签。
+
+### 265.4 正式全仓与证据结算
+
+首轮全仓PID18953，UTC09:39:21.066271–09:54:13.954148，正式exit1：95包PASS/13无测试包SKIP/1FAIL，唯一失败根即旧reader-field测试及其4子例，无其它失败或非JSON行。JSONL SHA`62961be13698fd495a4710545d64b07423375c8ded62f4ecffbca519d09786ed`保原。v2只改测试期望和正控后统一重验，不重跑模型；独立冻结复核报告SHA`662eee3024032b94a80e7a7cf05b932792f93264c69b43c1aa44771c380fc28f`确认两版仅1测试不同，runner仅切冻结/全仓日志名并禁止live。
+
+推进效率复盘：冻结前readiness相邻选择器覆盖新HMC265、BoundedRuntimeFinalReader等，但漏了旧ReaderFieldScopePublicNativeFiniteInstruction，导致需要第二次全仓。后续冻结前把改动函数的旧公开调用方合同一并列入定向集，不能只按新批次或近似测试名选择；本次不为掩盖该成本删掉首轮FAIL或降低正控。
+
+独立效率复核SHA`ca82b1c5fc3b5e27806bd2143553d295177359ac08103321206149f9295a6938`记录首轮墙钟892.888秒、最慢tool包及重复源码遍历/类型检查候选。包并行、根含子，不能加总成可兑现提速；工具包摘要后90.064秒才有正式terminal，原因未证明，不猜CPU或泄漏。后续提效只优化同源码代次的枚举/不可变导入复用，保路径集合、全部self-red/正反和真实退出；本批未实施此优化、不抢占功能修复两轨。
+
+下一批两轨已形成只读设计并留原证，未当实现交付：typed选择恢复方案SHA`84886c843d05ae008cc7f6c7213b8b026d1ba4a6fc90ecfb0292c474ffe2e750`；未执行/模型零/真空结果的共享authority方案SHA`9988c38569f4dab23e6e478a0b4c82cc2355c379e40ae20e880083ddc26314e2`。后者对照参考query_engine实际fetch/empty与error分离，明确MCP没有统一count/complete不能造全集零、也不能删除合法返回原件；系统negative-proof补充仅列待公开RED风险，本次A没有触发，不冒认既发。
+
+末版全仓v2 PID3681，UTC09:54:26.818112–10:13:25.514744，正式exit0：96包PASS/13无测试包SKIP、零fail/非JSON行，17个HMC265新增根同次PASS。JSONL SHA`9ce1b63f889eb81da797966a10f09aa353e421e6d2de2b70733dd44f8d194f13`。仅测试文件修订，实际模型仍原v1；不把首轮FAIL改写成一次全仓通过。包摘要和进程正式退出分开等待，未用中途PASS截断。
+
+UTC10:13:49.487142封存：54份原材料前后不变；86份过程凭证/失败/审计/设计/测试binary、实际CLI和正式ZIP、35份真正A最终/完整blob/read-run，共123份逐字节复制。177文件SHA索引`9fdc4cf927fb642ceabfce7bb9fe2ed9d468a514d8833f028be46d2e5c3c8e8c`；归档收据SHA`44afacd106d3f746030a515164f8d0c92ee007ac74ca2b3360a546cfe580f80d`另存，不自循环。双冻结差异、两例真实并行/唯一收据和旧FAIL独立验证；未读或复制provider凭据，不以哈希代签语义。
+
+代码`5820b6f35be62082e4016af79dc7c51255d5e4bb`已正常推送，push PID98804、UTC10:14:10.744134–10:14:16.834735、exit0，日志SHA`bd185d0b1ee0b13037f0c9da5f778778348c8b25347d83e24eeab61443a5a784`，推后origin/main...HEAD为0/0。文档分笔发布，最终远端/clean凭证独立落`publication-receipts-v1/publication-v1.json`，不改封存索引。收尾79唯一/24交付/55开放，完整能力新增0、已交付子能力2组、剩余验收2组含于55；自然ZIP完整FAIL及旧采样FAIL不回签。
