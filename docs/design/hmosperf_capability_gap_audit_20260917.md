@@ -9309,3 +9309,41 @@ B PID42950/恢复子51778，UTC07:21:24.694367–07:23:15.792537，exit0，日�
 UTC07:59:22.307982封存：54份既有材料前后不变；76份过程凭证、实际冻结CLI、正式输入ZIP及95份实际A答案/工具/状态原件，共173件逐字节复制。227文件SHA索引`114719ff58f5a5fec617567c6203bae41a1ca78c45bd5a8aea5cfb63d8c5336b`；归档收据SHA`19dc72c7f4f5982ac902ea81e946bdbc2baac835132ef7c9d8214fdcda2d787c`另存避免自循环。正式两例日志/问题/原件、独立人工报告、原失败与修后测试均保留；不读取或复制provider凭据。源码和评测输入前后再验，发布凭证独立保存，不改封存索引。
 
 代码`1d4fbf2b9c63d162be838880b88dd2b45d29a4a0`已普通推送；push PID34578，UTC07:59:41.840937–07:59:48.782283，exit0，日志SHA`a598e8dbba09d65785cc6dfebee89438d4cbd44d6f35331aa1da210a07eaa6e2`，推后origin/main...HEAD为0/0。文档另笔结算，最终远端/工作区凭证落`publication-receipts-v1/publication-v1.json`。收尾仍79唯一/24交付/55开放；完整能力新增0、生产子能力2组，本批欠项2组保原，不关闭17.6/18.3父项。
+
+## 264. 命名ZIP安全导航与成功成员补齐（2026-10-19，子能力已交付，人工1/2）
+
+基线`bb3c321f9`干净，79唯一/24交付/55开放；§263普通命名ZIP完整FAIL及旧采样解释越权不回签。本批优先修复两段共享交接：安全候选→分类器/已接受任务→原生工具，以及真实成功查询→唯一当前成员→既有自动补齐。候选只是有界完整目录/内容探测的导航；真正查询继续完整准备，不能按后缀、reason或问答关键词升权限。成功成员账须进程内、随run epoch、抗历史截断、保多选择与源换代歧义。
+
+实际重新阅读参考`server.py::get_hitrace_path`的路径/名称/大小/数量候选和`core/hiperf_converter.py`共用core设计：借鉴发现先于执行、所有消费者复用准备；不复制目录取首项、扩展名授权、mtime缓存或从采样包络推采集覆盖。本批仍用同一真实PERFILE2采集的两个人工命名副本，不冒称新增设备采集。先公开RED/相关正反/race，冻结后全仓与两例并行真实评测；自然问题不加系统约束，原始失败证据保留，结果前不销账。
+
+### 264.1 已证共享缺口与实现
+
+公开RED分别证实：普通命名ZIP只被当未知容器；核心候选已有后，Explorer仍收不到精确名字/数量/完整性；正常成员查询成功后系统补齐仍是no_attached_trace。分别复用已有ZIP候选选择器、preflight JSON导航和当前run成功查询的私有准备材料，不增加解码器或取首项规则。
+
+核心探测仍先审整个目录，按实际压缩输入单成员1MiB/总8MiB预算读64字节前缀；输出最多64名/16KiB名字字节，完整数与预览分开，失败不发布半份库存。classifier与Explorer各32KiB encoded JSON预算、整记录省略；实际公开反例曾达283,549字节，不能只靠8文件上限。Explorer教学复用当前受限工具面，机械landing不再教不可用trace_query。原始分类枚举日志仅诊断，非法自由值写哨兵，不回灌route或从reason改义务。
+
+成功选择账为run epoch内常量内存：首个选择＋是否曾成功查询归档成员＋不可逆歧义；失败/取消/memo/历史JSON不登记。补齐区分从未选择、曾选但失效/歧义、有效唯一三态；后两种不能因旧结果裁剪或默认后缀筛选转选other.htrace。仍独立验证当前typed命名集合、原件/manifest/完整成员代次，普通裸ZIP不成为已选别名。显式附件、业务focus、双侧比较及请求窗口原合同保留，原生链上IO/业务和背景隔离回归通过。
+
+### 264.2 冻结与确定性验证
+
+核心末版race 33根/136含子通过事件；上层25根/80事件；补齐135根/236事件，三者均正式exit0。上层scripted classifier仅证明真实parser→Run→Explorer→准备/原生查询接线，不证明自然分类。根因selector、显式窗/业务窗、L1、目录schema与TraceDiag镜像保护另有正式exit0。原始RED、编译错误、清理后读取和多输入负控fixture修正分别保留，不能将测试修正记成新产品缺陷。
+
+UTC08:25:06.913456冻结7128输入，清单SHA`565762df5c86c78545a36840db9d2f3e2200862d45db545f205d22e919033065`；实际CLI SHA`24b0d49e72344d35d11a3553ad6c74f42d0546d6a246b18037cddc500ac7c37a`，B测试binary SHA`10876915fe2fb841fd0dab9c6a2f52468fbb3d62b405237ebfb7c7890bc13d7e`。正式两例各一次并行，之后未改生产/测试/问题或追跑第三例。同冻结全仓正式结果见264.4，未以包级中途PASS代替完整退出。
+
+### 264.3 真实双例与剩余范围
+
+A的wrapper退出0，但机器verdict与完整人工均FAIL：8次trace_query全部在工具不可见时被执行前拒绝，0次原生查询，系统补齐no_attached_trace。原始分类已是artifact/optional，却同时声明measurement+source_explanation，经确定性规则升为mixed/required；接受的analyzer未提供ExternalObservationPolicy，命名内容准入的既有policy前置与发布策略门阻断了导航/工具。不能把这个失败说成ZIP解码器不支持或仓外原件不可读。旧采样unknown→执行状态解释问题本例未取得原生事实，继续原FAIL，不用未触发倒签。
+
+实际finalizer上下文还有同组交接偏差：deterministic_runtime_queries=0时仍见combined_ready=true，分页read_file等runtime观察不能证明目标采样查询完成；读者事实卡误带目标调度等待清单，absence摘要把工具不可见泛化为仓外文件不可访问。最终正文又从符号库存推已包含采样帧，超出本次解析事实。均归已有16.4/18.3，不新增重复任务，不按正文关键词裁剪。保留134份实际blob（8份trace_query参数、0份原生结果）和真正MD/HTML/sidecar；下一入口修复同时区分发现、读取、准备、查询和成文所需事实的状态，不用一个ready汇总抹掉真实阻塞。
+
+B只读登记限定人工PASS：真实父/planner/独立恢复子，当前1条断言结果/2命令，累计2贡献报告/2结果/4命令；准备1＋流程3共4真实invocation与7工件数分开。父子各7原件、5 canonical、2精确final links均复算一致；旧proof-repair仍unverified，旧source final仍in_progress，当前HEAD和源/测试散列及全工作区clean匹配。该例有操作者初始实现/旧结果，不声称从零完整CLI或整个18.4交付。
+
+完整能力新增0，实施子能力2组（安全候选/有界上下文导航；成功唯一成员/抗歧义补齐），本批剩余验收2组（自然入口、历史采样解释）仍含于55。下一最高ROI先让精确已命名材料的安全原生读取导航与当前源码义务正交：保留真正源码/混合要求，但它不应吞掉独立材料入口；不能把所有源码问题变成强制准备，更不能从理由或问答关键词删义务。更多实机格式/版本、外部TS和原生平台仍开放，不在本采样句子上无限追绿。
+
+### 264.4 全仓、封存与发布
+
+同冻结全仓PID30549，UTC08:25:16.070029–08:40:40.336610，正式exit0：96包PASS/13无测试包SKIP，零fail/非JSON行，包开始/终态完整一致；18个HMC264新增根同次PASS。JSONL SHA`dc27c6f57d80240a5418c4846079900cb487bc2424db1d38a8571d8b1eeed9f5`。工具包先输出PASS后仍等待Go正式退出，未追加全仓或第三例模型调用。
+
+UTC08:40:50.800735封存：54份原材料前后不变；93份过程凭证、实际冻结CLI、正式ZIP及137份A最终/运行blob，共232件逐字节复制。286文件SHA索引`8a076cd64c07bf7f9a9f1a1ac5c9f4ab82f755a14f37635e3b33aa16182ac041`，归档收据SHA`87a56d6df0b4e6517a7dfea6e3b64ee428389f7615fddfcff098cb5178c0c55c`另存避免自循环。A完整人工报告SHA`3d0238022be08a00fc2d08fb6c7fc433ac7ff59d913f816fb03dbf285cec5339`；B限定人工报告SHA`d4d91d2ebd945ab837a8b900288b0ddc0129f137e49a5aa3b7012a841eda7800`。失败工具调用、实际finalizer上下文与旧未验证执行保原；未读取或复制provider凭据。
+
+代码`864f4922bfbb7f5f4b5bd43e507bfd70e82f7dc4`已正常推送，push PID20121、UTC08:41:15.672248–08:41:26.499686、exit0，日志SHA`b940f52e7127031ba08f8888524b104af9845bc7c3c5114895d16770faaf926b`，推后origin/main...HEAD为0/0。文档分笔发布，最终远端/clean收据单独落`publication-receipts-v1/publication-v1.json`，不改封存索引。收尾仍79唯一/24交付/55开放，完整能力新增0、子能力2组、剩余验收2组，不关闭17.6/18.3。下一批导航/源码义务正交方案和普通文本sibling归属待证明候选已归档；后者未公开证实，不冒认新缺陷。详见[汇总](../../eval/parallel_selected_summary_hmc_zip_navigation_supplement_20261019.md)和[人工审计](../../eval/parallel_selected_summary_hmc_zip_navigation_supplement_20261019_manual_audit.md)。
