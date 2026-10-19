@@ -311,6 +311,9 @@ func preparationDirectoryEntry(ctx context.Context, parent, name string) (string
 	}
 	dir, err := os.Open(parent)
 	if err != nil {
+		if os.IsPermission(err) {
+			return preparationSearchOnlyDirectoryEntry(ctx, parent, name, wanted)
+		}
 		return "", fmt.Errorf("trace source identity requires listing parent directory %q: %w", parent, err)
 	}
 	defer dir.Close()
@@ -369,6 +372,9 @@ func preparationDirectoryEntry(ctx context.Context, parent, name string) (string
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {
+				if os.IsPermission(readErr) {
+					return preparationSearchOnlyDirectoryEntry(ctx, parent, name, wanted)
+				}
 				return "", fmt.Errorf("trace source identity requires listing parent directory %q: %w", parent, readErr)
 			}
 			break

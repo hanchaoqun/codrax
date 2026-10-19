@@ -744,10 +744,15 @@ func TestCoordinatorReadOnlyListableInputRemainsSupported(t *testing.T) {
 	}
 }
 
-func TestCoordinatorSearchOnlyParentReportsIdentityPermissionBoundary(t *testing.T) {
+func TestCoordinatorSearchOnlyHardlinksReportIdentityPermissionBoundary(t *testing.T) {
 	opts, source, original := coordinatorFixture(t)
 	opts.RuntimeAnchor = t.TempDir()
 	dir := filepath.Dir(source)
+	// A native vnode name can select another hardlink. Unlike a single-link
+	// named file, this still needs enumeration to prove the exact entry.
+	if err := os.Link(source, filepath.Join(dir, "independent.sys")); err != nil {
+		t.Skipf("hardlink unavailable: %v", err)
+	}
 	if err := os.Chmod(dir, 0o100); err != nil {
 		t.Skipf("host cannot set directory search-only permissions: %v", err)
 	}
@@ -764,7 +769,7 @@ func TestCoordinatorSearchOnlyParentReportsIdentityPermissionBoundary(t *testing
 	}
 	c := NewCoordinator(opts)
 	m, err := c.Prepare(context.Background(), source)
-	if m != nil || err == nil || !strings.Contains(err.Error(), "trace source identity requires listing parent directory") || len(c.PreparedMaterials()) != 0 {
+	if m != nil || err == nil || !strings.Contains(err.Error(), "trace source identity cannot resolve search-only parent") || len(c.PreparedMaterials()) != 0 {
 		t.Fatalf("search-only identity uncertainty was hidden or misclassified: %v %v", m, err)
 	}
 }
