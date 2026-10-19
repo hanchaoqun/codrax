@@ -275,6 +275,7 @@ func preserveRegistrationRestartAudit(t *testing.T, workDir, out string) {
 
 func saveRegistrationRestartAudit(t *testing.T, input registrationRestartInput, mu *types.MutableState) {
 	t.Helper()
+	defer preserveRegistrationChildDeliveryArchive(t, input, mu)
 	gitRead := func(args ...string) (string, error) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = input.Root

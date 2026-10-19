@@ -138,9 +138,12 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 		// These are independent child snapshots, including failure states. The
 		// parent mutable state below may still precede restore after a Fatal.
 		preserveRegistrationRestartAudit(t, o.busCtx.WorkDir, out)
-		preserveRegistrationReportArchive(t, o.ensureChangeReportDir(), out, o.busCtx.Mutable.WriteWorkflowRun())
+		preserveRegistrationReportArchive(t, o.ensureChangeReportDir(), out, o.busCtx.Mutable.WriteWorkflowRun(), o.busCtx.Mutable.ChangePlan())
 		save("final-plan.json", o.busCtx.Mutable.ChangePlan())
+		// Compatibility snapshot only; actual WriteFinalReport bytes and links
+		// live in the typed artifact manifest, never in this ChangeReport alias.
 		save("final-report.json", o.busCtx.Mutable.ChangeReport())
+		save("current-change-report.json", o.busCtx.Mutable.ChangeReport())
 		save("workflow.json", o.busCtx.Mutable.WriteWorkflowRun())
 		for _, name := range []string{"value.py", "test_value.py"} {
 			data, err := os.ReadFile(filepath.Join(o.busCtx.RepoRoot, name))
