@@ -39,19 +39,28 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			break
 		}
 		b.WriteString(header)
-		paths := map[string]string{}
+		issueRows, issuesShown := 0, 0
 		for _, a := range s.Artifacts {
-			paths[a.ID] = a.Path
 			if len(a.Issues) > 0 {
+				issueRows++
 				row, _ := json.Marshal(map[string]any{"source": a.Path, "input_status": a.Status, "issues": a.Issues})
-				if b.Len()+len(row) < 24<<10 {
+				if b.Len()+len(row)+1024 < 24<<10 {
 					b.Write(row)
 					b.WriteByte('\n')
+					issuesShown++
 				}
 			}
 		}
+		if issueRows > issuesShown {
+			fmt.Fprintf(&b, "input_issue_records_displayed=%d omitted=%d; see full catalog status.\n", issuesShown, issueRows-issuesShown)
+		}
 		if selection, ok := c.Representatives(); ok {
-			if section := formatTraceCatalogRepresentatives(selection, (24<<10)-b.Len()); section != "" {
+			remaining := (24 << 10) - b.Len() - 256
+			reserve := 0
+			if len(selection.NewQueryIDs) > 0 {
+				reserve = min(8<<10, remaining/3)
+			}
+			if section := formatTraceCatalogRepresentatives(selection, remaining-reserve); section != "" {
 				b.WriteString(section)
 			} else {
 				fmt.Fprintf(&b, "Representative comparison omitted by context budget; use trace_catalog with action=representative_status and catalog_id=%q.\n", s.ID)
@@ -59,22 +68,17 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			if b.Len() > 24<<10 {
 				break
 			}
+			if len(selection.NewQueryIDs) > 0 {
+				ids := map[string]bool{}
+				for _, id := range selection.NewQueryIDs {
+					ids[id] = true
+				}
+				b.WriteString(formatTraceCatalogQueryNavigation(execution, ids, (24<<10)-b.Len()-256, "outside_selection_queries"))
+			}
 			continue
 		}
-		shown := 0
-		for _, q := range s.Queries {
-			if shown >= 16 {
-				break
-			}
-			row, _ := json.Marshal(map[string]any{"source": paths[q.ArtifactID], "query": q, "query_origin": execution.QueryOrigins[q.ID]})
-			if b.Len()+len(row) > 24<<10 {
-				break
-			}
-			b.Write(row)
-			b.WriteByte('\n')
-			shown++
-		}
-		fmt.Fprintf(&b, "query_records_displayed=%d omitted=%d; trace_catalog(action=status,catalog_id=%q) pages the full directory.\n", shown, len(s.Queries)-shown, s.ID)
+		b.WriteString(formatTraceCatalogExecutionGroups(execution, min(8<<10, ((24<<10)-b.Len()-256)/3)))
+		b.WriteString(formatTraceCatalogQueryNavigation(execution, nil, (24<<10)-b.Len()-256, "query_records"))
 		if len(s.Queries) == 0 {
 			b.WriteString("No expected object queries were registered; discovery alone does not mean any candidate was analyzed.\n")
 		}
@@ -82,5 +86,53 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			break
 		}
 	}
+	return b.String()
+}
+
+func formatTraceCatalogExecutionGroups(e tracecatalog.ExecutionView, budget int) string {
+	if budget < 512 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Exact specification groups count query records and attempts, not runtime events or completed captures; source identity remains local to every member.\n")
+	groups, shown := e.SpecificationGroups(), 0
+	for _, group := range groups {
+		row, _ := json.Marshal(group)
+		if shown >= 16 || b.Len()+len(row)+256 > budget {
+			continue
+		}
+		b.Write(row)
+		b.WriteByte('\n')
+		shown++
+	}
+	fmt.Fprintf(&b, "execution_groups_displayed=%d omitted=%d; full current counts above are not reduced by this preview.\n", shown, len(groups)-shown)
+	return b.String()
+}
+
+func formatTraceCatalogQueryNavigation(e tracecatalog.ExecutionView, ids map[string]bool, budget int, label string) string {
+	if budget < 512 {
+		if budget < 128 {
+			return ""
+		}
+		return "Query navigation omitted by context budget; use trace_catalog status for exact current query calls.\n"
+	}
+	var b strings.Builder
+	b.WriteString("query_call is unchanged trace_query arguments for normal admission, not automatic execution. Attempt history is summarized; full errors/effective parameters remain in trace_catalog status and the saved index.\n")
+	total, shown := 0, 0
+	for _, query := range e.NavigationQueries() {
+		if ids != nil && !ids[query.Query.ID] {
+			continue
+		}
+		total++
+		row, _ := json.Marshal(query)
+		// An oversized complete record must not evict later independent work.
+		if shown >= 16 || b.Len()+len(row)+384 > budget {
+			continue
+		}
+		b.Write(row)
+		b.WriteByte('\n')
+		shown++
+	}
+	fmt.Fprintf(&b, "%s_displayed=%d omitted=%d; trace_catalog(action=status,catalog_id=%q) pages the full directory.\n", label, shown, total-shown, e.Snapshot.ID)
 	return b.String()
 }

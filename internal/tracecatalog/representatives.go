@@ -148,17 +148,10 @@ func (c *Catalog) SelectRepresentatives(ctx context.Context, options Representat
 		// Plans are canonicalized at registration. Source/path are already
 		// absent from public tool plans; strip only those exact top-level keys
 		// for generic callers, never filters, target kind, scopes or units.
-		args := map[string]json.RawMessage{}
-		if err := json.Unmarshal(q.Parameters, &args); err != nil {
-			return RepresentativeSnapshot{}, err
-		}
-		delete(args, "source")
-		delete(args, "path")
-		parameters, err := json.Marshal(args)
+		spec, err := querySpecification(q)
 		if err != nil {
 			return RepresentativeSnapshot{}, err
 		}
-		spec := QuerySpecification{Object: q.Object, View: q.View, Window: q.Window, Parameters: parameters}
 		id := digest("cluster_", spec)
 		if groups[id] == nil {
 			groups[id] = &representativeCluster{ID: id, Specification: spec, Skipped: map[string]string{}}

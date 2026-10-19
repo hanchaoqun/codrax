@@ -82,6 +82,8 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/tracecatalog", file: "query.go", fn: "validateCompletion", domain: outcomeDomainCatalog},
 	{dir: "internal/tracecatalog", file: "representatives.go", fn: "countRepresentativeMember", domain: outcomeDomainCatalog},
 	{dir: "internal/tracecatalog", file: "execution.go", fn: "CurrentExecution", domain: outcomeDomainCatalog},
+	{dir: "internal/tracecatalog", file: "execution_navigation.go", fn: "NavigationQueries", domain: outcomeDomainCatalog},
+	{dir: "internal/tracecatalog", file: "execution_navigation.go", fn: "SpecificationGroups", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "runtime_measurement_acquisition_status.go", fn: "runtimeMeasurementAcquisitionSide", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
@@ -1011,6 +1013,8 @@ func TestExecutedCommandOutcomeConsumerCatalogDomainIsTyped(t *testing.T) {
 		{"internal/tracecatalog", "query.go", "validateCompletion"},
 		{"internal/tracecatalog", "representatives.go", "countRepresentativeMember"},
 		{"internal/tracecatalog", "execution.go", "CurrentExecution"},
+		{"internal/tracecatalog", "execution_navigation.go", "NavigationQueries"},
+		{"internal/tracecatalog", "execution_navigation.go", "SpecificationGroups"},
 	} {
 		for _, probe := range []struct {
 			name, body string

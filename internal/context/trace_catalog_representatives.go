@@ -17,7 +17,7 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 	var b strings.Builder
 	b.WriteString("Representative comparison — fixed query-plan selection, soft navigation priority only. Equal specifications do not establish common physical identity, clock, device or cause. Unselected or skipped members remain unassessed; empty, failure and pending are not interchangeable. Read actual query evidence for measurements.\n")
 	header, _ := json.Marshal(map[string]any{"selection_id": s.SelectionID, "options": s.Options, "coverage": s.Coverage})
-	if b.Len()+len(header)+512 > budget {
+	if b.Len()+len(header)+1024 > budget {
 		return ""
 	}
 	b.Write(header)
@@ -25,8 +25,8 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 	groups, members := 0, 0
 	for _, g := range s.Clusters {
 		row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "specification": g.Specification, "coverage": g.Coverage, "budget_skipped": g.BudgetSkipped})
-		if b.Len()+len(row)+512 > budget {
-			break
+		if b.Len()+len(row)+1024 > budget {
+			continue
 		}
 		b.Write(row)
 		b.WriteByte('\n')
@@ -35,8 +35,12 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 			if !m.Selected {
 				continue
 			}
-			row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "selected_member": m})
-			if b.Len()+len(row)+512 > budget {
+			rowData := map[string]any{"cluster_id": g.ID, "selected_member": m}
+			if m.SourceStatus != "stale" && m.SourceStatus != "unavailable" {
+				rowData["query_call"] = tracecatalog.QueryCall{Reference: tracecatalog.QueryReference{CatalogID: s.CatalogID, QueryID: m.QueryID}}
+			}
+			row, _ := json.Marshal(rowData)
+			if b.Len()+len(row)+1024 > budget {
 				continue
 			}
 			b.Write(row)
@@ -44,6 +48,25 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 			members++
 		}
 	}
+	// Keep unselected members visible as pending/failure/etc., never silently
+	// turn the fixed representative subset into the whole execution roster.
+	unselected, unselectedShown := 0, 0
+	for _, g := range s.Clusters {
+		for _, m := range g.Members {
+			if m.Selected {
+				continue
+			}
+			unselected++
+			row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "unselected_member": map[string]any{"query_id": m.QueryID, "path": m.Path, "source_status": m.SourceStatus, "selection_reason": m.SelectionReason, "outcome": m.Outcome, "attempt_count": m.Attempts}})
+			if unselectedShown >= 16 || b.Len()+len(row)+1024 > budget {
+				continue
+			}
+			b.Write(row)
+			b.WriteByte('\n')
+			unselectedShown++
+		}
+	}
+	fmt.Fprintf(&b, "unselected_member_records_displayed=%d omitted=%d; unselected is not unexecuted, empty or normal.\n", unselectedShown, unselected-unselectedShown)
 	call, _ := json.Marshal(map[string]any{"action": "representative_status", "catalog_id": s.CatalogID, "offset": 0})
 	fmt.Fprintf(&b, "comparison_groups_displayed=%d omitted=%d; selected_member_records_displayed=%d omitted=%d. Full selected/unselected/source-skipped membership and unmatched candidates: trace_catalog arguments %s. Navigation display omissions never mean runtime absence.\n", groups, len(s.Clusters)-groups, members, s.Coverage.Selected-members, call)
 	return b.String()
