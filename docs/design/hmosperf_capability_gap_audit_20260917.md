@@ -9397,3 +9397,53 @@ B PID18952/独立恢复子34390，UTC09:39:21.066276–09:41:35.982884，exit0�
 UTC10:13:49.487142封存：54份原材料前后不变；86份过程凭证/失败/审计/设计/测试binary、实际CLI和正式ZIP、35份真正A最终/完整blob/read-run，共123份逐字节复制。177文件SHA索引`9fdc4cf927fb642ceabfce7bb9fe2ed9d468a514d8833f028be46d2e5c3c8e8c`；归档收据SHA`44afacd106d3f746030a515164f8d0c92ee007ac74ca2b3360a546cfe580f80d`另存，不自循环。双冻结差异、两例真实并行/唯一收据和旧FAIL独立验证；未读或复制provider凭据，不以哈希代签语义。
 
 代码`5820b6f35be62082e4016af79dc7c51255d5e4bb`已正常推送，push PID98804、UTC10:14:10.744134–10:14:16.834735、exit0，日志SHA`bd185d0b1ee0b13037f0c9da5f778778348c8b25347d83e24eeab61443a5a784`，推后origin/main...HEAD为0/0。文档分笔发布，最终远端/clean凭证独立落`publication-receipts-v1/publication-v1.json`，不改封存索引。收尾79唯一/24交付/55开放，完整能力新增0、已交付子能力2组、剩余验收2组含于55；自然ZIP完整FAIL及旧采样FAIL不回签。
+
+## 266. ZIP选择恢复与未执行/真实零结果分层（2026-10-19，子能力已交付，人工1/2）
+
+基线`587855ba3c19e9758c808d37cfc2b540173a404b`，工作区干净且与origin/main及实际远端一致。独立核对79唯一/重复0＝24交付＋55开放；§265自然ZIP FAIL、旧采样越权FAIL和未触发范围保原。本批实施两组子能力，完整能力不提前销账。
+
+已证的第一处缺陷来自正常Run，不是converter能力不足：成员选择歧义被上层包装为物理SourceUnavailable，合法后续成员也被全局门拦截。修复位置应是共享准备错误分类，复用既有source-selection/recommended状态，不清终止锁、不以error文案猜可恢复性。唯一typed参数缺口可修复；没有候选、完整CRC/命名空间/代次/预算失败及混合fatal不能被降级。
+
+第二处是同源交接矛盾：上一批实际原生查询成功次数为0，模型negative_observation却被另一段教学/投影称为已验证零。缺失声明载体不等于执行凭证；模型kind/value/origin/provenance/角色都不能授零结果权限。真实原生零仍限其来源、过滤和窗口，成功日志/MCP返回的原件和坐标不因缺Trace查询而丢失。本批公开EmitAnswerDocument及Patch已复现runtime/MCP/VCS共6子例凭未执行声明生成“System-verified / 0 matches”补充，确定为系统缺陷；negative_search正控通过。此RED独立于上一批自然A，不能倒称旧A已经命中该补充。
+
+参考仓复核`server.py::get_hitrace_path`的候选路径/名字/数量，`core/hiperf_converter.py`服务器与预处理共用转换核心，以及`core/query_engine.py:283–342,540–604`实际execute/fetch后才判空、异常单列的设计。迁移分层意图，不复制首候选选择、后缀授权、mtime猜测、object row_count固定1或空结果中的推测性原因；未新加解码器、问答关键词门或因果权限。
+
+验证安排：先正常Run/真实工具公开反例、成文入口和系统补充反例，纳入直接旧消费者与真坏源/日志/MCP/source-negative正反，再冻结全仓。固定两例并行各一次：A自然命名ZIP指定成员采样，B轮换只读测试凭证登记终态。原问题、独立oracle和人工判定分离；共享测试资料只是同一真PERFILE2录制的两个命名成员副本，不冒称两设备或实机ZIP。实际结果见266.2，失败不销账。
+
+### 266.1 两轨实现与独立反例
+
+选择恢复只认共享producer的封闭错误类型和有界单因链，拒绝joined fatal/环/过深链；复用既有recommended选择修复通道，不改物理终止锁。正常Run/真实Explorer与原生查询RED→GREEN：跨轮、同批、非法成员语法和非ZIP移除selector共6种恢复，2种CRC坏源后访问健康邻居仍拒绝。每个成功恢复实调scheduler补齐，保请求[0.95,1.05]与模型查询[0.9,1.1]独立窗口，不能拿scripted LLM验收自然模型。直接旧消费者109根/race通过，4个环境/opt-in skip明确保留；取消、来源强代次、cache/singleflight、成员隔离及链上IO投影不降级。
+
+零结果轨修复3条实际RED链：公开emit/patch自动造系统零证明6子；编译ledger被伪origin/独立来源marker绕过4子；Claim Binding与aggregate相反地显示事实/历史级权限3子。编译器私有aggregate种类只用于展示/去重归属，原声明/ledger/执行门不变；模型副本不吞原生零，真正重复原生记录仍去重。schema、探索、空集合重试、aggregate、ledger/checkpoint和claim-binding共享同义教学，正常/patch不再替模型写“已验证0”。原生成功空查询保来源、谓词与窗口；负搜索合同及日志/MCP原件正控通过。
+
+冻结前纳入完整受影响旧文件根名单，避免上批漏选旧消费者导致全仓返工：types 273根、tool 720根、agent 44根的race闭包正式exit0。3个旧tool fixture只有模型字符串却期待系统verified补充，改为保原文/声明而不生成系统证明；原FAIL留存。独立公共阶段测试使用实际completion→ctxbuilder→Extractor/Finalizer，4根/13子PASS；早期夹具缓存/编译错误不计产品RED。既存Extractor未展示完整MCP正文、Finalizer已有原件展示的差异留HMC-01.3，不为新增期望扩协议或阻塞本批。
+
+构建后于UTC12:50:27.542562冻结7144输入；SHA`2871a98fcd8de8cc77d0ce6c7dc9897b10fef21b333db4a1ef37abfee1bbfef0`，实际CLI SHA`f9673e77fc4fc521268642892f4c6d440810285760db33bf29184e3eb39f55db`。仅一次全仓及A/B各一次并行，后续生产与测试不再修改。全部失败、正控、独立报告及正式进程收据已按266.4封存。
+
+### 266.2 真实双例与人工欠项
+
+A父PID17830/应用17880，UTC12:50:29.640282–12:52:39.126438、exit0，父日志SHA`d33f9101aa711563abc6c4263aea5731f5b2fad16e24b4d1f82741c64ffe3a85`。机器PASS、完整人工FAIL；自然命名ZIP首次即正确带archive_member，3次window_stats/perf_stats/process_profile全部真实成功，系统另实调1次同成员/线程/显式窗window_stats补齐。完整12000记录，而非预览代全集；perf_stats伴生采样树成功，不强求另调tree view。错误选择→重试、negative_observation→假零两个自然分支均未触发，公开Run/emit/patch回归不能替它们签自然PASS。
+
+独立参考parser确认1393窗内/164目标/259权重，CPU0/1分别82记录、85/174权重；最终正文/表格的分母、CPU、记录时刻包络和权重非耗时均正确。失败仍为旧解释越权：实际MD第19行及HTML/primary/principal把单帧depth=0说成“表明采样时…正处于内核中断上下文或回调函数的叶帧位置”；IP单帧与未知采样类型不能证明执行上下文或完整展开后的真实叶帧。末尾正确边界不抵消肯定断言，准确原生事实已到场，不能凭此断言只是模型波动。整题无图要求且实际无图，根因sidecar未激活，未升为链上根因。
+
+A完整独立审计SHA`36fbf0c89220161ef29c7b163d5a42bff03b77d249efe1b633b44abaff5e41c6`，实际最终MD SHA`52e416c2370747b40da868723da75bf47db610a3295adb56a420ac754ed919df`。4最终面、19blob、3准备产物和read-run共27份额外原件完整留存。旧采样FAIL继续16.4/18.3，不另建同句任务、不扫关键词门。
+
+B父PID17943/独立恢复子23962，UTC12:50:30.705354–12:52:03.301955、exit0，父日志SHA`deb763b66d34979b2b63a7153b293099ad223926405d1cc0ce33a04a3bec3172`，限定人工PASS。当前1断言/2命令，累计2贡献报告/2断言/4命令；实际operator准备1＋流程3＝4 distinct native invocation，与7工件分开。父子各7原件、5canonical、3attempt及2final→精确报告链接逐一复算；旧source final仍in_progress、旧proof-repair attempt仍unverified，当前完成只绑定当前真实执行。6逻辑上下文包内容保持，源码/测试不变且恢复Git clean；merged物理ID规范化不伪称全部字面不变。
+
+B独立报告SHA`8b43f87a0d45c19d772aaf42d93ecc558c02f1dec4f63a783a5711e30b32c3d9`。初始代码/应用/旧执行为operator准备，非从零完整CLI；源码定位weak与原apply_checkpoint_missing保留，不扩签整18.4。临时目录清理后使用精确归档映射，不许诺历史临时路径长期可读。两例恰好各一次并行、人工1/2，无第三例。
+
+### 266.3 剩余数量与下一ROI
+
+79唯一/24已交付/55开放不变；本批完整稳定任务新增0，系统子能力2组，人工剩余缺陷1组和自然未触发分支2条含于既有编号。下一能力轨优先17.6普通命名gzip的安全导航→既有完整准备/原生查询：当前gzip解码早已支持已知二进制，缺口候选在有界routing probe，不新写decoder、不先签任何gzip必失败，须先公开RED。
+
+高影响缺陷轨为01.3/16.4原生事实展示身份与查询凭证分离、跨块预算。本例3份原生树已精确去重成2份；残余仅请求thread selector及其派生cohort/node IDs不同，不能说完全没有去重，更不能按相等数值合并独立分母。保完整源代次、原生线程实例、精确窗、过滤/单位/成员/完整性与全部原refs，复用仅发生在可证明同一事实的展示层。
+
+实际峰值90280/200000 token发生在Explorer，初始Explorer已有73364、Analyzer已有60126；60000只是软成本警示，不是模型窗口或完成门。Finalizer用户材料124937B中树8228B、热点字段32655B、量测表及随后ledger46151B；重复/总成本已证，但尚不能证明它导致语义越权或仅去重就回到60000。初始schema/教学固定成本仍留账，不在单句上过拟合。下一只读ROI报告SHA`4138fd5cd4e9488674f1e52c5acc66759024efe5801b051d0e2a182cb8aec3a2`；更多真实格式/版本、外部TS、原生Linux/Windows须各自证据，不用合成或跨编译代签。详见[批汇总](../../eval/parallel_selected_summary_hmc_selection_recovery_zero_20261019.md)和[人工审计](../../eval/parallel_selected_summary_hmc_selection_recovery_zero_20261019_manual_audit.md)。
+
+### 266.4 正式全仓、封存与分笔发布
+
+同冻结全仓PID17746，UTC12:50:28.352010–13:05:49.224282，正式exit0：96包PASS/13无测试包SKIP、零fail/非JSON行，包开始/终态一一匹配；15个HMC266新增根同次PASS。JSONL SHA`9483acaba76427e95343007d506529c27e0043c69f3fb5471b8eebbade381521`。工具包摘要已PASS后仍等待Go正式退出，没有以中途摘要签终态或追加第三例模型。
+
+UTC13:06:13.807717完成封存：54份原材料前后不变；90份过程凭证/失败/审计/设计/测试binary、实际CLI、正式ZIP及27份A最终/运行原件，共119份逐字节复制。173文件SHA索引`b40f22c6a0b2efcf4602eaf32360cb8cee8b7681149cab34984e07fa9e01ed9c`；归档收据SHA`fd7b6b436201aaed4c270495629d5db1e7a82e645c1614124ee762f72dfc611c`另存避免自循环。冻结输入和实际binary复核不变、两例唯一且时间重叠，未读取或复制provider凭据。原始机器PASS与人工FAIL分别保原，不以哈希替代内容审计。
+
+代码`0313994d220c96d6482644b6a7bf03871b81e0f3`已正常推送；push PID5579、UTC13:06:34.796879–13:06:43.085274、exit0，日志SHA`baa95c37c8d92033e15a64ee2a5e94d6db903ad64bebb56a67340766d952b6a4`，origin/main...HEAD为0/0。文档分笔发布，最终远端/clean凭证独立落`publication-receipts-v1/publication-v1.json`，不改封存索引。收尾完整稳定任务新增0、已交付子能力2组、人工剩余1组及自然未触发2条含于55；不关闭17.6/18.3/16.4，不误销旧采样越权。
