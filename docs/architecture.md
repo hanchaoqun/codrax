@@ -1951,6 +1951,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 
 `ChangeReport.existing_test_executions` 是可选工具拥有字段，最多64条、每次最多512条断言摘要，绑定计划、当前交付、补丁指纹、候选、精确选择器、命令索引/摘要与目标文件SHA。消费时重新计算独立执行状态，过期或缺失凭证不能继承历史“已满足”；它不自动生成行为合同证明。部分跳过与真实失败保留原记录，未验证可沿原有透明 `unverified` 交付通道结束，但不能成为 `verified` 或成功测试结果。没有新执行工具或模型可填的结果入口。
 
+**验证报告原件与当前视图**：`internal/reportartifact` 将完整报告以 `<bounded-plan-stem>.<full-payload-sha256>.report.json` 不可变发布；同字节重存不更换文件代次，不同内容保留旧件。已有 workflow attempt 保存确切原件引用及 canonical 报告摘要，batch `VerifyRef` 选择当前版本；旧 `<plan>.report.json` 仍是完整 JSON 兼容视图，不作历史替代。恢复、历史证明和最终说明按引用、完整字节摘要、PlanID 与可用 canonical 摘要核对，缺失或错代明确不可用，不按同 PlanID、mtime 或路径猜最新成功。文件字节摘要、canonical 展示摘要与当前执行授权是三个独立域；留存不产生执行、合同证明或终态。报告原件与 Trace 原生结果共用 `internal/immutablefile` 的 no-replace 发布与稳定全文读取，当前兼容视图只从已验证原件独立原子发布。旧无摘要报告只供显式当前身份导航，不能伪作历史证据；旧件已覆盖时无法凭摘要还原全文。
+
 **补证计划与源码交付分离**：控制器将仍有效应用谱系中的原计划 ID、应用提交和完整补丁记录，深复制到 `CumulativeVerificationScope.applied_sources`，不把原补丁归属改写成当前补证计划，不复制任何旧执行结果。`ResolveVerificationDelivery` 只允许严格持久化的无源码变更补证计划消费唯一且完整的原交付；多来源、冲突、回滚或缺失保持未验证。原生 unittest 与 Python 目标执行共享调用期身份绑定，执行前后重新核对真实提交、差异及文件字节，并分别记录本次 `plan_id` 与原交付 `source_plan_id`；旧无来源字段收据只兼容自身交付，不得用于补证借用。验证流程也会填写 `AppliedAt`，它不是源码应用凭证。快照仅控制器拥有，不扩模型 JSON、应用权限或旧计划指纹；只读原生登记的独立授权与摘要见上文，不由此快照直接授予。原生执行成功不能代替逐合同验证。
 
 验证原因展示消费最终有效报告：`verification_incomplete` 表示必要执行或证明尚未齐全，不等于缺少运行器/依赖；保留已通过的局部检查，并提示在当前授权范围内补证。`run_tests` 摘要的原因取最终 `FailureReasonCode`，为空则省略，不固定写成修改路径未覆盖，也不从说明文字猜原因。真实运行环境失败、无测试和未尝试候选的原分支不变；展示修复不授予执行凭证、不改变验证结论。
