@@ -28,14 +28,18 @@ type Coordinator struct {
 	mu       sync.Mutex
 	opts     Options
 	convert  converter
-	ready    map[string]*coordinatedMaterial
+	ready    map[preparationKey]*coordinatedMaterial
 	aliases  map[string]string
 	inflight map[string]*preparationFlight
+	origins  map[string]*attachment.TraceMaterial
 }
 
+type preparationKey struct{ path, member string }
+
 type preparationFlight struct {
-	done chan struct{}
-	err  error
+	done   chan struct{}
+	err    error
+	member string
 }
 
 type coordinatedMaterial struct {
@@ -43,6 +47,8 @@ type coordinatedMaterial struct {
 	version         tracequery.TraceSourceVersion
 	sourceCanonical string
 	queryCanonical  string
+	requestedMember string
+	pending         *Preparation
 }
 
 func NewCoordinator(opts Options) *Coordinator {
@@ -51,10 +57,12 @@ func NewCoordinator(opts Options) *Coordinator {
 
 func newCoordinator(opts Options, convert converter) *Coordinator {
 	opts.InputPath = ""
+	opts.ArchiveMember = ""
 	return &Coordinator{
 		opts: opts, convert: convert,
-		ready: make(map[string]*coordinatedMaterial), aliases: make(map[string]string),
+		ready: make(map[preparationKey]*coordinatedMaterial), aliases: make(map[string]string),
 		inflight: make(map[string]*preparationFlight),
+		origins:  make(map[string]*attachment.TraceMaterial),
 	}
 }
 
@@ -103,6 +111,13 @@ func (c *Coordinator) PreparedMaterials() []*attachment.TraceMaterial {
 // converted capture into this Run's existing observations. No basename,
 // directory, extension or file-content heuristic merges capture identities.
 func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attachment.TraceMaterial, error) {
+	return c.PrepareSelection(ctx, attachment.TraceSelection{Path: absolutePath})
+}
+
+// PrepareSelection preserves the physical-source guard independently of the
+// member cache. Work on one archive is serialized, but separate members never
+// share results or failures. Query paths only accept a path-only request.
+func (c *Coordinator) PrepareSelection(ctx context.Context, selection attachment.TraceSelection) (*attachment.TraceMaterial, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -112,11 +127,18 @@ func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attach
 	if c == nil || c.convert == nil {
 		return nil, fmt.Errorf("trace input coordinator is not initialized")
 	}
+	if selection.ArchiveMember != "" {
+		if err := attachment.ValidateTraceArchiveMember(selection.ArchiveMember); err != nil {
+			return nil, err
+		}
+	}
+	absolutePath, member := selection.Path, selection.ArchiveMember
 	if filegeneration.IsWindowsNamedPipePath(absolutePath) || !filepath.IsAbs(absolutePath) {
 		return nil, fmt.Errorf("trace preparation requires an absolute regular-file path: %q", absolutePath)
 	}
 	path := filepath.Clean(absolutePath)
-	key := preparationPathKey(path)
+	pathKey := preparationPathKey(path)
+	key := preparationKey{pathKey, member}
 	canonical, err := preparationCanonicalPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -126,15 +148,19 @@ func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attach
 			return nil, err
 		}
 		c.mu.Lock()
+		if err := c.validateSourceSelectionLocked(ctx, pathKey, canonical, member); err != nil {
+			c.mu.Unlock()
+			return nil, err
+		}
 		if entry := c.ready[key]; entry != nil {
-			expected := c.aliases[key]
+			expected := c.aliases[pathKey]
 			c.mu.Unlock()
 			return entry.validateAlias(ctx, path, expected)
 		}
-		if entry := c.ready[canonical]; entry != nil {
+		if entry := c.ready[preparationKey{canonical, member}]; entry != nil {
 			// Register the exact spelling even if receipt validation fails: a
 			// stale capture must not be retried later by retargeting this alias.
-			c.ready[key], c.aliases[key] = entry, canonical
+			c.ready[key], c.aliases[pathKey] = entry, canonical
 			c.mu.Unlock()
 			return entry.validateAlias(ctx, path, canonical)
 		}
@@ -148,7 +174,7 @@ func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attach
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if flight.err != nil && !errors.Is(flight.err, context.Canceled) && !errors.Is(flight.err, context.DeadlineExceeded) {
+			if flight.member == member && flight.err != nil && !errors.Is(flight.err, context.Canceled) && !errors.Is(flight.err, context.DeadlineExceeded) {
 				return nil, flight.err
 			}
 			if err := validatePreparationAlias(ctx, path, canonical); err != nil {
@@ -156,14 +182,17 @@ func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attach
 			}
 			continue // cache hit, or retry after the canceled leader's rollback
 		}
-		flight := &preparationFlight{done: make(chan struct{})}
+		flight := &preparationFlight{done: make(chan struct{}), member: member}
 		c.inflight[canonical] = flight
 		c.mu.Unlock()
 
-		entry, err := c.prepareOne(ctx, path, canonical)
+		entry, err := c.prepareOne(ctx, path, canonical, member)
 		c.mu.Lock()
 		if err == nil {
-			err = c.publishLocked(entry)
+			err = c.publishLocked(ctx, entry)
+		}
+		if entry != nil && entry.pending != nil {
+			err = errors.Join(err, entry.pending.Discard())
 		}
 		flight.err = err
 		delete(c.inflight, canonical)
@@ -176,32 +205,48 @@ func (c *Coordinator) Prepare(ctx context.Context, absolutePath string) (*attach
 	}
 }
 
-func (c *Coordinator) publishLocked(entry *coordinatedMaterial) error {
-	bindings := map[string]string{
-		preparationPathKey(entry.material.SourcePath()): entry.sourceCanonical,
-		entry.sourceCanonical:                           entry.sourceCanonical,
-		preparationPathKey(entry.material.QueryPath()):  entry.queryCanonical,
-		entry.queryCanonical:                            entry.queryCanonical,
+func (c *Coordinator) publishLocked(ctx context.Context, entry *coordinatedMaterial) error {
+	if err := c.validateSourceSelectionLocked(ctx, preparationPathKey(entry.material.SourcePath()), entry.sourceCanonical, entry.requestedMember); err != nil {
+		return err
+	}
+	bindings := map[preparationKey]string{
+		{preparationPathKey(entry.material.SourcePath()), entry.requestedMember}: entry.sourceCanonical,
+		{entry.sourceCanonical, entry.requestedMember}:                           entry.sourceCanonical,
+		{preparationPathKey(entry.material.QueryPath()), ""}:                     entry.queryCanonical,
+		{entry.queryCanonical, ""}:                                               entry.queryCanonical,
 	}
 	for key := range bindings {
 		if prior := c.ready[key]; prior != nil && prior != entry {
 			return fmt.Errorf("trace path already belongs to another prepared receipt: %q", key)
 		}
 	}
+	material, err := entry.pending.Commit(ctx)
+	if err != nil {
+		return err
+	}
+	entry.material = material
 	for key, target := range bindings {
-		c.ready[key], c.aliases[key] = entry, target
+		c.ready[key], c.aliases[key.path] = entry, target
+	}
+	if c.origins[entry.sourceCanonical] == nil {
+		c.origins[entry.sourceCanonical] = material
 	}
 	return nil
 }
 
-func (c *Coordinator) prepareOne(ctx context.Context, path, canonical string) (entry *coordinatedMaterial, err error) {
+func (c *Coordinator) prepareOne(ctx context.Context, path, canonical, member string) (entry *coordinatedMaterial, err error) {
 	opts := c.opts
 	opts.InputPath = path
+	opts.ArchiveMember = member
 	pending, err := begin(ctx, opts, c.convert)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { err = errors.Join(err, pending.Discard()) }()
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, pending.Discard())
+		}
+	}()
 	// Freeze the engine's selected universe while preparation still owns its
 	// unpublished output. Plain text can select a provenance-bound sibling
 	// bundle; checking only the original text generation would miss that input.
@@ -217,11 +262,7 @@ func (c *Coordinator) prepareOne(ctx context.Context, path, canonical string) (e
 	if err != nil {
 		return nil, err
 	}
-	material, err := pending.Commit(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &coordinatedMaterial{material: material, version: version, sourceCanonical: canonical, queryCanonical: queryCanonical}, nil
+	return &coordinatedMaterial{material: pending.material, pending: pending, version: version, sourceCanonical: canonical, queryCanonical: queryCanonical, requestedMember: member}, nil
 }
 
 func (entry *coordinatedMaterial) validateAlias(ctx context.Context, path, canonical string) (*attachment.TraceMaterial, error) {

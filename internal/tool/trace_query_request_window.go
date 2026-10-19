@@ -72,6 +72,19 @@ func traceQueryRequestWindowSourceMatches(ctx *types.BusContext, path, sourceLab
 		if !valid {
 			return false
 		}
+		// An exact, already admitted member may inherit the single request's
+		// original ZIP window. This is not an outer-path query alias: only the
+		// selected derived coordinate and its still-current private receipt can
+		// establish the match. Comparison-side ownership remains separate.
+		if ctx.TraceInputPreparer != nil {
+			for _, material := range ctx.TraceInputPreparer.PreparedMaterials() {
+				if material != nil && material.ExplicitArchiveSelection() && material.QueryPath() == selected &&
+					material.MatchesSelection(identity, material.ArchiveMember()) {
+					identity = selected
+					break
+				}
+			}
+		}
 		paths[identity] = true
 	}
 	return len(paths) == 1 && paths[selected]

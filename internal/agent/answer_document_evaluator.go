@@ -8381,9 +8381,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionRelationPath {
 			if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
 				if lang == "zh" {
-					b.WriteString("  - 在模型成文、可见的主路径块上设置隐藏 ownership 标记 `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`，并用 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]` 保留运行时观测权威；展示已有 typed 唤醒/依赖方向，不要补 `principal_path_edge` 或把运行时关系伪写成源码 `call` 锚。\n")
+					b.WriteString("  - 在模型成文、可见的主路径块上设置隐藏 ownership 标记 `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`，并用 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]` 保留运行时观测权威；只展示原生记录已证明的关系或帧顺序，单帧不补造上游。采样顺序不证明源码调用、执行区间或因果，唤醒/依赖方向仍须其原有证据；不要补 `principal_path_edge` 或把运行时关系伪写成源码 `call` 锚。\n")
 				} else {
-					b.WriteString("  - On the model-authored visible principal runtime-path block, set the hidden ownership marker `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` and preserve runtime-observation authority with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Show only the existing typed wakeup/dependency direction; do not add `principal_path_edge` or masquerade a runtime relation as a source-code `call` anchor.\n")
+					b.WriteString("  - On the model-authored visible principal runtime-path block, set the hidden ownership marker `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` and preserve runtime-observation authority with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Show only relations or frame order established by native records; never invent ancestors for a single frame. Sample order proves neither source calls, execution intervals nor causality; wakeup/dependency direction still needs its original evidence. Do not add `principal_path_edge` or masquerade a runtime relation as a source-code `call` anchor.\n")
 				}
 			} else if lang == "zh" {
 				b.WriteString("  - 让承载这条源码关系路径的模型成文主块保留可见有向步骤，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条边仍需现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
@@ -16381,28 +16381,67 @@ func answerDocumentHasRelationPathPayload(ctx *types.AgentContext, doc *types.An
 
 // answerDocRequestedRelationPathUsesRuntimeObservation derives the relation
 // carrier from the same compiled principal-block contract that emit-time checks
-// consume. A runtime-only root-cause view requires observed_artifact_fact plus
-// external_observation and does not require current_code_path or
-// principal_path_edge. No intent/prose heuristic is involved.
+// consume. Preserve the existing runtime-only root-cause contract. A separate
+// bounded runtime-fact request can also own an observed path once the same
+// source/window/target projection used for final context retains addressable
+// deterministic observations. Neither presentation shape nor a soft source
+// default may promote those observations into source-call obligations. Precise
+// source contracts and explicit file ownership remain independent. This grants
+// only presentation ownership, never a relation, execution or causal proof.
 func answerDocRequestedRelationPathUsesRuntimeObservation(ctx *types.AgentContext) bool {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil || view.Family != types.QFRootCauseTrace {
+	if view == nil {
+		return false
+	}
+	if view.Family == types.QFRootCauseTrace {
+		for _, req := range view.RequiredBlocks {
+			if !req.Required || req.SurfaceRoleHint != types.SurfacePrincipal ||
+				!answerDocBlockRequirementHasFacet(req, types.FacetObservedArtifactFact) ||
+				answerDocBlockRequirementHasFacet(req, types.FacetPrincipalPathEdge) ||
+				answerDocBlockRequirementHasFacet(req, types.FacetCurrentCodePath) {
+				continue
+			}
+			for _, form := range req.AcceptableClaimForms {
+				if form == types.ClaimExternalObservation {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	rm := types.RuntimeSourceAuthorityRequestModelFromAgentContext(ctx)
+	if rm == nil || rm.RuntimeQuestionProfile == nil || !rm.RuntimeQuestionProfile.BoundedFactSet() ||
+		!types.RuntimeSourceRequestSuppressesCurrentSourceAnswerContract(rm, ctx.TurnRouteHint) {
 		return false
 	}
 	for _, req := range view.RequiredBlocks {
-		if !req.Required || req.SurfaceRoleHint != types.SurfacePrincipal ||
-			!answerDocBlockRequirementHasFacet(req, types.FacetObservedArtifactFact) ||
-			answerDocBlockRequirementHasFacet(req, types.FacetPrincipalPathEdge) ||
-			answerDocBlockRequirementHasFacet(req, types.FacetCurrentCodePath) {
-			continue
-		}
-		for _, form := range req.AcceptableClaimForms {
-			if form == types.ClaimExternalObservation {
-				return true
-			}
+		if req.Required && (answerDocBlockRequirementHasFacet(req, types.FacetCurrentCodePath) ||
+			answerDocBlockRequirementHasFacet(req, types.FacetPrincipalPathEdge)) {
+			return false
 		}
 	}
-	return false
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		// The shared precision compiler already handles plain source paths;
+		// preserve an exact file:line coordinate through its existing parser.
+		if location, ok := types.ParseAnswerSourceLocationSurface(target); ok && strings.TrimSpace(location.File) != "" {
+			return false
+		}
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		// Accepted explicit dimension/file bindings include extensionless
+		// source owners; do not waive them through path-suffix recognition.
+		if hint.Confidence >= 0.8 && types.CanonicalRequestedDimensionSource(hint.Path) != "" && len(hint.RequestedDimensionIndices) > 0 {
+			return false
+		}
+	}
+	ledger := answerDocObservationLedger(ctx)
+	ledger.Records = answerDocScopeProjectedObservationRecords(ctx, ledger.Records)
+	ledger.Records, _ = answerDocSelectedWindowObservationRecords(ctx, ledger.Records)
+	if ledger.Empty() {
+		return false // Do not let the authority helper refill a filtered ledger.
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, ledger)
+	return authority.UnboundExplanationUsesExternalObservationDomain()
 }
 
 func answerDocBlockRequirementHasFacet(req types.BlockRequirement, facet types.AnswerFacetKind) bool {
@@ -17330,7 +17369,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			}
 			if dim.Role == types.RequestedAnswerDimensionRelationPath {
 				if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
-					b.WriteString("  - 请在模型成文、可见的主运行时路径块上保留已有 typed 唤醒/依赖方向，设置 `surface_role:\"principal\"`、`facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`。不要补 `principal_path_edge`，也不要把运行时关系伪写成源码 `call` 锚。\n")
+					b.WriteString("  - 请在模型成文、可见的主运行时路径块上保留原生记录已证明的关系或帧顺序，设置 `surface_role:\"principal\"`、`facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`。单帧不补造上游；采样顺序不证明源码调用、执行区间或因果，唤醒/依赖方向仍须其原有证据。不要补 `principal_path_edge`，也不要把运行时关系伪写成源码 `call` 锚。\n")
 				} else {
 					b.WriteString("  - 请让承载这条源码关系路径的模型成文主块保留可见的有向步骤/关系，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条有向边仍需使用现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
 				}
@@ -17376,7 +17415,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		}
 		if dim.Role == types.RequestedAnswerDimensionRelationPath {
 			if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
-				b.WriteString("  - Keep the existing typed wakeup/dependency direction in a model-authored visible principal runtime-path block and set `surface_role:\"principal\"`, `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`, and `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Do not add `principal_path_edge` or masquerade the runtime relation as a source-code `call` anchor.\n")
+				b.WriteString("  - Keep relations or frame order established by native records in a model-authored visible principal runtime-path block and set `surface_role:\"principal\"`, `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`, and `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Never invent ancestors for a single frame. Sample order proves neither source calls, execution intervals nor causality; wakeup/dependency direction still needs its original evidence. Do not add `principal_path_edge` or masquerade the runtime relation as a source-code `call` anchor.\n")
 			} else {
 				b.WriteString("  - Keep the visible directed steps/relations in the model-authored principal source-relation block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every directed edge still needs the existing typed claim/anchor evidence; never invent a relation from member names.\n")
 			}

@@ -17,3 +17,9 @@ type TraceInputPreparer interface {
 	// Consumers still validate each receipt; this never triggers preparation.
 	PreparedMaterials() []*attachment.TraceMaterial
 }
+
+// TraceInputSelectionPreparer is optional so legacy path-only preparers keep
+// their contract. Unsupported implementations must not ignore a selection.
+type TraceInputSelectionPreparer interface {
+	PrepareSelection(context.Context, attachment.TraceSelection) (*attachment.TraceMaterial, error)
+}

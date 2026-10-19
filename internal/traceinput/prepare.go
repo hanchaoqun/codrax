@@ -23,6 +23,7 @@ const defaultPreviewBytes = 2 << 20
 
 type Options struct {
 	InputPath             string
+	ArchiveMember         string
 	RuntimeAnchor         string
 	RuntimeAnchorFallback string
 	PreviewBytes          int
@@ -80,6 +81,11 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := attachment.ValidateSourceLabel(opts.InputPath); err != nil {
 		return nil, err
 	}
+	if opts.ArchiveMember != "" {
+		if err := attachment.ValidateTraceArchiveMember(opts.ArchiveMember); err != nil {
+			return nil, err
+		}
+	}
 	source, err := filepath.Abs(opts.InputPath)
 	if err != nil {
 		return nil, err
@@ -117,6 +123,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	kind, binary := binaryCandidate(probe)
+	if opts.ArchiveMember != "" && kind != string(attachment.BinaryTraceFormatZIP) {
+		return nil, &Error{Code: "archive_member_requires_zip", Path: source, Err: fmt.Errorf("archive member selection requires the original ZIP file")}
+	}
 	existingDB := kind == string(attachment.BinaryTraceFormatSQLite)
 	bindings := map[string]filegeneration.Identity{source: original}
 	if opts.streamReceiptPath != "" {
@@ -174,7 +183,8 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	}
 	convertOptions := hitraceconv.Options{
 		InputPath: source, OutputPath: filepath.Join(owned.path, "capture.systrace"),
-		TraceEngine: "auto",
+		ArchiveMember: opts.ArchiveMember,
+		TraceEngine:   "auto",
 		// PrepareFile resolves container policy after decoding. Gzip alone
 		// proves neither a scheduling body nor a direct-sample capture.
 		KeepTraceDB:   !directPerf && kind != string(attachment.BinaryTraceFormatGZIP),
@@ -189,6 +199,13 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	}
 	if err != nil {
 		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
+	}
+	if kind == string(attachment.BinaryTraceFormatZIP) {
+		p := result.ArchiveProvenance
+		if p == nil || p.ArchiveBytes != original.Size() || p.ArchiveSHA256 != sourceSHA ||
+			(opts.ArchiveMember != "" && (p.Member != opts.ArchiveMember || p.Selection != "explicit_member")) {
+			return nil, fmt.Errorf("archive selection receipt does not match the held original and requested member")
+		}
 	}
 	transport := result.TextTransport
 	conversion := &result
@@ -293,11 +310,21 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		if err != nil {
 			return nil, err
 		}
+		material, err = bindQueryArtifacts(ctx, material)
+		if err != nil {
+			return nil, err
+		}
 		return material.WithSourceMetadata(ctx, result.SourceMetadataForQueryPath(queryPath))
 	}
 	material, err = bind(ctx, source, queryPath, preview, bindings, false)
 	if err != nil {
 		return nil, err
+	}
+	if result.ArchiveProvenance != nil {
+		material, err = material.WithArchiveSelection(ctx, result.ArchiveProvenance.Member, opts.ArchiveMember != "")
+		if err != nil {
+			return nil, err
+		}
 	}
 	return material.WithSourceMetadata(ctx, result.SourceMetadataForQueryPath(queryPath))
 }
@@ -332,7 +359,7 @@ func bind(ctx context.Context, source, query, preview string, bindings map[strin
 	if err := material.Validate(ctx, preview); err != nil {
 		return nil, err
 	}
-	return material, nil
+	return bindQueryArtifacts(ctx, material)
 }
 
 func previewFromHeld(ctx context.Context, path, query string, held *os.File, id filegeneration.Identity, limit int, receiptPath string) (string, bool, error) {

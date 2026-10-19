@@ -16,13 +16,16 @@ import (
 // or a serialized permission. Restoring a preview alone cannot restore it.
 // No scheduling or causal capability is conferred by this transport receipt.
 type TraceMaterial struct {
-	sourcePath        string
-	queryPath         string
-	preview           string
-	bindings          map[string]filegeneration.Identity
-	selfContainedText bool
-	sourceCheck       func(context.Context) error
-	sourceMetadata    TraceSourceMetadata
+	sourcePath               string
+	queryPath                string
+	preview                  string
+	bindings                 map[string]filegeneration.Identity
+	selfContainedText        bool
+	sourceCheck              func(context.Context) error
+	sourceMetadata           TraceSourceMetadata
+	archiveMember            string
+	explicitArchiveSelection bool
+	queryArtifacts           map[string]bool
 }
 
 // BindTraceMaterial consumes the generations captured by the input preparer.
@@ -124,7 +127,11 @@ func (m *TraceMaterial) MatchesPath(path string) bool {
 	}
 	equal := func(a, b string) bool { return a == b || runtime.GOOS == "windows" && strings.EqualFold(a, b) }
 	path = filepath.Clean(path)
-	for _, bound := range []string{m.sourcePath, m.queryPath} {
+	boundPaths := []string{m.queryPath}
+	if !m.explicitArchiveSelection {
+		boundPaths = append(boundPaths, m.sourcePath)
+	}
+	for _, bound := range boundPaths {
 		if equal(path, bound) {
 			return true
 		}
@@ -144,19 +151,7 @@ func (m *TraceMaterial) MatchesPath(path string) bool {
 // original generation, never to its derived query output. This is identity
 // matching, not comparability, successful query or evidence authority.
 func (m *TraceMaterial) MatchesOriginalSource(path string) bool {
-	if m == nil || !filepath.IsAbs(path) || m.Validate(context.Background(), m.preview) != nil {
-		return false
-	}
-	canonical, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return false
-	}
-	original, err := filepath.EvalSymlinks(m.sourcePath)
-	if err != nil || canonical != original {
-		return false
-	}
-	current, err := filegeneration.FromPath(path)
-	return err == nil && m.bindings[m.sourcePath].SameVersion(current)
+	return m != nil && !m.explicitArchiveSelection && m.matchesOriginalSource(path)
 }
 
 // Validate rejects stale source, derived output, bundle members or a preview

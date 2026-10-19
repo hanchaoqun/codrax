@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -101,6 +103,7 @@ func traceCatalogBeginQuery(ctx *types.BusContext, p traceQueryParams, raw json.
 		path = canonical
 	}
 	originalPath := traceCatalogQueryOriginalPath(ctx, path)
+	raw = traceCatalogQueryMemberParams(ctx, path, raw)
 	var tickets []traceCatalogQueryTicket
 	for _, c := range ctx.Mutable.TraceCatalogs() {
 		a, ok := c.ArtifactForPath(originalPath)
@@ -128,21 +131,44 @@ func traceCatalogBindQuery(ctx *types.BusContext, tickets []traceCatalogQueryTic
 	if len(tickets) == 0 {
 		return nil
 	}
-	v, err := tracequery.CaptureTraceSourceVersionContext(contextFromBus(ctx), path)
-	if err != nil {
-		return err
-	}
-	validate := func(c context.Context) error {
-		if material != nil {
-			if err := material.Validate(c, material.Preview()); err != nil {
-				return err
-			}
+	archive := material != nil && material.ArchiveMember() != ""
+	var fingerprint string
+	var validate func(context.Context) error
+	if archive {
+		// The catalog owns the physical original. Each query owns a separate
+		// selected member; changing that selector is not a source-generation
+		// change and must not invalidate healthy sibling queries.
+		if err := material.Validate(contextFromBus(ctx), material.Preview()); err != nil {
+			return err
 		}
-		return v.ValidateContext(c, path)
+		identity, err := filegeneration.FromPath(material.SourcePath())
+		if err != nil {
+			return err
+		}
+		original, err := filepath.EvalSymlinks(material.SourcePath())
+		if err != nil {
+			return err
+		}
+		fingerprint = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(original+"\x00"+identity.CacheToken())))
+		validate = material.ValidateOriginalSource
+	} else {
+		v, err := tracequery.CaptureTraceSourceVersionContext(contextFromBus(ctx), path)
+		if err != nil {
+			return err
+		}
+		fingerprint = v.Fingerprint()
+		validate = func(c context.Context) error {
+			if material != nil {
+				if err := material.Validate(c, material.Preview()); err != nil {
+					return err
+				}
+			}
+			return v.ValidateContext(c, path)
+		}
 	}
 	for i := range tickets {
 		t := &tickets[i]
-		if err := t.catalog.BindSource(contextFromBus(ctx), t.artifact.ID, v.Fingerprint(), validate); err != nil {
+		if err := t.catalog.BindSource(contextFromBus(ctx), t.artifact.ID, fingerprint, validate); err != nil {
 			return err
 		}
 		plan, err := traceCatalogQueryPlan(p, t.raw, t.artifact.ID)
@@ -157,7 +183,12 @@ func traceCatalogBindQuery(ctx *types.BusContext, tickets []traceCatalogQueryTic
 			t.queryID = q.ID
 		}
 		t.executedParameters = plan.Parameters
-		t.revision = v.Fingerprint()
+		if archive {
+			// Even automatic unique selection discloses the actual member, while
+			// its original unselected plan remains distinct navigation intent.
+			t.executedParameters = traceCatalogMemberParams(t.executedParameters, material.ArchiveMember())
+		}
+		t.revision = fingerprint
 	}
 	return nil
 }

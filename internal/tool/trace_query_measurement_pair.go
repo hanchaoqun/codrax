@@ -19,7 +19,7 @@ type traceMeasurementPairParams struct {
 // Registration is by producer capability, not metric names or question text.
 var traceMeasurementPairViews = []string{"window_stats", "cpu_state_frequency", "process_measurements", "preferred_frame_rate", "measurements"}
 
-var traceMeasurementPairFields = []string{"source", "path", "view", "time_start", "time_end", "line_start", "line_end", "pid", "thread", "target_scope", "bucket_ms", "limit", "trace_flavor", "platform", "core_topology"}
+var traceMeasurementPairFields = []string{"source", "path", "archive_member", "view", "time_start", "time_end", "line_start", "line_end", "pid", "thread", "target_scope", "bucket_ms", "limit", "trace_flavor", "platform", "core_topology"}
 
 func traceQueryMeasurementPairSchema(raw json.RawMessage) json.RawMessage {
 	var schema map[string]any
@@ -30,7 +30,8 @@ func traceQueryMeasurementPairSchema(raw json.RawMessage) json.RawMessage {
 	sideProperties := map[string]any{}
 	descriptions := map[string]string{
 		"source": "attached_trace or path; this side is selected independently.", "path": "Exact trace path for this side; normal binary/SQLite preparation applies.",
-		"time_start": "This side's start in trace seconds.", "time_end": "This side's exclusive end in trace seconds.",
+		"archive_member": traceQueryArchiveMemberTeaching,
+		"time_start":     "This side's start in trace seconds.", "time_end": "This side's exclusive end in trace seconds.",
 		"line_start": "Optional original input line start.", "line_end": "Optional original input line end.",
 		"pid": "Exact target PID/TID when the selected native view permits it.", "thread": "Thread selector when the selected native view permits it.",
 		"target_scope": "Explicit target identity scope; raw measurements has no thread/process target.", "bucket_ms": "Time-bucket width in milliseconds for views which support it.",
@@ -162,11 +163,14 @@ func traceMeasurementPairMaterial(ctx *types.BusContext, result types.ToolResult
 		materials = append(materials, ctx.TraceInputPreparer.PreparedMaterials()...)
 	}
 	for _, observation := range result.Observations {
-		if !types.RuntimeMeasurementPredicateIsRegistered(observation.Predicate) {
+		publication, valid := types.DecodeRuntimeMeasurementPublication(observation)
+		if !valid {
 			continue
 		}
 		for _, material := range materials {
-			if material != nil && material.QueryPath() == observation.SourceRef.Path {
+			// A native table can retain an admitted bundle child's exact source.
+			// This receipt check is display ownership, never a query-path alias.
+			if material != nil && material.OwnsQueryArtifact(publication.Source.Path) && material.Validate(contextFromBus(ctx), material.Preview()) == nil {
 				return material
 			}
 		}

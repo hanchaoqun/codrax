@@ -45,7 +45,7 @@ func TestHMC249CatalogPlanSchemaMirrorsOrdinaryQueryFields(t *testing.T) {
 	query := hmc249SchemaObject(t, (&TraceQuery{}).Parameters())
 	properties := query["properties"].(map[string]any)
 	// A new field or top-level combinator needs explicit plan-scope review.
-	known := strings.Fields("sampling_depth sampling_root comparison source path view thread pid target_scope time_start time_end line_start line_end event_types event_names trace_mark_actions pattern patterns event_field_filters span_name business_span_ref interaction_direction recipe_name max_depth max_branches max_chain_nodes via_thread min_duration_ms include_window_stats limit bucket_ms core_topology trace_flavor platform catalog_query_ref")
+	known := strings.Fields("archive_member sampling_depth sampling_root comparison source path view thread pid target_scope time_start time_end line_start line_end event_types event_names trace_mark_actions pattern patterns event_field_filters span_name business_span_ref interaction_direction recipe_name max_depth max_branches max_chain_nodes via_thread min_duration_ms include_window_stats limit bucket_ms core_topology trace_flavor platform catalog_query_ref")
 	actual := make([]string, 0, len(properties))
 	for key := range properties {
 		actual = append(actual, key)
@@ -93,6 +93,7 @@ func TestHMC249CatalogPlanPublicSchemaRejectsInvalidAndLocalRoutes(t *testing.T)
 	for name, plan := range map[string]string{
 		"view_missing":  `{"pid":101}`,
 		"unknown_field": `{"view":"resource_stack","invented":true}`,
+		"member_type":   `{"view":"perf_stats","archive_member":42}`,
 		"unknown_view":  `{"view":"invented"}`,
 		"wrong_pid":     `{"view":"resource_stack","pid":[]}`,
 		"wrong_scope":   `{"view":"resource_stack","target_scope":"all_processes"}`,
@@ -126,6 +127,9 @@ func TestHMC249CatalogPlanPublicSchemaRejectsInvalidAndLocalRoutes(t *testing.T)
 		`{"view":"event_search","pid":101,"patterns":["AllocEvent","FreeEvent"],"event_names":["native_hook"],"limit":5}`,
 		`{"view":"wakeup_chain","pid":101,"max_depth":2,"include_window_stats":false,"target_scope":"thread"}`,
 		`{"view":"perf_sampling_tree","sampling_depth":8,"time_start":0,"time_end":1}`,
+		// Exact member coordinates can be declared per candidate; they do not
+		// execute preparation or select a physical capture during planning.
+		`{"view":"perf_stats","archive_member":"captures/device capture.data","time_start":0,"time_end":1}`,
 	} {
 		raw := json.RawMessage(`{"queries":[` + plan + `]}`)
 		if err := toolparam.Validate(raw, (&TraceCatalog{}).Parameters()); err != nil {

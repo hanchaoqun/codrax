@@ -27,6 +27,8 @@ func traceQueryIntervalNavigationParams(p traceQueryParams, effective, original 
 	if json.Unmarshal(original, &requested) != nil || json.Unmarshal(effective, &args) != nil || args == nil {
 		return nil
 	}
+	// Navigation is stamped against the admitted derived source, not its ZIP.
+	delete(args, "archive_member")
 	if _, explicit := requested["target_scope"]; !explicit && p.PID.Int() == 0 && p.Thread == "" {
 		delete(args, "target_scope")
 	}

@@ -3,10 +3,23 @@ package tool
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+const traceQueryArchiveMemberTeaching = "Optional exact ZIP member name with source=path and the original ZIP path, for example captures/device capture.data. Use an explicitly selected existing member; never guess the first candidate. Without it, only a unique supported member is selected automatically. This selects one complete input, not merged captures or extra decoder/causal authority. Omit it for attached_trace, non-ZIP files, prepared query paths and business_span_ref."
+
+func traceQueryArchiveSelectionInput(p traceQueryParams) *types.ToolResult {
+	if p.ArchiveMember == "" {
+		return nil
+	}
+	if strings.TrimSpace(p.Path) != "" && (p.Source == "" || p.Source == "path") && p.BusinessSpanRef == "" {
+		return nil
+	}
+	return &types.ToolResult{ToolName: "trace_query", Timestamp: time.Now(), Summary: "archive_member requires source=path with the original ZIP path; it cannot select another member through attached_trace or business_span_ref", Repair: &types.ToolRepair{Code: "trace_archive_selection_invalid", Fields: []string{"source", "path", "archive_member", "business_span_ref"}}}
+}
 
 const traceQueryInputPreparationTeaching = "Normal analysis runs automatically prepare supported binary file paths and supported TraceStreamer SQLite databases before querying, reusing the complete prepared material within the run; no separate model conversion call is needed. SQLite is recognized by content, not filename extension. Self-contained databases and generation-stable main/WAL inputs use a validated private read-only snapshot without invoking a converter or changing the original database; SHM is not snapshot authority. Continuous-write online consistency, rollback journals, ambiguous sidecars and arbitrary databases are unsupported. Previews are bounded but queries use the complete admitted material. Originals stay unchanged and evidence line references address the readable query material. Unsupported, malformed or inventory-only captures fail without substituting a different source. Explicit trace stdin accepts supported text or binary only after complete EOF, bounded sealing and normal preparation; incomplete streams and inline binary are unsupported. Low-level parsers remain text/bundle only; codrax trace convert --input <binary-trace-path> remains the explicit binary conversion interface."
 
@@ -38,21 +51,42 @@ func traceQueryValidateReadyMaterial(ctx *types.BusContext, material *attachment
 // are returned unchanged, without borrowing another capture or attachment.
 func resolveReadyTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *attachment.TraceMaterial, *types.ToolResult) {
 	path, label, reject := resolveTraceQuerySource(ctx, p)
-	if reject != nil || ctx == nil {
+	if reject != nil {
 		return path, label, nil, reject
+	}
+	if ctx == nil {
+		if p.ArchiveMember != "" {
+			failure := traceQueryPreparedMaterialFailure(path, p.View, fmt.Errorf("archive_member requires the run's trace preparation service"))
+			return path, label, nil, &failure
+		}
+		return path, label, nil, nil
 	}
 	var material *attachment.TraceMaterial
 	var err error
 	if label == "attached_trace" {
+		if p.ArchiveMember != "" {
+			failure := traceQueryPreparedMaterialFailure(path, p.View, fmt.Errorf("archive_member requires the original ZIP path, not an attached or prepared source"))
+			return path, label, nil, &failure
+		}
 		material = ctx.AttachedTraceMaterial
 		if material != nil {
 			err = material.Validate(contextFromBus(ctx), ctx.AttachedHitrace)
 		}
 	} else if ctx.TraceInputPreparer != nil {
-		material, err = ctx.TraceInputPreparer.Prepare(contextFromBus(ctx), path)
+		if p.ArchiveMember != "" {
+			if preparer, ok := ctx.TraceInputPreparer.(types.TraceInputSelectionPreparer); ok {
+				material, err = preparer.PrepareSelection(contextFromBus(ctx), attachment.TraceSelection{Path: path, ArchiveMember: p.ArchiveMember})
+			} else {
+				err = fmt.Errorf("this trace preparation service does not support archive_member selection")
+			}
+		} else {
+			material, err = ctx.TraceInputPreparer.Prepare(contextFromBus(ctx), path)
+		}
 		if err == nil && material == nil {
 			err = fmt.Errorf("trace preparation returned no complete material")
 		}
+	} else if p.ArchiveMember != "" {
+		err = fmt.Errorf("archive_member requires the run's trace preparation service")
 	}
 	if err != nil {
 		failure := traceQueryPreparedMaterialFailure(path, p.View, err)

@@ -96,22 +96,34 @@ func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.Bus
 		return err
 	}
 	var failures []error
+	ready := 0
 	for index, path := range paths {
 		err := prepareAndAdmitNamedTracePath(ctx, bus, path)
 		if err == nil {
+			ready++
 			continue
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		wrapped := fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), path, err)
+		if namedTraceArchiveSelectionPending(err) {
+			markNamedTraceArchiveSelectionPending(&profile, path, bus.RepoRoot)
+			if catalog != nil {
+				catalog.RecordPreparationFailure(path, wrapped)
+			}
+			continue
+		}
 		if catalog == nil {
 			return wrapped
 		}
 		catalog.RecordPreparationFailure(path, wrapped)
 		failures = append(failures, wrapped)
 	}
-	if len(failures) == len(paths) && len(failures) != 0 {
+	// A pending choice is navigation, not a successful side. Preserve the
+	// comparison's existing ready+failed isolation without letting pending
+	// inputs hide a fatal set in which no side was actually admitted.
+	if len(failures) != 0 && ready == 0 {
 		return errors.Join(failures...)
 	}
 	if err := ctx.Err(); err != nil {

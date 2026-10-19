@@ -44,6 +44,7 @@ type traceQueryParams struct {
 	Comparison           *traceMeasurementPairParams   `json:"comparison,omitempty"`
 	Source               string                        `json:"source,omitempty"`
 	Path                 string                        `json:"path,omitempty"`
+	ArchiveMember        string                        `json:"archive_member,omitempty"`
 	View                 string                        `json:"view,omitempty"`
 	Thread               string                        `json:"thread,omitempty"`
 	PID                  FlexInt                       `json:"pid,omitempty"`
@@ -237,6 +238,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "business_span_ref": {"type":"string","description":"Optional exact synchronous business-instance reference returned with a complete native paired span by a successful query in this run. Select the instance that answers the task; never pick the first/longest merely because it was listed. It binds the original physical capture generation, scheduler TID and complete paired time interval together for follow-up scheduler, IO or causal views. ` + traceQueryBusinessRefAssertionTeaching + ` ` + traceQueryBusinessRefCompletionTeaching + ` Explicit requested time windows remain authoritative: if the full instance is outside them, use ordinary explicit parameters for the requested clipped window instead. Async/track rows without an executing-thread proof, composite captures and stale/replayed references do not offer this shortcut; their existing explicit queries remain supported."},
 	    "event_field_filters": __EVENT_FIELD_FILTER_SCHEMA__,
 	    "source": {"type":"string","enum":["path","attached_trace"],"x-codrax-enum-style-alias":true,"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
+	    "archive_member": {"type":"string","description":"` + traceQueryArchiveMemberTeaching + `"},
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. ` + traceQueryInputPreparationTeaching + ` A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. A validated .tracebundle.json (explicit or promoted sibling) supplies the admitted members for a provenance-aware composite index; an unbound sibling .perftrace is not automatically merged. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics: 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw; only ohos_rt enters high-priority pressure and raw system/kernel tokens remain a separate typed bucket. Use android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional typed platform hint. Use donghu when the typed task/tool call selects Donghu: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
@@ -349,6 +351,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	}
 	if p.Comparison != nil {
 		return t.executeMeasurementPair(ctx, params, p.Comparison)
+	}
+	if reject := traceQueryArchiveSelectionInput(p); reject != nil {
+		return *reject, nil
 	}
 	// Keep model-owned coordinates separate from request defaults and instance
 	// navigation. Derived bounds must not seed the model-call supplement lane.
@@ -2685,6 +2690,9 @@ func traceQueryCanonicalView(result tracequery.Result, q tracequery.Query) strin
 
 func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.Query, p traceQueryParams, sourceLabel string) map[string]string {
 	params := map[string]string{}
+	if p.ArchiveMember != "" {
+		params["archive_member"] = p.ArchiveMember
+	}
 	if source := firstNonEmptyTraceString(p.Source, sourceLabel); source != "" {
 		params["source"] = source
 	}

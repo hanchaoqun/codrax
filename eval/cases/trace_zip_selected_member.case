@@ -1,0 +1,8 @@
+ID="trace_zip_selected_member"
+NAME="Explicit ZIP member — natural named input to complete native query"
+: "${CODRAX_ZIP_BINARY_INPUT:?set CODRAX_ZIP_BINARY_INPUT to the pinned multi-member archive; run the independent oracle first}"
+QUESTION="请看 ${CODRAX_ZIP_BINARY_INPUT} 里的 captures/device capture.data，在486489.4到486489.6秒内poll_report线程（tid 1609）的采样热点和调用栈主要集中在哪里？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="OnDataEvent_"

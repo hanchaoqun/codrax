@@ -58,6 +58,9 @@ var traceQueryToolOnlyParams = map[string]bool{
 	// process has no live catalog; the expanded ordinary filters keep their
 	// existing mirrors. Strict script decoding must still reject this key.
 	"catalog_query_ref": true,
+	// Preparation-time ZIP selection belongs to the normal named-input tool;
+	// standalone tracediag continues to consume its already-selected --trace.
+	"archive_member": true,
 	// Sampling display navigation is tool-local; tracediag retains its full
 	// deterministic default projection without an interactive expand token.
 	"sampling_depth": true,

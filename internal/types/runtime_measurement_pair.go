@@ -176,7 +176,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 		if current && r.material[i] != nil {
 			current = r.material[i].Validate(context.Background(), r.material[i].Preview()) == nil
 			for _, publication := range side.Publications {
-				current = current && publication.Source.Path == r.material[i].QueryPath()
+				current = current && r.material[i].OwnsQueryArtifact(publication.Source.Path)
 			}
 		}
 		if !current {

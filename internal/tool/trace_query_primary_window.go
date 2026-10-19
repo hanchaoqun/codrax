@@ -32,6 +32,9 @@ func traceQueryWindowReplayParams(p traceQueryParams, path, sourceLabel string, 
 		set("source", "path")
 	}
 	set("path", path)
+	// The admitted query path already identifies the exact prepared member.
+	// A transport selector must not be replayed against that derived file.
+	delete(args, "archive_member")
 	set("pid", p.PID.Int())
 	set("thread", p.Thread)
 	set("target_scope", p.TargetScope)
