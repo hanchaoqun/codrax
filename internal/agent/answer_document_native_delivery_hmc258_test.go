@@ -80,15 +80,18 @@ func TestHMC258NativeDisplayKeepsPreviewAndInterpretationBoundaries(t *testing.T
 	acceptNativeDisplayHMC258(t, ctx, choices, choices)
 	var publication answerDocNativePresentationReceipt
 	renderAnswerDocRuntimeMeasurementChoices(ctx, &publication)
-	_, suppressed := answerDocSeparatedNativeFactHandoff(ctx, &publication)
-	if suppressed {
+	separated := answerDocSeparatedNativeFactHandoff(ctx, &publication)
+	if separated.nativeViewsComplete() || !separated.ownsCurrentNarrative {
 		t.Fatal("complete final display pretended all preview notes were published")
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx.ShallowClone(), nil)
-	for _, want := range []string{"HMC258 lifecycle", "Independent business clue", "artifact_page", "Accepted native answer display"} {
+	for _, want := range []string{"Independent business clue", "artifact_page", "Accepted native answer display"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("independent context lost %q", want)
 		}
+	}
+	if strings.Contains(prompt, "HMC258 lifecycle") || ctx.Mutable.StableInvestigationCompleteReason() != "HMC258 lifecycle" {
+		t.Fatal("lifecycle was replayed as analysis or lost from audit")
 	}
 	// References without an explicit display choice are not a new layout
 	// obligation. The existing producer defaults remain exactly unchanged.

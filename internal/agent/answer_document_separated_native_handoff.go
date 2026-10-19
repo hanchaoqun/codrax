@@ -2,7 +2,9 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -35,9 +37,27 @@ func (p *answerDocNativePresentationReceipt) observeMeasurementView(table types.
 	p.measurementViews[key] = complete
 }
 
-func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNativePresentationReceipt) (string, bool) {
+// Narrative ownership and native publication are separate facts. A bounded
+// preview cannot turn an accepted lifecycle field back into a second diagnosis.
+// Neither ownership nor this dispatch-local projection grants evidence authority.
+type answerDocNativeNarrativeProjection struct {
+	text                         string
+	ownsCurrentNarrative         bool
+	selectedViews                int
+	completeViews                int
+	interpretationBytes          int
+	publishedInterpretationBytes int
+	sanitized                    bool
+}
+
+func (p answerDocNativeNarrativeProjection) nativeViewsComplete() bool {
+	return p.selectedViews > 0 && p.completeViews == p.selectedViews
+}
+
+func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNativePresentationReceipt) answerDocNativeNarrativeProjection {
+	var projection answerDocNativeNarrativeProjection
 	if ctx == nil || ctx.Mutable == nil {
-		return "", false
+		return projection
 	}
 	h := ctx.Mutable.AcceptedInvestigationNativeFactHandoff()
 	accepted := h != nil
@@ -49,33 +69,54 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 		}
 	}
 	if h == nil {
-		return "", false
+		return projection
+	}
+	// Only the private current completion credential plus fresh source binding
+	// can own the current narrative. Restored JSON and stale references retain
+	// their conservative advisory/legacy path, independent of display budgets.
+	if accepted {
+		if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil {
+			if selected, ok := types.BindInvestigationNativeFactHandoff(h, view.RuntimeMeasurementContract); ok {
+				projection.ownsCurrentNarrative = true
+				projection.selectedViews = len(selected)
+				for _, r := range selected {
+					if p != nil && p.measurementViews[nativeFactHandoffViewKey(*r.BoundTable)] {
+						projection.completeViews++
+					}
+				}
+			}
+		}
 	}
 	originalInterpretation := strings.TrimSpace(h.Interpretation)
 	interpretation := sanitizePriorDraftForSummary(originalInterpretation)
-	publishedInterpretation := truncateAnswerDocPromptText(interpretation, 900)
-	var prose string
+	projection.sanitized = interpretation != originalInterpretation
+	projection.interpretationBytes = len(interpretation)
+	budget := 900
+	if projection.ownsCurrentNarrative {
+		// Reuse the former interpretation + lifecycle-synthesis slots. This
+		// does not enlarge the total narrative budget or independent note slots.
+		budget += 900
+	}
+	end := min(len(interpretation), budget)
+	for end > 0 && !utf8.ValidString(interpretation[:end]) {
+		end--
+	}
+	publishedInterpretation := interpretation[:end]
+	projection.publishedInterpretationBytes = end
+	var prose strings.Builder
 	if interpretation != "" {
-		prose = "## Independent Investigation Interpretation\n\nModel-authored hypotheses, diagnostic boundaries and source/business clues; advisory only, not native measurements or proof of a causal relation.\n\n" + publishedInterpretation + "\n\n"
-		if publishedInterpretation != interpretation {
-			prose += "Interpretation exceeds this bounded view; lifecycle context is retained below.\n\n"
+		prose.WriteString("## Independent Investigation Interpretation\n\nModel-authored hypotheses, diagnostic boundaries and source/business clues; advisory only, not native measurements or proof of a causal relation.\n\n")
+		prose.WriteString(publishedInterpretation + "\n\n")
+		if end < len(interpretation) {
+			fmt.Fprintf(&prose, "Interpretation is partial: %d of %d sanitized UTF-8 bytes shown; %d bytes omitted. The full original is retained in the accepted completion's native_fact_handoff.interpretation for audit; its omitted tail is not present in this view.\n\n", end, len(interpretation), len(interpretation)-end)
 		}
 	}
-	if !accepted || p == nil || publishedInterpretation != originalInterpretation {
-		return prose, false
+	if projection.sanitized {
+		prose.WriteString("Interpretation safety filtering changed the displayed material; the original remains audit-only, not a second answer narrative.\n\n")
 	}
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil {
-		return prose, false
+	if projection.ownsCurrentNarrative && !projection.nativeViewsComplete() {
+		fmt.Fprintf(&prose, "Native reference publication: %d of %d selected views are completely represented in this prompt. Other selected views remain partial or absent; narrative ownership does not make their publication complete.\n\n", projection.completeViews, projection.selectedViews)
 	}
-	selected, ok := types.BindInvestigationNativeFactHandoff(h, view.RuntimeMeasurementContract)
-	if !ok {
-		return prose, false
-	}
-	for _, r := range selected {
-		if !p.measurementViews[nativeFactHandoffViewKey(*r.BoundTable)] {
-			return prose, false
-		}
-	}
-	return prose, true
+	projection.text = prose.String()
+	return projection
 }

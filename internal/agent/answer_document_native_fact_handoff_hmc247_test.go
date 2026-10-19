@@ -289,7 +289,7 @@ func TestHMC247NativeFactHandoffConservativeBoundaries(t *testing.T) {
 				}
 				t.Fatal("fixture did not reach old runtime-only suppression")
 			}
-			wantReason := mode != "complete"
+			wantReason := mode == "wrong_source" || mode == "wrong_window" || mode == "json_restart" || mode == "legacy"
 			if strings.Contains(text, reason) != wantReason {
 				t.Errorf("reason retained=%t want=%t: %s", strings.Contains(text, reason), wantReason, text)
 			}
@@ -301,6 +301,13 @@ func TestHMC247NativeFactHandoffConservativeBoundaries(t *testing.T) {
 			}
 			if mode == "sanitized_interpretation" && strings.Contains(text, "hidden scratch") {
 				t.Error("unsanitized scratch leaked")
+			}
+			if ctx.Mutable.StableInvestigationCompleteReason() != reason {
+				t.Error("narrative projection changed original lifecycle audit")
+			}
+			separated := answerDocSeparatedNativeFactHandoff(ctx, p)
+			if (mode == "unpublished" || mode == "partial_view") && (!separated.ownsCurrentNarrative || separated.nativeViewsComplete()) {
+				t.Error("current narrative ownership and incomplete native publication were conflated")
 			}
 		})
 	}

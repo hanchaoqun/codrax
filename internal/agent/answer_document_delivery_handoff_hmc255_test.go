@@ -225,8 +225,11 @@ func TestHMC255ManagedDeliveryKeepsUnpublishedOrRejectedAnalysis(t *testing.T) {
 				renderAnswerDocRuntimeMeasurementChoices(ctx, published)
 			}
 			text := renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx, published)
-			if !strings.Contains(text, reason) || !strings.Contains(text, "HMC255_KEEP_BUSINESS_BOUNDARY") {
-				t.Fatalf("incomplete or uncredentialed display discarded original context: %s", text)
+			if strings.Contains(text, reason) != (mode == "json_restart") || !strings.Contains(text, "HMC255_KEEP_BUSINESS_BOUNDARY") {
+				t.Fatalf("current or uncredentialed narrative ownership changed: %s", text)
+			}
+			if ctx.Mutable.StableInvestigationCompleteReason() != reason {
+				t.Fatal("presentation discarded original lifecycle audit")
 			}
 		})
 	}

@@ -71,12 +71,15 @@ func TestHMC247NativeFactHandoffSchemaBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := string(schema.Properties["native_fact_handoff"])
-	for _, word := range []string{"observation_id", "interpretation", "post-budget", "does not waive", "negative finding", "source explanation"} {
+	for _, word := range []string{"observation_id", "interpretation", "current sources", "disclosed separately", "does not waive", "negative finding", "source explanation"} {
 		if !strings.Contains(h, word) {
 			t.Errorf("missing schema contract %q", word)
 		}
 	}
 	if strings.Contains((&EmitInvestigationComplete{}).Description(), "native_fact_handoff") || !strings.Contains(h, "reason is lifecycle rationale only") {
 		t.Fatal("conditional handoff teaching must stay with its available schema field")
+	}
+	if strings.Contains(h, "otherwise the legacy reason remains") || !strings.Contains(h, "interpretation alone owns the current analysis narrative") {
+		t.Fatal("presentation completeness contradicted current narrative ownership")
 	}
 }
