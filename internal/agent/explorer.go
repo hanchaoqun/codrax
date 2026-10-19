@@ -1030,6 +1030,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString(writeExplorationPrefix)
 		b.WriteString("\n\n")
 	}
+	// Mixed/current-source turns still need the same optional named-reader
+	// navigation as specialized runtime lanes; it does not replace this source
+	// exploration plan or broaden the evaluator's actual restricted surface.
+	b.WriteString(e.renderNamedInputNavigation(ctx))
 	sourceInventorySlate := renderExplorerSourceInventoryAdvisory(ctx)
 	if sourceInventorySlate != "" {
 		b.WriteString(sourceInventorySlate)

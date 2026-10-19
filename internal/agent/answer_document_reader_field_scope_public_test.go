@@ -82,26 +82,62 @@ func TestReaderFieldScopePublicNativeFiniteInstruction(t *testing.T) {
 				}
 				readerFieldScopePublicRejectOverbroadTeaching(t, prompt)
 				marker := "## Reader-ready finite-window facts"
+				if lang == "zh" {
+					marker = "## 有限窗口查询的读者事实卡"
+				}
+				// HMC265: a real event inventory is not a state/wait/frequency
+				// measurement. Keep its exact fields without minting an empty card.
+				if strings.Contains(prompt, marker) {
+					t.Fatal("marker-only inventory manufactured a finite state/wait/frequency card")
+				}
+				if !strings.Contains(prompt, "Runtime finite-scope presentation hint") ||
+					!strings.Contains(prompt, "does not decide yes/no/mixed/unproven for the model") {
+					t.Fatal("finite-scope model ownership or causal boundary lost")
+				}
+				readerFieldScopePublicAssertTeaching(t, readerFieldScopePublicSection(t, prompt, "- Runtime user-facing language hint:"), "en")
+			})
+		}
+	}
+}
+
+// The existing typed producer fixture carries actual states, a measured zero
+// wait roster, and frequency facts. This checks the positive card contract;
+// the independent public marker query above still protects raw-field precision.
+func TestReaderFieldScopePublicMeasuredFiniteInstruction(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		for _, scope := range []types.RuntimeQuestionScope{types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict} {
+			t.Run(lang+"/"+string(scope), func(t *testing.T) {
+				ctx := boundedRuntimeReaderHandoffTestContext()
+				ctx.Language, ctx.AnalysisIR.RequestModel.Language = lang, lang
+				ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = scope
+				before := readerFieldScopePublicSnapshot(t, ctx)
+				prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+				readerFieldScopePublicRejectOverbroadTeaching(t, prompt)
+				marker := "## Reader-ready finite-window facts"
 				ownership := "The system neither checks nor rewrites model prose and does not choose the conclusion"
+				otherFields := "Other provided structured facts retain their original fields, exact values, sources, intervals, and coverage boundaries"
+				measuredZero := "0 occurrence(s), totaling 0.000 ms"
 				if lang == "zh" {
 					marker = "## 有限窗口查询的读者事实卡"
 					ownership = "系统不检查或修改模型正文，也不代替模型给结论"
+					otherFields = "其它已提供的结构化事实仍应保留原始字段、精确值、来源、区间和覆盖边界"
+					measuredZero = "调度器标记等待清单：共 0 次，合计 0.000 毫秒"
 				}
 				if strings.Count(prompt, marker) != 1 || !strings.Contains(prompt, ownership) ||
-					!strings.Contains(prompt, "Runtime finite-scope presentation hint") ||
 					!strings.Contains(prompt, "does not decide yes/no/mixed/unproven for the model") {
-					t.Fatal("finite card activation, model ownership, or causal boundary lost")
+					t.Fatal("measured finite card, model ownership, or causal boundary lost")
 				}
 				card := readerFieldScopePublicSection(t, prompt, marker)
 				readerFieldScopePublicAssertTeaching(t, card, lang)
-				vocabulary := "dimension names are reading aids, not a closed vocabulary"
-				if lang == "zh" {
-					vocabulary = "维度名称是阅读提示，不是封闭词表"
-				}
-				if !strings.Contains(card, vocabulary) {
-					t.Fatal("finite card still closes the vocabulary over its own dimension labels")
+				for _, want := range []string{otherFields, measuredZero, "157.248", "35.960", "558000–2100000 kHz"} {
+					if !strings.Contains(card, want) {
+						t.Errorf("measured card lost exact facts or open raw-field vocabulary %q", want)
+					}
 				}
 				readerFieldScopePublicAssertTeaching(t, readerFieldScopePublicSection(t, prompt, "- Runtime user-facing language hint:"), "en")
+				if readerFieldScopePublicSnapshot(t, ctx) != before {
+					t.Fatal("measured reader teaching changed raw facts, causal authority, or model-owned prose")
+				}
 			})
 		}
 	}

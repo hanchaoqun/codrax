@@ -726,7 +726,7 @@ func TestRenderAnswerDocRuntimeSourceAuthority_RuntimeOnlyDoesNotClaimCombinedPr
 	for _, want := range []string{
 		"current_source_satisfied=false",
 		"current_source_records=0",
-		"runtime evidence is sufficient for the runtime artifact claim",
+		"external observation support is available within its own recorded scope",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("runtime-only authority handoff missing %q:\n%s", want, got)

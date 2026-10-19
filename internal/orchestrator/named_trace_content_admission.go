@@ -11,15 +11,12 @@ import (
 )
 
 // namedTraceContentAdmissionProfile joins the same content-only navigation used
-// by the classifier to the existing typed admission path. It does not publish
+// by the classifier to the existing tool-navigation path. It does not publish
 // this profile, attach files, discover directories, or manufacture a material.
-// The caller publishes it only after ordinary preparation and admission.
+// Candidate visibility is independent of current-source obligations; the caller
+// separately decides whether typed acquisition intent requires eager admission.
 func namedTraceContentAdmissionProfile(ctx context.Context, bus *types.BusContext, request, anchor string, profile types.RuntimeArtifactPreflightProfile) types.RuntimeArtifactPreflightProfile {
 	if bus.AnalysisIR == nil || bus.TraceInputPreparer == nil {
-		return profile
-	}
-	policy := bus.AnalysisIR.RequestModel.ExternalObservationPolicy
-	if policy == nil || (!policy.ExcludesCurrentSource() && !policy.ArtifactCitationsExternalOnly()) {
 		return profile
 	}
 	known := map[string]bool{}

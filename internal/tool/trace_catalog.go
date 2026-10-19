@@ -85,6 +85,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 		root, err := traceCatalogAuthorizedRoot(ctx, p.Root)
 		if err != nil {
 			out.Summary = err.Error()
+			out.Repair = traceCatalogScopeRepair(err)
 			return out, nil
 		}
 		parsed := make([]traceQueryParams, len(p.Queries))
@@ -163,6 +164,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 		if p.Action != "status" {
 			if _, err := traceCatalogAuthorizedRoot(ctx, c.Snapshot().Root); err != nil {
 				out.Summary = err.Error()
+				out.Repair = traceCatalogScopeRepair(err)
 				return out, nil
 			}
 		}

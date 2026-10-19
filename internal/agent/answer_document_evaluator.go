@@ -5466,8 +5466,9 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Accepted Closure Status\n\n")
 	b.WriteString("- A prior exploration window already reached a stable closure for this dispatch.\n")
+	b.WriteString(acceptedClosureAdvisoryTeaching)
 	if plan.StableAbsent {
-		b.WriteString("- The stable state currently remains an accepted bounded absence / no-hit result for the exact target under the explored scope.\n")
+		b.WriteString("- The retained workflow disposition is absence; this label alone does not verify zero matching records or failed access.\n")
 	}
 	if strings.TrimSpace(plan.StableInvestigationResultKind) != "" {
 		renderAcceptedInvestigationDisposition(&b, ctx, plan.StableInvestigationResultKind)
@@ -5487,8 +5488,8 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateAnswerDocPromptText(reason, 900))
 		}
 	}
-	if justification := strings.TrimSpace(plan.StableAbsenceJustification); justification != "" {
-		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
+	if justification := strings.TrimSpace(plan.StableAbsenceJustification); justification != "" && justification != strings.TrimSpace(plan.StableInvestigationReason) {
+		fmt.Fprintf(&b, "- model-authored absence justification (advisory only): %s\n", truncateAnswerDocPromptText(justification, 500))
 	}
 	if len(plan.StableValidationBoundaryNotes) > 0 {
 		if sourceInventoryAccepted {
@@ -7314,60 +7315,6 @@ func answerDocTraceRankAuthorityTopSupplySeat(seats []types.TraceRankRosterSeat)
 	return best, found
 }
 
-func renderAnswerDocRuntimeSourceAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
-	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, ledger)
-	if !authority.Active {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("### Runtime Source Authority\n\n")
-	b.WriteString("- This typed authority summarizes runtime/log/trace proof and current-source proof obligations for this answer. It is answer-writing handoff guidance only; do not treat it as a new reason to reopen exploration or invent citations.\n")
-	fmt.Fprintf(&b, "- current_source_lane=`%s`; requirement_precision=`%s`; current_source_required=%t; current_source_satisfied=%t\n",
-		authority.CurrentSourceLane,
-		runtimeSourceRequirementPromptValue(authority.CurrentSourceRequirement),
-		authority.CurrentSourceRequired,
-		authority.CurrentSourceSatisfied,
-	)
-	fmt.Fprintf(&b, "- runtime_observations=%d; deterministic_runtime_queries=%d; current_source_records=%d; exact_current_source_support=%d\n",
-		authority.RuntimeObservationCount,
-		authority.DeterministicRuntimeQueryCount,
-		authority.CurrentSourceRecordCount,
-		authority.ExactCurrentSourceSupportCount,
-	)
-	fmt.Fprintf(&b, "- proof_state: combined_ready=%t; runtime_only_with_caveat=%t; hard_block=%t; caveat_only=%t\n",
-		authority.CanCompleteWithCombinedProof,
-		authority.CanUseRuntimeOnlyWithCaveat,
-		authority.CanHardBlockCompletion,
-		authority.CanDowngradeToCaveat,
-	)
-	if authority.RuntimeCitationPolicy != "" {
-		fmt.Fprintf(&b, "- runtime_citation_policy=`%s`\n", authority.RuntimeCitationPolicy)
-	}
-	if len(authority.ReasonCodes) > 0 {
-		parts := make([]string, 0, len(authority.ReasonCodes))
-		for _, code := range authority.ReasonCodes {
-			if strings.TrimSpace(string(code)) != "" {
-				parts = append(parts, string(code))
-			}
-		}
-		if len(parts) > 0 {
-			fmt.Fprintf(&b, "- authority_reason_codes: `%s`\n", strings.Join(parts, "`, `"))
-		}
-	}
-	switch {
-	case authority.CanHardBlockCompletion:
-		b.WriteString("- guidance: a precise current-source obligation is still missing; if the final answer proceeds, disclose that source-proof boundary instead of presenting runtime rows as source citations.\n")
-	case authority.CanDowngradeToCaveat:
-		b.WriteString("- guidance: the missing current-source obligation is soft. Preserve runtime observations as answer-grade support and disclose the source boundary as a caveat when relevant; do not broaden the answer slate solely to satisfy this soft lane.\n")
-	case authority.CanCompleteWithCombinedProof && authority.CurrentSourceSatisfied:
-		b.WriteString("- guidance: runtime and current-source proof are both present; preserve both origins and keep their citations/provenance separate.\n")
-	case authority.RuntimeOnlySufficient || authority.CanUseRuntimeOnlyWithCaveat:
-		b.WriteString("- guidance: runtime evidence is sufficient for the runtime artifact claim; keep source citations out unless current-source records are present.\n")
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
 func runtimeSourceRequirementPromptValue(v types.RuntimeSourceRequirementPrecision) string {
 	if strings.TrimSpace(string(v)) == "" {
 		return "none"
@@ -7380,24 +7327,25 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()
+	access := renderHistoricalToolAccess(ta)
 	if ta == nil || len(ta.HandoffCarriers) == 0 {
-		return ""
+		return access
 	}
 	carriers := answerDocToolHandoffCarriersForFinalizer(ctx, ta.HandoffCarriers)
 	if len(carriers) == 0 {
-		return ""
+		return access
 	}
 	observationDetails := answerDocToolHandoffObservationDetails(ctx, carriers)
 	presented := answerDocPresentedNativeObservationIDs(ctx)
 	if answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx) {
-		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
+		return access + renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
 			MaxCarriers:             4,
 			MaxRefs:                 6,
 			ObservationDetails:      observationDetails,
 			PresentedObservationIDs: presented,
 		})
 	}
-	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
+	return access + renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
 		ObservationDetails:      observationDetails,
 		PresentedObservationIDs: presented,
 	})

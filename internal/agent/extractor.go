@@ -286,6 +286,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if advisory := renderExtractorSourceInventoryAdvisory(ta); advisory != "" {
 			b.WriteString(advisory)
 		}
+		b.WriteString(renderHistoricalToolAccess(ta))
 		if handoff := renderTypedToolHandoffCarriers("### Typed repair and evidence handoff", ta.HandoffCarriers, toolHandoffRenderOptions{
 			HistoricalProducerLabels: true,
 			CurrentStageAllowedTools: []string{"emit_answer_symbol", "emit_hypothesis_verdict"},
@@ -767,6 +768,7 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	var b strings.Builder
 	b.WriteString("### Accepted exploration closure\n\n")
+	b.WriteString(acceptedClosureAdvisoryTeaching)
 	if resultKind != "" {
 		renderAcceptedInvestigationDisposition(&b, ctx, resultKind)
 	}

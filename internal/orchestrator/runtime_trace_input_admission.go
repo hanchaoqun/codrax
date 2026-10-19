@@ -48,9 +48,10 @@ func validateRuntimeTraceInputsBeforeInvestigation(ctx context.Context, attached
 
 // validateTypedNamedTraceInputsBeforeExploration closes the natural-language
 // path lane without guessing user intent from raw prose. The analyzer is
-// allowed to classify the turn, but no explore/extract/finalize task and no
-// physical trace parser may run until every request-path trace in the
-// deterministic preflight profile passes the shared held-file admission gate.
+// allowed to classify the turn. When its typed acquisition policy requires
+// admission, no explore/extract/finalize task may run until each required path
+// passes the shared held-file gate (or needs an explicit archive selection).
+// Otherwise content-proven candidates remain optional tool navigation only.
 //
 // The blocking decision consumes only typed analyzer policy/scope plus a
 // deterministic existing-file profile. Path shape alone remains identity
@@ -75,15 +76,19 @@ func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.Bus
 	}
 	rm := bus.AnalysisIR.RequestModel
 	profile := types.NormalizeRuntimeArtifactPreflightProfile(bus.RuntimeArtifactPreflight)
-	// The current typed intent, not the file suffix or prose, permits native
-	// content discovery. The new candidates remain local until real preparation
-	// and complete input admission succeed below.
+	// Current named-file content permits optional reader navigation, not source
+	// exclusion or a duty to decode every converter fixture. Typed acquisition
+	// intent independently determines whether eager admission is needed below.
 	profile = namedTraceContentAdmissionProfile(ctx, bus, request, runtimeAnchor, profile)
 	profile = comparisonNamedTraceProfile(rm, profile)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if !typedNamedTraceAdmissionEnabled(rm, profile, request) {
+		// Soft visibility only: this does not prepare, attach, select a member,
+		// mint read/ready receipts or change any current-source obligation. A
+		// selected trace_query still performs full ordinary source admission.
+		bus.RuntimeArtifactPreflight = profile
 		return nil
 	}
 

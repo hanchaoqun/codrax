@@ -1007,35 +1007,13 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	}
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 
-	requestedLabels := make([]string, 0, len(profile.FactFamilies))
-	seenLabels := make(map[string]bool, len(profile.FactFamilies))
-	for _, family := range profile.FactFamilies {
-		label := answerDocBoundedRuntimeFactFamilyReaderLabel(family, zh)
-		if label == "" || seenLabels[label] {
-			continue
-		}
-		seenLabels[label] = true
-		requestedLabels = append(requestedLabels, label)
-	}
-
+	presented := make(map[types.RuntimeQuestionFactFamily]bool)
 	var b strings.Builder
-	if zh {
-		b.WriteString("## 有限窗口查询的读者事实卡（结论由模型给出）\n\n")
-		b.WriteString("- 这是成文前的最后一张自然语言事实卡。" + answerDocReaderFieldVisibilityZH + "精确数值、窗口、覆盖边界和证据强度保持不变。系统不检查或修改模型正文，也不代替模型给结论。\n")
-		if len(requestedLabels) > 0 {
-			fmt.Fprintf(&b, "- 本次请求的可见事实维度：%s。\n", strings.Join(requestedLabels, "、"))
-		}
-	} else {
-		b.WriteString("## Reader-ready finite-window facts (the model owns the conclusion)\n\n")
-		b.WriteString("- This is the final natural-language fact card before authoring. " + answerDocReaderFieldVisibilityEN + " Preserve exact values, windows, coverage boundaries, and evidence strength. The system neither checks nor rewrites model prose and does not choose the conclusion.\n")
-		if len(requestedLabels) > 0 {
-			fmt.Fprintf(&b, "- Requested visible fact dimensions: %s.\n", strings.Join(requestedLabels, ", "))
-		}
-	}
-
 	stateAuthorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactTargetSchedulerState) {
 		for _, authority := range stateAuthorities {
+			presented[types.RuntimeQuestionFactTargetSchedulerState] = true
+			presented[types.RuntimeQuestionFactCountOrDuration] = true
 			// V3-1 (§40.20): one types-level sentence, byte-equal with the
 			// observation-ledger scope section and the decision card.
 			fmt.Fprintf(&b, "- %s\n", types.FormatTargetStateAccount(authority, extractAnswerDocLang(ctx)))
@@ -1064,6 +1042,8 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	}
 	if waitRequested {
 		for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
+			presented[types.RuntimeQuestionFactTargetWaitOccurrences] = true
+			presented[types.RuntimeQuestionFactCountOrDuration] = true
 			fmt.Fprintf(&b, "- %s\n", answerDocTargetWaitOccurrenceReaderSummary(authority, extractAnswerDocLang(ctx)))
 			if zh {
 				b.WriteString("  - 该清单只包含 D 状态、明确的 IO 等待，以及带有 IO 等待标记的 S 状态。\n")
@@ -1076,6 +1056,7 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactFrequencyResidency) {
 		witnesses := answerDocRuntimeTraceGuidanceView(ctx).FrequencyLimitWitnesses
 		for _, witness := range witnesses {
+			presented[types.RuntimeQuestionFactFrequencyResidency] = true
 			if zh {
 				fmt.Fprintf(&b, "- 工件 %s，CPU %d，查询时间范围 %s 秒：%s这只证明该 CPU 的策略上限在查询范围内存在；是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠或其他目标绑定证据。\n",
 					traceDecisionPromptScalar(answerDocFrequencyWitnessSource(witness, "zh")), witness.CPU, types.FormatTraceRuntimeAccountWindow(witness.WindowStartTs, witness.WindowEndTs, "zh"),
@@ -1092,15 +1073,12 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 				}
 			}
 		}
-		b.WriteString(renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(ctx, witnesses, zh))
+		if joined := renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(ctx, witnesses, zh); joined != "" {
+			presented[types.RuntimeQuestionFactFrequencyResidency] = true
+			b.WriteString(joined)
+		}
 	}
-
-	if zh {
-		b.WriteString("- 本卡中的维度名称是阅读提示，不是封闭词表；其余请求事实仍应沿用此前结构化事实行中的原始字段、精确值与区间，并保留来源、覆盖范围及自然语言边界。\n\n")
-	} else {
-		b.WriteString("- This card's dimension names are reading aids, not a closed vocabulary. For other requested facts, retain the original fields, exact values and intervals from preceding structured fact rows, with their sources, coverage, and natural-language evidence boundaries.\n\n")
-	}
-	return b.String()
+	return renderAnswerDocBoundedRuntimeReaderCard(b.String(), profile, presented, zh)
 }
 
 // renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact restates the exact

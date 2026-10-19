@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,20 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TraceCatalogScopeRefusedCode describes catalog traversal authority only.
+// It does not imply that a named file is unreadable or that decoding failed.
+const TraceCatalogScopeRefusedCode = "capture_directory_scope_refused"
+
+var errTraceCatalogScopeRefused = errors.New("capture discovery root is outside the active repository and host-pinned paths; select that directory as the repository or explicitly pin it")
+
+func traceCatalogScopeRepair(err error) *types.ToolRepair {
+	if !errors.Is(err, errTraceCatalogScopeRefused) {
+		return nil
+	}
+	return &types.ToolRepair{Code: TraceCatalogScopeRefusedCode,
+		Hint: "Directory traversal was not authorized for this catalog operation; this is not a file-read or decoder result."}
+}
 
 // Discovery is more expansive than an individual file read. Only the active
 // repository or a host-pinned path may authorize its traversal; model hints
@@ -58,5 +73,5 @@ func traceCatalogAuthorizedRoot(ctx *types.BusContext, requested string) (string
 			}
 		}
 	}
-	return "", fmt.Errorf("capture discovery root is outside the active repository and host-pinned paths; select that directory as the repository or explicitly pin it")
+	return "", errTraceCatalogScopeRefused
 }
