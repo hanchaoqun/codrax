@@ -190,6 +190,8 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 ### 9.1 首片实施与退出边界
 
+本节及9.2保留各批当时的实现和开放状态；截至2026-10-18的低权限增量见9.3，当前总账为24项已交付/55项开放，不以历史计数覆盖当前状态。
+
 本片已以`01a378349`推送；全仓87包及完整收据见主账本§21。默认Prepare新增gzip文本运输，公开查询和系统自动补齐复用同一完整材料；不新增parser或模型原文硬门。参考上述真实`.sys.gz`已只读通过默认准备、全量SHA核对及StreamScan：54,122,686字节、429,756事件、429,766行；现有250000事件BuildIndex内存上限不改，也不把流式解析成功写成模型答案通过。该本地真实采集验收按环境变量显式启用，不把私人文件纳入仓内夹具。
 
 新增公共格式矩阵有7条阳性：OHOSPROF bytrace、PERFILE2、SIMPLEPERF、无bytrace根的HIPERF gzip、bytrace＋HIPERF gzip、唯一ZIP/OHOSPROF和ZIP/RMQ；3条阴性：未知插件库存、无样本PERFILE2库存、多候选ZIP。全部走真实Coordinator→TraceQuery.Execute，不使用converter stub代替生产路径；合成合法格式字节与实机采集仍分列。能力收据、样本与调度时钟隔离、单次准备/暖复用、原件不变和受管目录均有断言。
@@ -205,6 +207,14 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 公开基线五类正例先红后绿；正反矩阵包括gzip包裹RMQ/OHOSPROF/PERFILE2/SIMPLEPERF、内嵌gzip采样、多member/嵌套/CRC、库存无能力与暖代次。显式文本路线仅完整解压且如实提示事件未统计，不发假语义产物。ZIP/PERFILE2同根假raw路径同时去除，容器原件身份仍保留。尚缺的search-only目录、实机RMQ/OHOSPROF更多版本、真实外部TS和原生Linux/Windows保持开放；本机合成二进制测试不能充当这些验收。
 
 真实PERFILE2专项补证：参考`test_brbe.data`只读作裸输入及临时gzip包装的共同原件，两者经默认准备和公开`perf_stats`均保留12,000样本、总权重43,037,682及相同热点/时间范围。环境变量控制的用例和详细运行日志见主账本§22；真实外部provider未由此验证，BRBE名只是采集文件名，不是本批语义能力声明。
+
+### 9.3 第三片：已命名原件的低权限目录接入（2026-10-18）
+
+§259补齐本机Darwin路径：原件可读但祖先/父目录仅有search权限时，原Coordinator额外要求列举目录而在转换前拒绝。仅实际Open/ReadDir权限失败时，使用原生`ATTR_CMN_NAME`取得精确目录项拼写，前后复核强源代次、所选目录项与父目录身份；不使用词法大小写兜底或同inode合并。多硬链接名称可能歧义，search-only时仍拒绝，恢复可列举后各自独立准备；其它平台明确不支持该原生见证。
+
+7个新增根及公开正反/race覆盖RMQ完整尾部、PERFILE2/gzip sample-only、两级低权限祖先、大小写别名先后、同尺寸还原mtime换代、链接换向、父子替换、取消与无文件读权限。真实公共自动补齐保原显式窗、链上IO及业务线索，背景IO不升主因；sample-only仅发布采样能力，不制造调度轨迹。Linux/Windows仅编译通过，不当作原生运行。全仓和固定真实双例结果以主账本§259正式收据为准，合成权限矩阵不冒充实机采集。
+
+17.6仍开放：歧义多硬链接search-only、非Darwin原生见证、更多实机格式/版本、真实外部TraceStreamer及原生平台矩阵。sample-only真实完整原件的最终答案边界另归18.3，不因这片接口修复自动销账。
 
 ## 10. SQLite 标量接入增量（2026-09-30，HMC-17.7 N）
 
