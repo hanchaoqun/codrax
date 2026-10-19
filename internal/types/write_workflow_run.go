@@ -93,9 +93,11 @@ const (
 	// WriteWorkflowPersistenceDegradedSaveFailed means a store was present but a
 	// Save call returned an error, so the durable record fell behind execution.
 	WriteWorkflowPersistenceDegradedSaveFailed = "save_failed"
+	// The execution still happened, but its complete report was not retained.
+	WriteWorkflowPersistenceDegradedReportSnapshot = "report_snapshot_unavailable"
 	// WriteWorkflowPersistenceDegradedUnspecified is the generic fallback reason.
-	// The stamp site (persistWriteWorkflowRun) always pairs the flag with one of
-	// the two typed reasons above, so this never arises on the live path; it only
+	// The persistence stamp sites pair the flag with a typed reason above,
+	// so this never arises on the live path; it only
 	// backfills a normalization-time asymmetry where a hand-crafted or legacy run
 	// carries PersistenceDegraded=true with an empty reason (§29.213 PERSIST-1
 	// FIX-3), keeping the flag+reason pair symmetric in both directions.

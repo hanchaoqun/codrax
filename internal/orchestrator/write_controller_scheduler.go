@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
+	"github.com/hanchaoqun/codrax/internal/reportartifact"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	truthledger "github.com/hanchaoqun/codrax/internal/truth"
@@ -558,8 +559,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 						status = "unverified"
 						reason = outcome.ReasonCode
 					}
-					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, status, reason)
-					updateWorkflowRunActiveSliceObserve(&run, run.ActiveBatchID, report, status, reason)
+					o.recordWorkflowVerification(&run, report, status, reason, true)
 					o.syncCurrentWriteContextPackToRun(&run)
 				} else if o.skipVerify {
 					o.syncMutablePlanStatusAfterSkippedVerify()
@@ -3418,8 +3418,7 @@ func (o *Orchestrator) handlePatchReviewHardBlock(run *types.WriteWorkflowRun, p
 			o.persistCurrentChangePlanSnapshot()
 		}
 		o.busCtx.Mutable.SetChangeReport(report)
-		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, "failed", "patch_review_structural_failed")
-		updateWorkflowRunActiveSliceObserve(run, run.ActiveBatchID, report, "failed", "patch_review_structural_failed")
+		o.recordWorkflowVerification(run, report, "failed", "patch_review_structural_failed", true)
 		markWorkflowRunActiveSlicePatchReviewFailed(run, run.ActiveBatchID, plan, reason)
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 		appendControllerProgress(run, run.ActiveBatchID, "patch_review_failed", reason)
@@ -4629,6 +4628,9 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 		run.PersistenceDegradedReason = degradedReason
 	}
 	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
+	if workflowPath != "" {
+		o.publishWorkflowReportCurrentViews(&normalized)
+	}
 	o.persistWriteFinalReportIfAuditable(&normalized, workflowPath)
 }
 
@@ -4642,9 +4644,7 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 		return
 	}
 	planID := writeFinalReportArtifactID(run, plan, report)
-	if report == nil {
-		report = o.loadWriteFinalReportChangeReport(planID)
-	}
+	report, reportID := o.workflowReportSource(run, planID, report)
 	if plan == nil && strings.TrimSpace(planID) != "" {
 		if loaded, err := o.loadWriteFinalReportChangePlan(planID); err == nil && loaded != nil {
 			plan = loaded
@@ -4664,7 +4664,7 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 	}
 	reportPath := ""
 	if report != nil {
-		reportPath = filepath.Join(planDir, stem+".report.json")
+		reportPath = o.reportArtifactPath(reportID, planID, report)
 	}
 	delivery := o.writeFinalReportDeliverySummary(run, plan, report)
 	primarySourcePlan := plan
@@ -4680,6 +4680,7 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 		Plan:              plan,
 		PrimarySourcePlan: primarySourcePlan,
 		Report:            report,
+		ReportID:          &reportID,
 		ProofArtifacts:    o.writeFinalReportProofArtifacts(run, plan, report),
 		Delivery:          delivery,
 		PlanPath:          planPath,
@@ -5042,9 +5043,9 @@ func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRu
 	}
 	var out []types.VerificationProofArtifact
 	seen := map[string]bool{}
-	add := func(planID, reportID string) {
+	add := func(planID string, attempt types.WriteWorkflowAttempt) {
 		planID = strings.TrimSpace(planID)
-		reportID = writeFinalReportArtifactBase(reportID)
+		reportID := strings.TrimSpace(attempt.ReportID)
 		if planID == "" && reportID == "" {
 			return
 		}
@@ -5066,15 +5067,13 @@ func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRu
 				plan = loaded
 			}
 		}
+		attempt.PlanID = planID
 		var report *types.ChangeReport
-		if primaryReport != nil && planID != "" && strings.TrimSpace(primaryReport.PlanID) == planID {
-			report = primaryReport
-		}
-		if report == nil && reportID != "" {
-			report = o.loadDurableReportArtifact(reportID)
-		}
-		if report == nil && planID != "" {
-			report = o.loadWriteFinalReportChangeReport(planID)
+		if receipt, _ := o.loadWorkflowAttemptReceipt(attempt); receipt != nil {
+			report = receipt.Report
+			if reportartifact.ReceiptMatchesReport(receipt, primaryReport) {
+				report = primaryReport
+			}
 		}
 		if plan == nil && report == nil {
 			return
@@ -5084,6 +5083,32 @@ func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRu
 	applied := map[string]bool{}
 	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
 		applied[strings.TrimSpace(planID)] = true
+	}
+	// Reserve every owning batch's explicit selection before any batch's
+	// retained older plans, so list order cannot elevate an older same-plan
+	// success (or hide an unavailable selected original).
+	for _, batch := range run.Batches {
+		planID := strings.TrimSpace(batch.PlanID)
+		owner := workflowReportOwningBatch(run, planID)
+		if owner == nil || seen[planID] {
+			continue
+		}
+		if owner.Status != types.WriteWorkflowBatchComplete {
+			seen[planID] = true
+			continue
+		}
+		if selected, ok := selectedWorkflowReportAttempt(run, planID); ok {
+			add(planID, selected)
+		} else if primaryPlan != nil && primaryReport != nil && strings.TrimSpace(primaryPlan.ID) == planID &&
+			strings.TrimSpace(primaryReport.PlanID) == planID {
+			// With no historical selection, current material is already
+			// supplied separately. Do not add a duplicate plan-only copy.
+			seen[planID] = true
+		} else {
+			// Preserve unknown plan obligations without upgrading a legacy
+			// current view or borrowing another batch's historical report.
+			add(planID, types.WriteWorkflowAttempt{PlanID: planID})
+		}
 	}
 	for _, batch := range run.Batches {
 		if batch.Status != types.WriteWorkflowBatchComplete {
@@ -5109,30 +5134,10 @@ func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRu
 			if !applied[planID] && planID != strings.TrimSpace(batch.PlanID) && planID != primaryID {
 				continue
 			}
-			add(planID, attempt.ReportID)
+			add(planID, attempt)
 		}
-		planID := strings.TrimSpace(batch.PlanID)
-		add(planID, writeFinalReportBatchReportID(batch, planID))
 	}
 	return out
-}
-
-func writeFinalReportBatchReportID(batch types.WriteWorkflowBatch, planID string) string {
-	if ref := strings.TrimSpace(batch.VerifyRef); ref != "" {
-		return writeFinalReportArtifactBase(ref)
-	}
-	for i := len(batch.Attempts) - 1; i >= 0; i-- {
-		attempt := batch.Attempts[i]
-		if reportID := strings.TrimSpace(attempt.ReportID); reportID != "" {
-			return writeFinalReportArtifactBase(reportID)
-		}
-	}
-	if planID = strings.TrimSpace(planID); planID != "" {
-		if stem := writeWorkflowArtifactFileStem(planID); stem != "" {
-			return stem + ".report.json"
-		}
-	}
-	return ""
 }
 
 func writeFinalReportArtifactBase(ref string) string {
@@ -5182,25 +5187,21 @@ func writeFinalReportArtifactID(run *types.WriteWorkflowRun, plan *types.ChangeP
 	return ""
 }
 
+// loadWriteFinalReportChangeReport retains legacy current-view compatibility
+// for native registration identity navigation only. Historical proof, recovery,
+// and final delivery must use loadWorkflowAttemptReceipt/workflowReportSource.
+// The identity view never supplies active execution or authorization receipts.
 func (o *Orchestrator) loadWriteFinalReportChangeReport(planID string) *types.ChangeReport {
-	planID = strings.TrimSpace(planID)
-	if planID == "" {
-		return nil
+	if o.busCtx != nil && o.busCtx.Mutable != nil {
+		if attempt, ok := selectedWorkflowReportAttempt(o.busCtx.Mutable.WriteWorkflowRun(), planID); ok {
+			// Legacy current identity navigation remains readable, but historical
+			// proof/recovery consumers use loadWorkflowAttemptReport separately.
+			if report, _ := o.loadWorkflowAttemptReport(attempt); report != nil || isExactReportRef(attempt.ReportID) {
+				return report
+			}
+		}
 	}
-	planDir := o.ensureChangeReportDir()
-	if planDir == "" {
-		return nil
-	}
-	stem := writeWorkflowArtifactFileStem(planID)
-	if stem == "" {
-		return nil
-	}
-	path := filepath.Join(planDir, stem+".report.json")
-	report, err := types.LoadChangeReportFromFile(path)
-	if err != nil {
-		return nil
-	}
-	return report
+	return o.loadLegacyCurrentReport(planID)
 }
 
 func (o *Orchestrator) loadWriteFinalReportChangePlan(planID string) (*types.ChangePlan, error) {
@@ -6007,11 +6008,14 @@ func markWorkflowRunActiveSliceApplying(run *types.WriteWorkflowRun, batchID str
 	batch.UpdatedAt = now
 }
 
-func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string) {
+func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string, publishedRef ...string) {
 	if run == nil || strings.TrimSpace(batchID) == "" || report == nil {
 		return
 	}
 	reportID := writeWorkflowReportID(report)
+	if len(publishedRef) > 0 {
+		reportID = publishedRef[0]
+	}
 	planID := strings.TrimSpace(report.PlanID)
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
@@ -6048,6 +6052,7 @@ func updateWorkflowRunBatchVerifySkipped(run *types.WriteWorkflowRun, batchID, p
 	}
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
+			run.Batches[i].VerifyRef = ""
 			run.Batches[i].UpdatedAt = time.Now()
 			appendWorkflowBatchAttempt(&run.Batches[i], "verify", "skipped", "skip_verify", strings.TrimSpace(planID), "", "")
 			return
@@ -6068,7 +6073,7 @@ func updateWorkflowRunBatchVerifySkipped(run *types.WriteWorkflowRun, batchID, p
 	})
 }
 
-func updateWorkflowRunActiveSliceObserve(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string) {
+func updateWorkflowRunActiveSliceObserve(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string, publishedRef ...string) {
 	if run == nil || strings.TrimSpace(batchID) == "" || report == nil {
 		return
 	}
@@ -6082,6 +6087,9 @@ func updateWorkflowRunActiveSliceObserve(run *types.WriteWorkflowRun, batchID st
 	}
 	now := time.Now()
 	reportID := writeWorkflowReportID(report)
+	if len(publishedRef) > 0 {
+		reportID = publishedRef[0]
+	}
 	planID := strings.TrimSpace(report.PlanID)
 	observeStatus, terminalEvent, completionVerdict := observeSliceStatusFromVerifyAttempt(status, report)
 	slice.Status = observeStatus
@@ -6139,6 +6147,8 @@ func updateWorkflowRunActiveSliceObserveSkipped(run *types.WriteWorkflowRun, bat
 	}
 	now := time.Now()
 	slice.Status = types.ChangePlanSliceUnverified
+	slice.VerifyRef = ""
+	slice.ObserveRef = ""
 	slice.PlanID = firstNonEmptyController(strings.TrimSpace(planID), slice.PlanID)
 	slice.Completion = &types.WriteWorkflowCompletion{
 		Verdict:    types.WriteWorkflowCompletionUnverified,
@@ -10886,7 +10896,7 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			verifyStatus = "unverified"
 			verifyReason = "production_verification_source_static_only"
 		}
-		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, verifyStatus, verifyReason)
+		o.recordWorkflowVerification(run, report, verifyStatus, verifyReason, false)
 		o.syncCurrentWriteContextPackToRun(run)
 	}
 	outcome := writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
@@ -11319,7 +11329,9 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 	}
 	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan {
 		reportEvidenceReason := "durable_report_ref_missing"
-		if report := o.loadDurableReportArtifact(st.ReportID); report != nil && !report.Passed &&
+		attempt := latestBatchReportAttempt(*active, st.ReportID, st.PlanID)
+		report, loadReason := o.loadWorkflowAttemptReport(attempt)
+		if report != nil && !report.Passed &&
 			strings.TrimSpace(report.PlanID) == strings.TrimSpace(st.PlanID) {
 			diffRef := ""
 			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
@@ -11337,8 +11349,8 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			case strings.TrimSpace(report.PlanID) != strings.TrimSpace(st.PlanID):
 				reportEvidenceReason = "durable_report_plan_mismatch"
 			}
-		} else if strings.TrimSpace(st.ReportID) != "" {
-			reportEvidenceReason = "durable_report_unavailable"
+		} else if loadReason != "" {
+			reportEvidenceReason = loadReason
 		}
 		diffRef := ""
 		if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
@@ -11384,19 +11396,4 @@ func (o *Orchestrator) loadDurablePlanArtifact(planID string) *types.ChangePlan 
 		return nil
 	}
 	return plan
-}
-
-// loadDurableReportArtifact reads a persisted ChangeReport by its artifact
-// file name (the batch attempt's ReportID) from the report directory.
-func (o *Orchestrator) loadDurableReportArtifact(reportID string) *types.ChangeReport {
-	reportID = strings.TrimSpace(reportID)
-	dir := o.ensureChangeReportDir()
-	if reportID == "" || dir == "" {
-		return nil
-	}
-	report, err := types.LoadChangeReportFromFile(filepath.Join(dir, reportID))
-	if err != nil {
-		return nil
-	}
-	return report
 }

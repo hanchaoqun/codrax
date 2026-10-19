@@ -15,6 +15,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
+	"github.com/hanchaoqun/codrax/internal/reportartifact"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -991,6 +992,7 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
 		case types.StagePlan:
@@ -1026,13 +1028,13 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 		t.Fatalf("batch not marked complete with plan id: %+v", got)
 	}
 	got := store.last.Batches[0]
-	if got.ApplyRef != "refs/codrax/applied/plan-controller-1" || got.VerifyRef != "plan-controller-1.report.json" {
+	if got.ApplyRef != "refs/codrax/applied/plan-controller-1" || !reportartifact.IsExactID(got.VerifyRef) {
 		t.Fatalf("batch refs should track apply and verify artifacts: %+v", got)
 	}
 	if !workflowBatchHasAttemptArtifact(got, "plan", "complete", "", "plan-controller-1") ||
 		!workflowBatchHasAttempt(got, "explore", "complete", "", "") ||
 		!workflowBatchHasAttemptArtifact(got, "apply", "applied", "apply_succeeded", "refs/codrax/applied/plan-controller-1") ||
-		!workflowBatchHasAttemptArtifact(got, "verify", "passed", "tests_passed", "plan-controller-1.report.json") {
+		!workflowBatchHasPublishedReport(t, o, got, "passed", "tests_passed", "plan-controller-1") {
 		t.Fatalf("batch attempts should track plan/apply/verify artifact refs: %+v", got.Attempts)
 	}
 	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusApplied || plan.AppliedAt == nil {
@@ -1338,8 +1340,9 @@ func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *
 			ContractRefs: []string{"outcome-1"},
 		}},
 	}
-	if err := types.WriteChangeReportToFile(sourceReport, filepath.Join(tmp, "plans", "plan-source.report.json")); err != nil {
-		t.Fatalf("WriteChangeReportToFile(source): %v", err)
+	sourceReceipt, err := reportartifact.PublishSnapshot(filepath.Join(tmp, "plans"), sourceReport)
+	if err != nil {
+		t.Fatal(err)
 	}
 	mu.SetChangePlan(plan)
 	mu.SetChangeReport(report)
@@ -1356,7 +1359,7 @@ func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *
 			ID:        "batch-source",
 			Status:    types.WriteWorkflowBatchComplete,
 			PlanID:    "plan-source",
-			VerifyRef: "plan-source.report.json",
+			VerifyRef: sourceReceipt.ReportID,
 			Completion: &types.WriteWorkflowCompletion{
 				Verdict:    types.WriteWorkflowCompletionVerified,
 				ReasonCode: "tests_passed",
@@ -1394,9 +1397,11 @@ func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *
 		Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
 		ReasonCode: "project_test_contract_ref_observed", WitnessKind: types.WriteBehaviorWitnessProjectTest, ContractRefs: []string{"outcome-1"},
 	}}
-	if err := types.WriteChangeReportToFile(sourceReport, filepath.Join(tmp, "plans", "plan-source.report.json")); err != nil {
+	sourceReceipt, err = reportartifact.PublishSnapshot(filepath.Join(tmp, "plans"), sourceReport)
+	if err != nil {
 		t.Fatal(err)
 	}
+	run.Batches[0].VerifyRef = sourceReceipt.ReportID
 	o.persistWriteWorkflowRun(run)
 	final, err = types.LoadWriteFinalReportFromFile(finalPath)
 	if err != nil {
@@ -1468,6 +1473,10 @@ func TestPersistWriteWorkflowRunNonTerminalVerifyFailedWritesPartialFinalReport(
 	mu.SetChangePlan(plan)
 	mu.SetChangeReport(report)
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+	receipt := o.publishChangeReportSnapshot(report)
+	if receipt == nil {
+		t.Fatal("failed report must be durably published before its attempt")
+	}
 	o.persistWriteWorkflowRun(&types.WriteWorkflowRun{
 		RunID:         "wf-failed",
 		Status:        types.WriteWorkflowRunInProgress,
@@ -1477,7 +1486,7 @@ func TestPersistWriteWorkflowRunNonTerminalVerifyFailedWritesPartialFinalReport(
 			Status:    types.WriteWorkflowBatchReadyToPlan,
 			PlanID:    "plan-failed",
 			ApplyRef:  "refs/codrax/applied/plan-failed",
-			VerifyRef: "plan-failed.report.json",
+			VerifyRef: receipt.ReportID,
 			Attempts: []types.WriteWorkflowAttempt{{
 				Kind:   "apply",
 				Status: "applied",
@@ -1486,7 +1495,7 @@ func TestPersistWriteWorkflowRunNonTerminalVerifyFailedWritesPartialFinalReport(
 				Kind:     "verify",
 				Status:   "failed",
 				PlanID:   "plan-failed",
-				ReportID: "plan-failed.report.json",
+				ReportID: receipt.ReportID,
 			}},
 			SliceEvents: []types.WriteWorkflowSliceEvent{{
 				Event:  types.WriteWorkflowSliceEventFailed,
@@ -3646,12 +3655,12 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 		t.Fatalf("expected one batch, got %+v", store.last.Batches)
 	}
 	batch := store.last.Batches[0]
-	if batch.VerifyRef != "plan-attempt-2.report.json" {
-		t.Fatalf("latest verify ref = %q, want final report ref", batch.VerifyRef)
+	if batch.VerifyRef != "" || !store.last.PersistenceDegraded {
+		t.Fatalf("latest verify ref = %q, want explicit publication gap without a persistence root", batch.VerifyRef)
 	}
-	if !workflowBatchHasAttempt(batch, "verify", "failed", "build_failed", "plan-attempt-1.report.json") ||
-		!workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-attempt-2.report.json") {
-		t.Fatalf("verify attempts should retain failed and passed report refs: %+v", batch.Attempts)
+	if !workflowBatchHasAttempt(batch, "verify", "failed", "build_failed", "") ||
+		!workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "") {
+		t.Fatalf("verify attempts should retain failed and passed outcomes without invented report refs: %+v", batch.Attempts)
 	}
 	if !workflowRunContextContains(store.last, "build_error", "fix.go:12 undefined: helper") ||
 		!workflowRunContextContains(store.last, "failure_summary_blob_ref", "/tmp/codrax/blob/compile-failed.txt") {
@@ -3677,6 +3686,7 @@ func TestRunWriteControllerWorkflow_VerifyInfraFailureRetriesVerify(t *testing.T
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.SetWriteRetryBudget(1)
 	verifyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3716,7 +3726,7 @@ func TestRunWriteControllerWorkflow_VerifyInfraFailureRetriesVerify(t *testing.T
 	}
 	batch := store.last.Batches[0]
 	if !workflowBatchHasAttempt(batch, "verify", "infra_error", "verify_tool_not_called", "") ||
-		!workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-infra.report.json") {
+		!workflowBatchHasPublishedReport(t, o, batch, "passed", "tests_passed", "plan-infra") {
 		t.Fatalf("verify attempts should record infra retry then pass: %+v", batch.Attempts)
 	}
 }
@@ -3788,6 +3798,7 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.SetWriteRetryBudget(0)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -3831,7 +3842,7 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	if workflowProgressHasReason(store.last.ProgressLedger, "runner_missing") {
 		t.Fatalf("runner_missing should not block the workflow: %+v", store.last.ProgressLedger)
 	}
-	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "unverified", "runner_missing", "plan-runner-missing.report.json") {
+	if !workflowBatchHasPublishedReport(t, o, store.last.Batches[0], "unverified", "runner_missing", "plan-runner-missing") {
 		t.Fatalf("runner_missing verify attempt missing: %+v", store.last.Batches[0].Attempts)
 	}
 	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusUnverified {
@@ -3860,6 +3871,7 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.SetWriteRetryBudget(3)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -3901,7 +3913,7 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 	if workflowProgressHasReason(store.last.ProgressLedger, "verify_failed") {
 		t.Fatalf("parser_error should not enter replan verify_failed path: %+v", store.last.ProgressLedger)
 	}
-	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "unverified", "parser_error", "plan-parser-error.report.json") {
+	if !workflowBatchHasPublishedReport(t, o, store.last.Batches[0], "unverified", "parser_error", "plan-parser-error") {
 		t.Fatalf("parser_error verify attempt missing: %+v", store.last.Batches[0].Attempts)
 	}
 	verifyAttempt := latestWorkflowBatchAttempt(store.last.Batches[0], "verify")
@@ -3989,6 +4001,7 @@ func TestRunWriteControllerWorkflow_ApplyTransportErrorWithAllChangesAppliedCont
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	applyCalls := 0
 	verifyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -4043,7 +4056,7 @@ func TestRunWriteControllerWorkflow_ApplyTransportErrorWithAllChangesAppliedCont
 	if !workflowBatchHasAttemptArtifact(batch, "apply", "applied", "apply_transport_recovered_all_changes", "refs/codrax/applied/plan-apply-transport") {
 		t.Fatalf("recovered apply attempt missing: %+v", batch.Attempts)
 	}
-	if !workflowBatchHasAttempt(batch, "verify", "passed", "tests_passed", "plan-apply-transport.report.json") {
+	if !workflowBatchHasPublishedReport(t, o, batch, "passed", "tests_passed", "plan-apply-transport") {
 		t.Fatalf("verify attempt missing after recovered apply: %+v", batch.Attempts)
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "apply_transport_recovered_all_changes") ||
@@ -9712,6 +9725,21 @@ func workflowBatchHasAttempt(batch types.WriteWorkflowBatch, kind, status, reaso
 	return false
 }
 
+// A newly produced report ref must resolve to its own persisted original;
+// matching a guessed plan-level filename is no longer evidence of publication.
+func workflowBatchHasPublishedReport(t *testing.T, o *Orchestrator, batch types.WriteWorkflowBatch, status, reasonCode, planID string) bool {
+	t.Helper()
+	for _, attempt := range batch.Attempts {
+		if attempt.Kind != "verify" || attempt.Status != status || attempt.ReasonCode != reasonCode || attempt.PlanID != planID || !reportartifact.IsExactID(attempt.ReportID) {
+			continue
+		}
+		if report, _ := o.loadWorkflowAttemptReport(attempt); report != nil && report.PlanID == planID {
+			return true
+		}
+	}
+	return false
+}
+
 func latestWorkflowBatchAttempt(batch types.WriteWorkflowBatch, kind string) *types.WriteWorkflowAttempt {
 	for i := len(batch.Attempts) - 1; i >= 0; i-- {
 		if batch.Attempts[i].Kind == kind {
@@ -10446,6 +10474,7 @@ func TestRunWriteControllerWorkflow_PlannerProbePassCannotFinishFailedPostApplyV
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.SetWriteRetryBudget(3)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -10477,7 +10506,7 @@ func TestRunWriteControllerWorkflow_PlannerProbePassCannotFinishFailedPostApplyV
 	if !workflowProgressHasReason(store.last.ProgressLedger, "truth_ledger_failed_requires_repair") {
 		t.Fatalf("planner probe pass must not unblock failed post-apply truth repair: %+v", store.last.ProgressLedger)
 	}
-	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-probe-pass.report.json") {
+	if !workflowBatchHasPublishedReport(t, o, store.last.Batches[0], "failed", "tests_failed", "plan-probe-pass") {
 		t.Fatalf("post-apply failure should be the authoritative verify attempt: %+v", store.last.Batches[0].Attempts)
 	}
 }
@@ -10500,6 +10529,7 @@ func TestRunWriteControllerWorkflow_PlannerProbeFailureDoesNotBlockPassedPostApp
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir()
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
 		case types.StagePlan:
@@ -10531,7 +10561,7 @@ func TestRunWriteControllerWorkflow_PlannerProbeFailureDoesNotBlockPassedPostApp
 		workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
 		t.Fatalf("planner probe failure must not pollute post-apply state: %+v", store.last.ProgressLedger)
 	}
-	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "passed", "tests_passed", "plan-probe-fail.report.json") {
+	if !workflowBatchHasPublishedReport(t, o, store.last.Batches[0], "passed", "tests_passed", "plan-probe-fail") {
 		t.Fatalf("post-apply success should be the authoritative verify attempt: %+v", store.last.Batches[0].Attempts)
 	}
 }
@@ -10580,6 +10610,7 @@ func TestRunWriteControllerWorkflow_RejectsNonAuthoritativeVerifyReports(t *test
 			o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 			o.cancelTokenPtr.Store(NewCancelToken())
 			o.writeWorkflowRunStore = store
+			o.reportDir = t.TempDir()
 			o.SetWriteRetryBudget(3)
 			o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 				switch stage {
@@ -10602,7 +10633,7 @@ func TestRunWriteControllerWorkflow_RejectsNonAuthoritativeVerifyReports(t *test
 			if !workflowProgressHasMessage(store.last.ProgressLedger, tc.wantDetail) {
 				t.Fatalf("invalid report detail %q should be persisted in progress: %+v", tc.wantDetail, store.last.ProgressLedger)
 			}
-			if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-channel.report.json") {
+			if !workflowBatchHasPublishedReport(t, o, store.last.Batches[0], "failed", "tests_failed", "plan-channel") {
 				t.Fatalf("invalid report should become a failed verify attempt for active plan: %+v", store.last.Batches[0].Attempts)
 			}
 		})
@@ -12825,7 +12856,8 @@ func TestRunAppliedPendingCompletionVerifyRetainsCumulativeWeakProofAuthority(t 
 	if err := types.WritePlanToFile(oldPlan, filepath.Join(reportDir, oldPlan.ID+".json")); err != nil {
 		t.Fatalf("persist old plan: %v", err)
 	}
-	if err := types.WriteChangeReportToFile(oldReport, filepath.Join(reportDir, oldPlan.ID+".report.json")); err != nil {
+	oldReceipt, err := reportartifact.PublishSnapshot(reportDir, oldReport)
+	if err != nil {
 		t.Fatalf("persist old report: %v", err)
 	}
 
@@ -12872,7 +12904,7 @@ func TestRunAppliedPendingCompletionVerifyRetainsCumulativeWeakProofAuthority(t 
 				Completion: &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed"},
 				Attempts: []types.WriteWorkflowAttempt{
 					{Kind: "apply", Status: "applied", PlanID: oldPlan.ID},
-					{Kind: "verify", Status: "passed", PlanID: oldPlan.ID, ReportID: oldPlan.ID + ".report.json"},
+					{Kind: "verify", Status: "passed", PlanID: oldPlan.ID, ReportID: oldReceipt.ReportID},
 				},
 			},
 			{
@@ -13132,7 +13164,8 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 			WorkingDir:    ".",
 			HasTestSignal: true,
 		}}}}
-	if err := types.WriteChangeReportToFile(failedReport, filepath.Join(planDir, "plan-resume.report.json")); err != nil {
+	failedReceipt, err := reportartifact.PublishSnapshot(planDir, failedReport)
+	if err != nil {
 		t.Fatalf("seed report: %v", err)
 	}
 	active := &types.WriteWorkflowRun{
@@ -13143,7 +13176,7 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 			Attempts: []types.WriteWorkflowAttempt{
 				{Kind: "plan", Status: "complete", PlanID: "plan-resume"},
 				{Kind: "apply", Status: "applied", PlanID: "plan-resume"},
-				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-resume", ReportID: "plan-resume.report.json", ArtifactRef: "plan-resume.attempt-1.diff", SurfaceRef: "plan-resume.attempt-1.surface.json"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-resume", ReportID: failedReceipt.ReportID, ArtifactRef: "plan-resume.attempt-1.diff", SurfaceRef: "plan-resume.attempt-1.surface.json"},
 			},
 		}},
 	}
@@ -13224,6 +13257,13 @@ func TestRunWriteControllerWorkflow_ResumeMissingReportUsesBoundedAttemptHandoff
 	if err := types.WritePlanToFile(storedPlan, filepath.Join(planDir, "plan-resume-missing-report.json")); err != nil {
 		t.Fatalf("seed plan: %v", err)
 	}
+	missingReceipt, err := reportartifact.PublishSnapshot(planDir, &types.ChangeReport{PlanID: storedPlan.ID, Passed: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(planDir, missingReceipt.ReportID)); err != nil {
+		t.Fatal(err)
+	}
 	active := &types.WriteWorkflowRun{
 		RunID: "wf-resume-missing-report", Identity: testWorkflowIdentity("resume missing report"),
 		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
@@ -13234,7 +13274,7 @@ func TestRunWriteControllerWorkflow_ResumeMissingReportUsesBoundedAttemptHandoff
 				{Kind: "apply", Status: "applied", PlanID: storedPlan.ID},
 				{
 					Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: storedPlan.ID,
-					ReportID: "missing.report.json", ArtifactRef: "plan-resume-missing-report.attempt-1.diff",
+					ReportID: missingReceipt.ReportID, ArtifactRef: "plan-resume-missing-report.attempt-1.diff",
 					SurfaceRef: "plan-resume-missing-report.attempt-1.surface.json",
 				},
 			},
@@ -13330,7 +13370,7 @@ func TestHydrateResumedWorkflowState_MismatchedReportCannotAuthorizeHandoff(t *t
 	}
 	handoff := mu.VerifyFailureHandoff()
 	if handoff == nil || handoff.ReportEvidenceStatus != types.VerifyFailureReportEvidenceUnavailable ||
-		handoff.ReportEvidenceReasonCode != "durable_report_plan_mismatch" {
+		handoff.ReportEvidenceReasonCode != "durable_legacy_history_unverified" {
 		t.Fatalf("mismatched report received failure authority: %+v", handoff)
 	}
 	if len(handoff.FailingTests) != 0 || handoff.FailureSummary != "" {

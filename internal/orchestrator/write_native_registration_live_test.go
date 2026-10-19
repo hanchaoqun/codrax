@@ -138,6 +138,7 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 		// These are independent child snapshots, including failure states. The
 		// parent mutable state below may still precede restore after a Fatal.
 		preserveRegistrationRestartAudit(t, o.busCtx.WorkDir, out)
+		preserveRegistrationReportArchive(t, o.ensureChangeReportDir(), out, o.busCtx.Mutable.WriteWorkflowRun())
 		save("final-plan.json", o.busCtx.Mutable.ChangePlan())
 		save("final-report.json", o.busCtx.Mutable.ChangeReport())
 		save("workflow.json", o.busCtx.Mutable.WriteWorkflowRun())

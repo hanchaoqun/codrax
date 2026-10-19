@@ -3272,52 +3272,14 @@ func (o *Orchestrator) saveBaselineReport(baseline *types.ChangeReport) {
 	logging.Info("[orchestrator] baseline report saved: %s", path)
 }
 
-// saveChangeReport writes the verify-stage report to disk. Target
-// path convention: same directory as the plan (typically
-// <runtime-anchor>/plans/) with a .report.json suffix keyed off
-// plan.ID. Failures are logged but do not abort verify — the
-// report still lives on Mutable and the stdout summary.
+// saveChangeReport retains an immutable verify-stage original and updates the
+// legacy current view. Saving again is not a new execution. Production attempt
+// binding publishes its final snapshot separately through recordWorkflowVerification.
+// Storage failures do not change the real verification result.
 func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
-	if report == nil {
-		return
+	if receipt := o.publishChangeReportSnapshot(report); receipt != nil {
+		o.publishChangeReportCurrentView(receipt)
 	}
-	planID := o.ensureChangeReportPlanID(report)
-	if planID == "" {
-		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID empty")
-		return
-	}
-	// Derive the plan directory in priority order:
-	//  1. busCtx.PlanPath — set on first apply (--plan-file mode)
-	//  2. o.reportDir — captured at Run entry from o.planPath. Survives
-	//     the verify→plan retry loop where clearForReplan wipes
-	//     busCtx.PlanPath but cannot touch this stable orchestrator
-	//     field. This is the load-bearing fallback that lets
-	//     restoreBestIfRegressed persist the restored ChangeReport on
-	//     terminal failure even after multiple retry iterations.
-	//  3. planSaver — controller-first write runs usually have an
-	//     in-memory ChangePlan first; persisting it through the same
-	//     PlanStore the REPL uses gives the report a durable sibling.
-	//  4. busCtx.WorkDir/plans — last-resort run-local audit trail for
-	//     tests or stripped-down embeddings that did not wire PlanStore.
-	planDir := o.ensureChangeReportDir()
-	if planDir == "" {
-		logging.Warning("[orchestrator] skipping ChangeReport disk save: no plan dir resolvable (plan-mode e2e path)")
-		return
-	}
-	stem := writeWorkflowArtifactFileStem(planID)
-	if stem == "" {
-		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID %q has no safe artifact stem", planID)
-		return
-	}
-	if report.GeneratedAt.IsZero() {
-		report.GeneratedAt = time.Now()
-	}
-	reportPath := filepath.Join(planDir, stem+".report.json")
-	if err := types.WriteChangeReportToFile(report, reportPath); err != nil {
-		logging.Warning("[orchestrator] ChangeReport disk save failed: %v", err)
-		return
-	}
-	logging.Info("[orchestrator] ChangeReport saved: %s", reportPath)
 }
 
 func (o *Orchestrator) ensureChangeReportPlanID(report *types.ChangeReport) string {

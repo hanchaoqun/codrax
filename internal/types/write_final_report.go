@@ -246,13 +246,16 @@ type WriteFinalReportInput struct {
 	Plan              *ChangePlan
 	PrimarySourcePlan *ChangePlan
 	Report            *ChangeReport
-	ProofArtifacts    []VerificationProofArtifact
-	Delivery          WriteFinalDeliverySummary
-	PlanPath          string
-	ReportPath        string
-	WorkflowPath      string
-	GeneratedAt       time.Time
-	ReasoningGraph    *WriteFinalReasoningGraphSummary
+	// ReportID is producer-owned exact artifact identity. Nil preserves legacy
+	// callers; a non-nil empty value explicitly discloses a publication gap.
+	ReportID       *string
+	ProofArtifacts []VerificationProofArtifact
+	Delivery       WriteFinalDeliverySummary
+	PlanPath       string
+	ReportPath     string
+	WorkflowPath   string
+	GeneratedAt    time.Time
+	ReasoningGraph *WriteFinalReasoningGraphSummary
 }
 
 func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
@@ -294,6 +297,9 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	if input.Report != nil {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
+	if input.ReportID != nil {
+		out.Verification.ReportID = strings.TrimSpace(*input.ReportID)
+	}
 	out.Delivery = NormalizeWriteFinalDeliverySummary(input.Delivery)
 	if input.PrimarySourcePlan != nil {
 		out.SourceAuthority = writeFinalSourceAuthoritySummary(input.PrimarySourcePlan, runContextPacks)
@@ -305,6 +311,9 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	out.ProofLedger = BuildVerificationProofLedger(input.Plan, input.Report, input.ProofArtifacts)
 	out.ReasoningGraph = normalizeWriteFinalReasoningGraphSummaryPtr(input.ReasoningGraph)
 	out.ResidualRisks = writeFinalResidualRisks(out)
+	if input.ReportID != nil && (strings.TrimSpace(*input.ReportID) == "" || input.Report == nil) {
+		out.ResidualRisks = append(out.ResidualRisks, WriteFinalResidualRisk{Code: "verification_report_original_unavailable", Source: "change_report", Severity: "warning", Detail: "Complete original report unavailable; no replacement report or new execution is inferred."})
+	}
 	return NormalizeWriteFinalReport(out)
 }
 
