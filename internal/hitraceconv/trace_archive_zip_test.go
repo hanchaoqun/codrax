@@ -720,7 +720,7 @@ func TestTraceArchiveZIPExtractionCancellationRollsBackPrivateMember(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, _, err := selectTraceArchiveZIPMember(reader, directory, "")
+	candidate, _, err := selectTraceArchiveZIPMember(context.Background(), reader, directory, "")
 	if err != nil {
 		t.Fatal(err)
 	}

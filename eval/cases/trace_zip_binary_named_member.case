@@ -1,0 +1,9 @@
+ID="trace_zip_binary_named_member"
+NAME="Named binary ZIP member — shared preparation and native sampling query"
+QUESTION="请看附件在486489.4到486489.6秒内poll_report线程（tid 1609）的采样热点和调用栈，说明主要集中在哪里。"
+: "${CODRAX_ZIP_BINARY_INPUT:?set CODRAX_ZIP_BINARY_INPUT to the pinned archive containing the complete capture; run the independent oracle first}"
+HTRACE_FILE="$CODRAX_ZIP_BINARY_INPUT"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="OnDataEvent_"

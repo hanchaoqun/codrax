@@ -212,10 +212,8 @@ func validateTraceBundleArchiveProvenance(bundlePath string, provenance *traceBu
 	if err := tracebundle.ValidateCapturePath(provenance.Member); err != nil {
 		return fail("invalid member: %v", err)
 	}
-	extension := strings.ToLower(path.Ext(provenance.Member))
-	if extension != ".sys" && extension != ".htrace" {
-		return fail("member must use .sys or .htrace: got %q", provenance.Member)
-	}
+	// Origin metadata is not decoder or query authority. Canonical members
+	// may have any suffix; material and receipt admission remain independent.
 	if provenance.Selection != "unique_candidate" && provenance.Selection != "explicit_member" {
 		return fail("selection is not in the closed set: got %q", provenance.Selection)
 	}

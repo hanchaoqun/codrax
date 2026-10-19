@@ -72,9 +72,12 @@ independently executed Linux trace_streamer child. That child still requires
 glibc >= 2.34 and its own shared libraries. Explicit static-slim and
 unsupported-platform distributions require an external trace_streamer.
 
-Official Hiview ZIP artifacts are detected by content magic, not by filename.
-Codrax automatically selects the only regular .sys/.htrace member. A ZIP with
-multiple trace candidates fails closed until --archive-member supplies one
+ZIP artifacts are detected by content magic, not by filename. Codrax selects
+the only regular trace candidate: legacy .sys/.htrace names or a member whose
+content identifies an already supported RMQ/OHOSPROF/PERFILE2/SIMPLEPERF format.
+Normal .data and extensionless member names do not require renaming. Candidate
+recognition is not successful decoding; the full member must still validate.
+A ZIP with multiple candidates fails closed until --archive-member supplies one
 exact canonical member name; archive and selected-member hashes are preserved
 in the tracebundle. Tar, 7z, encrypted, multi-disk, and nested archives are not
 accepted by this command.
@@ -1813,7 +1816,7 @@ func traceConvertProgressMessageZh(message string) string {
 func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "Harmony/OpenHarmony trace or perf capture path, including supported ZIP/gzip containers")
 	traceConvertCmd.Flags().StringVar(&traceConvertOutput, "output", "", "text systrace output path; default is <input>.systrace")
-	traceConvertCmd.Flags().StringVar(&traceConvertArchiveMember, "archive-member", "", "exact canonical .sys/.htrace member to select when a ZIP contains multiple trace candidates")
+	traceConvertCmd.Flags().StringVar(&traceConvertArchiveMember, "archive-member", "", "exact canonical supported trace/perf member to select when a ZIP contains multiple candidates")
 	traceConvertCmd.Flags().StringVar(&traceConvertFlavor, "flavor", "harmony_hitrace", "trace flavor metadata for operator audit; default harmony_hitrace")
 	traceConvertCmd.Flags().StringVar(&traceConvertHiperfHost, "hiperf-host", "", "official OpenHarmony hiperf_host/hiperf path used to convert HIPERF_DATA perf.data sidecars to .perftrace")
 	traceConvertCmd.Flags().StringSliceVar(&traceConvertSymbolDirs, "hiperf-symbol-dir", nil, "symbol directories passed to hiperf report --symbol-dir; repeat or comma-separate values")

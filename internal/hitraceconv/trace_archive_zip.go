@@ -173,9 +173,34 @@ func (route *traceConversionInput) bindLedger(ledger *conversionFileLedger) erro
 	if route == nil || ledger == nil {
 		return conversionInputFailure(ConversionInputCodeInternalContract, conversionInputStageRoute, "", errors.New("trace archive ledger binding is incomplete"))
 	}
-	if route.provenance != nil {
+	if route.provenance != nil || route.member != nil {
+		if route.provenance == nil {
+			return traceArchiveFailure(traceArchiveCodeMemberIntegrity, "", errors.New("held archive member has no provenance tuple"))
+		}
 		if err := validateTraceArchiveProvenance(route.provenance); err != nil {
 			return err
+		}
+		if route.member == nil || route.archive == nil || route.member.archive != route.archive || route.input != route.member ||
+			route.member.receipt != *route.provenance || route.member.member != route.provenance.Member ||
+			route.member.Size() != route.provenance.MemberBytes || route.archive.Size() != route.provenance.ArchiveBytes {
+			return traceArchiveFailure(traceArchiveCodeMemberIntegrity, route.provenance.Member, errors.New("archive provenance lacks its exact held member receipt"))
+		}
+		if err := route.member.Validate(conversionInputStageRoute); err != nil {
+			return err
+		}
+		origin, err := route.archive.canonicalIdentity()
+		if err != nil {
+			return err
+		}
+		protected := false
+		for _, source := range ledger.protected {
+			if source.path == origin.path && source.info != nil && origin.info != nil && os.SameFile(source.info, origin.info) {
+				protected = true
+				break
+			}
+		}
+		if !protected {
+			return traceArchiveFailure(traceArchiveCodeMemberIntegrity, route.provenance.Member, errors.New("archive origin is not protected by this publication ledger"))
 		}
 		ledger.archive = cloneTraceArchiveProvenance(route.provenance)
 	}
@@ -368,80 +393,6 @@ type traceArchiveZIPCandidate struct {
 	name string
 }
 
-func selectTraceArchiveZIPMember(reader *zip.Reader, directory traceArchiveZIPDirectory, explicit string) (traceArchiveZIPCandidate, string, error) {
-	if reader == nil || uint64(len(reader.File)) != directory.entries {
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeInvalidZIP, "", fmt.Errorf("ZIP central-directory count mismatch: parsed=%d declared=%d", len(reader.File), directory.entries))
-	}
-	names := make(map[string]struct{}, len(reader.File))
-	var candidates []traceArchiveZIPCandidate
-	for _, file := range reader.File {
-		name, isDir, err := validateTraceArchiveZIPName(file)
-		if err != nil {
-			return traceArchiveZIPCandidate{}, "", err
-		}
-		if _, duplicate := names[name]; duplicate {
-			return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeDuplicateMember, name, errors.New("canonical member name appears more than once"))
-		}
-		names[name] = struct{}{}
-		if file.Flags&1 != 0 {
-			return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeEncryptedMember, name, errors.New("encrypted ZIP members are unsupported"))
-		}
-		mode := file.Mode()
-		if isDir {
-			if !mode.IsDir() && mode.Type() != 0 {
-				return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeSpecialMember, name, fmt.Errorf("directory member has special mode %s", mode))
-			}
-			continue
-		}
-		if mode.Type() != 0 {
-			return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeSpecialMember, name, fmt.Errorf("member mode %s is not regular", mode))
-		}
-		ext := strings.ToLower(path.Ext(name))
-		if ext == ".sys" || ext == ".htrace" {
-			candidates = append(candidates, traceArchiveZIPCandidate{file: file, name: name})
-		}
-	}
-	if explicit != "" {
-		canonical, err := validateExplicitTraceArchiveMember(explicit)
-		if err != nil {
-			return traceArchiveZIPCandidate{}, "", err
-		}
-		for _, candidate := range candidates {
-			if candidate.name == canonical {
-				return candidate, "explicit_member", nil
-			}
-		}
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeExplicitMember, canonical, errors.New("explicit member is absent or is not a regular .sys/.htrace candidate"))
-	}
-	switch len(candidates) {
-	case 0:
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeNoCandidate, "", errors.New("ZIP contains no regular .sys/.htrace member"))
-	case 1:
-		return candidates[0], "unique_candidate", nil
-	default:
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeMultipleCandidates, "", fmt.Errorf(
-			"ZIP contains %d trace candidates (%s); select one with --archive-member",
-			len(candidates), traceArchiveCandidateSummary(candidates),
-		))
-	}
-}
-
-func traceArchiveCandidateSummary(candidates []traceArchiveZIPCandidate) string {
-	const maxShown = 8
-	shown := len(candidates)
-	if shown > maxShown {
-		shown = maxShown
-	}
-	parts := make([]string, 0, shown+1)
-	for index := 0; index < shown; index++ {
-		parts = append(parts, strconv.Quote(boundedTraceProviderErrorText(candidates[index].name, 160)))
-	}
-	if omitted := len(candidates) - shown; omitted > 0 {
-		parts = append(parts, fmt.Sprintf("... %d omitted", omitted))
-	}
-	return strings.Join(parts, ", ")
-}
-
 func validateTraceArchiveZIPName(file *zip.File) (string, bool, error) {
 	if file == nil {
 		return "", false, traceArchiveFailure(traceArchiveCodeInvalidMember, "", errors.New("nil ZIP member"))
@@ -496,7 +447,7 @@ func extractTraceArchiveZIPMember(ctx context.Context, opts Options, authority *
 	if err != nil {
 		return nil, nil, "", traceArchiveFailure(traceArchiveCodeInvalidZIP, "", err)
 	}
-	candidate, selection, err := selectTraceArchiveZIPMember(reader, directory, opts.ArchiveMember)
+	candidate, selection, err := selectTraceArchiveZIPMember(ctx, reader, directory, opts.ArchiveMember)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -527,6 +478,7 @@ func extractTraceArchiveZIPMember(ctx context.Context, opts Options, authority *
 	if err := member.Validate(conversionInputStageArchiveIntake); err != nil {
 		return nil, nil, "", err
 	}
+	member.receipt = *provenance
 	closeMember = false
 	return member, provenance, authority.CanonicalPath() + "!/" + candidate.name, nil
 }
@@ -535,17 +487,10 @@ func extractSelectedTraceArchiveMember(ctx context.Context, display string, cand
 	if candidate.file == nil {
 		return nil, "", traceArchiveFailure(traceArchiveCodeInvalidMember, candidate.name, errors.New("selected ZIP member is missing"))
 	}
-	compressed := candidate.file.CompressedSize64
+	if err := validateTraceArchiveZIPMemberSize(candidate.file, false); err != nil {
+		return nil, "", err
+	}
 	uncompressed := candidate.file.UncompressedSize64
-	if uncompressed == 0 || compressed > traceArchiveZIPMaxMemberCompressed || uncompressed > traceArchiveZIPMaxMemberUncompressed ||
-		(compressed == 0 && uncompressed != 0) {
-		return nil, "", traceArchiveFailure(traceArchiveCodeResourceLimit, candidate.name, fmt.Errorf("ZIP member exceeds size/ratio limits: compressed=%d uncompressed=%d", compressed, uncompressed))
-	}
-	// Both declared sizes are already capped at 64 GiB, so the ratio product is
-	// strictly inside uint64 and needs no architecture-dependent conversion.
-	if compressed != 0 && uncompressed > compressed*traceArchiveZIPMaxCompressionRatio {
-		return nil, "", traceArchiveFailure(traceArchiveCodeResourceLimit, candidate.name, fmt.Errorf("ZIP member compression ratio exceeds %d", traceArchiveZIPMaxCompressionRatio))
-	}
 	reader, err := candidate.file.Open()
 	if err != nil {
 		return nil, "", traceArchiveFailure(traceArchiveCodeMemberIntegrity, candidate.name, err)
@@ -679,6 +624,9 @@ type traceArchiveMemberInput struct {
 	display  string
 	leaf     string
 	member   string
+	// Issued only after full extraction, hashing and held-generation checks.
+	// JSON origin metadata cannot recreate this private binding.
+	receipt TraceArchiveProvenance
 }
 
 func (input *traceArchiveMemberInput) Size() int64 {
@@ -775,10 +723,9 @@ func validateTraceArchiveProvenance(provenance *TraceArchiveProvenance) error {
 	if _, err := validateExplicitTraceArchiveMember(provenance.Member); err != nil {
 		return err
 	}
-	extension := strings.ToLower(path.Ext(provenance.Member))
-	if extension != ".sys" && extension != ".htrace" {
-		return traceArchiveFailure(traceArchiveCodeMemberIntegrity, provenance.Member, errors.New("archive provenance member extension is outside the closed candidate set"))
-	}
+	// This tuple describes origin, not a decoder or query-ready capability.
+	// Canonical member names may carry any suffix; exact content is admitted
+	// by the held-input selector and the complete decoder/receipt transaction.
 	if err := tracebundle.ValidateSHA256(provenance.ArchiveSHA256); err != nil {
 		return traceArchiveFailure(traceArchiveCodeMemberIntegrity, provenance.Member, fmt.Errorf("archive sha256: %w", err))
 	}
