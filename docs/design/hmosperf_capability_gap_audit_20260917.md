@@ -9131,3 +9131,63 @@ B完整交付验收仍FAIL：helper的`final-report.json`其实为ChangeReport�
 生产修复提交`fe4423084`，真实二进制验收提交`7d5555621`；普通push PID39828，UTC02:43:32.216494–02:43:37.422586正式exit0，原输出SHA`3ac23e73abba6db03b98c35473a3e5675451009b84ce72ebd20cbf4c6123cb88`，推后origin/main...HEAD为0/0。文档/原证索引另笔收尾。定向与全仓通过不替两例人工改签，55开放保持。
 
 原证归档`eval/results/hmc_report_history_binary_20261018/verification-receipts-v1/`：138份临时过程/正式收据、原失败/独立审计/设计/测试binary等，加实际冻结CLI及A的4份最终输出、24份调用/查询/成文载荷和3份准备材料，共170份逐字节复制；47份原有工件未变，217文件SHA索引`f129ef6df290c20b5e25f67e2b92343a003d5cbf7ac9139074742a693d625e64`。归档收据SHA`9457d466c32a235c3f017485407679e1565f36f4e0a093c3b2c53bcb1e6a9cf2`另存，索引/收据不自循环。归档再次核7088冻结输入、原问题/原件、两例时间重叠及正式退出，不以哈希代签人工；未读取/复制providers凭据，丢失的B最终原件没有合成补造。
+
+## 261. 最终交付原件留存与原生事实交接（2026-10-18，子能力已交付，人工1/2）
+
+### 261.1 基线、参考意图与两轨范围
+
+起点`892655d80`干净，79唯一/重复0＝24已交付＋55开放；33待实施/15部分实施/3待验收/3验收中/1持续执行。§260 A整答采样状态/权重误述、B实际WriteFinalReport原件缺失均保原FAIL；历史报告原件/精确恢复、真实sample-only完整入口的有限PASS不抹去，也不以本次新产物回签上次丢失原件。
+
+重新对照参考`core/session_output.py`、`core/batch/closure/package.py`及`merge.py`：独立会话根保原件与清单，自描述成员与模型解释分离，验证后发布；这解决跨步骤路径猜测和事实/解释混用。借其职责划分，不搬mtime最新、CWD兜底和正则删模型段落。Codrax复用已有私有完成凭证、当前来源binder、发布收据及不可变文件读取，不新增竞争证据权。
+
+能力/验收轨只补已证原件留存接缝：测试侧typed manifest同时收真实ChangeReport与WriteFinalReport，原字节不改，source/archive路径分开，父/恢复子分开快照；最终引用按精确版本、PlanID、owner与摘要核对，缺件/坏件/错代保留失败。清单不产生执行授权、测试通过或行为证明；不把验证报告副本的文件数当执行次数。更多真实二进制格式/外部TS/原生平台仍归17.6，本片不伪装新decoder。
+
+高影响缺陷轨16.4分离当前语义叙述权属与原生视图发布完整性：当前私有接受代次且fresh binding有效时，独立interpretation是该完成决策的唯一语义载体；reason继续留生命周期审计，不因解释截断、安全清理或某张表未完整发布而复活。复用原900＋900字节槽，超预算如实披露未展示尾部；不提高全局cap，不声称任意长解释无损。旧JSON/未接受/换源换窗仍保守，独立笔记、源码和链上业务解释保留，原生完整性/因果资格不因叙述投递升权。
+
+### 261.2 独立复核：视觉重复不等于同一人口
+
+对§260 A三份164/259质量块补查完整来源：三者同物理source generation、窗、原生线程实例和单位，但分别为无事件过滤的window_stats、显式perf_sample过滤的window_stats、自动root_cause_rank带解析线程名；cohort分别`38090a…`、`fca1cc…`、`1c2f30…`。这是同原件下不同查询规格，不可仅凭数值相等删除Scope.ID或共享分母/完整性。上批“同源质量重复”是展示现象，不能外推为已证明同查询人口重复；原始审计及错误成文不修改。
+
+本片不做质量人口合并。后续若规范化选择别名，须在producer用精确线程实例与过滤谓词证明等价；不同过滤恰好同值、同TID不同代次、不同窗/单位/来源均不合并。可以先共享静态说明并清楚展示查询条件，但不能伪称已有完整去重能力。本批独立审查原件`/tmp/codrax-hmc261-independent-design-review-v1.md`保完整3组query/cohort/source/filter定位。
+
+### 261.3 验收纪律
+
+两例保持原自然问题，各一次并行：真实sample-only CLI、真实父controller/planner/独立恢复子controller只读登记终态。权限夹具位于仓外`/tmp/codrax-hmc261-search-only-inputs-v1`，避免Go包发现遇0100目录；原参考文件不改权限或字节。独立reference parser与raw/gzip公开查询先过，模型问题不携oracle。B的operator初始准备、真实run_tests和非full-CLI边界单列；新归档只能验本批实际产物。
+
+先局部正反/race，再冻结一次并跑全仓。施工中主控保护检查恰逢归档helper拆分，orchestrator两符号尚未落盘导致编译失败，其他四包通过；原输出与正式收据保留，作为并行施工中间态，不误报产品回归。末版重跑及真实人工结论到场前不销账。
+
+### 261.4 实现、独立反例与定稿验证
+
+生产片仅三处：`answer_document_separated_native_handoff.go`引入dispatch内的叙述权属/视图完整性/解释字节投递状态，`answer_document_evaluator.go`消费该投影，`emit_investigation_complete.go`同步字段职责教学。实际公开完成与finalizer路径覆盖采样/IO、未发布视图、长中文尾部与安全过滤；旧JSON/错源/错窗/未接受、独立笔记及现有typed早退保持。新例在修复前5种场景均复现旧reason回流；首轮正式定向因旧schema文字钉子失败，修正为新职责断言，原失败保留。定稿19根/96含子项、race4根/29含子项及8根相邻边界通过；不把单一叙述交接等同于解释本身正确。
+
+测试/验收片统一typed原件manifest与精确链接审计，父和恢复子在清理前独立保存原字节，真正`.final.json`与ChangeReport明确分型。独立RED发现无计数快照attempt的PlanID未校验、尾斜杠根符号链接可被解引用，两者修后5根race通过。更宽邻接发现预期拒绝恢复被误加新最终说明义务，按显式RequiredPlanID区分完整交付与仅库存留存；后者保缺件/问题、不误报应生成新终态，I/O失败仍报错。主6根、11个缺件/错代负控、4个父/子×成功/失败清理子项及15根非live邻接通过；原中间FAIL全部保留，不抬高行数上限。
+
+独立参考parser重核真实原件30,062,585B/SHA`da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632`，完整12000记录、窗1393、目标164/259。真实raw/gzip冷暖完整查询与race通过，未修改二进制准备/解析生产代码或伪称新增解码器；原问题仍无oracle提示。Trace自动补齐、L1读模式、L6工具及Mermaid降级保护定稿检查通过。
+
+UTC2026-10-19T03:00:45.189345冻结7095源码/测试/评测输入、无删除路径，清单SHA`3ccf6d3b940a130497ead9a9344ec38f3c9501572e2435f829c93daee9c92957`；CLI SHA`6e8908e60d46a80dfed01a1deae4a80d7552ec7871180b166015e9b2e9e4f228`，测试binary SHA`44ab8d1842014a80d7b40d52dee5a0194ffeb48d84a4a58650f7ddb3c19c3f23`。后续两例与全仓同版，不边测边改。
+
+两例各一次且并行：A PID6793，UTC03:00:47.798345–03:04:22.645458，exit0/输出SHA`e566b376ea1a6eab49cb2ce6035b562e68e3916063519539af7d29a6bfb54732`；B PID6916，UTC03:00:48.877436–03:02:55.677412，exit0/输出SHA`14afbfc38968f2b26d37338d0e827dbd1cf461296ab2fbaf5f4abfd8d6245807`。结束后才核原件/自有目录身份并恢复两级夹具目录0100→0700供归档，文件0400及参考原件字节未变。机器退出不代签人工；正式人工与全仓终态分别登记。
+
+### 261.5 两例独立人工验收与精确留账
+
+A完整入口/取数/本片叙述交接PASS：完整12000、窗1393、目标164/259，两热点82+82、174+85及记录CPU1/CPU0正确。1679B interpretation完整进入finalizer，只有1份；407B reason不再重传，Current model synthesis为0；原生视图1/2完整如实披露。首份pattern过滤树不可用不等于零样本，独立统计有效；自动window_stats同源同窗补齐完整树，不删除自动补齐。
+
+A整答仍FAIL：从unknown样本与热点分布推CPU时间/执行，排除过载或死循环，把两簇分组推成反复进出内核，又把业务符号推成已发生的注册/IPC关系。MD/HTML/primary/principal同错；表尾正确限制不能抵销正文。错误interpretation自身已越界，旧reason未回流，正确原生事实也在108307B实际成文user上下文内；不再归因于该已修接缝，不足以认定纯随机波动。本次没有将67.18%直接写成耗时比，也没重现4ms/196ms，旧错误原件不倒签。无图，root-causes为`trace_root_cause_contract_not_active`，不能误写为链筛后无候选；根因投影分支本轮未触发，定向保护另记。
+
+B限定合同人工PASS：父/恢复子各7件真实原件（3精确报告+2current镜像+2最终说明），逐字节/类型/摘要和3条attempt、2条final链接全部匹配。旧source final指12723c代且保持in_progress/weak，当前登记final指b5e394代并为complete/verified；中间bec83c代的unverified attempt保原，没有借更新报告改写旧状态。临时源根清理后，原字节及原路径→归档路径映射仍在，不重建最终说明、不用旧名ChangeReport代签。
+
+当前final/报告为1条断言结果、2命令；累计proof为2份贡献报告、2条断言结果、4命令；实际独立invocation是operator初始1+正式工作流3，三种量尺不混算。恢复子有本轮新执行才finish，源码/测试/HEAD未改，6pack无引用累积，初始fixture缺apply checkpoint等边界仍保留。不宣称完整CLI、最初自然修复、多框架或GUI点击。父模型4次倾向提前accept_unverified均被精确控制层阻断，作为效率观察留16.4/18.5，不阻塞已验交付。
+
+本批机器2/2、按各自限定合同人工1/2；完整能力新增0，生产子能力1组、验收保障子能力1组，本批剩余人工验收缺陷1组（采样解释/事实一致性及不同人口展示降噪）。B归档/精确链接子缺口闭环，不关闭18.4整项；A的18.3原有限退出仍未满足，既有CLI/REPL/尾部子能力不推倒重来，也不增所有格式/未来图的新门。79唯一＝24交付＋55开放不变。详见[独立人工汇总](../../eval/parallel_selected_summary_hmc_final_original_native_handoff_20261018_manual_audit.md)，两份完整独立报告和原始失败同时归档。
+
+### 261.6 全仓、封存、发布与下一ROI顺序
+
+全仓PID6710，UTC2026-10-19T03:00:46.560319–03:15:14.518435正式exit0：96包PASS/13无测试包SKIP、零fail/非JSON行；JSONL SHA`4661985e57b352d576def4aff6b33b8fc54b3642b2740649a305bd77da95ac50`。11个HMC261新根同次PASS，独立子进程helper入口按预期SKIP；真实原件opt-in根另有明确raw/gzip与race证据，不说普通全仓自动执行了它。冻结7095输入及两份实际binary前后复核一致，无全仓后代码修改或追加模型。
+
+生产叙述交接`86fdda2a8`、测试/验收留存`574a77088`分两笔提交；普通push PID98019，UTC03:17:33.308059–03:17:39.633770正式exit0，输出SHA`f0125043f0ec03e1af79fbe25b99bd07cafa703abd871e8ae3ff3def600bf5d9`，推后origin/main...HEAD为0/0。文档另笔收尾。提交/推送不改变人工FAIL判定。
+
+原证目录`eval/results/hmc_final_original_native_handoff_20261018/verification-receipts-v1/`封存59份临时凭证/设计/原失败/独立审计，加冻结CLI、4份最终输出/15份调用查询载荷/3份完整准备材料，共82份逐字节复制；55份原工件不变，137文件索引SHA`5e019b7fcb5b5a481ff46cd9e99e9537e66611b423d3d0142def326b7c7981a1`，独立归档收据SHA`a87f26d6082f403e1fd6b121e0d3d7c3a8ea8eb4c419424bfdd97a2bab9262ac`。索引/收据不自循环，未读/复制provider凭据，缺失的旧批final不重建。
+
+下一两轨：能力轨17.6先做ZIP正常命名的已支持叶子格式→共享完整准备→原生查询。静态复核发现当前候选及来源门仅收`.sys/.htrace`，而下游已有PERFILE2等内容解码；这是旧封闭支持集的能力扩展，不伪称原合同回归。参考仓统一hiperf准备/内容结构验证的分层意图，不抄`.data`后缀门或“文件存在即工具可用”；下一批先公开RED并保多成员歧义/CRC/取消/预算/源代次/不自动换旧附件边界，再用真实PERFILE2的人工ZIP包装验收，不能冒称实机ZIP捕获或新decoder。完整设计已归档`codrax-hmc261-next-binary-capability-design-v1.md`。
+
+缺陷轨保持共享事实与独立推断/关系角色边界、不同查询人口的低噪声交接；先证明系统缺口，不用关键词扫描或重复prompt追同一采样句子。若正确事实已完整到场而无新系统反例，保留人工FAIL并轮换其它高ROI验收。更多实机RMQ/OHOSPROF/SIMPLEPERF、真实外部TS及原生Linux/Windows缺证仍归17.6；参考TS本体目前LFS指针，不下载/跨编译冒签。本批55开放不变，未完成工作有明确去向。
