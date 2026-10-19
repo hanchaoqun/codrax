@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"encoding/json"
+
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -41,6 +43,12 @@ func markNamedTraceArchiveSelectionPending(profile *types.RuntimeArtifactPreflig
 		item := &profile.Artifacts[i]
 		if item.Carrier == "request_path" && item.RuntimeArtifactKind() == "trace" &&
 			typedNamedTraceAdmissionPathKey(resolveTypedNamedTraceSource(item.Source, repo)) == key {
+			// Preserve the producer's bounded candidate data across the pending
+			// selection outcome. JSON validity only chooses a display format;
+			// it cannot grant a tool, selected material or evidence authority.
+			if json.Valid([]byte(item.Detail)) {
+				continue
+			}
 			item.Detail = "ZIP has multiple trace candidates; select the intended exact member with trace_query archive_member. Preparation remains pending; no query facts or complete input have been admitted."
 		}
 	}

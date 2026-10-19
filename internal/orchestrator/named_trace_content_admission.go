@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
@@ -42,9 +43,13 @@ func namedTraceContentAdmissionProfile(ctx context.Context, bus *types.BusContex
 			continue
 		}
 		known[key] = true
+		detail, err := json.Marshal(candidate)
+		if err != nil {
+			continue
+		}
 		profile.Artifacts = append(profile.Artifacts, types.RuntimeArtifactPreflightArtifact{
 			Kind: "trace", Source: path, Carrier: "request_path",
-			Detail: "named native content; ordinary preparation and complete input admission required",
+			Detail: string(detail),
 		})
 	}
 	return types.NormalizeRuntimeArtifactPreflightProfile(profile)

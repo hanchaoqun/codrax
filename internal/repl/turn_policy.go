@@ -1109,6 +1109,14 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		strings.TrimSpace(parsed.PresentationDirective),
 		bool(parsed.RequiresDiagram),
 	)
+	// Preserve schema fields before deterministic obligation reconciliation.
+	// This diagnostic is not a routing input and intentionally excludes the
+	// request, candidate paths and free-form reason.
+	logging.Info("[repl/turn_policy] parsed_domain raw_route=%s raw_source=%s raw_current_source=%s raw_required_outcomes=%v",
+		parsed.Route,
+		turnPolicyDiagnosticEnum(parsed.Source, "current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact", "data"),
+		turnPolicyDiagnosticEnum(parsed.CurrentSourceEvidenceMode, "required", "optional"),
+		parsed.RequiredOutcomes.Names())
 	return TurnPolicy{
 		RequiredOutcomes:     parsed.RequiredOutcomes,
 		DeliveryOwner:        parsed.DeliveryOwner,
@@ -1197,6 +1205,20 @@ type turnPolicyParams struct {
 	Reason                    string                   `json:"reason"`
 	PresentationDirective     string                   `json:"presentation_directive"`
 	RequiresDiagram           flexiblePolicyBool       `json:"requires_diagram"`
+}
+
+// Keep malformed legacy descriptive fields out of diagnostics without
+// changing their classification or creating a new routing requirement.
+func turnPolicyDiagnosticEnum(raw string, allowed ...string) string {
+	if raw == "" {
+		return ""
+	}
+	for _, value := range allowed {
+		if raw == value {
+			return raw
+		}
+	}
+	return "invalid_schema_value"
 }
 
 func turnPolicyStructuralRepairPrompt(cause error) string {

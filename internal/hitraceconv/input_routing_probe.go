@@ -12,12 +12,13 @@ import (
 // do not establish readable rows, timestamps, ownership, or trace admission.
 // No material receipt or query authority is published by this probe.
 type InputRoutingCapability struct {
-	Path           string   `json:"path"`
-	Container      string   `json:"container"`
-	Status         string   `json:"status"`
-	NativeReader   string   `json:"native_reader,omitempty"`
-	CandidateViews []string `json:"candidate_views,omitempty"`
-	Reason         string   `json:"reason,omitempty"`
+	Path              string                         `json:"path"`
+	Container         string                         `json:"container"`
+	Status            string                         `json:"status"`
+	NativeReader      string                         `json:"native_reader,omitempty"`
+	CandidateViews    []string                       `json:"candidate_views,omitempty"`
+	ArchiveCandidates *InputRoutingArchiveCandidates `json:"archive_candidates,omitempty"`
+	Reason            string                         `json:"reason,omitempty"`
 }
 
 const InputRoutingSQLiteMaxBytes int64 = 32 << 20
@@ -40,6 +41,8 @@ func nativeRoutingSchemaFamilies() []routingSchemaFamily {
 // ProbeInputRoutingCapability performs a bounded read of one held generation.
 // SQLite is inspected only through the existing sealed, read-only VFS. A live
 // WAL, excess size, cancellation or source change remains unknown, not denied.
+// ZIP discovery shares the converter's complete namespace safety and bounded
+// compressed-prefix budget; it neither extracts members nor validates full CRC.
 func ProbeInputRoutingCapability(ctx context.Context, path, runtimeAnchor string) (out InputRoutingCapability) {
 	out = InputRoutingCapability{Path: path, Container: "unknown", Status: "unknown"}
 	if ctx == nil {
@@ -57,9 +60,11 @@ func ProbeInputRoutingCapability(ctx context.Context, path, runtimeAnchor string
 	defer func() {
 		if source.Validate(conversionInputStageProbe) != nil || ctx.Err() != nil {
 			out.NativeReader, out.CandidateViews, out.Status, out.Reason = "", nil, "unknown", "input_changed_or_probe_cancelled"
+			out.ArchiveCandidates = nil
 		}
 		if source.Close() != nil {
 			out.NativeReader, out.CandidateViews, out.Status, out.Reason = "", nil, "unknown", "input_close_failed"
+			out.ArchiveCandidates = nil
 		}
 	}()
 	n := source.Size()
@@ -91,7 +96,20 @@ func ProbeInputRoutingCapability(ctx context.Context, path, runtimeAnchor string
 		if len(views) > 0 {
 			out.NativeReader = "trace_query"
 		}
-	case attachment.BinaryTraceFormatGZIP, attachment.BinaryTraceFormatZIP:
+	case attachment.BinaryTraceFormatZIP:
+		out.Container = "zip"
+		inventory, err := probeZIPRoutingCandidates(ctx, source, prefix)
+		if err != nil {
+			out.Reason = zipRoutingProbeFailureReason(err)
+			return
+		}
+		out.Status, out.ArchiveCandidates = "archive_candidates", inventory
+		if inventory.CandidateCount > 0 {
+			out.NativeReader, out.Reason = "trace_query", "native_trace_preparation_required"
+		} else {
+			out.Reason = "container_only_domain_unknown"
+		}
+	case attachment.BinaryTraceFormatGZIP:
 		out.Container, out.Reason = string(kind), "container_only_domain_unknown"
 	default:
 		out.Reason = "no_supported_content_signature"

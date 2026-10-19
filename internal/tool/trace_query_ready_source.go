@@ -50,6 +50,14 @@ func traceQueryValidateReadyMaterial(ctx *types.BusContext, material *attachment
 // or admitted bundles and never start a converter. Explicit failed selections
 // are returned unchanged, without borrowing another capture or attachment.
 func resolveReadyTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *attachment.TraceMaterial, *types.ToolResult) {
+	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.SystemTraceSupplementInProgress() {
+		var valid bool
+		p, valid = traceSupplementSelectedZIPParams(ctx, p)
+		if !valid {
+			failure := traceQueryPreparedMaterialFailure("", p.View, fmt.Errorf("the current successful ZIP selection does not identify one named input for system supplementation"))
+			return "", "", nil, &failure
+		}
+	}
 	path, label, reject := resolveTraceQuerySource(ctx, p)
 	if reject != nil {
 		return path, label, nil, reject

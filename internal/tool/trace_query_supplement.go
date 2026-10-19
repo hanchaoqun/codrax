@@ -1365,7 +1365,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		path, sourceLabel = businessFocus.Data().Path, "accepted_business_instance"
 	} else {
 		var reject *types.ToolResult
-		path, sourceLabel, _, reject = resolveReadyTraceQuerySource(ctx, traceQueryParams{})
+		selection, valid := traceSupplementSelectedZIPParams(ctx, traceQueryParams{})
+		if !valid {
+			return skip(types.TraceSupplementReasonNoAttachedTrace)
+		}
+		path, sourceLabel, _, reject = resolveReadyTraceQuerySource(ctx, selection)
 		if reject != nil || strings.TrimSpace(path) == "" {
 			return skip(types.TraceSupplementReasonNoAttachedTrace)
 		}

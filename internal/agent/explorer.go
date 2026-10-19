@@ -865,7 +865,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	writeExplorationPrefix := renderExplorerWriteExplorationRequest(ctx)
 	dimensionEvidenceOwnershipGuide := renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx)
 	composeInitialInstruction := func(body string) string {
-		return joinExplorerInstructionSections(writeExplorationPrefix, dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, body)
+		return joinExplorerInstructionSections(writeExplorationPrefix, dimensionEvidenceOwnershipGuide, explorerCompletionNarrativeOwnership, e.renderNamedInputNavigation(ctx), body)
 	}
 	if explorerDurableProgressContinuationActive(ctx) {
 		e.phase = 1

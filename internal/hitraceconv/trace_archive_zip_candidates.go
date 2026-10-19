@@ -16,40 +16,8 @@ func selectTraceArchiveZIPMember(ctx context.Context, reader *zip.Reader, direct
 }
 
 func selectTraceArchiveZIPMemberWithBudget(ctx context.Context, reader *zip.Reader, directory traceArchiveZIPDirectory, explicit string, budget *traceArchiveZIPProbeBudget) (traceArchiveZIPCandidate, string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if explicit != "" {
-		if _, err := validateExplicitTraceArchiveMember(explicit); err != nil {
-			return traceArchiveZIPCandidate{}, "", err
-		}
-	}
-	// Audit the entire namespace before probing, even for explicit selection.
-	regular, err := traceArchiveZIPRegularMembers(ctx, reader, directory)
+	candidates, err := discoverTraceArchiveZIPCandidates(ctx, reader, directory, explicit, budget)
 	if err != nil {
-		return traceArchiveZIPCandidate{}, "", err
-	}
-	var candidates []traceArchiveZIPCandidate
-	for _, member := range regular {
-		if err := ctx.Err(); err != nil {
-			return traceArchiveZIPCandidate{}, "", err
-		}
-		if explicit != "" && explicit != member.name {
-			continue
-		}
-		ext := strings.ToLower(path.Ext(member.name))
-		known := ext == ".sys" || ext == ".htrace"
-		if !known {
-			known, err = probeTraceArchiveZIPLeaf(ctx, member.file, budget)
-			if err != nil {
-				return traceArchiveZIPCandidate{}, "", err
-			}
-		}
-		if known {
-			candidates = append(candidates, member)
-		}
-	}
-	if err := ctx.Err(); err != nil {
 		return traceArchiveZIPCandidate{}, "", err
 	}
 	if explicit != "" {
@@ -67,6 +35,48 @@ func selectTraceArchiveZIPMemberWithBudget(ctx context.Context, reader *zip.Read
 		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeMultipleCandidates, "", fmt.Errorf(
 			"ZIP contains %d trace candidates (%s); select one with --archive-member", len(candidates), traceArchiveCandidateSummary(candidates)))
 	}
+}
+
+// Discovery is shared by navigation and preparation. It never selects a member
+// or publishes readable facts; any namespace/probe failure discards all candidates.
+func discoverTraceArchiveZIPCandidates(ctx context.Context, reader *zip.Reader, directory traceArchiveZIPDirectory, explicit string, budget *traceArchiveZIPProbeBudget) ([]traceArchiveZIPCandidate, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if explicit != "" {
+		if _, err := validateExplicitTraceArchiveMember(explicit); err != nil {
+			return nil, err
+		}
+	}
+	// Audit the entire namespace before probing, even for explicit selection.
+	regular, err := traceArchiveZIPRegularMembers(ctx, reader, directory)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []traceArchiveZIPCandidate
+	for _, member := range regular {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if explicit != "" && explicit != member.name {
+			continue
+		}
+		ext := strings.ToLower(path.Ext(member.name))
+		known := ext == ".sys" || ext == ".htrace"
+		if !known {
+			known, err = probeTraceArchiveZIPLeaf(ctx, member.file, budget)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if known {
+			candidates = append(candidates, member)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return candidates, nil
 }
 
 func traceArchiveZIPRegularMembers(ctx context.Context, reader *zip.Reader, directory traceArchiveZIPDirectory) ([]traceArchiveZIPCandidate, error) {

@@ -3810,6 +3810,13 @@ type attachedTraceReferencedCandidate struct {
 // and falsely fail the caller's exact-one gate). The caller applies the
 // exact-one count gate — this function only gathers, it never picks.
 func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []attachedTraceReferencedCandidate {
+	return traceQueryReferencedArtifactCandidates(ctx, nil)
+}
+
+// selected is a producer-held successful selection, never a cache candidate.
+// It lets the supplement recognize that exact named original without making
+// an unqualified outer archive an alias for any selected member.
+func traceQueryReferencedArtifactCandidates(ctx *types.BusContext, selected *attachment.TraceMaterial) []attachedTraceReferencedCandidate {
 	if ctx == nil {
 		return nil
 	}
@@ -3838,7 +3845,14 @@ func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []att
 	var out []attachedTraceReferencedCandidate
 	var outInfos []os.FileInfo
 	for _, value := range raw {
-		for _, token := range traceQueryReferencedTraceTokens(ctx, value) {
+		tokens := traceQueryReferencedTraceTokens(ctx, value)
+		if selected != nil {
+			named := strings.TrimSpace(value)
+			if named != "" && selected.MatchesSelection(resolveToolPath(ctx, named), selected.ArchiveMember()) {
+				tokens = append(tokens, named)
+			}
+		}
+		for _, token := range tokens {
 			resolved := resolveToolPath(ctx, token)
 			if traceQueryPathIsWindowsNamedPipe(token, resolved) {
 				continue
@@ -3847,6 +3861,9 @@ func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []att
 			// actual selection for Prepare to check its first-bound symlink
 			// target; replacing it here could silently select another capture.
 			identity := traceQueryPreparedNamedPath(ctx, resolved)
+			if selected != nil && selected.MatchesSelection(resolved, selected.ArchiveMember()) {
+				identity = selected.QueryPath()
+			}
 			info, err := os.Stat(identity)
 			if err != nil || info.IsDir() {
 				continue

@@ -99,6 +99,7 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 		ref := &traceIntervalNavigation{queryPath: path, views: candidate.views, source: source, params: string(bound), material: material}
 		if material != nil {
 			result.TraceQueryWindowReplay.preparedSource = ref
+			m.registerTracePreparedQuerySelection(ctx, ref)
 		}
 		if hasNavigation {
 			result.TraceQueryWindowReplay.nativeNavigation = ref
