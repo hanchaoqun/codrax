@@ -4756,7 +4756,7 @@ func normalizeNegativeObservationAggregateFactCollect(fact AnswerAggregateFact, 
 		fact.Value = "0"
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(fact.Value)); err != nil || n != 0 {
-		if sink.add(fmt.Errorf("%s %q must use value \"0\" for a verified zero-result observation",
+		if sink.add(fmt.Errorf("%s %q must use value \"0\" for a scoped absence claim (shape only, not execution proof)",
 			fact.Kind, fact.Label)) {
 			return AnswerAggregateFact{}, true
 		}
@@ -4765,7 +4765,7 @@ func normalizeNegativeObservationAggregateFactCollect(fact AnswerAggregateFact, 
 	}
 	if dims["result_count"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			if sink.add(fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result observation",
+			if sink.add(fmt.Errorf("%s %q requires dimension result_count=0 for a scoped absence claim (shape only, not execution proof)",
 				fact.Kind, fact.Label)) {
 				return AnswerAggregateFact{}, true
 			}

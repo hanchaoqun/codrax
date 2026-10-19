@@ -83,7 +83,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	}
 	if opts.ArchiveMember != "" {
 		if err := attachment.ValidateTraceArchiveMember(opts.ArchiveMember); err != nil {
-			return nil, err
+			return nil, &Error{Code: "archive_member_invalid", Path: opts.InputPath, Err: err}
 		}
 	}
 	source, err := filepath.Abs(opts.InputPath)

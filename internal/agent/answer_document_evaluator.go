@@ -5667,7 +5667,10 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 			exactSourcePart = fmt.Sprintf("; exact_source_support=%t", types.AnswerClaimBindingHasExactCurrentSourceSupport(binding))
 		}
 		authorityPart := ""
-		if authority := types.AnswerClaimBindingAuthorityCeiling(binding); authority != "" {
+		if binding.AggregateIndex >= 0 && binding.AggregateIndex < len(facts) &&
+			types.AnswerAggregateHasUnverifiedNegativeObservation(facts[binding.AggregateIndex]) {
+			authorityPart = "; " + types.UnverifiedNegativeObservationPresentation + "; policy describes the required support, not completed verification"
+		} else if authority := types.AnswerClaimBindingAuthorityCeiling(binding); authority != "" {
 			authorityPart = fmt.Sprintf("; authority_ceiling=`%s`", authority)
 		}
 		driftPart := ""
@@ -11675,7 +11678,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		b.WriteString("- The active typed exclusion policy keeps concrete excluded candidates out of the answer surface. Excluded categories and counts may be used as scope boundaries; omitted `excluded[]` names are intentionally not part of the visible answer.\n")
 	}
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
-	b.WriteString("- `kind=negative_observation` is the typed lane for a verified zero-result non-repo observation, such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. Use its origin/target-or-query/scope/result_count/searched_at dimensions; do not rewrite it as repo search and do not invent file:line citations.\n")
+	b.WriteString("- " + types.NegativeObservationTeaching + " Do not rewrite an external observation as a repository search or invent file:line citations.\n")
 	b.WriteString("- For evidence-authorized `member_set` rows, `role=principal_answer` marks the concrete principal slate. Pure `system_inference` sets remain advisory regardless of that model-authored role. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	b.WriteString("- Grounded definition evidence supplies member identity/citation authority, not proof of a whole explanation. Aggregate facts organize the slate/counts; retain richer per-member summaries as candidate explanations, bounded by their actual source claim forms and the requested fields.\n")
 	b.WriteString("- `member_note_support_authority` is a positional ceiling derived from accepted evidence at each `support_refs` location. A `definition_fact{...definition_site_only...}` entry proves the member/entry exists but not the model-authored member note's function-body behavior; call/guard/assignment/return forms prove only their corresponding operation shape. Multiple support refs do not by themselves create order, a complete path, or branch equivalence.\n")

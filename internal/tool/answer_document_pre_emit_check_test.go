@@ -10129,7 +10129,7 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesRepoNegativeSearc
 	}
 }
 
-func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservationWithoutRepoCitation(t *testing.T) {
+func TestNormalizeAggregateNegativeProofSupplement_DoesNotCertifyModelNegativeObservation(t *testing.T) {
 	mu := types.NewMutableState("最近历史里有没有 Backport Foo")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateNegativeObservation,
@@ -10162,34 +10162,15 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 		Text: "最近历史没有相关提交。",
 	}}}
 
-	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1", fixed)
+	before, _ := json.Marshal(doc)
+	factsBefore, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 0 {
+		t.Fatalf("model-authored tool_result is not a completed query, fixed=%d", fixed)
 	}
-	visible := answerDocumentVisibleText(doc)
-	for _, want := range []string{
-		"版本历史",
-		"Backport Foo",
-		"HEAD~50..HEAD",
-		"0 个匹配",
-		"检索窗口=50",
-		"未命中项=50",
-		"顺序=recent",
-		"历史路径=internal/orchestrator",
-		"工具结果=git_history_search[0]",
-	} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
-		}
-	}
-	if strings.Contains(visible, "vcs_metadata") {
-		t.Fatalf("visible supplement should localize typed origin instead of leaking enum names:\n%s", visible)
-	}
-	if len(doc.Citations) != 0 {
-		t.Fatalf("non-repo negative observation must not invent repo citations: %+v", doc.Citations)
-	}
-	if len(doc.Blocks[len(doc.Blocks)-1].ClaimUses) != 1 ||
-		doc.Blocks[len(doc.Blocks)-1].ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
-		t.Fatalf("negative observation supplement should carry external observation claim_use: %+v", doc.Blocks[len(doc.Blocks)-1].ClaimUses)
+	after, _ := json.Marshal(doc)
+	factsAfter, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if string(before) != string(after) || string(factsBefore) != string(factsAfter) {
+		t.Fatal("qualification must preserve the model answer and its audit facts without system certification")
 	}
 }
 
@@ -10236,7 +10217,7 @@ func TestNormalizeAggregateNegativeProofSupplement_StructuredAbsentModelAnswerSu
 	}
 }
 
-func TestNormalizeAggregateNegativeProofSupplement_MaterializesFutureExternalObservationOrigins(t *testing.T) {
+func TestNormalizeAggregateNegativeProofSupplement_DoesNotCertifyModelExternalOrigins(t *testing.T) {
 	mu := types.NewMutableState("外部资料里是否存在这些条目")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
 		{
@@ -10293,40 +10274,19 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesFutureExternalObs
 		Text: "外部资料没有发现相关条目。",
 	}}}
 
-	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 3 {
-		t.Fatalf("fixed=%d, want 3", fixed)
+	before, _ := json.Marshal(doc)
+	factsBefore, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 0 {
+		t.Fatalf("external coordinates alone cannot certify query completion, fixed=%d", fixed)
 	}
-	visible := answerDocumentVisibleText(doc)
-	for _, want := range []string{
-		"系统按已验证证据补充未命中范围",
-		"网页",
-		"Deprecated API",
-		"https://example.test/spec",
-		"MCP 资源",
-		"INC-999",
-		"mcp://docs/incidents",
-		"连接器资源",
-		"JIRA-404",
-		"jira://project/search",
-		"载荷=blob://payload/spec.html",
-		"行集=blob://rows/incidents.jsonl",
-		"工具结果=jira_search[0]",
-	} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("visible external no-hit supplement missing %q:\n%s", want, visible)
-		}
-	}
-	for _, banned := range []string{"web_page", "mcp_resource", "connector_resource"} {
-		if strings.Contains(visible, banned) {
-			t.Fatalf("visible supplement should localize typed origin %q:\n%s", banned, visible)
-		}
-	}
-	if len(doc.Citations) != 0 {
-		t.Fatalf("external no-hit observations must not invent current-source citations: %+v", doc.Citations)
+	after, _ := json.Marshal(doc)
+	factsAfter, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if string(before) != string(after) || string(factsBefore) != string(factsAfter) {
+		t.Fatal("external model facts must remain available without a manufactured system supplement")
 	}
 }
 
-func TestNormalizeAggregateNegativeProofSupplement_LocalizesEnglishNegativeObservationOrigin(t *testing.T) {
+func TestNormalizeAggregateNegativeProofSupplement_DoesNotCertifyEnglishModelObservation(t *testing.T) {
 	mu := types.NewMutableState("Did the last 50 commits mention Backport Foo?")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateNegativeObservation,
@@ -10356,28 +10316,13 @@ func TestNormalizeAggregateNegativeProofSupplement_LocalizesEnglishNegativeObser
 		Text: "No related commit was found in the recent history window.",
 	}}}
 
-	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1", fixed)
+	before, _ := json.Marshal(doc)
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 0 {
+		t.Fatalf("language cannot grant zero-result authority, fixed=%d", fixed)
 	}
-	visible := answerDocumentVisibleText(doc)
-	for _, want := range []string{
-		"System-verified no-hit scope supplement",
-		"VCS history",
-		"Backport Foo",
-		"HEAD~50..HEAD",
-		"0 matches",
-		"window=50",
-		"tool result=git_history_search[0]",
-	} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("visible English supplement missing %q:\n%s", want, visible)
-		}
-	}
-	if strings.Contains(visible, "vcs_metadata") {
-		t.Fatalf("visible English supplement should localize typed origin instead of leaking enum names:\n%s", visible)
-	}
-	if len(doc.Citations) != 0 {
-		t.Fatalf("external negative observation must not create repo citations: %+v", doc.Citations)
+	after, _ := json.Marshal(doc)
+	if string(before) != string(after) {
+		t.Fatal("model English answer must be retained without a system-owned zero claim")
 	}
 }
 

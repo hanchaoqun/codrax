@@ -224,6 +224,9 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // evidence remains the only lane that may become repo citations. The ledger
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
+	// aggregateKind is compiler-owned display provenance, not execution proof.
+	// It cannot be supplied by tool/model JSON or origin/provenance strings.
+	aggregateKind              AnswerAggregateKind
 	runtimeSamplingPublication *runtimeSamplingPublicationWitness
 	runtimeResourcePublication *runtimeResourcePublicationWitness
 	ioRequestIdentity          *traceIORequestIdentity
@@ -897,21 +900,22 @@ func runtimeObservationProducerBase(producer string) string {
 }
 
 type observationRecordMergeKey struct {
-	Origin          AnswerEvidenceOrigin
-	SourceRef       ObservationSourceRef
-	Span            ObservationSpan
-	EvidenceKind    EvidenceKind
-	AnchorKind      AnchorKind
-	EvidenceScope   EvidenceScope
-	ClaimKey        string
-	Subject         string
-	Predicate       string
-	Object          string
-	Value           string
-	Negative        bool
-	ResultCount     string
-	Scope           string
-	GroundingStatus GroundingStatus
+	UnverifiedNegativeClaim bool
+	Origin                  AnswerEvidenceOrigin
+	SourceRef               ObservationSourceRef
+	Span                    ObservationSpan
+	EvidenceKind            EvidenceKind
+	AnchorKind              AnchorKind
+	EvidenceScope           EvidenceScope
+	ClaimKey                string
+	Subject                 string
+	Predicate               string
+	Object                  string
+	Value                   string
+	Negative                bool
+	ResultCount             string
+	Scope                   string
+	GroundingStatus         GroundingStatus
 }
 
 func dedupeObservationRecords(in []ObservationRecord) []ObservationRecord {
@@ -945,21 +949,22 @@ func observationRecordMergeKeyFor(record ObservationRecord) (observationRecordMe
 		resultCount = strconv.Itoa(*record.ResultCount)
 	}
 	return observationRecordMergeKey{
-		Origin:          record.Origin,
-		SourceRef:       record.SourceRef,
-		Span:            record.Span,
-		EvidenceKind:    record.EvidenceKind,
-		AnchorKind:      record.AnchorKind,
-		EvidenceScope:   record.EvidenceScope,
-		ClaimKey:        strings.TrimSpace(record.ClaimKey),
-		Subject:         strings.TrimSpace(record.Subject),
-		Predicate:       strings.TrimSpace(record.Predicate),
-		Object:          strings.TrimSpace(record.Object),
-		Value:           strings.TrimSpace(record.Value),
-		Negative:        record.Negative,
-		ResultCount:     resultCount,
-		Scope:           strings.TrimSpace(record.Scope),
-		GroundingStatus: record.GroundingStatus,
+		UnverifiedNegativeClaim: record.aggregateKind == AnswerAggregateNegativeObservation,
+		Origin:                  record.Origin,
+		SourceRef:               record.SourceRef,
+		Span:                    record.Span,
+		EvidenceKind:            record.EvidenceKind,
+		AnchorKind:              record.AnchorKind,
+		EvidenceScope:           record.EvidenceScope,
+		ClaimKey:                strings.TrimSpace(record.ClaimKey),
+		Subject:                 strings.TrimSpace(record.Subject),
+		Predicate:               strings.TrimSpace(record.Predicate),
+		Object:                  strings.TrimSpace(record.Object),
+		Value:                   strings.TrimSpace(record.Value),
+		Negative:                record.Negative,
+		ResultCount:             resultCount,
+		Scope:                   strings.TrimSpace(record.Scope),
+		GroundingStatus:         record.GroundingStatus,
 	}, true
 }
 
@@ -1489,6 +1494,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				sourceRef.RowSetRef = observationRowSetRefForAggregateFact(rowSetWriter, i, origin, fact)
 			}
 			add(ObservationRecord{
+				aggregateKind:   fact.Kind,
 				ID:              fmt.Sprintf("aggregate:%d#%s", i, origin),
 				Origin:          origin,
 				Producer:        firstNonEmptyString(fact.Provenance, "aggregate_facts"),

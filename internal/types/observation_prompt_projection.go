@@ -134,6 +134,15 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			excerpt = observationPromptExcerpt(record, opts)
 		}
 		notes := observationPromptNotesWithLimit(nativePresentationNoteRecord(record), opts, observationPromptNoteLimit(record, opts)-len(modelNotes))
+		resultCount := cloneObservationPromptResultCount(record.ResultCount)
+		claimAuthority := record.ClaimAuthority
+		if ObservationHasUnverifiedNegativeClaim(record) {
+			// Keep the lossless model claim in the ledger, not as a measured
+			// numeric operand in compact answer/checkpoint/reviewer contexts.
+			value, resultCount = "", nil
+			claimAuthority = ObservationClaimAuthorityModelInference
+			notes = append([]string{UnverifiedNegativeObservationPresentation}, notes...)
+		}
 		span := FormatObservationSpan(record.Span, 80)
 		if meaning := TraceObservationStateAccountingCompact(record); meaning != "" {
 			// Producer metadata is never reconstructed from summary prose. Keep
@@ -150,7 +159,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			Role:            record.Role,
 			GroundingPolicy: record.GroundingPolicy,
 			ProvenanceLane:  record.ProvenanceLane,
-			ClaimAuthority:  record.ClaimAuthority,
+			ClaimAuthority:  claimAuthority,
 			Source:          FormatObservationSourceRef(record.SourceRef, opts.SourceMaxLen),
 			Span:            span,
 			Claim:           observationPromptClaim(record.ClaimKey, summary, value),
@@ -161,7 +170,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			Notes:           notes,
 			ModelNotes:      modelNotes,
 			Negative:        record.Negative,
-			ResultCount:     cloneObservationPromptResultCount(record.ResultCount),
+			ResultCount:     resultCount,
 			SupportRefCount: len(record.SupportRefs),
 		})
 	}

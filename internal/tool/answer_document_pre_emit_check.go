@@ -9358,6 +9358,12 @@ func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx 
 		if fact.Kind != types.AnswerAggregateNegativeSearch && fact.Kind != types.AnswerAggregateNegativeObservation {
 			continue
 		}
+		if types.AnswerAggregateHasUnverifiedNegativeObservation(fact) {
+			// A model's kind/role/ref cannot authorize system-written zero
+			// proof. Native scoped empty results keep their own observation
+			// presentation; do not copy their authority onto a model claim.
+			continue
+		}
 		if !preEmitNegativeAggregateFactRequiresVisibleProof(ctx, facts, idx, fact) {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -20,6 +21,26 @@ func traceQueryPreparedMaterialError(err error) error {
 func traceQueryPreparedMaterialFailure(path, view string, err error) types.ToolResult {
 	if traceQueryIsCancellation(err) {
 		return traceQueryCancellationResult(view, path, err)
+	}
+	if selection := traceinput.ClassifySelectionFailure(err); selection != traceinput.SelectionFailureNone {
+		code := "trace_archive_selection_invalid"
+		reason := "the archive_member coordinate is invalid"
+		hint := "Retry trace_query with source=path, the original ZIP path and its intended exact existing archive_member. Do not guess a member."
+		if selection == traceinput.SelectionFailureRequired {
+			code = "trace_archive_selection_required"
+			reason = "multiple_trace_members: select the intended exact archive_member"
+		} else if selection == traceinput.SelectionFailureRequiresZIP {
+			reason = "archive_member_requires_zip: the selected input is not a ZIP"
+			hint = "This input is not a ZIP. Retry trace_query on the same input without archive_member."
+		}
+		// Producer diagnostics remain at the preparation boundary. In particular,
+		// do not repeat the converter CLI's --archive-member instruction in the
+		// ordinary JSON tool feedback or derive teaching from error text.
+		summary := fmt.Sprintf("trace_query selection for %q is incomplete or invalid: %s; no query evidence was published. %s", path, reason, hint)
+		return types.ToolResult{ToolName: "trace_query", Summary: summary, Timestamp: time.Now(), Repair: &types.ToolRepair{
+			Code: code, Hint: summary, Fields: []string{"source", "path", "archive_member"},
+			Metadata: map[string]string{"stage": types.ToolRepairStageTraceSourceSelection, "status": types.ToolRepairStatusActionRecommended, "path": path},
+		}}
 	}
 	result := traceQueryInputAdmissionFailure(path, traceQueryPreparedMaterialError(err))
 	// The low-level text admission error says conversion was not attempted.

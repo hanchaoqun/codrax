@@ -129,7 +129,7 @@ func (c *Coordinator) PrepareSelection(ctx context.Context, selection attachment
 	}
 	if selection.ArchiveMember != "" {
 		if err := attachment.ValidateTraceArchiveMember(selection.ArchiveMember); err != nil {
-			return nil, err
+			return nil, &Error{Code: "archive_member_invalid", Path: selection.Path, Err: err}
 		}
 	}
 	absolutePath, member := selection.Path, selection.ArchiveMember

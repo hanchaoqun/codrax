@@ -3,7 +3,7 @@ package orchestrator
 import (
 	"encoding/json"
 
-	"github.com/hanchaoqun/codrax/internal/hitraceconv"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -11,30 +11,7 @@ import (
 // Namespace candidates are not readable facts. A joined close, cancellation,
 // source-generation or other failure must not disappear behind errors.As.
 func namedTraceArchiveSelectionPending(err error) bool {
-	for depth := 0; err != nil && depth < 32; depth++ {
-		if archive, ok := err.(*hitraceconv.TraceArchiveError); ok {
-			return archive != nil && archive.Code == "multiple_trace_members"
-		}
-		switch cause := err.(type) {
-		case interface{ Unwrap() []error }:
-			var single error
-			for _, child := range cause.Unwrap() {
-				if child == nil {
-					continue
-				}
-				if single != nil {
-					return false
-				}
-				single = child
-			}
-			err = single
-		case interface{ Unwrap() error }:
-			err = cause.Unwrap()
-		default:
-			return false
-		}
-	}
-	return false
+	return traceinput.ClassifySelectionFailure(err) == traceinput.SelectionFailureRequired
 }
 
 func markNamedTraceArchiveSelectionPending(profile *types.RuntimeArtifactPreflightProfile, path, repo string) {

@@ -208,6 +208,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		i := order[displayIdx]
 		fact := facts[i]
 		omitAdvisoryNumeric := aggregateFactRuntimeAdvisoryNumericMustOmitValue(opts.requestModel, fact)
+		unverifiedNegative := types.AnswerAggregateHasUnverifiedNegativeObservation(fact)
 		compactMembers := opts.compactMemberSetRows[i] &&
 			fact.Kind == types.AnswerAggregateMemberSet &&
 			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
@@ -234,7 +235,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		} else {
 			fmt.Fprintf(&b, ", label=%s", fact.Label)
 		}
-		if omitAdvisoryNumeric {
+		if unverifiedNegative {
+			fmt.Fprintf(&b, ", value_omitted=unverified_negative_claim, %s", types.UnverifiedNegativeObservationPresentation)
+		} else if omitAdvisoryNumeric {
 			// The omission receipt above is the complete value projection.
 		} else if compactNarrativeRelation {
 			fmt.Fprintf(&b, ", value_omitted=precise_typed_relation_handoff_available")
@@ -252,7 +255,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if origins := renderAggregateEvidenceOrigins(types.AnswerAggregateFactEvidenceOrigins(fact, opts.requestModel)); origins != "" {
 			fmt.Fprintf(&b, ", evidence_origin=[%s]", origins)
 		}
-		if types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
+		if !unverifiedNegative && types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
 			!opts.principalContractIndexes[i] &&
 			!types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact, opts.requestModel, opts.sourceContext) {
 			if types.AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, opts.requestModel) {
@@ -261,10 +264,21 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", fact_authority=`advisory_model_inference`, principal_contract=`not_authorized`")
 			}
 		}
-		if fact.Unit != "" && !omitAdvisoryNumeric {
+		if fact.Unit != "" && !omitAdvisoryNumeric && !unverifiedNegative {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
 		}
-		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" && !omitAdvisoryNumeric {
+		dimensions := fact.Dimensions
+		if unverifiedNegative {
+			// Auto-filled result_count is shape normalization, not a query
+			// receipt. Retain exact source/filter/target navigation separately.
+			dimensions = make([]types.AnswerAggregateDimension, 0, len(fact.Dimensions))
+			for _, dimension := range fact.Dimensions {
+				if dimension.Name != "result_count" {
+					dimensions = append(dimensions, dimension)
+				}
+			}
+		}
+		if dims := renderAggregateDimensions(dimensions); dims != "" && !omitAdvisoryNumeric {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
 		if omitAdvisoryNumeric {
