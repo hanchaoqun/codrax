@@ -274,6 +274,16 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 实际A自然CLI首次正确选成员，3次原生查询及1次自动补齐成功，完整12000记录保来源/窗口；因此自然错误选择恢复本次未触发，不能拿入口成功签该分支。采样整答仍因单帧→执行上下文越权FAIL，B只读登记限定PASS。下一17.6子能力优先已有二进制gzip的有界候选导航：共享完整gzip准备/解码早已存在，仅routing probe当前未给NativeReader，须先公开反例再接通；不得误报尚无gzip解码或先签全格式/平台支持。
 
+### 9.10 普通命名gzip有界导航（2026-10-19，§267，入口通过、整答未通过）
+
+公开反例证实既有四类二进制包装为普通名字gzip时，routing probe只返回未知容器，正常Run未进入原生查询。本片仅补候选导航：同一持有原件最多1MiB实际压缩读取（外层64B、头字段、解压器预读都计入），只请求64B解压前缀，共享现有叶子签名与完整准备服务。gzip字段名、后缀与可读文件本身不授ready；不新增decoder、原生事实或因果权限。
+
+正常Run实际准备/查询及独立显式窗补齐、mixed源码义务、省略/default/allow来源策略和source-only坏fixture回归通过；能力轨定向与race各124根/388通过事件、零失败/跳过。完整CRC/ISIZE/尾部/第二成员、取消、同字节换代及实际压缩输入预算边界保留。signature-only可诚实留下inventory-only结果，但不提供query-ready；早期测试将其误期待为Prepare必报错的失败原件保留，修正断言不改生产行为。
+
+真实验收使用普通命名gzip包裹参考PERFILE2单份录制，人工运输包装不冒称实机gzip新采集；没有预附或预转换绕开自然入口。A真实CLI自然进入原件查询，完整解压30062585B并索引12000采样，显式窗目标164条/259权重；1次模型查询＋1次系统补齐、同一唯一payload，不能把执行次数和唯一载荷数混计。现有raw perfdata fallback实际成功且标degraded，官方simpleperf不可用且未尝试，不冒签外部工具运行。CPU0/1各82条/权重85与174、两组包络和unknown字段到达成文；整答仍将CPU编号说物理核心、IP符号说函数入口点、权重说实际消耗，人工FAIL保原。根因sidecar未激活，不据空数组断言无根因。
+
+下一能力片轮换已有真实gzip文本trace的普通命名导航与窗口查询，先公开RED，不新写decoder、不抬250k索引上限；真正格式/平台矩阵和旧采样解释欠项仍开放。当前不关闭17.6/18.3；完整收据、两个并行真实案例及失败范围见§267与[批汇总](../../eval/parallel_selected_summary_hmc_gzip_native_reuse_20261019.md)。
+
 ## 10. SQLite 标量接入增量（2026-09-30，HMC-17.7 N）
 
 `b503127d3`对HiSys时间/TID消费保实际SQLite存储类：合法时间必须是非负INTEGER纳秒，NULL/TEXT/REAL/BLOB/负值留SQL fidelity与覆盖，不中断健康兄弟也不补0；TID的合法INTEGER源值含0，NULL未知，非法类型/范围可逆保留但无线程身份。existing SQLite及外部provider公开路径、超2^53纳秒、wire预算/互斥及JSON语义目录都有回归，`b172b43cd`补字典坏名称组合契约。
