@@ -14,9 +14,9 @@ func TestHMC224SourceInventoryAllowCannotCertifyScope(t *testing.T) {
 		}{
 			{"unquoted_all", false, nil},
 			{"unquoted_production", false, func(r *RequestModel) { r.SourceScopeProfile.RequestedScope = SourceScopeProduction }},
-			{"anchored_scope", true, func(r *RequestModel) { r.SourceScopeProfile.SourceQuotes = []string{"production sources"} }},
-			{"exact_target", true, func(r *RequestModel) { r.AnalyzerHints.ExactTargets = []string{"src/owner.go"} }},
-			{"required_file", true, func(r *RequestModel) {
+			{"anchored_scope", false, func(r *RequestModel) { r.SourceScopeProfile.SourceQuotes = []string{"production sources"} }},
+			{"exact_target", false, func(r *RequestModel) { r.AnalyzerHints.ExactTargets = []string{"src/owner.go"} }},
+			{"required_file", false, func(r *RequestModel) {
 				r.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
 			}},
 			{"declared_inventory", true, func(r *RequestModel) {
@@ -56,6 +56,13 @@ func TestHMC224SourceInventoryAllowCannotCertifyScope(t *testing.T) {
 				}
 				if got := SourceInventoryCurrentSourceApplicableInContext(rm, hint, carrier == "attached"); got != tc.want {
 					t.Fatalf("applicable=%v want %v", got, tc.want)
+				}
+				if tc.name == "anchored_scope" || tc.name == "exact_target" || tc.name == "required_file" {
+					domainView := rm
+					domainView.runtimeMaterialDomain = carrier == "attached"
+					if got := RuntimeSourceRequestCurrentSourceRequirementPrecision(&domainView, hint); got != RuntimeSourceRequirementPrecise {
+						t.Fatalf("source-inventory boundary revoked independent source obligation: %s", got)
+					}
 				}
 				after, _ := json.Marshal(rm)
 				if string(before) != string(after) || !hint.RequiresCurrentSourceEvidence() {

@@ -147,9 +147,14 @@ func TestHMC268NamedGZIPTextSourceOnlyDoesNotForceFullPreparation(t *testing.T) 
 // Normal Run reaches real Explorer/BaseAgent, shared preparation, native query,
 // and the scheduler's system supplement. The model fixture only scripts calls.
 func TestHMC268NamedGZIPTextNormalRunQueriesAndSupplementsExplicitWindow(t *testing.T) {
+	testNamedTextTransportNormalRun(t, hmc268NamedGZIPText, "")
+}
+
+func testNamedTextTransportNormalRun(t *testing.T, input func(*testing.T) (string, []byte), archiveMember string) {
+	t.Helper()
 	repo := t.TempDir()
 	writeTraceAdmissionRepoSource(t, repo)
-	path, original := hmc268NamedGZIPText(t)
+	path, original := input(t)
 	request := "Inspect `" + path + "` for thread42 from0.95to1.05seconds."
 	query, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "event_search", "pid": 42, "time_start": .9, "time_end": 1.1})
 	adapter := &hmc265CompleteAdapter{query: query}
@@ -198,7 +203,7 @@ func TestHMC268NamedGZIPTextNormalRunQueriesAndSupplementsExplicitWindow(t *test
 	o.SetTurnRouteHint(types.TurnRouteHint{Source: "artifact", Route: "repo", NeedsRepoAccess: true, CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional, RequiredOutcomes: types.TurnOutcomeMeasurement})
 	bus, runErr := o.Run(request, repo, "main")
 	if runErr != nil || selected == nil || len(supplements) == 0 {
-		t.Fatalf("ordinary gzip did not reach real query/supplement: selected=%t supplements=%d err=%v", selected != nil, len(supplements), runErr)
+		t.Fatalf("ordinary text transport did not reach real query/supplement: selected=%t supplements=%d err=%v", selected != nil, len(supplements), runErr)
 	}
 	for _, result := range supplements {
 		if result.SourcePath != selected.SourcePath || result.TimeStart != start || result.TimeEnd != end || result.EventCount != 4 {
@@ -206,8 +211,9 @@ func TestHMC268NamedGZIPTextNormalRunQueriesAndSupplementsExplicitWindow(t *test
 		}
 	}
 	materials := bus.TraceInputPreparer.PreparedMaterials()
-	if len(materials) != 1 || !materials[0].MatchesSelection(path, "") || materials[0].QueryPath() != selected.SourcePath || bus.AttachedTraceMaterial != nil || bus.AttachedHitrace != "" {
-		t.Fatal("gzip query acquired incorrect/sticky authority")
+	if len(materials) != 1 || !materials[0].MatchesSelection(path, "") || materials[0].ArchiveMember() != archiveMember ||
+		materials[0].ExplicitArchiveSelection() || materials[0].QueryPath() != selected.SourcePath || bus.AttachedTraceMaterial != nil || bus.AttachedHitrace != "" {
+		t.Fatal("text transport query acquired incorrect/sticky authority")
 	}
 	foundTail := false
 	for _, event := range selected.Events {

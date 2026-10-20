@@ -58,8 +58,13 @@ func sourceInventoryAllowAnalysis224(t *testing.T, carrier string, independent b
 		t.Fatalf("analysis: %v / %s", err, out.Summary)
 	}
 	rm := ctx.Mutable.RequestModel()
-	if rm == nil || (rm.SourceInventoryProfile != nil) != independent {
-		t.Fatalf("allow plus unquoted scope minted source inventory (independent=%v): %s", independent, out.Summary)
+	if rm == nil || rm.SourceInventoryProfile != nil {
+		t.Fatalf("runtime members acquired a source universe from permission or a source attribute (independent=%v): %s", independent, out.Summary)
+	}
+	if independent && (len(rm.AnalyzerHints.RequiredFileHints) != 1 ||
+		rm.AnalyzerHints.RequiredFileHints[0].Path != "src/owner.go" ||
+		types.RuntimeSourceRequestCurrentSourceRequirementPrecision(rm, ctx.TurnRouteHint) != types.RuntimeSourceRequirementPrecise) {
+		t.Fatal("independent current-source read lost its precise obligation")
 	}
 	// The applicability projection does not rewrite route permissions, artifact
 	// scopes, or the separately requested causal/source dimensions.
@@ -103,11 +108,9 @@ func TestHMC224SourceInventoryAllowPublicNativeLogDisplay(t *testing.T) {
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{query}})
 			view := types.BuildAnswerSemanticViewForBusContext(ctx)
 			indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices()
-			if independent {
-				if len(indices) != 0 {
-					t.Fatalf("source inventory acquired runtime display ownership: %v", indices)
-				}
-			} else if !reflect.DeepEqual(indices, []int{1}) {
+			// The independent source read is not a source-member inventory.
+			// Native events retain this runtime dimension beside that obligation.
+			if !reflect.DeepEqual(indices, []int{1}) {
 				t.Fatalf("runtime member display missing or consumed other dimensions: %v", indices)
 			}
 			choices := view.RuntimeMeasurementContract.Choices()
@@ -119,26 +122,24 @@ func TestHMC224SourceInventoryAllowPublicNativeLogDisplay(t *testing.T) {
 			payload, _ := json.Marshal(map[string]any{"blocks": []any{
 				map[string]any{"id": "lead", "kind": "summary", "text": "These rows retain the source identities; no causal link is established."}, block}})
 			err = toolparam.Validate(payload, BuildAnswerDocumentParametersFor(view))
-			if (err == nil) == independent {
+			if err != nil {
 				t.Fatalf("projected schema source/display separation: %v", err)
 			}
 			out, err := (&EmitAnswerDocument{}).Execute(ctx, payload)
-			if (err == nil && out.Success) == independent {
+			if err != nil || !out.Success {
 				t.Fatalf("public native binding: %v / %s", err, out.Summary)
 			}
-			if !independent {
-				rows := 0
-				for _, b := range ctx.Mutable.AnswerDocumentV2().Blocks {
-					if b.RuntimeMeasurement != nil {
-						rows += len(b.RuntimeMeasurement.BoundTable.Rows)
-						if len(b.Items) != 0 || b.Text != "" || !reflect.DeepEqual(b.RuntimeMeasurement.BoundTable.Rows, choices[0].Rows) {
-							t.Fatal("display copied or changed producer facts")
-						}
+			rows := 0
+			for _, b := range ctx.Mutable.AnswerDocumentV2().Blocks {
+				if b.RuntimeMeasurement != nil {
+					rows += len(b.RuntimeMeasurement.BoundTable.Rows)
+					if len(b.Items) != 0 || b.Text != "" || !reflect.DeepEqual(b.RuntimeMeasurement.BoundTable.Rows, choices[0].Rows) {
+						t.Fatal("display copied or changed producer facts")
 					}
 				}
-				if rows != 9 || ctx.Mutable.IsInvestigationComplete() || ctx.Mutable.TraceRootCauseReport() != nil {
-					t.Fatal("native display lost rows or gained completion/cause authority")
-				}
+			}
+			if rows != 9 || ctx.Mutable.IsInvestigationComplete() || ctx.Mutable.TraceRootCauseReport() != nil {
+				t.Fatal("native display lost rows or gained completion/cause authority")
 			}
 		})
 	}

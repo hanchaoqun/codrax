@@ -95,6 +95,7 @@ type traceConversionInput struct {
 	gzipReceipt    gzipInputReceipt
 	gzipProvenance *tracebundle.GzipInputProvenance
 	gzipText       bool
+	archiveText    bool
 }
 
 func newTraceConversionInput(authority *conversionInputAuthority) *traceConversionInput {
@@ -251,6 +252,10 @@ func prepareTraceConversionInput(ctx context.Context, opts Options, authority *c
 	route.staging = staging
 	route.provenance = provenance
 	route.namespace = namespace
+	route.archiveText, err = admitArchiveTraceText(ctx, member)
+	if err != nil {
+		return route, err
+	}
 	return route, nil
 }
 

@@ -86,8 +86,8 @@ func TestHMC257NamedRuntimeDomainSharesSourceObligation(t *testing.T) {
 					t.Error("named runtime domain still owns a source lane/inventory")
 				}
 			}
-			if tc.want == RuntimeSourceRequirementPrecise && !SourceInventoryCurrentSourceApplicableInContext(rm, hint, false) {
-				t.Error("independent precise source obligation lost inventory applicability")
+			if tc.want == RuntimeSourceRequirementPrecise && SourceInventoryCurrentSourceApplicableInContext(rm, hint, false) {
+				t.Error("independent source location/file was promoted to an undeclared source-member universe")
 			}
 			if tc.name != "source_change" && tc.want != RuntimeSourceRequirementNone && !rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
 				t.Error("direct source lane discarded a legacy or independent source obligation")

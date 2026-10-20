@@ -24,11 +24,11 @@ func selectTraceArchiveZIPMemberWithBudget(ctx context.Context, reader *zip.Read
 		if len(candidates) == 1 {
 			return candidates[0], "explicit_member", nil
 		}
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeExplicitMember, explicit, errors.New("explicit member is absent or is not a regular .sys/.htrace or recognized binary trace member"))
+		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeExplicitMember, explicit, errors.New("explicit member is absent or is not a regular .sys/.htrace or recognized binary/text trace member"))
 	}
 	switch len(candidates) {
 	case 0:
-		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeNoCandidate, "", errors.New("ZIP contains no regular .sys/.htrace or recognized binary trace member"))
+		return traceArchiveZIPCandidate{}, "", traceArchiveFailure(traceArchiveCodeNoCandidate, "", errors.New("ZIP contains no regular .sys/.htrace or recognized binary/text trace member"))
 	case 1:
 		return candidates[0], "unique_candidate", nil
 	default:

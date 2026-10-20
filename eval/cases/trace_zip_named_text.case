@@ -1,0 +1,7 @@
+ID="trace_zip_named_text"
+NAME="Ordinary named ZIP containing a complete real text trace"
+: "${CODRAX_ZIP_TEXT_INPUT:?set a verified ZIP containing a full real ftrace member}"
+QUESTION="请看 ${CODRAX_ZIP_TEXT_INPUT}，170438.0 到 170438.1 秒内 SaInit0 线程（tid 3051）主要处于哪些状态，各持续多久？期间是谁唤醒它的？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

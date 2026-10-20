@@ -20,10 +20,14 @@ func PrepareFile(ctx context.Context, opts Options) (Result, error) {
 }
 
 func validateGzipTextOptions(opts Options) error {
+	return validateTransportTextOptions(opts)
+}
+
+func validateTransportTextOptions(opts Options) error {
 	if requestedTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer || opts.KeepTraceDB ||
 		strings.TrimSpace(opts.TraceDBOutputPath) != "" || strings.TrimSpace(opts.TraceStreamerPath) != "" ||
 		len(opts.TraceStreamerSoDirs) > 0 {
-		return fmt.Errorf("gzip contains text, not a binary trace body: database and explicit trace_streamer options cannot be applied to byte-preserving text transport")
+		return fmt.Errorf("container contains text, not a binary trace body: database and explicit trace_streamer options cannot be applied to byte-preserving text transport")
 	}
 	return nil
 }

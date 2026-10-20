@@ -74,12 +74,15 @@ unsupported-platform distributions require an external trace_streamer.
 
 ZIP artifacts are detected by content magic, not by filename. Codrax selects
 the only regular trace candidate: legacy .sys/.htrace names or a member whose
-content identifies an already supported RMQ/OHOSPROF/PERFILE2/SIMPLEPERF format.
+content identifies a supported RMQ/OHOSPROF/PERFILE2/SIMPLEPERF format or a
+physical text Trace event row within the bounded navigation prefix.
 Normal .data and extensionless member names do not require renaming. Candidate
 recognition is not successful decoding; the full member must still validate.
 A ZIP with multiple candidates fails closed until --archive-member supplies one
 exact canonical member name; archive and selected-member hashes are preserved
-in the tracebundle. Tar, 7z, encrypted, multi-disk, and nested archives are not
+in the conversion or complete-text transport receipt. Text members retain all
+bytes without claiming event counts or producing a semantic tracebundle.
+Tar, 7z, encrypted, multi-disk, and nested archives are not
 accepted by this command.
 
 Top-level gzip is fully verified and decoded once before routing its payload.
@@ -979,11 +982,19 @@ func traceConvertPerfMessageZh(message string) string {
 }
 
 func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
-	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+	if path, size, member, ok := hitraceconv.TextTransportDisplay(result); ok {
 		if traceConvertUseZh(lang) {
-			return []string{fmt.Sprintf("已完整解压文本 trace：%s", result.InputPath), fmt.Sprintf("输出：%s（%d 字节，原文保持不变；事件尚未统计）", transport.DecodedPath, transport.DecodedBytes)}
+			lines := []string{fmt.Sprintf("已完整解压文本 trace：%s", result.InputPath), fmt.Sprintf("输出：%s（%d 字节，原文保持不变；事件尚未统计）", path, size)}
+			if member != "" {
+				lines = append(lines, "归档成员："+member)
+			}
+			return lines
 		}
-		return []string{fmt.Sprintf("decompressed complete trace text: %s", result.InputPath), fmt.Sprintf("output: %s (%d bytes, text preserved unchanged; events not yet counted)", transport.DecodedPath, transport.DecodedBytes)}
+		lines := []string{fmt.Sprintf("decompressed complete trace text: %s", result.InputPath), fmt.Sprintf("output: %s (%d bytes, text preserved unchanged; events not yet counted)", path, size)}
+		if member != "" {
+			lines = append(lines, "archive member: "+member)
+		}
+		return lines
 	}
 	if traceConvertUseZh(lang) {
 		lines := []string{
@@ -1500,11 +1511,11 @@ func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 }
 
 func traceConvertNextLineBase(lang string, result hitraceconv.Result) string {
-	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+	if path, _, _, ok := hitraceconv.TextTransportDisplay(result); ok {
 		if traceConvertUseZh(lang) {
-			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；分析时再识别文本中的事件和证据，解压本身不代表因果已证", transport.DecodedPath)
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；分析时再识别文本中的事件和证据，解压本身不代表因果已证", path)
 		}
-		return fmt.Sprintf("next: codrax --htrace %q --request <question>; analysis will identify events and evidence in the text; decompression alone does not prove causality", transport.DecodedPath)
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; analysis will identify events and evidence in the text; decompression alone does not prove causality", path)
 	}
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)

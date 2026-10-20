@@ -69,7 +69,25 @@ func probeTraceArchiveZIPLeaf(ctx context.Context, file *zip.File, budget *trace
 	if uint64(n) > file.UncompressedSize64 || (n < len(probe) && uint64(n) != file.UncompressedSize64) {
 		return false, traceArchiveFailure(traceArchiveCodeMemberIntegrity, file.Name, errors.New("ZIP candidate prefix disagrees with declared member size"))
 	}
-	return traceArchiveZIPKnownLeafMagic(probe[:n]), nil
+	if traceArchiveZIPKnownLeafMagic(probe[:n]) {
+		return true, nil
+	}
+	text := make([]byte, traceRoutingTextProbeBytes)
+	copy(text, probe[:n])
+	if n == len(probe) {
+		more, readErr := io.ReadFull(reader, text[n:])
+		n += more
+		if limited.failure != nil {
+			return false, limited.failure
+		}
+		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			return false, traceArchiveFailure(traceArchiveCodeMemberIntegrity, file.Name, readErr)
+		}
+	}
+	if uint64(n) > file.UncompressedSize64 || (n < len(text) && uint64(n) != file.UncompressedSize64) {
+		return false, traceArchiveFailure(traceArchiveCodeMemberIntegrity, file.Name, errors.New("ZIP text prefix disagrees with declared member size"))
+	}
+	return traceRoutingTextPrefix(text[:n]), nil
 }
 
 func traceArchiveZIPKnownLeafMagic(probe []byte) bool {

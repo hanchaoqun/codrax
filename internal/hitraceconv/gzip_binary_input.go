@@ -341,55 +341,16 @@ func inflateGzipToWriter(ctx context.Context, opts Options, input *gzipTextCheck
 // authority. The caller has already admitted the complete held text, owns the
 // ledger and source, and fills SourceGeneration from its outer authority.
 func publishGzipInputText(ctx context.Context, opts Options, input *gzipBinaryInput, receipt gzipInputReceipt, ledger *conversionFileLedger) (result GzipTextTransportResult, resultErr error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if input == nil || ledger == nil || receipt != input.receipt || receipt.DecodedBytes <= 0 || strings.TrimSpace(opts.OutputPath) == "" {
 		return result, errors.New("gzip text publication contract is incomplete")
 	}
-	if err := completeConversionInputStage(ctx, input, conversionInputStagePreCommit, nil); err != nil {
-		return result, err
-	}
-	defer func() {
-		resultErr = gzipTextHardFailure(resultErr, errors.Join(ctx.Err(), input.Validate(conversionInputStagePreCommit)))
-		if resultErr != nil {
-			result = GzipTextTransportResult{}
-		}
-	}()
-	target, err := prepareSealedConversionPublicationTargetWithLedger(opts.OutputPath, ".codrax-gzip-text-*", ledger)
+	published, err := publishHeldTraceText(ctx, opts, input, receipt.DecodedBytes, receipt.DecodedSHA256, ledger)
 	if err != nil {
-		return result, err
-	}
-	defer func() { resultErr = gzipTextHardFailure(resultErr, target.Cleanup()) }()
-	copy, err := createExternalToolInputSnapshot(ctx, input, target.stagingDir, target.finalLeaf, nil)
-	if err != nil {
-		return result, err
-	}
-	defer func() { resultErr = gzipTextHardFailure(resultErr, copy.Close()) }()
-	sealed, err := copy.detachSealed()
-	if err != nil {
-		return result, err
-	}
-	defer func() { resultErr = gzipTextHardFailure(resultErr, sealed.Close()) }()
-	if err := validateGzipTextSealed(ctx, sealed, sealed.identity, opts.OutputPath, receipt.DecodedBytes, receipt.DecodedSHA256); err != nil {
 		return result, err
 	}
 	result = GzipTextTransportResult{
 		Profile: GzipTextTransportProfile, SourcePath: input.DisplayPath(), SourceBytes: receipt.SourceBytes, SourceSHA256: receipt.SourceSHA256,
-		DecodedPath: target.finalBindingPath, DecodedBytes: receipt.DecodedBytes, DecodedSHA256: receipt.DecodedSHA256,
-	}
-	if err := publishSealedConversionFileNoReplaceWithValidation(ctx, target, sealed, ledger, func(published *retainedTraceDBPublication) error {
-		count, digest, generation, err := tracebundle.MeasureFile(ctx, published.file)
-		if err != nil {
-			return err
-		}
-		if count != receipt.DecodedBytes || digest != receipt.DecodedSHA256 || !published.identity.SameVersion(generation) {
-			return errors.New("published gzip text differs from its held decoded input")
-		}
-		result.DecodedGeneration = generation.CacheToken()
-		return nil
-	}); err != nil {
-		return GzipTextTransportResult{}, err
+		DecodedPath: published.path, DecodedBytes: published.bytes, DecodedSHA256: published.sha256, DecodedGeneration: published.generation,
 	}
 	return result, nil
 }

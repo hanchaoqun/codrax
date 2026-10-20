@@ -3906,6 +3906,13 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	// A precise current-code location still needs source evidence, but it does
+	// not require an operation-transfer graph. Preserve independent operation
+	// routes and all typed source-flow/selection/mechanism carriers.
+	if types.RuntimeSourceLocationOnly(rm) &&
+		!ctx.TurnRouteHint.ConcreteOperation && !ctx.TurnRouteHint.NeedsOperationAccess {
+		return false
+	}
 	// Finite runtime fact/effect scopes own their completion breadth. An
 	// analyzer may legitimately select AxisFlow for a requested runtime value
 	// (for example a target's residency over one bounded window), but that axis

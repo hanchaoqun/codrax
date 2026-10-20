@@ -3528,6 +3528,15 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, 
 	if !types.IsTypedSourceEnumerationShape(*rm) {
 		return ""
 	}
+	var route types.TurnRouteHint
+	attachedRuntime := false
+	if ctx != nil {
+		route = ctx.TurnRouteHint
+		attachedRuntime = types.RuntimeArtifactContextActiveFromBus(ctx)
+	}
+	if !types.SourceInventoryCanSynthesizePrincipalProfile(*rm, route, attachedRuntime) {
+		return ""
+	}
 	if types.SourceInventoryLaneConflictsWithPrincipalAnswer(*rm) {
 		return ""
 	}

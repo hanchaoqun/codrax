@@ -60,7 +60,7 @@ func sourceInventoryRequestedFileClosureProof(
 	roles map[types.AnswerCandidateRole]bool,
 	included, excluded map[string]bool,
 ) (bool, SourceInventoryCandidateUniverseGap) {
-	if ctx == nil || ctx.AnalysisIR == nil || len(observation.CompleteLenses) == 0 || len(included) == 0 {
+	if ctx == nil || ctx.AnalysisIR == nil || len(observation.CompleteLenses) == 0 || len(included) == 0 || !types.SourceInventoryCurrentSourceApplicableFromBus(ctx) {
 		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	rm := ctx.AnalysisIR.RequestModel

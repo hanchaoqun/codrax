@@ -3624,11 +3624,19 @@ func htraceToolsMessageZh(message string) string {
 }
 
 func htraceConvertResultSuccess(lang string, result hitraceconv.Result) string {
-	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+	if path, size, member, ok := hitraceconv.TextTransportDisplay(result); ok {
 		if isZh(lang) {
-			return formatN(lang, "已完整解压文本 trace：%s（%d 字节，原文保持不变；事件尚未统计）", transport.DecodedPath, transport.DecodedBytes)
+			msg := formatN(lang, "已完整解压文本 trace：%s（%d 字节，原文保持不变；事件尚未统计）", path, size)
+			if member != "" {
+				msg += "\n归档成员：" + member
+			}
+			return msg
 		}
-		return formatN(lang, "decompressed complete trace text: %s (%d bytes, text preserved unchanged; events not yet counted)", transport.DecodedPath, transport.DecodedBytes)
+		msg := formatN(lang, "decompressed complete trace text: %s (%d bytes, text preserved unchanged; events not yet counted)", path, size)
+		if member != "" {
+			msg += "\narchive member: " + member
+		}
+		return msg
 	}
 	return htraceConvertSuccess(lang, result.OutputPath, result.EventsWritten)
 }
@@ -4209,11 +4217,11 @@ func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
 }
 
 func htraceConvertNextMsgBase(lang string, result hitraceconv.Result) string {
-	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+	if path, _, _, ok := hitraceconv.TextTransportDisplay(result); ok {
 		if isZh(lang) {
-			return formatN(lang, "下一步：/htrace %s；分析时再识别文本中的事件和证据，解压本身不代表因果已证", transport.DecodedPath)
+			return formatN(lang, "下一步：/htrace %s；分析时再识别文本中的事件和证据，解压本身不代表因果已证", path)
 		}
-		return formatN(lang, "next: /htrace %s; analysis will identify events and evidence in the text; decompression alone does not prove causality", transport.DecodedPath)
+		return formatN(lang, "next: /htrace %s; analysis will identify events and evidence in the text; decompression alone does not prove causality", path)
 	}
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)

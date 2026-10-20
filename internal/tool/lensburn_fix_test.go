@@ -88,18 +88,26 @@ func TestLensburnSynthesizeGuard_UnrelatedFormStillSynthesizesIdentically(t *tes
 }
 
 func TestLensburnSynthesizeGuard_MaterializedBundleKeepsAuthority(t *testing.T) {
-	// A materialized perf bundle keeps full authority over its lane: the
-	// preflight arm only covers the bundle-ABSENT blindness, so a small trace
-	// whose bundle resolved into current-source files still synthesizes.
+	// Resolved current-source files keep their source obligation, not a new
+	// function/method/type universe. Runtime membership needs its own explicit
+	// source-inventory declaration if source declarations are principal.
 	rm := lensburnTypedEnumerationRequestModel(nil)
 	rm.PerfTrace = &types.PerfBundle{ResolvedFiles: []string{"src/owner.go"}}
 	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
-	ctx := &types.BusContext{RuntimeArtifactPreflight: lensburnLargeTracePreflight()}
-	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning == "" {
-		t.Fatalf("bundle-present form must keep bundle authority (no preflight override)")
+	ctx := &types.BusContext{RuntimeArtifactPreflight: lensburnLargeTracePreflight(), AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning != "" || rm.SourceInventoryProfile != nil {
+		t.Fatalf("resolved source location must not synthesize principal source members: %q %+v", warning, rm.SourceInventoryProfile)
 	}
-	if rm.SourceInventoryProfile == nil {
-		t.Fatalf("bundle-present form must keep the historic synthesis")
+	view := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
+	if view == nil || !view.HasRuntimeArtifactCurrentVerificationAnchor() ||
+		types.RuntimeSourceRequestCurrentSourceRequirementPrecision(view, types.TurnRouteHint{}) != types.RuntimeSourceRequirementPrecise {
+		t.Fatal("materialized source resolution lost its independent precise obligation")
+	}
+	rm.SourceInventoryProfile = &types.SourceInventoryProfile{IsSourceInventory: true, DeclarationOrigin: types.SourceInventoryDeclarationModelProvided,
+		TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}, SourceQuotes: []string{"every function"}, Confidence: 1}
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "every function", nil); warning != "" ||
+		!types.SourceInventoryPrincipalNavigationActive(rm) || !types.SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("explicit principal source universe was replaced or lost")
 	}
 }
 
@@ -119,13 +127,18 @@ func TestLensburnSynthesizeGuard_ZeroCurrentSourceRepoCensusArm(t *testing.T) {
 	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning != "" || rm.SourceInventoryProfile != nil {
 		t.Fatalf("zero-current-source census must suppress synthesis, got warning=%q profile=%+v", warning, rm.SourceInventoryProfile)
 	}
-	// Census gate stays precise: an incomplete walk keeps the arm inert.
+	// Census gate stays precise: an incomplete walk keeps that arm inert.
+	// The independent runtime-domain boundary still cannot synthesize source
+	// members from a source-file attribute; it does not claim a zero-source repo.
 	preflight.RepoSourceCensus.Completed = false
 	rm = lensburnTypedEnumerationRequestModel(nil)
 	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
 	ctx = &types.BusContext{RuntimeArtifactPreflight: preflight}
-	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning == "" || rm.SourceInventoryProfile == nil {
-		t.Fatalf("incomplete census must stay inert (synthesis proceeds)")
+	if ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
+		t.Fatal("incomplete census incorrectly certified zero current source")
+	}
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning != "" || rm.SourceInventoryProfile != nil {
+		t.Fatalf("incomplete census created a source-member universe from runtime presentation")
 	}
 }
 

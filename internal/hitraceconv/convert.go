@@ -186,7 +186,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 	}
 	if opts.prepareInputDefaults {
-		opts.KeepTraceDB = !simpleperfDirectRequested(inputFormat) && !route.gzipText
+		opts.KeepTraceDB = !simpleperfDirectRequested(inputFormat) && !route.gzipText && !route.archiveText
 	}
 	directPerf, err := validateOptionsForInput(opts, authority, inputFormat)
 	if err != nil {
@@ -237,6 +237,21 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			committed = true
 		}
 		return completed, completionErr
+	}
+	if route.archiveText {
+		if err := validateTransportTextOptions(opts); err != nil {
+			return Result{}, err
+		}
+		textOpts := opts
+		textOpts.OutputPath = output
+		transport, transportErr := publishArchiveInputText(ctx, textOpts, route, ledger)
+		if transportErr != nil {
+			return Result{}, transportErr
+		}
+		return commit(Result{
+			InputPath: input, InputBytes: inputBytes, OutputPath: transport.DecodedPath,
+			OutputBytes: transport.DecodedBytes, ArchiveTextTransport: &transport,
+		}, nil)
 	}
 	if route.gzipText {
 		if err := validateGzipTextOptions(opts); err != nil {

@@ -87,9 +87,12 @@ func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 func TestAnalysisSkill_CurrentSourceProfileCannotBeClosedByArtifactResolution(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	for _, want := range []string{
-		"Emit is_current_source_explanation_requested=true when the current request asks",
+		"explicitly choose false for artifact-only observations or true when the current request also asks",
+		"omission remains unknown, not false",
+		"Use locate_current_code for current implementation locations alone",
+		"trace_current_flow/explain_current_mechanism only for independently requested implementation operations",
 		"Artifact citations or unmapped frames do not cancel requested source analysis",
-		"For artifact-only summaries emit false; for ordinary code-only questions omit it",
+		"For ordinary code-only questions omit it",
 		"False does not prohibit source reading or cancel independently declared source roles/bindings",
 		"This secondary dimension survives a count/return_value primary intent",
 		"It is soft guidance, not a hard answer gate",

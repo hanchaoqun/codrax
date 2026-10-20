@@ -346,6 +346,7 @@ type Result struct {
 	ArchiveProvenance     *TraceArchiveProvenance
 	GzipInputProvenance   *tracebundle.GzipInputProvenance
 	TextTransport         *GzipTextTransportResult
+	ArchiveTextTransport  *ArchiveTextTransportResult
 	OutputPath            string
 	BundlePath            string
 	Artifacts             []Artifact

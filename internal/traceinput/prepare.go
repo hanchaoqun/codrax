@@ -208,6 +208,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		}
 	}
 	transport := result.TextTransport
+	archiveTransport := result.ArchiveTextTransport
 	conversion := &result
 	if kind == string(attachment.BinaryTraceFormatGZIP) && (transport != nil) == (result.GzipInputProvenance != nil) {
 		return nil, fmt.Errorf("gzip preparation requires exactly one text or binary transport receipt: %q", source)
@@ -216,8 +217,22 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		if kind != string(attachment.BinaryTraceFormatGZIP) || transport.Profile != hitraceconv.GzipTextTransportProfile ||
 			transport.SourceGeneration != original.CacheToken() || transport.SourceBytes != original.Size() || transport.SourceSHA256 != sourceSHA ||
 			transport.SourcePath != source || transport.DecodedPath != convertOptions.OutputPath ||
-			result.GzipInputProvenance != nil || result.BundlePath != "" || len(result.Artifacts) != 0 {
+			result.GzipInputProvenance != nil || archiveTransport != nil || result.BundlePath != "" || len(result.Artifacts) != 0 {
 			return nil, fmt.Errorf("gzip text transport receipt does not match the held source/output: %q", source)
+		}
+		conversion = nil
+	}
+	if archiveTransport != nil {
+		if kind != string(attachment.BinaryTraceFormatZIP) || archiveTransport.Profile != hitraceconv.ArchiveTextTransportProfile ||
+			result.ArchiveProvenance == nil || archiveTransport.Archive != *result.ArchiveProvenance ||
+			archiveTransport.SourcePath != source || archiveTransport.SourceGeneration != original.CacheToken() ||
+			archiveTransport.Archive.ArchiveBytes != original.Size() || archiveTransport.Archive.ArchiveSHA256 != sourceSHA ||
+			archiveTransport.DecodedPath != convertOptions.OutputPath || result.OutputPath != archiveTransport.DecodedPath ||
+			archiveTransport.DecodedBytes != archiveTransport.Archive.MemberBytes || archiveTransport.DecodedSHA256 != archiveTransport.Archive.MemberSHA256 ||
+			result.OutputBytes != archiveTransport.DecodedBytes || result.EventsWritten != 0 ||
+			transport != nil || result.GzipInputProvenance != nil || result.ExistingTraceDBSource != nil || result.BundlePath != "" || len(result.Artifacts) != 0 ||
+			len(result.TraceDecisions) != 0 || len(result.ProviderDecisions) != 0 || len(result.TraceCoverage) != 0 || len(result.TraceDBCoverage) != 0 {
+			return nil, fmt.Errorf("archive text transport receipt does not match the held source/member/output: %q", source)
 		}
 		conversion = nil
 	}
@@ -255,6 +270,15 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 			return nil, fmt.Errorf("gzip decoded generation changed before preparation binding: %q", previewPath)
 		}
 	}
+	if archiveTransport != nil {
+		previewPath = archiveTransport.DecodedPath
+		if err := bindMeasuredFile(ctx, previewPath, archiveTransport.DecodedBytes, archiveTransport.DecodedSHA256, bindings); err != nil {
+			return nil, err
+		}
+		if archiveTransport.DecodedGeneration == "" || bindings[previewPath].CacheToken() != archiveTransport.DecodedGeneration {
+			return nil, fmt.Errorf("archive text generation changed before preparation binding: %q", previewPath)
+		}
+	}
 	if previewPath == "" {
 		previewPath = hitraceconv.QueryReadyPerfTracePath(result.Artifacts)
 	}
@@ -284,7 +308,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := writeReceipt(ctx, receiptPath, preparationReceipt{
 		Version: "traceinput-v1", SourcePath: source, SourceKind: kind,
 		SourceBytes: original.Size(), SourceSHA256: sourceSHA, SourceGeneration: original.CacheToken(),
-		QueryPath: queryPath, PreviewPath: previewPath, Conversion: conversion, Transport: transport,
+		QueryPath: queryPath, PreviewPath: previewPath, Conversion: conversion, Transport: transport, ArchiveTransport: archiveTransport,
 	}, bindings); err != nil {
 		return nil, err
 	}

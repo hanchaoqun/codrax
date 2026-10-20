@@ -15,16 +15,17 @@ import (
 )
 
 type preparationReceipt struct {
-	Version          string                               `json:"version"`
-	SourcePath       string                               `json:"source_path"`
-	SourceKind       string                               `json:"source_kind"`
-	SourceBytes      int64                                `json:"source_bytes"`
-	SourceSHA256     string                               `json:"source_sha256"`
-	SourceGeneration string                               `json:"source_generation"`
-	QueryPath        string                               `json:"query_path"`
-	PreviewPath      string                               `json:"preview_path"`
-	Conversion       *hitraceconv.Result                  `json:"conversion,omitempty"`
-	Transport        *hitraceconv.GzipTextTransportResult `json:"transport,omitempty"`
+	Version          string                                  `json:"version"`
+	SourcePath       string                                  `json:"source_path"`
+	SourceKind       string                                  `json:"source_kind"`
+	SourceBytes      int64                                   `json:"source_bytes"`
+	SourceSHA256     string                                  `json:"source_sha256"`
+	SourceGeneration string                                  `json:"source_generation"`
+	QueryPath        string                                  `json:"query_path"`
+	PreviewPath      string                                  `json:"preview_path"`
+	Conversion       *hitraceconv.Result                     `json:"conversion,omitempty"`
+	Transport        *hitraceconv.GzipTextTransportResult    `json:"transport,omitempty"`
+	ArchiveTransport *hitraceconv.ArchiveTextTransportResult `json:"archive_transport,omitempty"`
 }
 
 func writeReceipt(ctx context.Context, path string, receipt preparationReceipt, bindings map[string]filegeneration.Identity) error {

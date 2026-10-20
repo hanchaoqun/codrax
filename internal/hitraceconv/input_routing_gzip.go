@@ -1,13 +1,10 @@
 package hitraceconv
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
 	"io"
-
-	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // Includes the outer-format prefix already consumed by the public probe, gzip
@@ -16,7 +13,7 @@ const gzipRoutingProbeCompressedBytes int64 = 1 << 20
 
 // This is an output-prefix budget, independent of the actual compressed-input
 // budget above. Missing a header within it remains unknown, not unsupported.
-const gzipRoutingProbeTextBytes = 16 << 10
+const gzipRoutingProbeTextBytes = traceRoutingTextProbeBytes
 
 var errGzipRoutingProbeBudget = errors.New("gzip routing compressed-input budget exhausted")
 
@@ -59,15 +56,7 @@ func probeGzipRoutingLeaf(ctx context.Context, source *conversionInputAuthority,
 	// embedded after prose, binary metadata or an oversized comment. Reuse the
 	// parser's anchored origin grammar, without parsing event payloads or an
 	// event-name allowlist. A single header supplies navigation, never facts.
-	for _, line := range bytes.Split(text[:n], []byte{'\n'}) {
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 0 || trimmed[0] == '#' {
-			continue
-		}
-		_, ok := tracequery.ProbeLeadingExactEventNamePrefix(string(line))
-		return ok, nil
-	}
-	return false, nil
+	return traceRoutingTextPrefix(text[:n]), nil
 }
 
 func gzipRoutingProbeFailureReason(err error) string {
