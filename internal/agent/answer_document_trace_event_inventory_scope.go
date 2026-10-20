@@ -49,6 +49,9 @@ func traceEventInventoryScopeProjection(record types.ObservationRecord, rm *type
 	}
 	i := types.CloneTraceEventSearchInventory(record.EventSearchInventory)
 	out := &traceInventoryScopeProjection{InputRows: len(i.Rows), Basis: "observed_emitter_or_verified_row_participant_and_request_window_only_not_pairing_or_causality"}
+	if types.TraceEventDisplayRequestsDirectWaker(rm) {
+		out.Basis = "recorded_wakeup_receiver_tid_and_request_window_only_other_events_keep_participant_scope_not_causality"
+	}
 	var participants types.TraceEventParticipantDisplayRoster
 	if len(rosters) == 1 {
 		participants = rosters[0]

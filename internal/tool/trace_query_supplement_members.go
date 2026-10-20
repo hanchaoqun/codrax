@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -143,6 +142,7 @@ func runTraceSupplementMembers(ctx *types.BusContext, path, sourceLabel string, 
 		if targetOK {
 			present = traceSupplementFamilies(traceSupplementMemberLedger(ctx, ledger, path, member, target))
 		}
+		present.WakeupInventory = traceSupplementCurrentWakeupInventory(memberCtx, input, path, target)
 		views := traceSupplementViewsForRequest(memberCtx, present, traceSupplementVsyncFamilyHit(ctx), traceSupplementMemberFramePresent(ctx, input, path, member, target))
 		switch {
 		case len(views) == 0:
@@ -162,7 +162,7 @@ func runTraceSupplementMembers(ctx *types.BusContext, path, sourceLabel string, 
 				}
 				// Only member endpoints and the common target are supplied. Model
 				// calls from another source may not lend platform/clock parameters.
-				raw, err := json.Marshal(traceSupplementCallParams{View: view, PID: target.PID, Thread: target.Thread,
+				raw, err := traceSupplementMarshalWindowedParams(traceSupplementCallParams{View: view, PID: target.PID, Thread: target.Thread,
 					TargetScope: traceSupplementTargetScopeForView(target, view), TimeStart: key[0], TimeEnd: key[1]})
 				if err != nil {
 					m.SkipReason, m.SkippedViews = types.TraceSupplementReasonExecutionFailed, append(m.SkippedViews, view)

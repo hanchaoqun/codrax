@@ -148,11 +148,15 @@ type traceSupplementFamilyPresence struct {
 	BlockedReasonCensus bool // blocked_reason_census predicate (wait-object faces)
 	WakeupEdgeCensus    bool // wakeup_edge_census predicate (waker faces)
 	IOLatency           bool // exact request/storage latency predicates
+	WakeupInventory     bool // executed scheduler wake-event census, not chain edges
 }
 
 func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFamilyPresence {
 	var f traceSupplementFamilyPresence
 	for _, record := range ledger.Records {
+		if traceSupplementIsWakeupInventory(record) {
+			f.WakeupInventory = true
+		}
 		if strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_") {
 			f.Rank = true
 		}
@@ -217,9 +221,9 @@ func traceSupplementFamiliesForRequestedScope(
 			// publication so a 2.000..2.021 query cannot suppress the exact
 			// 2.000..2.020 supplement. Window derivation and multi-board
 			// grouping retain their existing 1ms semantics elsewhere.
-			if !ok || !types.TraceCausalProjectionPrincipalValueSameWindow(
+			if (!ok || !types.TraceCausalProjectionPrincipalValueSameWindow(
 				recordStart, recordEnd, start, end,
-			) {
+			)) && !traceSupplementWakeupInventoryWindow(record, start, end) {
 				continue
 			}
 		}
@@ -253,6 +257,9 @@ func traceSupplementFamiliesForRequestedScope(
 // accepted carriers are emitted from typed engine fields: the target state
 // account subject, the rank board target, and frame target resolution.
 func traceSupplementRecordCarriesTargetAuthority(record types.ObservationRecord, target traceQueryRequestTarget) bool {
+	if traceSupplementIsWakeupInventory(record) {
+		return target.PID > 0 && target.TargetScope != "process" && record.EventSearchInventory.Query.PID == target.PID
+	}
 	var label string
 	switch {
 	case strings.TrimSpace(record.Predicate) == "target_window_states":
@@ -349,23 +356,21 @@ func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvi
 // never choose which answer family runs.
 func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
 	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided && !allowed {
+		var views []string
 		if traceSupplementNarrowIOLatencyQuestion(ctx) {
 			if !f.IOLatency {
-				return []string{"window_stats"}
+				views = []string{"window_stats"}
 			}
-			return nil
-		}
-		if traceSupplementNarrowDStateQuestion(ctx) {
+		} else if traceSupplementNarrowDStateQuestion(ctx) {
 			// A local model window cannot satisfy a full-artifact bounded census;
 			// re-run the same narrow view without promoting to causal families.
 			if scope := traceSupplementRequestedArtifactScope(ctx); scope.FullArtifact() {
-				return []string{"window_stats"}
-			}
-			if !f.WindowStates || !f.BlockedReasonCensus {
-				return []string{"window_stats"}
+				views = []string{"window_stats"}
+			} else if !f.WindowStates || !f.BlockedReasonCensus {
+				views = []string{"window_stats"}
 			}
 		}
-		return nil
+		return traceSupplementWakeupInventoryViews(ctx, f, views)
 	}
 	// QUALGATE-1 (§40.30): the analyzer's typed frame decision arms the frame
 	// evaluator deterministically beside the keyword family (a frame question
@@ -1431,6 +1436,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		families = traceSupplementFamilies(preLedger)
 	}
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
+	families.WakeupInventory = traceSupplementCurrentWakeupInventory(scopeCtx, input, path, target)
 	views := traceSupplementViewsForRequest(scopeCtx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
 	// family keywords hit (typed analyzer face) ∧ the generator-census family
@@ -1633,7 +1639,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 				traceSupplementFallbackParamsHook(raw)
 			}
 		} else {
-			raw, err = json.Marshal(traceSupplementCallParams{
+			raw, err = traceSupplementMarshalWindowedParams(traceSupplementCallParams{
 				View:         view,
 				PID:          target.PID,
 				Thread:       target.Thread,

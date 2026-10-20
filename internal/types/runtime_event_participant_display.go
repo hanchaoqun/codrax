@@ -48,6 +48,11 @@ func traceEventParticipantDisplayKey(source ObservationSourceRef, line int, time
 // complete source/query/point match and the same executed scan are required;
 // semantic display fields and raw text cannot create a participant receipt.
 func TraceEventRowMatchesDisplayTarget(record ObservationRecord, row TraceEventSearchInventoryRow, rm *RequestModel, roster TraceEventParticipantDisplayRoster) bool {
+	if row.EventType == "sched_wakeup" && TraceEventDisplayRequestsDirectWaker(rm) && traceEventDisplayHasUserTarget(rm) {
+		// An idle/unknown emitter may still carry an exact positive wakee TID.
+		// Keep that row; the separate causal/diagram receipt may remain absent.
+		return traceWakeupRowMatchesReceiver(record, row, rm)
+	}
 	if TraceEventRowMatchesEmitterTarget(row, rm) {
 		return true
 	}
