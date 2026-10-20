@@ -9501,3 +9501,51 @@ B整答人工FAIL：异常REAL60变60Hz、设备标签升物理身份、gpu_stat
 结果根`eval/results/hmc_gzip_native_reuse_20261019`的正式索引为`verification-receipts-v2/artifact-sha256-v2.json`；后续分笔发布终态另存`publication-receipts-v1/publication-v1.json`，不改封存索引。55开放、完整能力新增0/子能力2组/人工欠项2组保持，失败不误销账。
 
 代码`a9a6ad1b3f7e104bf07c2a956f86a7ae0f8cde11`已普通推送；push PID36361，UTC01:49:42.258459–01:49:47.139168，exit0，日志SHA`e41df6e990cb25005c0baaf3549aa3164f8644ee197d28ce416c5b3d99505480`，origin/main...HEAD为0/0。文档单独提交，最终clean/实际远端一致性与归档运行器完整终态在独立publication收据核验，不重写代码验收或封存索引。
+
+## 268. 真实gzip文本自然入口与原值量测/元数据摘要（2026-10-19，子能力已交付，完整人工0/2）
+
+基线`fd86ce97a8640474720c452389bc5e8410f2f70f`干净、实际远端一致；79唯一/24已交付/55开放，重复0。两轨仅推进17.6与01.3/16.4既有范围，不创建同句重复任务；§267采样及量测整答人工FAIL保原。
+
+主控复读参考`server.py::get_hitrace_path`、`core/query_engine.py:370–499`、完整`config/indicators/gpu/freq.yaml`及`core/chip_identify.py:20–105`。候选发现与实际准备独立，summary/unit/empty/truncated由实际producer给出；特定GPU协议才建立Hz、running和频点交集，chip匹配的Unknown/score也是独立边界。迁移分层设计，不复制扩展名授权、按名字覆盖多源、NULL时长延长、单位经验或标签升设备身份。
+
+能力轨先对普通命名gzip ftrace公开probe/正常Run复现，再复用既有结构化首数据行语法作有界导航；真实解压、CRC/尾部/单成员、取消及源代次仍完整验证。实际原件3,602,086B gzip SHA`4d66880019663f81462fe5df1615da58b368b6c5225e211dae88600cfc5396e9`；主控独立全量扫描新核54,122,686B解压物SHA`f9d1e3a77441e38eaf659272d7430f5227cb1434ef4251c2425b213d3069b572`、429756事件/429766行，零非注释未匹配行。不能提高250k索引门，沿既有窗口/流式查询；仅#tracer或随意UTF-8不自动成为事实凭证。
+
+展示轨先复现真实原生table可用而raw量测/metadata summary尚不受支持的公开能力边界，再复用当前来源/代次的私有provider与统一renderer，不新建模型自报value/unit/state/identity权威或重复ledger。sampling/resource/event已有摘要不能重造；纯事实摘要与独立有证据业务解释职责需区分，不以扫描用户/答案全文或删除链上业务线索作硬门。自由正文可能继续越权，须独立人工审计，不用结构回归替代整答验收。
+
+固定两例各一次并行：A普通名称的真实gzip文本Trace，170438.0–170438.1秒SaInit0 tid3051状态/唤醒；B已有双侧量测与采集元数据自然问题。A独立原行积分为S96.780ms/runnable1.088ms/running2.132ms、8次唤醒；不是调入预设答案的教学。B独立SQL oracle仍单独保留。先相关正反/race、冻结后统一全仓与真实模型，完整能力/子能力/人工欠项分开计，当前不预签结果。
+
+### 268.1 实施与确定性验收
+
+gzip保64B二进制快路，未命中时最多16KiB解压文本前缀，以共享严格首数据行语法提供候选；压缩实际消费仍1MiB，含header/read-ahead/空deflate，未知不等于不支持。完整UTF-8/NUL/CRC/ISIZE/尾部/单成员/取消/强代次仍走既有prepare，不造第二解码器、不抬250k整索引上限。候选不是ready，不按gzip名称或后缀授事实。定向/race各129根PASS/4opt-in跳过；真实原件另2根完整准备及底层冷暖窗口PASS，不代签正常tool选择窗口路径。
+
+raw量测/process/unpositioned及当前metadata/status，复用producer已验证固定表到selector-only summary/table/无边图。新增私有投影封存与当前来源/epoch/window凭证分离：完整稳定record和表格字段保真，仅既有源装饰阶段可对未变字段封最终record；JSON/memo/改值/行/单位/角色/状态无法自授摘要资格。保原生请求ID、来源、各侧窗口和执行历史，不合并权威或借图位置创建关系。真正协议Hz正控及已有sampling/resource/event各走原路。纯事实不再强制补业务/效果结论，真实关系/效果/源码/链上根因义务不变。
+
+公开状态反例：真实current查询成功后仅将raw Object改empty，旧状态builder仍签empty且success=1。RED PID10606 exit1，SHA`97420af17b990e0b58de159df3bfdb4015fb66885b3e41b7e8cf226f25910168`；修后raw状态也必须有当前投影封存，失效为unavailable、不能覆盖同ID有效publication，实际执行保留。不是宣称模型可直接篡改内部ToolResult或已发生客户事故。旧消费者147文件/808根普通PASS；末版状态race/相邻与独立17根race PASS。此前agent533根race在默认10分钟包预算超时，原件SHA`d307639c6a724652a7cb51e3d868408891634c76207c1104ce8b7ed3b5c88511`，不能签完整race通过，也不在未证明时归死锁或环境故障。
+
+教学最终澄清summary/图不自动抑制完整默认表，仅显式table定位同一表一次；没有修改跨面布局行为。末版3根公开surface/教学回归PASS。代码构建与冻结：UTC2026-10-20T02:44:30.553228Z，7170输入，冻结SHA`ebd7943fea38e48290945d60034a971e037c9d9dac9e9702d516a5bcbaf80453`；CLI SHA`523723a666b620faf80cc8a4a857c20453f72ee9d434b5df9906932de2335069`。源码、测试和问句冻结后不再追修。
+
+### 268.2 两例真实结果与未闭环边界
+
+A父34250/CLI34349，UTC02:44:37.652933–02:46:38.558399，exit0，日志SHA`f94c62c49092dd8c21b268063c80fe9360f17854bb4434d833ff11bec4e8feb6`。普通名真实gzip自然导航、完整文本准备、原生状态/事件与显式窗补齐限定PASS，最终三状态100ms及8次唤醒/3TID/2TGID正确；未制造根因清单。完整人工FAIL：将wake合并为S直接切运行、从FFRT名字推业务调度控制；原生runnable和wake≠switch-in教学已到finalizer，不能归数据漏传。无图/采样/坏源路径不代签。
+
+A同时暴露共享接缝：54MB但429756事件的源有合法显式窗，正常重视图和系统window_stats仍因size<64MiB选择整索引，四次撞250k后流式回退；event_search自然恢复8wake+24switch。底层受限窗口测试通过，不等于完整重视图自然入口通过。首个fallback S96.747/total99.967并披露33µs尾部未覆盖，后续三份S96.780/total100与oracle一致；最终正确，但两种覆盖同时进入成文上下文。冷暖/选中末事件与物理采集尾的原因尚未隔离，不凭同源同窗吞掉差异。独立审计SHA`53700a5233fe315c512ea0a7dbcc3a0c644945b07c8d360ab738b143a4dadda2`，额外运行原件24份。
+
+B父34251/CLI34348，UTC02:44:37.652906–02:47:41.067351，exit0，日志SHA`1e43e108bc1c5fa7b11ec1368664a8c012f459e4286be41a6095811ea65fee42`。3工具尝试＝2参数失败＋1成功pair，pair内2次真实原生查询。基线13行/7组、当前8行/4组及全部21行storage type/精确值/时间交集保真；未定位各1不计窗内。完整人工FAIL三类：native selector与自由侧别title反绑，正文计数也交换；invalid REAL60被写fps并用于比较；parser标签/命令升为不同物理设备/负载。producer/pair/最终roster正确，当前分析只发共同窗、未发Comparison，不能把查询角色反推为已接受用户侧义务。
+
+B实际只有两个native members table；summary、metadata两段和caveat都是自由文本，新native summary/metadata summary/事实图均NOT_TRIGGERED。21行各显示一次，跨面默认重复亦未触发；原生新接口公开PASS不替自然成文验收。旧gpu_state→翻转句本次未观察到，不等于通用语义已修；旧采样FAIL未覆盖保原。独立审计SHA`8785189f380297e544a9eddea56ca7cc33233b1303e2f444b38fdaf5e7314be6`，额外原件53份。合计77份唯一.codrax原件待封存，HTML仅核实际内容，不冒称像素验收。
+
+### 268.3 数量与下一优先级
+
+机器2/2、完整人工0/2。稳定清单79唯一/24已交付/55开放不变；完整稳定能力新增0、实现子能力2组、整答验收欠项2组含于既有01.3/16.4/18.3，不新增同句任务。旧采样解释越权保原，不以泛化展示接口通过代销。新增接口可用但自然未选，明确记未触发，不追第三例。
+
+下一两轨先解决已证广泛接缝：①确切IndexEventLimitError＋原合法显式窗→共享有界恢复，审查既有heavy-view预算策略而不是无意放宽门；兼顾首次/后续真实尾部覆盖，坏源/取消/换代/无窗不借机成功。②当前来源、查询角色、已接受比较侧及原生展示标题精确绑定；不能扫描title或正文关键词，也不能把任意查询role冒充用户义务。实际typed binding与free-title接缝先公开RED，再统一模型输入/JSON教学/renderer消费，保单位与物理身份权限独立。
+
+同源完整summary/无边图与默认表的覆盖随后推进：复用现有当前绑定、实际全表字段/notes与结构化table/关系义务，只有实际完整保留时可省默认重复表，不删用户显式块或从预览签全集。ZIP文本运输、更多实机格式/外部TS本体/原生平台仍为后续17.6范围，不通过继续局部调句拖慢高ROI交付。详见[批汇总](../../eval/parallel_selected_summary_hmc_gzip_text_fact_summary_20261019.md)和[人工审计](../../eval/parallel_selected_summary_hmc_gzip_text_fact_summary_20261019_manual_audit.md)；全仓与分笔发布终态另补收据。
+
+### 268.4 正式全仓与封存发布
+
+同冻结全仓PID34249，UTC2026-10-20T02:44:37.652854Z–02:59:34.296076Z正式exit0：96包PASS/13无测试包SKIP、零失败/非JSON行。JSONL SHA`02c5d7ef7110ebb9ed0190be68bccd056da87711f7d2d415a7c4f7aa9647df43`；本批新增18根PASS、1真实样本opt-in SKIP，该样本在独立代表原件测试已正式PASS，不能修改原全仓判定。最后包打印PASS后仍等Go父进程退出才结算。
+
+一次归档UTC03:00:33.322245Z完成，30份既有原材料未变；127份过程/回归/失败/审计/设计＋实际CLI＋输入gzip＋77份运行原件，共206新增复制。236文件索引SHA`32ef86293960f2b1e62c2e76935151fc0aee5033c0f27108e09f353cdf03261a`，归档收据SHA`8bb2d6c8c00fbe30319e635f7e3e8e6200d730ad1f5f103eb13836214d07f278`。不复制provider凭据，源码备份不用.go后缀进入后续包扫描；冻结7170输入与实际CLI、两例自然问题和全部源身份再次一致。
+
+代码`35a6acb7982b072bf1686380ac01059d2cf74456`已普通推送，push PID27314，UTC03:01:23.097266–03:01:29.903119，exit0，日志SHA`5329cb9579cc83d64443a11f23af8592fec1319b04d3330389a3a1ea8b5b50ef`。文档另笔发布；结果根`eval/results/hmc_gzip_text_fact_summary_20261019`的`verification-receipts-v1/artifact-sha256-v1.json`永久保原，分笔正常push与最终clean/实际远端一致性另由`publication-receipts-v1/publication-v1.json`核验。完整稳定能力新增0、实现子能力2组、人工欠项2组，79＝24＋55保持，失败不误销账。

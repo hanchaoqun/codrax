@@ -284,6 +284,18 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 下一能力片轮换已有真实gzip文本trace的普通命名导航与窗口查询，先公开RED，不新写decoder、不抬250k索引上限；真正格式/平台矩阵和旧采样解释欠项仍开放。当前不关闭17.6/18.3；完整收据、两个并行真实案例及失败范围见§267与[批汇总](../../eval/parallel_selected_summary_hmc_gzip_native_reuse_20261019.md)。
 
+### 9.11 真实gzip文本的内容导航（2026-10-19，§268，入口取数限定PASS、整答FAIL）
+
+参考`server.py`的候选发现和`core/extensions/page_cache_parser.py`的物理行消费分别承担导航、解析责任。后者的专属事件筛选、浮点秒转纳秒、字段别名及固定4KiB换算不适合作为通用入口。本片只复用本仓严格首数据行语法：保64B二进制快路，未识别时读取最多16KiB解压前缀；首个非空/非注释物理行可提供reader候选。原1MiB实际压缩输入预算不变，不以gzip Name、后缀或事件关键词授予权限。
+
+已有完整UTF-8文本准备器继续独立验证CRC/ISIZE、单成员、尾部、取消和强代次。64KiB之后的坏尾也不能被短预览代签；超前缀预算只是unknown，不取消显式准备。正常Run三种来源策略、source-only不强制解码、真实原生调用和显式窗自动补齐已通过定向及race；scripted classifier不冒称自然模型验收。
+
+参考仓真实gzip录制精确复制为普通名称，3,602,086B压缩、54,122,686B完整文本。独立原行扫描429756事件/429766行；原生流式全量计数一致。整索引仍按250k拒绝，底层显式BuildOptions冷/暖窗口查询在[170438.0,170438.1)内保SaInit0 tid3051的S96.780ms、Runnable1.088ms、Running2.132ms及8次唤醒的精确TID/TGID，与独立十进制oracle一致。此项不是公开工具自动选择窗口索引的证明。
+
+正式自然A无预附/预准备，命名导航、完整文本准备、原生查询及系统显式窗补齐均命中。三个重视图和系统window_stats均先尝试整库索引并触发250k门：`traceQueryBuildIndex`用文件大小先选全索引，54MB却429756事件的源即使有精确窗也不进入已有窗口恢复。实际流式回退让任务继续，不是工具零查询或解码失败；首个thread_timeline另披露33µs尾部未覆盖（S96.747ms、总99.967ms），后续wakeup/interaction/补齐得到独立oracle的100ms精确值。最终数值/唤醒身份正确，但正文“唤醒直接切运行”“FFRT调度控制”越权，完整人工FAIL。尾部差异的原因尚未隔离，不强称冷暖缓存故障。
+
+下一高ROI是typed索引预算错误与合法显式窗口的共享恢复，并统一实际覆盖范围交接；不特判gzip、不提高整库上限、不替无窗问题造窗。保完整坏源终止、因果投影和自动补齐；没有新增时区/domain转换。原件未修改，更多格式/平台矩阵及旧采样解释越权继续开放。固定两例各一次，不追加模型求绿；详见[批汇总](../../eval/parallel_selected_summary_hmc_gzip_text_fact_summary_20261019.md)。
+
 ## 10. SQLite 标量接入增量（2026-09-30，HMC-17.7 N）
 
 `b503127d3`对HiSys时间/TID消费保实际SQLite存储类：合法时间必须是非负INTEGER纳秒，NULL/TEXT/REAL/BLOB/负值留SQL fidelity与覆盖，不中断健康兄弟也不补0；TID的合法INTEGER源值含0，NULL未知，非法类型/范围可逆保留但无线程身份。existing SQLite及外部provider公开路径、超2^53纳秒、wire预算/互斥及JSON语义目录都有回归，`b172b43cd`补字典坏名称组合契约。
