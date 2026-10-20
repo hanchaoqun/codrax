@@ -9603,3 +9603,37 @@ v2全仓UTC03:55:47.582161–04:13:14.422140正式exit1，仍95PASS/13SKIP/1FAIL
 v3仅再改两文件的导航布局/测试；43根普通及race、独立9根race通过。源码/测试7179输入于UTC04:20:43.779948冻结，索引SHA `3e2b59b5dab8a5509b07aa354199278a0ff05a725f2223652c77f39f6b82bea7`，实际CLI SHA `9a57e04325f91f8f8c06efe1dc00b219055b9c7849a8d64e26b90e506013b137`。全仓PID79438，UTC04:20:49.649415–04:40:24.131021正式exit0：96包PASS/13无测试包SKIP，无失败/非JSON行；日志SHA `72c73a79e6b2dfee337c36f87d886546f75865aafd084ed5c33d0fbbee5d8638`。旧两版全仓FAIL、真实两例完整人工0/2均保原，不把最终确定性PASS算作自然整答已修。
 
 HMC269前缀20根PASS/1真实原件opt-in SKIP，后者独立专项已PASS而不改此次SKIP。30份既有原件未变，305份新增复制（含71份运行原件、三版实际CLI及旧源码/失败）封存为335文件索引，SHA `168ae51dfa19a05c544d9e67bfa4a032980a25a47dbfa94bdd10c08111b87a3b`；归档终态UTC04:40:53.931708，收据SHA `b26b0ce2cd8ac44224e8c7cc667b9adfbf2509559e727373cf53892f8515a1b3`。代码`5ee1c3d856`正常推送，文档另笔；最终publication收据见[批汇总](../../eval/parallel_selected_summary_hmc_window_recovery_source_titles_20261019.md)。完整能力新增0/已交付子能力2组/本批人工欠项2组，55开放保持。
+
+## 270. 代表对照完整验收与唤醒事件清单交接（2026-10-20）
+
+基线`a67138126`，79唯一/0重复＝24已交付＋55开放。中断前准备的目录`hmc_representative_wakeup_inventory_20261019`继续使用，不覆盖历史批次原件。本批两轨范围、正式进程和版本证据见[批汇总](../../eval/parallel_selected_summary_hmc_representative_wakeup_inventory_20261020.md)；自然问题只保用户目标，oracle不注入模型上下文。
+
+### 270.1 有限系统修复与参考设计
+
+11.2既有代码在新增正常Run组合中通过：8计划/2规格组/4选中查询/4真实尝试/4未选，实际原件数另计。计划/代表返回导航由真实工具产生，所选进入普通准备与查询，再核源代次、线程、半开窗、事件/完整帧和实际Finalizer上下文；仅模型动作被脚本化。未确认生产RED，因此不重做已有计划/选择/CurrentExecution，不由该测试提前关闭自然验收。
+
+§269的明确缺陷是“完整8次唤醒不能由6条选中链边代替”。本批按已接受的有限direct_waker和显式窗，在原系统补齐通道内补原生event_search，保持原每窗两视图、时限、坏源/代次及单次锁存边界。普通PID仍是参与查询；当前已验证库存的同一行按精确接收方/用户窗投影，保原查询人口、显示子集、预览省略。idle/未知发起端不抹已知接收事件，进程目标不当线程TID；同源/目标/窗的当前私有原生凭证才可免重复查询，历史JSON/邻窗/另一采集不能借证。摘要、表和无边事实图复用，链上根因/优先级/算力/IO/语义优化等资格不变。
+
+参考`wakeup_chain_index.py`的事件全集与链遍历分层、from_itid身份保留，以及`query_engine.py`对总行/返回行/截断的区分；不照搬参考`(start,end]`为本项目请求半开窗。代表设计沿`closure/select.py`/`package.py`的组/成员来源及稳定软排序，不移植mtime/CWD回退或固定配额。本批没有解析用户或模型正文关键词作硬门。
+
+### 270.2 回归边界与旧race失败
+
+两项公共RED（库存缺失、发起方混入接收方清单）已修。新6根、相关250根普通、types整包、代表29根普通/11根race通过；独立末版14根/56含子/4包race通过。251根消费者race仍保1个旧IO根FAIL，不能说全部race通过。
+
+未修改基线`a67138126`及同字节fixture也复现该FAIL。隔离诊断证明：默认20s到期后rank部分完成、critical跳过，typed Meta保`duration_budget_exceeded`/canceled/skipped；旧测试只看仅定义于零执行跳过的Outcome字段，误当完整执行。仅诊断120s得到完整两视图与原IO量尺，生产预算/旧断言未改，原失败不回签。下一测试维护须分开完整功能与有限预算取消，保原关系断言和生产20s门，不追空闲机器求绿。报告SHA `7df7acf5ba66036c964b05ce88e0d5790741e0086fe60f4ff8c79a9aceccebca`。
+
+### 270.3 自然结果与后续优先级
+
+冻结7184输入，索引SHA `c95ad559f8765391cdd3fc2bd04f4f9a51bd23f862af059de80fd1d6171090a7`；CLI SHA `4a9098e5ed15c4aa23a593da95d6c6440a420e1c4447f463893497bf2fe93078`。两例各一次并行；B正式exit0/机器PASS，补齐真实执行event_search，完整8事件与共享TGID旧缺口通过，但正文裁剪时长/CPU/效果推断及预览语义仍人工FAIL。A正式exit0，无representatives/status及选择快照，11.2为NOT_TRIGGERED；实际18规格/14成功/4未执行，无resource_stack原生成员查询，跨源计数/身份、单位/时长和文件可用性仍人工FAIL。字符串数字thread合法解析exact_tid，不能另列伪故障。完整人工0/2，不把CLI成功写机器2/2；两例均无图，不代签图修复。
+
+A过程已揭示跨领域接缝：模型把运行时调用位置声明为source_location、进度为stage_or_workflow，系统按现合同承认该闭枚举精度，又从enumerate/per-member-table自动合成function/method/type源码库存，继而限工具并要求源码operation传递证据。模型误声明与系统扩大分别留账；新正常Run测试预置正确IR，不能证明自然分类。下一缺陷轨优先统一证据领域、源码全集义务的精确载体和调度/完成判定；真正mixed源码定位、源码枚举/flow及Trace因果职责必须保留，不以关键词或静默降级修复。
+
+当前完整能力新增0、生产子能力1组，另补完整Run验收覆盖；父任务55开放保持。旧采样、原始量测单位/身份越权独立保16.4/18.3；ZIP文本17.6、08.4/08.3及只读登记终态按ROI轮换，不再无限局部重跑代表题。
+
+### 270.4 正式全仓、封存与发布
+
+同冻结全仓PID20354，UTC2026-10-20T13:25:53.007444Z–13:42:44.538293Z正式exit0：96包PASS/13无测试包SKIP，零失败/非JSON行。JSONL SHA `704e873fbd9c9e829df75bfef75792bba29d51d869aaa9d9d24045bd109858c5`。原旧IO消费者race FAIL及基线诊断均保留，普通全仓绿不回签race失败。
+
+UTC13:44:04.569676封存158份既有原件及121新增复制，279文件索引SHA `773132c192fbdd3bab64512383699188b0e53f615ea7f4b43284cd57c665d75c`，收据SHA `a705bbefd3ad8556263a5bde2ef521d07ef2297055cb804f1df4993dde6803e8`。178个审计列出的实际路径核存在/哈希；A多数原件就在结果根，不重复复制计数；B额外37文件包含完整解码源。来源fixture、失败测试/诊断、两真实终稿、10源码测试快照和实际CLI完整保留；不复制provider或.git，不把源码副本当新Go包扫描。
+
+代码`e7d4b48d34655d1ba1d2dd39f7eccbbc1ab67edc`已普通推送；push PID19684，UTC13:45:01.678394–13:45:09.413149，exit0，日志SHA `515e1622381e950af5cbd2a86d35d703f216ce34ce89bfbac7242d85b8268e44`。文档另笔，最终commit/远端一致性留独立publication收据，不修改已封存索引。完整结论和各失败边界见[人工审计](../../eval/parallel_selected_summary_hmc_representative_wakeup_inventory_20261020_manual_audit.md)；79唯一＝24交付＋55开放，不误销账。

@@ -1595,7 +1595,9 @@ HMC §241的唤醒进程展示由同一纯格式化函数供工具摘要、成�
 
 该同源schema不依赖执行端偶然二次归一化。可选根因selector含歧义时，只在现有检查已证明唯一/等价的参数对象内分离、修复正文并按原始字节恢复selector；安全解包装本身记为repair，off/audit不改入参，冲突参数包装不选一份。正文是否可用与selector是否被拒绝仍独立，参数修复不增候选权限。patch严格解码出口通过精确登记的拒绝helper附当前schema教学，仍须先对raw selector完成解析，结构普查的自红/自绿边界保留。
 
-有限目标事件展示复用私有参与者名单：只有独立验证的同一`source/query/payload/scan/line/time`的row-local唤醒凭证能补充发射端之外的目标线程；目前覆盖`sched_wakeup`，不从raw或展示字段猜参与关系。正文库存、原生表/图selector和分组共用该名单，目标排除与窗口排除分别披露；查询总数、原始成员与旧owner判断保持不变。展示参与者不等于业务owner、进程、依赖链或根因资格。
+有限目标事件的通用参与者展示复用私有名单：只有独立验证的同一`source/query/payload/scan/line/time`的row-local唤醒凭证能补充发射端之外的目标线程；目前覆盖`sched_wakeup`，不从raw或自由文字猜参与关系。正文库存、原生表/图selector和分组共用该名单，目标排除与窗口排除分别披露；查询总数、原始成员与旧owner判断保持不变。展示参与者不等于业务owner、进程、依赖链或根因资格。
+
+HMC §270将明确的有限`direct_waker`事实显示与通用参与查询分开：完整已验证库存内的同一原生行，其parser-owned接收方TID/名称可以决定是否显示该唤醒记录；显式TID优先、进程目标不当线程目标，idle或未知发起方不抹掉已知接收记录。这里不铸造参与者或因果凭证，普通参与查询及因果请求仍沿旧路径。显式窗和唯一正线程TID可在既有系统补齐通道内追加缺少的`event_search`，每窗仍最多两视图，预算/取消/坏源/私有来源代次检查不变。只有同原件、同目标、同请求窗的当前实际原生库存能免重复查询；链边、census或历史JSON不能替代。查询总数、接收方/请求窗显示子集、40行预览及其省略分别披露，不用保留行数宣称完整接收方总体。摘要、表格、无边事实图与最终上下文复用同一显示选择；完整事件清单不扩大因果链。
 
 旧`top_callchains`与树共享`frames_v1`验证：`callchain_identity.form=exact_frames`按完整Kind/Symbol/DSO/IP序列区分路径，原始行坐标不是路径身份；`opaque_flat_label`保原字符串及未知原因，不与已验证路径合并。`quality.frame_statuses`及`callchain_known/unknown_count`指已验证帧边界（不承诺完整unwind），`callchain_statuses`仍是生产者原始声明。平面`top_symbols/top_dso`仍统计全部记录的对应字段，不能当作前缀节点inclusive/self权重；缺栈记录不从分母或平面热点消失。工具完整/紧凑展示均保这个量尺区别，不靠模型正文关键词纠错。
 
