@@ -56,6 +56,7 @@ type RuntimeMeasurementTable struct {
 	nativeFactIdentity        string
 	nativeSamplingFactsDigest string
 	nativeResourceFactsDigest string
+	nativeRawFactsDigest      string
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {
@@ -88,6 +89,9 @@ func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
+	if t.nativeRawFactsDigest != "" && !t.HasNativeRawFacts() {
+		return false
+	}
 	if t.nativeResourceFactsDigest != "" && !t.HasNativeResourceFacts() {
 		return false
 	}

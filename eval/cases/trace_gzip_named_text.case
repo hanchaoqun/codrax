@@ -1,0 +1,7 @@
+ID="trace_gzip_named_text"
+NAME="Ordinary named real gzip text trace with a thread window"
+: "${CODRAX_GZIP_TEXT_INPUT:?set a verified full gzip ftrace input with an ordinary filename}"
+QUESTION="请看 ${CODRAX_GZIP_TEXT_INPUT}，170438.0 到 170438.1 秒内 SaInit0 线程（tid 3051）主要处于哪些状态，各持续多久？期间是谁唤醒它的？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

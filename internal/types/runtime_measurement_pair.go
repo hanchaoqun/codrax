@@ -188,6 +188,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 		// only after source/epoch validation; no returned slice aliases the
 		// retained producer value, including its private coverage scope.
 		for j, publication := range r.publications[i] {
+			side.Publications[j].rawFacts = publication.rawFacts
 			for k, table := range publication.Tables {
 				side.Publications[j].Tables[k] = table.Clone()
 			}
@@ -268,6 +269,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 						}
 					}
 					qualifyRuntimeMeasurementFactIdentity(&publication, original, result.RuntimeMeasurementPair.replay[sideIndex])
+					qualifyRuntimeRawFactPublication(&publication, original != "")
 					out = append(out, publication)
 				}
 				_, _, parser := runtimeMeasurementMetadataLabels(side.SourceMetadata)
@@ -278,6 +280,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), metadata, side.Detail})
 			}
 			if sharedCatalog == nil {
+				sealRuntimeRawFactTable(&status)
 				out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})
 			}
 		}

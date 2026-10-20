@@ -130,6 +130,9 @@ func traceQueryProcessMeasurementsObservations(p *tracequery.ProcessMeasurements
 		return nil
 	}
 	r.RichNotes = []string{receipt}
+	if sealed, ok := types.PublishRuntimeRawMeasurement(r); ok {
+		r = sealed
+	}
 	return []types.ObservationRecord{r}
 }
 

@@ -81,6 +81,7 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 		table.Rows = append(table.Rows, []string{[]string{"baseline", "current"}[i], status, side.Path + " " + window,
 			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), metadata, strings.Join(history, "; ")})
 	}
+	sealRuntimeRawFactTable(&table)
 	return []RuntimeMeasurementPublication{{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table}}}
 }
 
@@ -90,6 +91,16 @@ func runtimeMeasurementProducerStates(input ObservationLedgerInput) map[string]s
 		for _, result := range group {
 			for _, record := range result.Observations {
 				if _, ok := DecodeRuntimeMeasurementPublication(record); ok {
+					// Raw state is part of the producer-sealed projection. A valid
+					// catalog attempt proves execution, not a changed Object field.
+					// Keep that execution history but never turn an unsealed state
+					// into empty/available or overwrite an intact same-ID result.
+					if rawMeasurementPredicate(record.Predicate) && !runtimeRawMeasurementValid(record) {
+						if _, exists := states[record.ID]; !exists {
+							states[record.ID] = "unavailable"
+						}
+						continue
+					}
 					states[record.ID] = record.Object
 				}
 			}

@@ -80,6 +80,9 @@ func traceQueryMeasurementsObservations(p *tracequery.MeasurementsResult, ref ty
 		return nil
 	}
 	r.RichNotes = []string{note}
+	if sealed, ok := types.PublishRuntimeRawMeasurement(r); ok {
+		r = sealed
+	}
 	return []types.ObservationRecord{r}
 }
 

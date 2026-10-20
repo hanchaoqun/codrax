@@ -83,6 +83,9 @@ func traceQueryUnpositionedMeasurementsObservations(result tracequery.Result, re
 		}
 		if len(data) <= 64<<10 {
 			r.RichNotes = []string{types.TraceNoteKeyRuntimeMeasurement + "=" + string(data)}
+			if sealed, ok := types.PublishRuntimeRawMeasurement(r); ok {
+				r = sealed
+			}
 			return []types.ObservationRecord{r}
 		}
 		if keep == 0 {

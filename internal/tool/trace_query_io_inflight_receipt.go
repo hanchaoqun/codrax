@@ -128,5 +128,6 @@ func traceQueryFinalizeMeasurementSources(result *types.ToolResult) {
 				r.RichNotes[j] = types.TraceNoteKeyRuntimeMeasurement + "=" + string(encoded)
 			}
 		}
+		*r = types.FinalizeRuntimeRawMeasurement(*r)
 	}
 }

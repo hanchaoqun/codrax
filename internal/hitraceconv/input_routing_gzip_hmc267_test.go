@@ -60,7 +60,9 @@ func TestHMC267GZIPRoutingUnknownAndNestedDoNotGainReaders(t *testing.T) {
 		body []byte
 	}{
 		{"unknown", []byte("a runtime document, not a binary capture")},
-		{"trace_text", []byte("# tracer: nop\n task-42 (42) [000] .... 1.0: tracing_mark_write: B|42|work\n")},
+		// HMC268 deliberately adds physical ftrace text navigation; prose and
+		// header-only text still do not identify a supported native reader.
+		{"trace_header_only", []byte("# tracer: nop\n# no physical event header\n")},
 		{"sqlite", append([]byte("SQLite format 3\x00"), make([]byte, 64)...)},
 		{"nested_zip", append([]byte("PK\x03\x04"), make([]byte, 64)...)},
 		{"nested_gzip", append([]byte{0x1f, 0x8b, 8, 0}, make([]byte, 64)...)},

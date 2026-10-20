@@ -17,6 +17,7 @@ type RuntimeMeasurementPublication struct {
 	Source                ObservationSourceRef      `json:"source"`
 	Tables                []RuntimeMeasurementTable `json:"tables"`
 	answerDisplayIdentity string
+	rawFacts              bool
 }
 
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
@@ -93,6 +94,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	}
 	seen := map[RuntimeMeasurementView]bool{}
 	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
+	p.rawFacts = uniqueMembers && runtimeRawMeasurementValid(r)
 	if r.Predicate == RuntimeResourceMeasurementPredicate {
 		if !uniqueMembers || !runtimeResourcePublicationValid(r) {
 			return RuntimeMeasurementPublication{}, false
@@ -212,6 +214,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					continue
 				}
 				if !result.ReusedFromRunMemo {
+					qualifyRuntimeRawFactPublication(&p, original != "" && result.TraceViewCancellation == nil)
 					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)
 					qualifyRuntimeBusinessMeasurementIdentity(&p, r, original, result.TraceQueryWindowReplay)
 					if !supplementary {

@@ -1,22 +1,29 @@
 package hitraceconv
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
 	"io"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // Includes the outer-format prefix already consumed by the public probe, gzip
 // headers and inflater read-ahead. Empty deflate blocks cannot evade this cap.
 const gzipRoutingProbeCompressedBytes int64 = 1 << 20
 
+// This is an output-prefix budget, independent of the actual compressed-input
+// budget above. Missing a header within it remains unknown, not unsupported.
+const gzipRoutingProbeTextBytes = 16 << 10
+
 var errGzipRoutingProbeBudget = errors.New("gzip routing compressed-input budget exhausted")
 
-// This is navigation, not another decoder: only the existing binary leaf
-// signatures can offer a reader. No extraction, receipt, full CRC, trailing-byte
-// validation or sample fact is claimed. PrepareFile still validates the entire
-// one-member transport before any native query, including known short prefixes.
+// This is navigation, not another decoder: existing binary leaf signatures or
+// a physical ftrace header can offer a reader. No extraction, receipt, full CRC,
+// trailing-byte validation or sample fact is claimed. PrepareFile still validates
+// the entire one-member transport before any native query, including short prefixes.
 func probeGzipRoutingLeaf(ctx context.Context, source *conversionInputAuthority, consumed int64) (known bool, err error) {
 	limited := &gzipRoutingProbeReader{ctx: ctx, reader: io.NewSectionReader(source, 0, source.Size()), remaining: gzipRoutingProbeCompressedBytes - consumed}
 	defer func() {
@@ -36,7 +43,31 @@ func probeGzipRoutingLeaf(ctx context.Context, source *conversionInputAuthority,
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return false, err
 	}
-	return traceArchiveZIPKnownLeafMagic(prefix[:n]), nil
+	if traceArchiveZIPKnownLeafMagic(prefix[:n]) {
+		return true, nil
+	}
+	text := make([]byte, gzipRoutingProbeTextBytes)
+	copy(text, prefix[:n])
+	if n == len(prefix) {
+		more, readErr := io.ReadFull(reader, text[n:])
+		n += more
+		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			return false, readErr
+		}
+	}
+	// Elect only the first physical data row, never a trace-looking fragment
+	// embedded after prose, binary metadata or an oversized comment. Reuse the
+	// parser's anchored origin grammar, without parsing event payloads or an
+	// event-name allowlist. A single header supplies navigation, never facts.
+	for _, line := range bytes.Split(text[:n], []byte{'\n'}) {
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 || trimmed[0] == '#' {
+			continue
+		}
+		_, ok := tracequery.ProbeLeadingExactEventNamePrefix(string(line))
+		return ok, nil
+	}
+	return false, nil
 }
 
 func gzipRoutingProbeFailureReason(err error) string {

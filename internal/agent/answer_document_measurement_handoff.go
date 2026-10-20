@@ -65,6 +65,12 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 		}
 	}
 	for _, table := range choices {
+		if table.HasNativeRawFacts() {
+			b.WriteString("- " + types.RuntimeRawFactDisplayTeaching + "\n")
+			break
+		}
+	}
+	for _, table := range choices {
 		if table.EventData != nil {
 			b.WriteString("- Native event facts additionally accept event_selection on an available summary/table/diagram. Example: {\"kind\":\"summary\",\"runtime_measurement\":{\"observation_id\":\"<published event ID>\",\"view\":\"members\",\"event_selection\":{\"row_ids\":[\"<published row ID>\"],\"field_keys\":[\"<published field key>\"]}}}. Reuse this selector for each needed surface instead of copying app/process identities or numbers. For counts, replace field_keys with group_by; the system counts exactly those retained rows. Omitted row_ids means all retained rows, not all matches beyond a display limit. Empty selection uses all retained rows and fields. Choose fields that answer the business question. Omit text/items/columns/diagram and causal metadata; if a principal summary requires trace_causal_claim_caliber, use only no_causal_conclusion. A fact diagram has no causal edges and cannot replace a required relationship diagram. Keep interpretation in a separate block.\n")
 			b.WriteString("- Event selectors reuse their own query's selector_row_ids aligned with row_refs in Trace Event Search Inventories; display_rows supplies the native fields. IDs are local to observation_id, not event identity across queries. Omit row_ids for every retained row; never reconstruct unseen values. Each scope_ref resolves an exact note below and applies only to the table referencing it; shared text never merges sources, windows or populations.\n")

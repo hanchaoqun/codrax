@@ -93,6 +93,7 @@ func buildRuntimeMeasurementSingleSourceMetadata(input ObservationLedgerInput) [
 			for _, f := range fields {
 				table.Rows = append(table.Rows, []string{original, f.Origin, f.Kind, f.Name, f.State, strconv.Quote(f.Value), f.Detail})
 			}
+			sealRuntimeRawFactTable(&table)
 			out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table}})
 		}
 	}

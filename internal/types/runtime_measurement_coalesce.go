@@ -18,6 +18,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 	conflicting := make(map[string]bool)
 	displayWitnesses := make(map[string][]bool, len(publications))
 	factIdentities := make(map[string][]string, len(publications))
+	rawFactWitnesses := make(map[string][]bool, len(publications))
 	for i, publication := range publications {
 		key := publication.ObservationID
 		raw, err := json.Marshal(publication)
@@ -30,6 +31,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 				conflicting[key] = true
 			} else {
 				for j, table := range publication.Tables {
+					rawFactWitnesses[key][j] = rawFactWitnesses[key][j] || table.HasNativeRawFacts()
 					displayWitnesses[key][j] = displayWitnesses[key][j] || table.nativeTraceDisplayPopulation
 					if prior := factIdentities[key][j]; prior != "" && table.nativeFactIdentity != "" && prior != table.nativeFactIdentity {
 						conflicting[key] = true
@@ -43,7 +45,9 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 		first[key], encoded[key] = i, string(raw)
 		displayWitnesses[key] = make([]bool, len(publication.Tables))
 		factIdentities[key] = make([]string, len(publication.Tables))
+		rawFactWitnesses[key] = make([]bool, len(publication.Tables))
 		for j, table := range publication.Tables {
+			rawFactWitnesses[key][j] = table.HasNativeRawFacts()
 			displayWitnesses[key][j] = table.nativeTraceDisplayPopulation
 			factIdentities[key][j] = table.nativeFactIdentity
 		}
@@ -55,6 +59,9 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 				retained := table.Clone()
 				retained.nativeTraceDisplayPopulation = displayWitnesses[publication.ObservationID][j]
 				retained.nativeFactIdentity = factIdentities[publication.ObservationID][j]
+				if rawFactWitnesses[publication.ObservationID][j] {
+					sealRuntimeRawFactTable(&retained)
+				}
 				out = append(out, retained)
 			}
 		}
@@ -69,13 +76,16 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	a.Tables = append([]RuntimeMeasurementTable(nil), a.Tables...)
 	b.Tables = append([]RuntimeMeasurementTable(nil), b.Tables...)
 	a.answerDisplayIdentity, b.answerDisplayIdentity = "", ""
+	a.rawFacts, b.rawFacts = false, false
 	for i := range a.Tables {
 		a.Tables[i].nativeTraceDisplayPopulation = false
 		a.Tables[i].nativeFactIdentity = ""
+		a.Tables[i].nativeRawFactsDigest = ""
 	}
 	for i := range b.Tables {
 		b.Tables[i].nativeTraceDisplayPopulation = false
 		b.Tables[i].nativeFactIdentity = ""
+		b.Tables[i].nativeRawFactsDigest = ""
 	}
 	return reflect.DeepEqual(a, b)
 }
