@@ -639,6 +639,11 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	parsedEvents := 0
 	lastObservedTs := 0.0
 	lastObservedTsSet := false
+	// Track physical, exactly parsed event-header time separately from the
+	// selected events' timestamp bounds. A cold scan reaches EOF after skipping
+	// out-of-window rows; its last selected row is not the artifact's tail.
+	physicalLastTs := 0.0
+	physicalLastTsSet := false
 	localClockRegressions := 0
 
 	addPendingInterval := func(pending pendingStateClusterInterval, refine bool) {
@@ -871,6 +876,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 					localClockRegressions++
 				}
 				lastObservedTs, lastObservedTsSet = lineTs, true
+				if !physicalLastTsSet || lineTs > physicalLastTs {
+					physicalLastTs, physicalLastTsSet = lineTs, true
+				}
 			}
 			if q.TimeStart > 0 || q.TimeEnd > 0 {
 				ts, hasTS := lineTs, lineHasTS
@@ -1045,9 +1053,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
 	}
-	streamArtifactTailUncovered := q.TimeEndSet && reachedEOF && idx.Size > 0 && idx.LastTs > 0 && q.TimeEnd > idx.LastTs
+	streamArtifactTailUncovered := q.TimeEndSet && reachedEOF && idx.Size > 0 && physicalLastTsSet && physicalLastTs > 0 && q.TimeEnd > physicalLastTs
 	if streamArtifactTailUncovered {
-		endTs = idx.LastTs
+		endTs = physicalLastTs
 	}
 	for pid := range open {
 		closeState(pid, endTs, 0)

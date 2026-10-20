@@ -19,10 +19,16 @@ func renderV2RuntimeMeasurementTable(b *strings.Builder, block types.AnswerBlock
 		return
 	}
 	table := block.RuntimeMeasurement.BoundTable
-	if title := strings.TrimSpace(block.Title); title != "" {
+	sourceTitle, sourceNotes, owned := runtimeMeasurementSourcePresentation(table, lang)
+	if owned {
+		renderV2ListOrTableHeading(b, block, measurementPlainText(sourceTitle))
+		for _, note := range sourceNotes {
+			b.WriteString(measurementPlainText(note) + "\n\n")
+		}
+	} else if title := strings.TrimSpace(block.Title); title != "" {
 		renderV2ListOrTableHeading(b, block, title)
 	}
-	if table.Label != "" {
+	if !owned && table.Label != "" {
 		b.WriteString(measurementPlainText(table.Label))
 		b.WriteString("\n\n")
 	}
@@ -47,6 +53,14 @@ func renderV2RuntimeMeasurementTable(b *strings.Builder, block types.AnswerBlock
 		b.WriteString(measurementPlainText(note))
 		b.WriteString("\n\n")
 	}
+}
+
+func runtimeMeasurementSourcePresentation(table *types.RuntimeMeasurementTable, lang answerDocLang) (string, []string, bool) {
+	language := "en"
+	if lang == answerDocLangZH {
+		language = "zh"
+	}
+	return table.NativeSourcePresentation(language)
 }
 
 // Measurement labels may originate in trace data. Keep them as literal table

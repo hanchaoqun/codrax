@@ -82,7 +82,8 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), metadata, strings.Join(history, "; ")})
 	}
 	sealRuntimeRawFactTable(&table)
-	return []RuntimeMeasurementPublication{{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table}}}
+	return []RuntimeMeasurementPublication{{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table},
+		sourcePresentation: &runtimeMeasurementSourcePresentation{}}}
 }
 
 func runtimeMeasurementProducerStates(input ObservationLedgerInput) map[string]string {

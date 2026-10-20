@@ -60,6 +60,7 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 		}
 	}
 	conditions := schemaAllOfEntries(blockItems)
+	conditions = appendRuntimeMeasurementSourceTitleSchema(conditions, blockProps, choices)
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
 		var eligible []any
 		for _, table := range choices {
@@ -165,6 +166,9 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 	if !types.BindRuntimeMeasurementReceipt(&copy, contract) {
 		return false
 	}
+	if _, _, sourceOwned := copy.BoundTable.NativeSourcePresentation(""); sourceOwned && block.Title != "" {
+		return false
+	}
 	if block.Kind != types.BlockTable && copy.EventSelection == nil && !copy.BoundTable.HasNativeFixedFacts() {
 		return false
 	}
@@ -181,6 +185,10 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	var hints []emitFixHint
 	for i, block := range doc.Blocks {
+		if hint, conflict := runtimeMeasurementSourceTitleHint(block, view, i); conflict {
+			hints = append(hints, hint)
+			continue
+		}
 		if runtimeMeasurementBindingValid(block, view) {
 			continue
 		}

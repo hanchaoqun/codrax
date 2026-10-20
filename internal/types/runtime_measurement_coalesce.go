@@ -77,6 +77,7 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	b.Tables = append([]RuntimeMeasurementTable(nil), b.Tables...)
 	a.answerDisplayIdentity, b.answerDisplayIdentity = "", ""
 	a.rawFacts, b.rawFacts = false, false
+	a.sourcePresentation, b.sourcePresentation = nil, nil
 	for i := range a.Tables {
 		a.Tables[i].nativeTraceDisplayPopulation = false
 		a.Tables[i].nativeFactIdentity = ""

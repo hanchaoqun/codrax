@@ -2926,26 +2926,77 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryHasExplicitIndexWindow(p) {
+	if !traceQueryHasExplicitIndexWindow(p) {
 		return tracequery.BuildIndex(ctx, path)
 	}
 	opts := traceQueryWindowedIndexOptions(p, timeStart, timeEnd)
-	// Relation-scope pruning is a FALLBACK, not the default (verified design:
-	// "first raise the cap; only prune if that is not enough"). Always try the
-	// full, unpruned byte-budgeted window first — it is correct for every view
-	// and carries zero pruning risk. Only when even the raised cap overflows
-	// (IndexEventLimitError) on a relation-scopeable causal-chain view do we
-	// retry with pid-relation pruning. This keeps the common large-trace case on
-	// the safe path and reserves pruning for genuinely too-dense windows.
+	if info.Size() < traceQueryWindowedIndexMinBytes {
+		// Preserve the small-file full-index fast path. Byte size is not an
+		// event-density guarantee: only a typed event-budget refusal authorizes
+		// a retry against the request's already explicit window. Capture the
+		// complete source universe before either read, including bundle leaves.
+		version, versionErr := tracequery.CaptureTraceSourceVersionContext(ctx, path)
+		idx, buildErr := tracequery.BuildIndex(ctx, path)
+		limitErr := traceQuerySoleIndexLimit(buildErr)
+		if limitErr == nil || limitErr.MaxEvents <= 0 {
+			return idx, buildErr
+		}
+		if versionErr != nil {
+			return nil, versionErr
+		}
+		if err := version.ValidateContext(ctx, path); err != nil {
+			return nil, err
+		}
+		// The legacy large-file scoped byte budget remains unchanged below.
+		// This new recovery must not acquire that larger budget merely because
+		// a small file happened to be dense. Every retry inherits the refused
+		// build's actual cap, including relation/padding fallbacks.
+		opts.MaxEvents = limitErr.MaxEvents
+		idx, buildErr = traceQueryBuildWindowedIndex(ctx, path, p, timeStart, timeEnd, opts)
+		if err := version.ValidateContext(ctx, path); err != nil {
+			return nil, err
+		}
+		return idx, buildErr
+	}
+	return traceQueryBuildWindowedIndex(ctx, path, p, timeStart, timeEnd, opts)
+}
+
+// A joined physical/close/cancellation failure must not become a recoverable
+// density error. Accept only a single, bounded unwrap chain; no error-text
+// matching, and no traversal of cyclic or multi-cause error graphs.
+func traceQuerySoleIndexLimit(err error) *tracequery.IndexEventLimitError {
+	for depth := 0; err != nil && depth < 32; depth++ {
+		if limit, ok := err.(*tracequery.IndexEventLimitError); ok {
+			return limit
+		}
+		switch wrapped := err.(type) {
+		case interface{ Unwrap() []error }:
+			causes := wrapped.Unwrap()
+			if len(causes) != 1 {
+				return nil
+			}
+			err = causes[0]
+		case interface{ Unwrap() error }:
+			err = wrapped.Unwrap()
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+func traceQueryBuildWindowedIndex(ctx context.Context, path string, p traceQueryParams, timeStart, timeEnd float64, opts tracequery.BuildOptions) (*tracequery.Index, error) {
+	// Relation-scope pruning is a fallback, not the default. First try the full
+	// unpruned window with the caller's budget. Only a typed budget refusal on
+	// a relation-scopeable causal-chain view permits pid-relation pruning.
+	// Every fallback retains that same budget: the existing large-file policy
+	// and the smaller full-index recovery policy remain distinct.
 	wantRelationScoped := opts.RelationScoped
 	opts.RelationScoped = false
 	idx, buildErr := tracequery.BuildIndexWithOptions(ctx, path, opts)
-	if buildErr != nil && wantRelationScoped {
-		var limitErr *tracequery.IndexEventLimitError
-		if errors.As(buildErr, &limitErr) {
-			opts.RelationScoped = true
-			idx, buildErr = tracequery.BuildIndexWithOptions(ctx, path, opts)
-		}
+	if wantRelationScoped && traceQuerySoleIndexLimit(buildErr) != nil {
+		opts.RelationScoped = true
+		idx, buildErr = tracequery.BuildIndexWithOptions(ctx, path, opts)
 	}
 	// QF4 level 2: when the budget was exhausted BEFORE the request window
 	// was covered (a denial the parse-side padding-tail degrade cannot save),
@@ -2953,14 +3004,17 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 	// keeps the historical fixed padding so healthy builds lose zero context.
 	// The retry inherits whatever configuration just failed (including a
 	// failed relation-scope retry above). If the retry fails too, the
-	// pre-existing denial surfaces on the original error, as if no retry ran.
-	if buildErr != nil {
+	// original density denial is retained if the retry is also density-limited.
+	// Physical/close/cancellation failures are never retried or hidden by it.
+	if traceQuerySoleIndexLimit(buildErr) != nil {
 		if retryOpts, ok := traceQueryReducedPaddingRetryOptions(p, opts, buildErr, timeStart, timeEnd); ok {
 			logging.Warning("[trace_query] windowed index build exhausted its event budget before covering the request window (view=%s path=%s); retrying once with window-proportional padding before=%.6fs after=%.6fs (was before=%.6fs after=%.6fs)",
 				firstNonEmptyTraceString(p.View, "window_stats"), path, retryOpts.TimePaddingBefore, retryOpts.TimePaddingAfter, opts.TimePaddingBefore, opts.TimePaddingAfter)
 			if retryIdx, retryErr := tracequery.BuildIndexWithOptions(ctx, path, retryOpts); retryErr == nil {
 				retryIdx.Caveats = append(retryIdx.Caveats, traceQueryReducedPaddingCaveat(retryOpts.TimePaddingBefore, retryOpts.TimePaddingAfter))
 				return retryIdx, nil
+			} else if traceQuerySoleIndexLimit(retryErr) == nil {
+				return nil, retryErr
 			}
 		}
 	}
@@ -3125,8 +3179,8 @@ func traceQueryReducedIndexTimePadding(p traceQueryParams, timeStart, timeEnd, c
 // paddings is preserved from the failed attempt (MaxEvents, scope, relation
 // pruning), so this stays exactly one extra lever.
 func traceQueryReducedPaddingRetryOptions(p traceQueryParams, opts tracequery.BuildOptions, buildErr error, timeStart, timeEnd float64) (tracequery.BuildOptions, bool) {
-	var limitErr *tracequery.IndexEventLimitError
-	if !errors.As(buildErr, &limitErr) {
+	limitErr := traceQuerySoleIndexLimit(buildErr)
+	if limitErr == nil {
 		return tracequery.BuildOptions{}, false
 	}
 	if !p.TimeEnd.Set() || limitErr.LastTs >= timeEnd {

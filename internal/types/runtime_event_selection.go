@@ -129,5 +129,10 @@ func selectRuntimeEventTable(original RuntimeMeasurementTable, selection *Runtim
 	}
 	out.nativeEventScopeNoteIndex = len(out.Notes)
 	out.Notes = append(out.Notes, fmt.Sprintf("本视图：%d 条；库存保留：%d 条；查询匹配：%d 条；查询已返回：%d 条；交接省略：%d 条。%s。各查询独立，次数不代表唯一请求数或根因。", len(selected), len(d.Rows), d.Coverage.MatchedTotal, d.Coverage.Emitted, d.HandoffRowsOmitted, population))
+	if _, _, current := original.NativeSourcePresentation(""); current {
+		p := *original.nativeSourcePresentation
+		p.digest = runtimeSamplingDigest(out)
+		out.nativeSourcePresentation = &p
+	}
 	return out, true
 }

@@ -270,6 +270,10 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					}
 					qualifyRuntimeMeasurementFactIdentity(&publication, original, result.RuntimeMeasurementPair.replay[sideIndex])
 					qualifyRuntimeRawFactPublication(&publication, original != "")
+					publication.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, publication.Source, original, result.RuntimeMeasurementPair.replay[sideIndex])
+					if p := publication.sourcePresentation; p != nil && p.roleBasis == "" {
+						p.role, p.roleBasis = side.Role, "query_side"
+					}
 					out = append(out, publication)
 				}
 				_, _, parser := runtimeMeasurementMetadataLabels(side.SourceMetadata)
@@ -281,7 +285,8 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 			}
 			if sharedCatalog == nil {
 				sealRuntimeRawFactTable(&status)
-				out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})
+				out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status},
+					sourcePresentation: &runtimeMeasurementSourcePresentation{}})
 			}
 		}
 	}

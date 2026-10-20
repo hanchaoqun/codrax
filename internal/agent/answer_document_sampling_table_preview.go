@@ -13,14 +13,16 @@ type samplingTablePreview struct {
 	rows  int
 }
 
-func renderSamplingTablePreview(table types.RuntimeMeasurementTable, rows int) string {
+func renderSamplingTablePreview(table types.RuntimeMeasurementTable, rows int, sourceNavigation string) string {
 	var b strings.Builder
 	preview, _ := json.Marshal(struct {
 		Columns []string   `json:"columns"`
 		Rows    [][]string `json:"rows"`
 	}{table.Columns, table.Rows[:rows]})
-	fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
-		table.ObservationID, table.View, table.Label, len(table.Rows), len(table.Rows)-rows, preview)
+	// Format navigation separately from quoted native labels: a symbol may
+	// itself contain the literal delimiters used by this display header.
+	fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q%s; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
+		table.ObservationID, table.View, table.Label, sourceNavigation, len(table.Rows), len(table.Rows)-rows, preview)
 	// These notes define units, filters, population and unknown-state limits.
 	// They are an atomic part of the native preview, never a clipped suffix.
 	for _, note := range table.Notes {

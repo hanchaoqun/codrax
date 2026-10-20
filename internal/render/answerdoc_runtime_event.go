@@ -30,10 +30,16 @@ func renderV2RuntimeEventMeasurement(b *strings.Builder, block types.AnswerBlock
 		return true
 	}
 	table := receipt.BoundTable
-	if title := strings.TrimSpace(block.Title); title != "" {
+	sourceTitle, sourceNotes, owned := runtimeMeasurementSourcePresentation(table, lang)
+	if owned {
+		fmt.Fprintf(b, "**%s**\n\n", measurementPlainText(sourceTitle))
+		for _, note := range sourceNotes {
+			fmt.Fprintf(b, "%s\n\n", measurementPlainText(note))
+		}
+	} else if title := strings.TrimSpace(block.Title); title != "" {
 		fmt.Fprintf(b, "**%s**\n\n", measurementPlainText(title))
 	}
-	if table.Label != "" {
+	if !owned && table.Label != "" {
 		fmt.Fprintf(b, "%s\n\n", measurementPlainText(table.Label))
 	}
 	if len(table.Rows) == 0 {

@@ -57,6 +57,9 @@ type RuntimeMeasurementTable struct {
 	nativeSamplingFactsDigest string
 	nativeResourceFactsDigest string
 	nativeRawFactsDigest      string
+	// Dispatch-local source presentation, derived from the existing current
+	// source receipt. It is not a new source/measurement/role authority.
+	nativeSourcePresentation *runtimeMeasurementSourcePresentation
 }
 
 func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {

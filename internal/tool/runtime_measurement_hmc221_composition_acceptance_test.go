@@ -86,6 +86,12 @@ func TestHMC221NativeMeasurementCompositionPublicScopeAndOrder(t *testing.T) {
 				if len(original) != 3 {
 					t.Fatal("single producer lost native view prerequisites")
 				}
+				pairOriginal := map[types.RuntimeMeasurementView]types.RuntimeMeasurementTable{}
+				for _, table := range hmc221CompositionChoices(ctx, pair) {
+					if table.ObservationID != report.ID {
+						pairOriginal[table.View] = table
+					}
+				}
 				for _, results := range [][]types.ToolResult{{pair}, {single, pair}, {pair, single}} {
 					choices := hmc221CompositionChoices(ctx, results...)
 					if len(choices) != 4 {
@@ -93,8 +99,33 @@ func TestHMC221NativeMeasurementCompositionPublicScopeAndOrder(t *testing.T) {
 					}
 					coverage := 0
 					for _, table := range choices {
-						if table.ObservationID != report.ID && !reflect.DeepEqual(table, original[table.View]) {
-							t.Fatal("composition changed native cells, source metadata or private scope")
+						if table.ObservationID != report.ID {
+							singleTable := original[table.View]
+							if field := differingMeasurementFieldExceptPresentationHMC269(table, singleTable); field != "" {
+								t.Fatalf("composition changed native cells, source metadata or private scope: %s", field)
+							}
+							singleTitle, singleNotes, singleOwned := singleTable.NativeSourcePresentation("en")
+							pairTitle, pairNotes, pairOwned := table.NativeSourcePresentation("en")
+							if !pairOwned || pairTitle != "Query Baseline · "+filepath.Base(path)+" · "+table.Label ||
+								!strings.Contains(strings.Join(pairNotes, "\n"), "Original source: "+path) {
+								t.Fatal("pair lost exact source ownership or borrowed a user comparison")
+							}
+							if singleFirst {
+								if !singleOwned || pairTitle != "Query Baseline · "+singleTitle || !reflect.DeepEqual(singleNotes, pairNotes) {
+									t.Fatal("query role annotation changed the independently read single source")
+								}
+							} else if singleOwned {
+								// The later single call is pure memo. Its JSON
+								// cannot independently mint source ownership;
+								// the joined pair supplies the current receipt.
+								t.Fatal("pure memo independently minted source presentation")
+							}
+							// Pair-only already supplies the typed query-side role.
+							// Both merged orders must retain all private fields,
+							// including the newly derived source presentation.
+							if !reflect.DeepEqual(table, pairOriginal[table.View]) {
+								t.Fatal("composition order changed the complete native table or private presentation")
+							}
 						}
 						if table.CoversMemberSet(&ctx.AnalysisIR.RequestModel) {
 							coverage++

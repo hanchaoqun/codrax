@@ -76,8 +76,16 @@ func TestRuntimeMeasurementHandoffShortProviderNotes(t *testing.T) {
 			for i, table := range choices {
 				want := beforeChoices[i].Clone()
 				want.Notes = append([]string(nil), want.Notes[:noteCount]...)
-				if !reflect.DeepEqual(table, want) {
-					t.Fatalf("short notes changed native identity, rows or view: %+v", table)
+				if field := differingMeasurementFieldExceptPresentationHMC269(table, want); field != "" {
+					t.Fatalf("short notes changed native identity, rows, view or old private credential: %s", field)
+				}
+				originalTitle, originalNotes, originalOwned := beforeChoices[i].NativeSourcePresentation("en")
+				title, sourceNotes, owned := table.NativeSourcePresentation("en")
+				if !originalOwned || !owned || title != originalTitle || !reflect.DeepEqual(sourceNotes, originalNotes) {
+					t.Fatal("optional provider notes changed exact source presentation")
+				}
+				if _, _, staleOwned := want.NativeSourcePresentation("en"); staleOwned {
+					t.Fatal("changed optional notes borrowed the old source-presentation seal")
 				}
 				selector := fmt.Sprintf("observation_id=%q view=%q", table.ObservationID, table.View)
 				if strings.Count(prompt, selector) != 1 {

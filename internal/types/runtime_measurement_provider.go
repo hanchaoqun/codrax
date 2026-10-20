@@ -18,6 +18,7 @@ type RuntimeMeasurementPublication struct {
 	Tables                []RuntimeMeasurementTable `json:"tables"`
 	answerDisplayIdentity string
 	rawFacts              bool
+	sourcePresentation    *runtimeMeasurementSourcePresentation
 }
 
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
@@ -158,6 +159,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
 	publications := collectRuntimeMeasurementPublications(input)
 	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(publications)}
+	qualifyRuntimeMeasurementSourcePresentations(&out, publications)
 	out.answerDisplayIdentities = nativeAnswerDisplayPublicationIdentities(publications)
 	out.qualifyNativeDisplayDimensions(input.RequestModel)
 	if !out.Active() {
@@ -217,6 +219,10 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					qualifyRuntimeRawFactPublication(&p, original != "" && result.TraceViewCancellation == nil)
 					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)
 					qualifyRuntimeBusinessMeasurementIdentity(&p, r, original, result.TraceQueryWindowReplay)
+					boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
+					if boundOriginal == original {
+						p.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, p.Source, original, replay)
+					}
 					if !supplementary {
 						boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
 						if boundOriginal == original {

@@ -94,7 +94,9 @@ func buildRuntimeMeasurementSingleSourceMetadata(input ObservationLedgerInput) [
 				table.Rows = append(table.Rows, []string{original, f.Origin, f.Kind, f.Name, f.State, strconv.Quote(f.Value), f.Detail})
 			}
 			sealRuntimeRawFactTable(&table)
-			out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table}})
+			presentation := runtimeMeasurementQuerySourcePresentation(input, ObservationSourceRef{Path: nav.material.QueryPath()}, original, result.TraceQueryWindowReplay)
+			out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: id, Tables: []RuntimeMeasurementTable{table},
+				sourcePresentation: presentation})
 		}
 	}
 	return out
