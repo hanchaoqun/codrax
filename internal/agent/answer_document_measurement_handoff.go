@@ -27,7 +27,8 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	}
 	const maxRosterGroups = 32
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
-	previewCounts := runtimeMeasurementHandoffPreviewRows(choices)
+	publication.prepareSamplingTableIdentities(ctx)
+	previewCounts := samplingDistinctPreviewRows(choices, publication)
 	var b strings.Builder
 	if ctx.AnalysisIR != nil && len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) > 0 {
 		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
@@ -74,14 +75,46 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	previewed := map[string]bool{}
 	eventCatalogs := map[string]string{}
 	eventNotes := map[string]string{}
+	samplingPreviews := map[string]samplingTablePreview{}
 	previewRows := 0
 	for i, table := range choices {
 		writtenNotes := map[string]bool{}
+		wasPreviewed := previewed[table.ObservationID]
 		count := previewCounts[i]
 		if count > 0 {
 			previewed[table.ObservationID] = true
 		}
 		seen[table.ObservationID] = true
+		if table.HasNativeSamplingFacts() {
+			key := publication.samplingTableKey(table)
+			if prior, found := samplingPreviews[key]; key != "" && found {
+				if !publication.writePresentationNavigation(&b, fmt.Sprintf("- native_table_reuse observation_id=%q view=%q: same fully checked source/population/fields as observation_id=%q view=%q; retained_rows=%d; preview_omitted_rows=%d. Original selectors and query receipts remain separate.\n", table.ObservationID, table.View, prior.table.ObservationID, prior.table.View, len(table.Rows), len(table.Rows)-prior.rows)) {
+					publication.observeMeasurementView(table, false)
+					continue
+				}
+				publishSamplingTablePreview(table, prior.rows, &samplingFacts, publication)
+				if prior.rows > 0 {
+					previewed[table.ObservationID] = true
+				}
+				continue
+			}
+			text := renderSamplingTablePreview(table, count)
+			if !publication.takePresentationBytes(len(text)) {
+				publication.writePresentationNavigation(&b, fmt.Sprintf("- observation_id=%q view=%q; retained_rows=%d; preview_omitted_rows=%d; preview_not_shown=shared_native_detail_budget. Select this exact table; omission is not zero, absence or complete publication.\n", table.ObservationID, table.View, len(table.Rows), len(table.Rows)))
+				if !wasPreviewed {
+					delete(previewed, table.ObservationID)
+				}
+				publication.observeMeasurementView(table, false)
+				continue
+			}
+			b.WriteString(text)
+			previewRows += count
+			publishSamplingTablePreview(table, count, &samplingFacts, publication)
+			if key != "" {
+				samplingPreviews[key] = samplingTablePreview{table, count}
+			}
+			continue
+		}
 		if table.EventData != nil {
 			fields, _ := json.Marshal(table.EventData.Fields)
 			catalog := eventCatalogs[string(fields)]

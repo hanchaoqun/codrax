@@ -1,0 +1,8 @@
+ID="trace_gzip_named_binary"
+NAME="Ordinary named gzip — shared preparation and complete native sampling query"
+: "${CODRAX_GZIP_BINARY_INPUT:?set CODRAX_GZIP_BINARY_INPUT to the pinned gzip transport of a real capture; run the independent oracle first}"
+QUESTION="请看 ${CODRAX_GZIP_BINARY_INPUT}，在486489.4到486489.6秒内poll_report线程（tid 1609）的采样热点、CPU分布和记录到的调用栈主要是什么？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="OnDataEvent_"

@@ -34,7 +34,13 @@ func TestPerfMemberPublicationHMC240SeparateFromPrefixTree(t *testing.T) {
 		if row.Predicate != "perf_sample_top_symbol" {
 			continue
 		}
-		for _, exact := range append([]string{row.Subject, row.Object, row.Value}, row.RichNotes...) {
+		fields := append([]string{row.Subject, row.Object, row.Value}, row.RichNotes...)
+		if row.Value == "" && len(row.RichNotes) == 0 {
+			// A summary-only native mirror now publishes its own whole ruler,
+			// rather than an empty scalar borrowed from structured siblings.
+			fields = []string{row.Subject, row.Object, row.Summary}
+		}
+		for _, exact := range fields {
 			encoded, _ := json.Marshal(exact)
 			if !strings.Contains(text, string(encoded)) {
 				t.Fatalf("native flat field lost or rederived: %s", exact)

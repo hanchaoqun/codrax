@@ -16,6 +16,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	if len(publications) == 1 {
 		publication = publications[0]
 	}
+	publication.prepareSamplingIdentities(ctx)
 	type key struct{ source, scope, payload string }
 	keyOf := func(r types.ObservationRecord) key {
 		return key{r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef}
@@ -42,6 +43,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	publishedFacts := map[string]bool{}
 	aggregateFacts := map[string]bool{}
 	selectedFacts := map[string]bool{}
+	factRefs := map[string]string{}
 	accepted, shown := 0, 0
 	for _, r := range ledger.Records {
 		p, ok := tool.DecodeTracePerfSamplingTree(r)
@@ -64,14 +66,16 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		}
 		seen[k] = true
 		fact := contents[k]
-		if p.Status == "available" && seenFacts[fact] {
-			publication.observe(r, publishedFacts[fact])
-			publication.observeSamplingSelection(r, selectedFacts[fact])
-			publication.observeSamplingAggregate(r, aggregateFacts[fact])
-			continue
+		if publication != nil && publication.samplingIdentities[nativePresentationQueryKey(r)] != "" {
+			fact = publication.samplingIdentities[nativePresentationQueryKey(r)]
 		}
-		if p.Status == "available" {
-			seenFacts[fact] = true
+		if p.Status == "available" && seenFacts[fact] {
+			alias := fmt.Sprintf("native_tree_reuse observation_id=%q source=%q query_scope=%q payload=%q: shares displayed fields with observation_id=%q; native_summary=%q; query/cohort IDs and original references remain in their own native payload.\n", r.ID, r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef, factRefs[fact], r.Summary)
+			linked := publication.writeDetailNavigation(&b, alias, 63<<10)
+			publication.observe(r, linked && publishedFacts[fact])
+			publication.observeSamplingSelection(r, linked && selectedFacts[fact])
+			publication.observeSamplingAggregate(r, linked && aggregateFacts[fact])
+			continue
 		}
 		accepted++
 		if shown >= 4 {
@@ -85,14 +89,19 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 			query.WriteString("### 采样前缀树 / Observed sampling prefix trees\n\n")
 		}
 		fmt.Fprintf(&query, "observation_id=%q source=%q query_scope=%q payload=%q\n", r.ID, r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef)
+		fmt.Fprintf(&query, "native_summary=%q\n", r.Summary)
 		query.WriteString(tool.TracePerfSamplingTreeText(p))
-		if b.Len()+query.Len() > 63<<10 {
+		if b.Len()+query.Len() > 63<<10 || !publication.takePresentationBytes(query.Len()) {
 			publication.observe(r, false)
 			publication.observeSamplingSelection(r, false)
 			publication.observeSamplingAggregate(r, false)
 			continue
 		}
 		b.WriteString(query.String())
+		if p.Status == "available" {
+			seenFacts[fact] = true
+		}
+		factRefs[fact] = r.ID
 		selected := p.Status == "available" && p.OmittedCohorts == 0
 		selectedFacts[fact] = selected
 		publication.observeSamplingSelection(r, selected)

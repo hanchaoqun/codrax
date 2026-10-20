@@ -15,6 +15,7 @@ import (
 type answerDocNativePresentationReceipt struct {
 	measurementViews map[string]bool
 	queries          map[string]bool
+	records          map[string]bool
 	eventMembers     map[answerDocEventMemberKey]bool
 	// Selection and publication completeness are independent: reference
 	// previews must not hide exact flat member quantities from the same query.
@@ -23,6 +24,15 @@ type answerDocNativePresentationReceipt struct {
 	// Answer-grade aggregates and audit-reference previews have independent
 	// completeness. This never signs an omitted reference or event member.
 	samplingAggregates map[string]bool
+	// Private display equivalence; never a replacement for query identity.
+	samplingIdentities      map[string]string
+	samplingCohortIDs       map[string]map[string]bool
+	nativeSources           map[string]string
+	samplingTableIdentities map[samplingFactViewKey]string
+	presentationBytes       int
+	presentationLimit       int
+	navigationBytes         int
+	navigationOmitted       int
 }
 
 func (p *answerDocNativePresentationReceipt) observeSamplingSelection(r types.ObservationRecord, qualified bool) {
@@ -102,6 +112,14 @@ func (p *answerDocNativePresentationReceipt) observe(r types.ObservationRecord, 
 	if key == "" {
 		return
 	}
+	if p.records == nil {
+		p.records = map[string]bool{}
+	}
+	recordKey := traceEventPublicationRecordKey(r)
+	if prior, found := p.records[recordKey]; found {
+		complete = complete && prior
+	}
+	p.records[recordKey] = complete
 	if p.queries == nil {
 		p.queries = make(map[string]bool)
 	}

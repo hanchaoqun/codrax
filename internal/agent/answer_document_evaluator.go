@@ -5963,6 +5963,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	measurementWindows := make(map[string]string)
 	inventorySources, inventorySourceRoster := traceEventInventoryPromptSourceAliases(records, traceEventInventorySourceReferences(promptLedger.Records, publishedInventoryMetadata))
 	b.WriteString(inventorySourceRoster)
+	nativeMirrorReferences := publication.samplingMirrorReferences(promptLedger)
 	for _, record := range promptLedger.Records {
 		measurementWindows[record.ID] = types.TraceObservationMeasurementWindowDisplayRole(record, false)
 		if scope := traceQueryObservationSourceRequestedScopeNote(record, promptLedger, extractAnswerDocLang(ctx)); scope != "" {
@@ -5970,6 +5971,11 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		}
 	}
 	for _, record := range records {
+		if reference := nativeMirrorReferences[record.ID]; reference != "" {
+			if publication.writePresentationNavigation(&b, reference) {
+				continue
+			}
+		}
 		if publishedInventoryMetadata[record.ID] && record.Claim == types.TraceEventSearchInventoryPredicate {
 			continue // Same verified envelope already displayed in full above.
 		}
@@ -6034,6 +6040,9 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
 		}
 		b.WriteString("\n")
+	}
+	if publication.navigationOmitted > 0 {
+		fmt.Fprintf(&b, "- Native presentation reference records omitted=%d by the separate whole-record navigation budget; original references remain in the audit ledger. Omitted navigation is not missing evidence, zero results or complete presentation.\n", publication.navigationOmitted)
 	}
 	b.WriteString("\n")
 	return b.String()

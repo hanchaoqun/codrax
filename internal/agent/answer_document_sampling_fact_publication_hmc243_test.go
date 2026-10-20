@@ -187,7 +187,10 @@ func TestHMC243SamplingFactPublicationActualRosterBudgets(t *testing.T) {
 					partialQuality = true
 				}
 			}
-			if !partialQuality || queries == 18 && omitted == 0 || !strings.Contains(text, "preview rows=128/128") {
+			// The shared byte budget can now stop before all 128 allocated rows
+			// are written; it must disclose that different limit explicitly.
+			rowBudgetOrExplicitByteLimit := strings.Contains(text, "preview rows=128/128") || strings.Contains(text, "preview_not_shown=shared_native_detail_budget")
+			if !partialQuality || queries == 18 && omitted == 0 || !rowBudgetOrExplicitByteLimit {
 				t.Fatalf("fixture missed actual budgets: partial quality=%t omitted=%d", partialQuality, omitted)
 			}
 			incomplete := 0

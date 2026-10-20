@@ -43,6 +43,8 @@ func nativeRoutingSchemaFamilies() []routingSchemaFamily {
 // WAL, excess size, cancellation or source change remains unknown, not denied.
 // ZIP discovery shares the converter's complete namespace safety and bounded
 // compressed-prefix budget; it neither extracts members nor validates full CRC.
+// Gzip similarly inspects only a bounded inner prefix. Full transport integrity
+// and query readiness remain the existing shared preparation's responsibility.
 func ProbeInputRoutingCapability(ctx context.Context, path, runtimeAnchor string) (out InputRoutingCapability) {
 	out = InputRoutingCapability{Path: path, Container: "unknown", Status: "unknown"}
 	if ctx == nil {
@@ -111,6 +113,14 @@ func ProbeInputRoutingCapability(ctx context.Context, path, runtimeAnchor string
 		}
 	case attachment.BinaryTraceFormatGZIP:
 		out.Container, out.Reason = string(kind), "container_only_domain_unknown"
+		known, err := probeGzipRoutingLeaf(ctx, source, int64(len(prefix)))
+		if err != nil {
+			out.Reason = gzipRoutingProbeFailureReason(err)
+			return
+		}
+		if known {
+			out.Status, out.NativeReader, out.Reason = "format_candidate", "trace_query", "native_trace_preparation_required"
+		}
 	default:
 		out.Reason = "no_supported_content_signature"
 	}
