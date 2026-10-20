@@ -9637,3 +9637,37 @@ A过程已揭示跨领域接缝：模型把运行时调用位置声明为source_
 UTC13:44:04.569676封存158份既有原件及121新增复制，279文件索引SHA `773132c192fbdd3bab64512383699188b0e53f615ea7f4b43284cd57c665d75c`，收据SHA `a705bbefd3ad8556263a5bde2ef521d07ef2297055cb804f1df4993dde6803e8`。178个审计列出的实际路径核存在/哈希；A多数原件就在结果根，不重复复制计数；B额外37文件包含完整解码源。来源fixture、失败测试/诊断、两真实终稿、10源码测试快照和实际CLI完整保留；不复制provider或.git，不把源码副本当新Go包扫描。
 
 代码`e7d4b48d34655d1ba1d2dd39f7eccbbc1ab67edc`已普通推送；push PID19684，UTC13:45:01.678394–13:45:09.413149，exit0，日志SHA `515e1622381e950af5cbd2a86d35d703f216ce34ce89bfbac7242d85b8268e44`。文档另笔，最终commit/远端一致性留独立publication收据，不修改已封存索引。完整结论和各失败边界见[人工审计](../../eval/parallel_selected_summary_hmc_representative_wakeup_inventory_20261020_manual_audit.md)；79唯一＝24交付＋55开放，不误销账。
+
+## 271. 运行时成员与源码责任分域、ZIP文本完整接入（2026-10-20）
+
+起点`b1736b5fca1`干净，逐ID重核79唯一/0重复＝24已交付＋55开放。两轨、正式进程、原件和失败记录集中见[批汇总](../../eval/parallel_selected_summary_hmc_runtime_domain_zip_text_20261020.md)，不把已交付子片重复登记成新任务。
+
+### 271.1 公开缺口与泛化修复
+
+§270模型将采集调用位置误声明为源码位置，这是分类错误；系统又从运行时枚举/表格合成function/method/type全集，并将仅定位责任扩大为源码操作传递链，这是可确定复现的额外放大。本批不撤required source_location精度或必读责任，而是拆开“源码定位”“源码主项全集”“实现机制/操作链”三种义务。已有类型化运行域和主项声明贯通合成入口、恢复导航、完整lens和最终覆盖；nil/inactive/已知旧合成profile不能重新升权，明确源码主项和旧active独立声明保原。有限事实集仅定位时不强加传递证明，真实flow/mechanism/verify/关系/配置/注册/影响及因果诊断保留。JSON教学在原权威说明中修正，不加必填字段或用户护栏，不扫问答原文。
+
+17.6公开RED另证普通名文本ZIP无候选、旧后缀文本误入二进制、多个文本成员未正确报歧义。现复用gzip的16KiB物理行前缀和held完整文本发布，旧64B二进制快路保留；全目录安全、实际压缩预算、精确成员、完整CRC/尺寸/UTF-8/NUL/行长、代次及无覆盖边界不放宽。独立ZIP文本收据保外层/成员/完整输出，不伪造gzip、事件数、bundle或查询完成。共享准备、CLI/REPL和正常Run到自动补齐均消费同一完整材料，候选与预览不能替代原件。
+
+参考`server.py`的发现/准备分层、`core/hiperf_converter.py`的共享转换及`closure/select.py/package.py`的明确成员归属。采用其职责分离，不复制目录取首项、mtime/CWD回退或固定代表配额；参考仓未提供可直接照搬的ZIP安全运输实现，不冒称移植现成能力。Trace链上根因、显式窗、业务线索、单位及自动补齐权限不改。
+
+### 271.2 冻结与验收纪律
+
+领域公开RED后，恢复消费者复核又发现缺省/失活profile与完整lens旁路，均由共享适用域修复；原失败保留。旧HMC224/HMC257/lensburn只迁移“位置/必读文件等于源码全集”的契约，保Precise/必读/真正源码主项正控。新正常Run脚本、附件域视图夹具和旧教学pin施工失败单列，不能混充生产故障或抹去。
+
+末版相关四包通过；CLI/REPL/正常Run三包race通过；独立8包race通过，唯一大文件opt-in明确未触发，真实ZIP原生测试另有专项PASS。7200源码/测试输入与实际CLI冻结，索引SHA `c8550f86431974c12a3877164b617feb9ab458c721c196b5a67f51e382231435`，CLI SHA `a0f14a6ab787c86ec4ee1669f20728423a9cb1dc1bdb1d90c9a6a6295bdbcd73`。一次全仓与恰好两例各一次同时启动：A自然代表对照，B真实文本的普通名ZIP自然入口。原始oracle不注入问题，A四路径来自两份构造SQLite、B是实机gzip完整字节的操作员ZIP包装，来源性质分别披露。
+
+### 271.3 正式自然结果及上下文缺口
+
+两例各一次且时间重叠，A直接CLI exit0，B评测exit0/机器PASS，完整人工0/2，不写机器2/2。A三次discover中两次计划含path被拒，最终navigation_only/16个observed-only条目，无select/status或已登记选择，11.2仍NOT_TRIGGERED。最终IR为enumeration/define/bounded_fact_set，显式runtime_selection=true仍在，早期被拒call_chain不冒充接受对象；不能据此断言本批location-only guard回归。原生资源/帧未查、process_profile缺参数未恢复，另将四个结果JSON当原件再查；正文漏a线程202、计入10.050右界、以事件包络猜录制完整性与组进度、原值补单位和生命周期配对均保FAIL。
+
+B普通名ZIP的完整准备/两次原生查询/原系统补齐限定PASS，54,122,686B完整文本与独立oracle一致；100ms状态账、8次唤醒和共享TGID正确。完整答案仍混淆窗内贡献和整段时长，以零IO标记排除IO机制，并扩写线程名字为职责。没有图，两例都不代签图验收或旧采样FAIL。
+
+本批新证明确有系统上下文问题：两个同源同计量窗查询的窗外见证范围不同，两个33行时序selector都只预览前8行；后一次查询已知尾部真实终点170438.353768，成文消息却未内联该点，principal_state沿旧查询tail_open。完整blob可寻址、模型实际消息、实际采用与最终确定性附表四层分开审计，不能把全部错误归为模型波动。两张表不是完全重复，不得强并或改写旧查询原件；下一缺陷轨优先共享边界事实/版本选择和跨块预算，不只修某一句睡眠措辞。细节见[人工审计](../../eval/parallel_selected_summary_hmc_runtime_domain_zip_text_20261020_manual_audit.md)。
+
+完整能力新增0（累计24）、已交付子能力2组、本批人工欠项2组含于55开放。下一完整能力轨轮换08.4有限自然验收，08.3、03.2及sample-only随后；不第四轮只加代表工具教学。17.6真实格式/版本、外部工具和Linux/Windows原生证据另留，不以ZIP包装或交叉编译关闭父项。
+
+### 271.4 全仓、封存与分笔发布
+
+全仓PID81683，UTC14:31:47.219000–14:47:54.247918正式exit0，96包PASS/13无测试包SKIP，无失败/非JSON行；日志SHA `ff6fb84676efa74f3efdd9a14cbb698d96d9891d6b128bc3786ce2a25f618c26`。旧IO重预算race及施工失败均保留，普通全仓通过不回签历史失败或整答。
+
+UTC14:48:10.909186封存184既有原件及145新增复制，329文件索引SHA `07a54f531ad0d653389e4f1bc7d594b135293aa0d6ec50881e8df6dd5d552128`，归档收据SHA `31d76e61c1014384bfc1c71b9a1c7740c3f3801dbf89161e8cbb153624d07567`。含41源码/用例快照、实际CLI、真实问答全部旁路及失败；审计24个实际路径核存在/哈希，不按mtime捞取，不复制providers或.git。代码`67f6f69ddbd16b75b130fb882db7ed804526571a`已普通推送，文档另笔；最终远端/clean凭据见[批汇总](../../eval/parallel_selected_summary_hmc_runtime_domain_zip_text_20261020.md)指定publication文件，封存索引不再改写。
