@@ -49,6 +49,9 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 			}
 		}
 		handoff["properties"], _ = json.Marshal(fields)
+		// New model calls declare the lane explicitly. The wire validator keeps
+		// accepting older persisted calls without a role as legacy advisory.
+		handoff["required"], _ = json.Marshal([]string{"runtime_measurements", "interpretation", "interpretation_role"})
 		if required {
 			handoff["description"], _ = json.Marshal(tool.ManagedDeliveryNativeFactHandoffTeaching)
 			var fieldsRequired []string

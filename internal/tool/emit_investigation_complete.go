@@ -90,11 +90,13 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		capTeachingJSON, _ := json.Marshal(completionAggregateFactsCapTeaching)
 		negativeTeachingJSON, _ := json.Marshal(types.NegativeObservationTeaching)
 		measurementTeachingJSON, _ := json.Marshal(types.RuntimeMeasurementMemberSetTeaching)
+		interpretationTeachingJSON, _ := json.Marshal(types.NativeFactInterpretationRoleTeaching)
 		emitInvestigationCompleteParametersCached = json.RawMessage(strings.NewReplacer(
 			"__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts),
 			"__AGG_FACTS_CAP_TEACHING__", string(capTeachingJSON[1:len(capTeachingJSON)-1]),
 			"__NEGATIVE_OBSERVATION_TEACHING__", string(negativeTeachingJSON[1:len(negativeTeachingJSON)-1]),
 			"__MEASUREMENT_MEMBER_SET_TEACHING__", string(measurementTeachingJSON[1:len(measurementTeachingJSON)-1]),
+			"__INTERPRETATION_ROLE_TEACHING__", string(interpretationTeachingJSON[1:len(interpretationTeachingJSON)-1]),
 		).Replace(`{
 		"type": "object",
 		"properties": {
@@ -104,7 +106,8 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"properties": {
 					"runtime_measurements":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
 					"answer_display":{"type":"array","maxItems":16,"description":"Optional explicit final-display subset of runtime_measurements, only for requested native facts. The system rebinds and displays all retained rows and notes; inspected views are not automatically selected. No completeness, requested-dimension, source-code or causal authority is added.","items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
-					"interpretation":{"type":"string","description":"All independent interpretation and missing-evidence boundaries, without copying the selected native numbers. Empty only if there is no independent interpretation to preserve."}
+					"interpretation":{"type":"string","description":"All independent interpretation and missing-evidence boundaries, without copying the selected native numbers. Empty only if there is no independent interpretation to preserve."},
+					"interpretation_role":{"type":"string","enum":["independent_analysis","native_fact_restatement"],"description":"__INTERPRETATION_ROLE_TEACHING__"}
 				},"required":["runtime_measurements","interpretation"]
 			},
 			"runtime_measurement_member_sets": {

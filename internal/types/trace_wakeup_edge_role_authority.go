@@ -10,21 +10,25 @@ import (
 // endpoint-owned priority and CPU fields. It is prompt context only: it does
 // not create a causal seat, relation, rank, eliminable amount, or answer.
 type TraceWakeupEdgeRoleAuthority struct {
-	ArtifactLabel          string
-	Scope                  string
-	Waker                  string
-	Wakee                  string
-	WakeupTimestamp        string
-	WakerPriority          string
-	WakeePriority          string
-	WakerPrioritySource    string
-	WakeePrioritySource    string
-	WakeePriorityAuthority string
-	WakerCPU               string
-	WakeeTargetCPU         string
-	CPURelation            string
-	SourceRecordID         string
-	WindowScope            TraceQueryWindowScope
+	ArtifactLabel               string
+	Scope                       string
+	Waker                       string
+	Wakee                       string
+	WakeupTimestamp             string
+	WakerPriority               string
+	WakeePriority               string
+	WakerPrioritySource         string
+	WakeePrioritySource         string
+	WakeePriorityAuthority      string
+	WakerPriorityArtifactSource string
+	WakeePriorityArtifactSource string
+	PriorityRelation            string
+	PriorityRelationCaliber     string
+	WakerCPU                    string
+	WakeeTargetCPU              string
+	CPURelation                 string
+	SourceRecordID              string
+	WindowScope                 TraceQueryWindowScope
 }
 
 // BuildTraceWakeupEdgeRoleAuthorities compiles target-bound endpoint roles
@@ -104,22 +108,38 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 				continue
 			}
 		}
+		// These are exact producer-owned note keys, not text interpretations.
+		// Conflicting copies of one key cannot pick a convenient first value.
+		priorityNotes := make(map[string]string, 6)
+		priorityNotesValid := true
+		for _, key := range []string{TraceNoteKeyPriorityRelation, TraceNoteKeyPriorityRelationCaliber, TraceNoteKeyWakerPriorityArtifactSource, TraceNoteKeyWakeePriorityArtifactSource, TraceNoteKeyWakerPrioritySource, TraceNoteKeyWakeePriorityAuthority} {
+			value, valid := traceWakeupEdgeRoleUniqueNote(record.RichNotes, key)
+			priorityNotes[key] = value
+			priorityNotesValid = priorityNotesValid && valid
+		}
+		if !priorityNotesValid {
+			continue
+		}
 		authority := TraceWakeupEdgeRoleAuthority{
-			ArtifactLabel:          traceTargetStateAuthorityArtifactLabel(record.SourceRef),
-			Scope:                  traceWakeupEdgeRoleScope(record.ID),
-			Waker:                  strings.TrimSpace(record.Subject),
-			Wakee:                  strings.TrimSpace(record.Object),
-			WakeupTimestamp:        traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupTs),
-			WakerPriority:          traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakerPriority),
-			WakeePriority:          traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeePriority),
-			WakerPrioritySource:    traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakerPrioritySource),
-			WakeePrioritySource:    traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeePrioritySource),
-			WakeePriorityAuthority: traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeePriorityAuthority),
-			WakerCPU:               traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupWakerCPU),
-			WakeeTargetCPU:         traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupWakeeTargetCPU),
-			CPURelation:            traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupCPURelation),
-			SourceRecordID:         strings.TrimSpace(record.ID),
-			WindowScope:            memberScope,
+			ArtifactLabel:               traceTargetStateAuthorityArtifactLabel(record.SourceRef),
+			Scope:                       traceWakeupEdgeRoleScope(record.ID),
+			Waker:                       strings.TrimSpace(record.Subject),
+			Wakee:                       strings.TrimSpace(record.Object),
+			WakeupTimestamp:             traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupTs),
+			WakerPriority:               traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakerPriority),
+			WakeePriority:               traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeePriority),
+			WakerPrioritySource:         priorityNotes[TraceNoteKeyWakerPrioritySource],
+			WakeePrioritySource:         traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeePrioritySource),
+			WakeePriorityAuthority:      priorityNotes[TraceNoteKeyWakeePriorityAuthority],
+			WakerPriorityArtifactSource: priorityNotes[TraceNoteKeyWakerPriorityArtifactSource],
+			WakeePriorityArtifactSource: priorityNotes[TraceNoteKeyWakeePriorityArtifactSource],
+			PriorityRelation:            priorityNotes[TraceNoteKeyPriorityRelation],
+			PriorityRelationCaliber:     priorityNotes[TraceNoteKeyPriorityRelationCaliber],
+			WakerCPU:                    traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupWakerCPU),
+			WakeeTargetCPU:              traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupWakeeTargetCPU),
+			CPURelation:                 traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupCPURelation),
+			SourceRecordID:              strings.TrimSpace(record.ID),
+			WindowScope:                 memberScope,
 		}
 		if authority.WakerPriority == "" && authority.WakeePriority == "" &&
 			authority.WakerCPU == "" && authority.WakeeTargetCPU == "" {
@@ -137,7 +157,8 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 			authority.WakeupTimestamp, authority.WakerPriority, authority.WakeePriority,
 			authority.WakerPrioritySource, authority.WakeePrioritySource,
 			authority.WakeePriorityAuthority, authority.WakerCPU, authority.WakeeTargetCPU,
-			authority.CPURelation,
+			authority.CPURelation, authority.WakerPriorityArtifactSource, authority.WakeePriorityArtifactSource,
+			authority.PriorityRelation, authority.PriorityRelationCaliber,
 		}, "\x00")
 		if prior, ok := byKey[key]; ok {
 			if prior.fingerprint != fingerprint {
@@ -153,6 +174,9 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 	for _, key := range order {
 		candidate := byKey[key]
 		if !candidate.conflict {
+			// Keep the original fields in the conflict fingerprint before
+			// applying this display-only fail-closed publication boundary.
+			candidate.authority.PriorityRelation = traceWakeupEdgeRolePriorityRelation(candidate.authority)
 			out = append(out, candidate.authority)
 		}
 	}
@@ -169,6 +193,43 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 		return out[i].Waker < out[j].Waker
 	})
 	return out
+}
+
+// The native producer already proves platform ordering, endpoint membership
+// and physical artifact identity. This reader never recomputes that relation
+// from priority numbers/classes, nor turns it into an inversion or causal seat.
+// Legacy, advisory and unknown proof calibers retain endpoint context only.
+func traceWakeupEdgeRolePriorityRelation(a TraceWakeupEdgeRoleAuthority) string {
+	hard := func(caliber string) bool {
+		return caliber == "exact_at_point" || caliber == "closed_range_stable"
+	}
+	if a.WakerPriority == "" || a.WakeePriority == "" || !hard(a.PriorityRelationCaliber) || !hard(a.WakerPrioritySource) || a.WakeePriorityAuthority != "exact_at_point" ||
+		a.WakerPriorityArtifactSource == "" || a.WakerPriorityArtifactSource != a.WakeePriorityArtifactSource {
+		return ""
+	}
+	switch a.PriorityRelation {
+	case "lower_priority_waker", "higher_priority_waker", "same_priority", "raw_priority_uninterpreted":
+		return a.PriorityRelation
+	default:
+		return ""
+	}
+}
+
+func traceWakeupEdgeRoleUniqueNote(notes []string, key string) (string, bool) {
+	prefix := key + "="
+	value, found := "", false
+	for _, note := range notes {
+		next, matches := strings.CutPrefix(strings.TrimSpace(note), prefix)
+		if !matches {
+			continue
+		}
+		next = strings.TrimSpace(next)
+		if found && value != next {
+			return "", false
+		}
+		value, found = next, true
+	}
+	return value, true
 }
 
 func traceWakeupEdgeRoleScope(id string) string {

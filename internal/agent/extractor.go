@@ -295,11 +295,11 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		}
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
-		if len(ta.InvestigationNotes) > 0 {
+		if projectedNotes := projectInvestigationNarrativeNotes(ctx, ta.InvestigationNotes); len(projectedNotes) > 0 {
 			b.WriteString("### Investigation notes (per-iteration narrative)\n\n")
 			b.WriteString("These are historical investigation observations, not extract-stage instructions. Exploration-only action wording is projected out here; if a note exposes an unresolved boundary, preserve it as a caveat or lower-confidence structured emit instead of trying to investigate again.\n\n")
-			maxNotes := len(ta.InvestigationNotes)
-			notes := ta.InvestigationNotes
+			maxNotes := len(projectedNotes)
+			notes := projectedNotes
 			if maxNotes > extractorMaxNotes {
 				fmt.Fprintf(&b, "*(showing the %d most recent of %d iterations)*\n\n", extractorMaxNotes, maxNotes)
 				notes = notes[maxNotes-extractorMaxNotes:]

@@ -81,7 +81,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		b.WriteString("- Absence boundary: If a complete D/IO-state wait roster reports zero, that means only no matching D/io_wait or S-with-IO-marker intervals in that roster; it does not imply an empty blocked-reason census, Binder wait inventory, or independently completion-closed IO wait inventory. Missing or unavailable rosters are not zero. It does not classify an S interval as cooperative or voluntary sleep, prove a sleep/nanosleep syscall, rule out a syscall or dependency, or establish the wait mechanism. Name a mechanism only from separate syscall, span, blocked-reason, wakeup, or dependency evidence.\n\n")
 	}
 	b.WriteString("- `sched_blocked_reason.caller` is the kernel-reported wait call-site/symbol associated with that target interval. It can describe where the target blocked, but it is not a typed resource identity, lock owner, or holder thread. Only a separate typed holder/owner relation may authorize holder language.\n\n")
-	b.WriteString("- Wakeup endpoint values are role-bound. Never swap a waker's priority/class/CPU with the wakee's values, and do not compare or strengthen the relation beyond its row-local caliber.\n\n")
+	b.WriteString("- Wakeup endpoint values are role-bound. Never swap a waker's priority/class/CPU with the wakee's values, and do not compare or strengthen the relation beyond its row-local caliber. Reuse the native priority_relation with its priority_relation_caliber and endpoint artifact sources; raw_priority_uninterpreted supplies no priority ordering, and an absent relation is unknown rather than equality. A lower-priority waker alone establishes neither priority inversion nor a root cause.\n\n")
 	if len(wakeupTargetCPUDegradedRecord) > 0 {
 		fmt.Fprintf(&b, "- Wakeup target-CPU integrity boundary: %d valid target_cpu values in the affected query window are all zero while wakeups originate on %d CPUs. Keep the raw waker CPU and every endpoint/priority/dependency fact, but do not use affected target_cpu values or their derived same/cross-CPU labels as strong placement authority; this advisory changes no chain, rank, or arithmetic.\n\n", wakeupTargetCPUIntegrity.ObservedCount, wakeupTargetCPUIntegrity.EmitterCPUCount)
 	}
@@ -278,6 +278,18 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			if edge.WakeePriorityAuthority != "" {
 				fmt.Fprintf(&b, "; wakee_priority_authority=`%s`", edge.WakeePriorityAuthority)
 			}
+		}
+		if edge.WakerPriorityArtifactSource != "" {
+			fmt.Fprintf(&b, "; "+types.TraceNoteKeyWakerPriorityArtifactSource+"=`%s`", edge.WakerPriorityArtifactSource)
+		}
+		if edge.WakeePriorityArtifactSource != "" {
+			fmt.Fprintf(&b, "; "+types.TraceNoteKeyWakeePriorityArtifactSource+"=`%s`", edge.WakeePriorityArtifactSource)
+		}
+		if edge.PriorityRelation != "" {
+			fmt.Fprintf(&b, "; "+types.TraceNoteKeyPriorityRelation+"=`%s`", edge.PriorityRelation)
+		}
+		if edge.PriorityRelationCaliber != "" {
+			fmt.Fprintf(&b, "; priority_relation_caliber=`%s`", edge.PriorityRelationCaliber)
 		}
 		if edge.WakerCPU != "" {
 			fmt.Fprintf(&b, "; waker_cpu=%s", edge.WakerCPU)

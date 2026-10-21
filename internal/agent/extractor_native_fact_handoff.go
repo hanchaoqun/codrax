@@ -32,8 +32,36 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 	fmt.Fprintf(&b, "- lifecycle rationale only (not an answer conclusion or evidence): %s\n", truncateExtractorPromptText(sanitizeExtractorStageHandoffText(reason), limit))
 	refs, _ := json.Marshal(h.RuntimeMeasurements)
 	fmt.Fprintf(&b, "- Native measurement references (rebind current observations; these do not certify publication, completeness or causality): %s\n", refs)
-	if interpretation := sanitizeExtractorStageHandoffText(sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, h.Interpretation, facts))); interpretation != "" {
+	if interpretation := sanitizeExtractorStageHandoffText(sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, h.NarrativeInterpretation(), facts))); interpretation != "" {
 		fmt.Fprintf(&b, "- Independent interpretation (model-authored advisory; typed evidence remains authoritative): %s\n", truncateExtractorPromptText(interpretation, 900))
 	}
 	return b.String()
+}
+
+// Restored intent can restrict copying its own advisory text, but cannot restore
+// private completion acceptance or source authority. Consumers that need those
+// still check the returned credential and rebind current native references.
+func currentInvestigationNarrativeHandoff(ctx *types.AgentContext) (*types.InvestigationNativeFactHandoff, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, false
+	}
+	if h := ctx.Mutable.AcceptedInvestigationNativeFactHandoff(); h != nil {
+		return h, true
+	}
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil && strings.TrimSpace(ta.AcceptedClosureReason) == ctx.Mutable.StableInvestigationCompleteReason() {
+		return ta.AcceptedNativeFactHandoff.Clone(), false
+	}
+	return nil, false
+}
+
+func projectInvestigationNarrativeNotes(ctx *types.AgentContext, notes []string) []string {
+	h, _ := currentInvestigationNarrativeHandoff(ctx)
+	out := make([]string, 0, len(notes))
+	for _, note := range notes {
+		// Byte identity only, never keywords, substring or semantic inference.
+		if !h.IsAuditOnlyInterpretationCopy(note) {
+			out = append(out, note)
+		}
+	}
+	return out
 }

@@ -59,15 +59,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 	if ctx == nil || ctx.Mutable == nil {
 		return projection
 	}
-	h := ctx.Mutable.AcceptedInvestigationNativeFactHandoff()
-	accepted := h != nil
-	if h == nil {
-		// Restored JSON keeps model interpretation as advisory audit context,
-		// but cannot restore the private accepted-completion credential.
-		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil && strings.TrimSpace(ta.AcceptedClosureReason) == ctx.Mutable.StableInvestigationCompleteReason() {
-			h = ta.AcceptedNativeFactHandoff.Clone()
-		}
-	}
+	h, accepted := currentInvestigationNarrativeHandoff(ctx)
 	if h == nil {
 		return projection
 	}
@@ -87,7 +79,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 			}
 		}
 	}
-	originalInterpretation := strings.TrimSpace(h.Interpretation)
+	originalInterpretation := strings.TrimSpace(h.NarrativeInterpretation())
 	interpretation := sanitizePriorDraftForSummary(originalInterpretation)
 	projection.sanitized = interpretation != originalInterpretation
 	projection.interpretationBytes = len(interpretation)

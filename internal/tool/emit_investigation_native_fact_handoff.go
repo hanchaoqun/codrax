@@ -10,6 +10,7 @@ type completionNativeFactHandoff struct {
 	RuntimeMeasurements []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
 	AnswerDisplay       []types.AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
 	Interpretation      *string                                 `json:"interpretation"`
+	InterpretationRole  types.InvestigationInterpretationRole   `json:"interpretation_role,omitempty"`
 }
 
 func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNativeFactHandoff) (*types.InvestigationNativeFactHandoff, error) {
@@ -26,10 +27,13 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if p.Interpretation == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation", "missing_interpretation"})
 	}
+	if !p.InterpretationRole.Valid() {
+		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation_role", "unknown_role"})
+	}
 	if ctx == nil || ctx.Mutable == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})
 	}
-	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation}
+	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation, InterpretationRole: p.InterpretationRole}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if view == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})

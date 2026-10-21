@@ -1421,6 +1421,7 @@ const (
 	TraceNoteKeyPriorityArtifactSource              = "priority_artifact_source"
 	TraceNoteKeyTargetPrioritySource                = "target_priority_source"
 	TraceNoteKeyTargetPriorityArtifactSource        = "target_priority_artifact_source"
+	TraceNoteKeyPriorityRelation                    = "priority_relation"
 	TraceNoteKeyPriorityRelationCaliber             = "priority_relation_caliber"
 	TraceNoteKeyPriorityRelationProvenLowerMS       = "priority_relation_proven_lower_ms"
 	TraceNoteKeyPriorityRelationUnknownOrNonLowerMS = "priority_relation_unknown_or_nonlower_ms"
@@ -2166,7 +2167,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// (typed node field read-in).
 	{TraceNoteKeyPriorityInversionCandidate, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_edges", "gating", TraceNoteCarrierDisplayOnly},
-	{"priority_relation", "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyPriorityRelation, "gating", TraceNoteCarrierSoftConsumer},
 	// TQ-PRIORITY-POINT-AUTHORITY EVOLUTION RECORD (2026-07-17): the generic
 	// dependency/target source, relation caliber, and two-sided coverage keys
 	// are parsed back through the legacy observation/projection compile lane;
@@ -2174,12 +2175,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// protocol. B1034 promotes the edge-local endpoint/value/source/CPU fields
 	// to soft-consumer context for one role-bound finalizer capsule; they still
 	// drive no projection, rank, answer gate, or conclusion.
+	// HMC273: that capsule also parses the native relation and both endpoint
+	// artifact sources to retain row-local provenance. These three keys are
+	// soft consumers too; registration does not grant causal authority.
 	{TraceNoteKeyWakerPriority, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeePriority, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakerPrioritySource, "gating", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyWakerPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakerPriorityArtifactSource, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeePrioritySource, "gating", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyWakeePriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePriorityArtifactSource, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeePriorityAuthority, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupWakerCPU, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupWakeeTargetCPU, "chain_path", TraceNoteCarrierSoftConsumer},

@@ -523,7 +523,7 @@ var traceNoteKeyGoldenRows = []string{
 	"priority_inversion_candidate|gating|hard_consumer",
 	"priority_inversion_edges|gating|display_only",
 	"priority_inversion_gated|gating|display_only",
-	"priority_relation|gating|display_only",
+	"priority_relation|gating|soft_consumer",
 	"priority_relation_artifact_sources|gating|display_only",
 	// TQ-PRIORITY-POINT-AUTHORITY (2026-07-17): NKR promotion after the
 	// observation/projection compile began preserving the typed proof account.
@@ -776,13 +776,13 @@ var traceNoteKeyGoldenRows = []string{
 	"wait_object|blocking|display_only",
 	"waiters|blocking|hard_consumer",
 	"wakee_priority|chain_path|soft_consumer",
-	"wakee_priority_artifact_source|gating|display_only",
+	"wakee_priority_artifact_source|gating|soft_consumer",
 	"wakee_priority_authority|gating|soft_consumer",
 	"wakee_priority_source|gating|soft_consumer",
 	"wakee_target_cpu|chain_path|soft_consumer",
 	"waker_cpu|chain_path|soft_consumer",
 	"waker_priority|chain_path|soft_consumer",
-	"waker_priority_artifact_source|gating|display_only",
+	"waker_priority_artifact_source|gating|soft_consumer",
 	"waker_priority_source|gating|soft_consumer",
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census (count folds pre-cap; overflow discloses the pair-cap trim).

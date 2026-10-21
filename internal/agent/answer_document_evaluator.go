@@ -8643,7 +8643,7 @@ func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.Agen
 	ta := ctx.Mutable.TurnAArtifacts()
 	var raw []string
 	if ta != nil {
-		raw = append([]string(nil), ta.InvestigationNotes...)
+		raw = projectInvestigationNarrativeNotes(ctx, ta.InvestigationNotes)
 	}
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
 		if !answerDocHasDeterministicRuntimeQueryObservation(ctx) && !answerDocHasNativeFactHandoff(ctx) {
@@ -24720,7 +24720,7 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	// ordering, because no ordering could ever admit them. Registry-backed
 	// constants only (blocking family, already registered — no new keys).
 	types.TraceNoteKeyBlockingKind + "=", types.TraceNoteKeyHolderSite + "=", types.TraceNoteKeyWaiters + "=",
-	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", "priority_relation=", "priority_inversion_candidate=",
+	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", types.TraceNoteKeyPriorityRelation + "=", "priority_inversion_candidate=",
 	types.TraceNoteKeyOccurrenceWindows + "=",
 	// F3② (§22 PTV7-SPN, huadong_01 P1): the span name was table-level
 	// EXCLUDED — no ordering could ever admit it, so a generic trace_span rank
@@ -25059,7 +25059,7 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 		return line("因果依据", "causal basis", traceQueryObservationSupplementCausalBasis(value, zh))
 	case types.TraceNoteKeyChainDepth:
 		return line("链路深度", "chain depth", value)
-	case "priority_relation":
+	case types.TraceNoteKeyPriorityRelation:
 		return line("优先级关系", "priority relation", traceQueryObservationSupplementPriorityRelation(value, zh))
 	case "priority_inversion_candidate":
 		return line("优先级反转候选", "priority-inversion candidate", boolValue(value))

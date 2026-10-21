@@ -10316,7 +10316,7 @@ func runtimeTracePriorityInversionAuthorities(ctx *types.BusContext) (structural
 				case "priority_inversion_confirmed=true", "priority_inversion_authority=confirmed_holder_waiter":
 					isConfirmed = true
 				}
-				if value, ok := strings.CutPrefix(note, "priority_relation="); ok {
+				if value, ok := strings.CutPrefix(note, types.TraceNoteKeyPriorityRelation+"="); ok {
 					relation = strings.TrimSpace(value)
 				}
 				if value, ok := strings.CutPrefix(note, types.TraceNoteKeyType+"="); ok &&

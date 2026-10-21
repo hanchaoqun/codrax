@@ -55,11 +55,16 @@ func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_p
 // Node spelling and optional labels remain model choices, not evidence gates.
 const diagramEndpointLabelAuthorshipTeaching = "For add/replace on a diagram, an exact existing endpoint ID permits an omitted node-visible-label field or an exact current-label replay. A new ID with an explicit node-visible-label field declares a separate model-chosen endpoint; it is not merged into an existing actor. Without that field, sequence diagrams reuse a unique typed existing participant, reject ambiguous reuse, or declare the exact model-authored ID when no match exists. All endpoint evidence requirements remain unchanged. " + sequencePlacementTeaching
 
+// Full replacement preserves model-owned content, not a rendered native
+// selector's generated heading or mutually exclusive payload alternatives.
+// Share this boundary across the broad and dispatch-local teaching surfaces.
+const answerPatchModelOwnedBlockTeaching = "A full block payload contains only the model-owned fields allowed by its current block schema; alternative payload fields are not a checklist. Preserve ordinary model-authored titles when they are not being edited. " + types.RuntimeMeasurementSourceTitleTeaching
+
 func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, runtime_work_relation, conceptual_terminal_resolution, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].evidence_ids, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit. If an id is also targeted by `diagram_edge_edits`, `diagram_boundary_replacements`, `diagram_boundary_edits`, `diagram_relation_scope_edits`, or `diagram_participant_edits`, that unchanged entry is redundant and is absorbed because atomic editing already preserves every unmentioned carrier from the immutable base.\n" +
-		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
+		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous model-owned display/typed field permitted by the current block schema that the required repair does not name (including title, text, columns, diagram, facet_ids, claim_uses, surface_role when applicable), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `block_field_edits_v1`: lossless local operation for one projected closed-enum block metadata value. Choose the exact existing block_id, field, and value branch shown by the current schema. Scalar branches assign one field; add_facet_id adds one facet membership without replacing existing facet_ids. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `block_receipt_edits_v1`: lossless local operation for one schema-published typed receipt. Choose one exact block_id/field/value branch for runtime_work_relation or conceptual_terminal_resolution. Every other field on that block is copied from the immutable patch base. The model chooses the exact evidence row and conclusion; the system only validates and binds that pair. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
@@ -76,7 +81,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. A live local diagram lease exposes its target through atomic diagram operations; whole replace/add is unavailable, and exact target removal is available only when the typed presentation contract marks that diagram optional. Unrelated blocks remain editable. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base. A structural rejection lists every independent violation of the patch at once — fix all of them in the next patch instead of one per retry.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
-		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
+		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" + answerPatchModelOwnedBlockTeaching + "\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
 }
 
@@ -91,7 +96,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     },
     "replace_blocks": {
       "type": "array",
-      "description": "FULL replacement payloads, not general field merges. Copy all previous display and typed fields not named by the repair (especially title/text/columns/diagram/facet_ids/claim_uses/surface_role), then change only the requested field. Narrow retry safety: for the exact same block id/kind with a unique stable item-id overlap, truly omitted facet_ids/surface_role retain their prior carrier values; explicit empty/value is never inherited. Each entry has the full block shape and the same id as an existing block.",
+      "description": "FULL replacement payloads, not general field merges. Copy all previous model-owned display and typed fields permitted by the current block schema and not named by the repair (including title/text/columns/diagram/facet_ids/claim_uses/surface_role when applicable), then change only the requested field. ` + answerPatchModelOwnedBlockTeaching + ` Narrow retry safety: for the exact same block id/kind with a unique stable item-id overlap, truly omitted facet_ids/surface_role retain their prior carrier values; explicit empty/value is never inherited. Each entry has the full block shape and the same id as an existing block.",
       "items": {"type": "object"}
     },
     "block_field_edits_v1": {
@@ -118,7 +123,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     },
     "add_blocks": {
       "type": "array",
-      "description": "New block payloads to append after the existing blocks. Each entry has the full block shape (id, kind, title, text, items, diagram, claim_uses, edge_anchors, facet_ids, surface_role); id MUST NOT already exist in the previous emit (use replace_blocks for editing).",
+      "description": "New block payloads to append after the existing blocks. Each entry follows the current block schema; id MUST NOT already exist in the previous emit (use replace_blocks for editing). ` + answerPatchModelOwnedBlockTeaching + `",
       "items": {"type": "object"}
     },
     "remove_block_ids": {
@@ -403,7 +408,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 			"For one schema-published typed receipt, prefer `block_receipt_edits_v1`; copy one exact native JSON branch and keep the evidence row and conclusion model-selected. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
 			"Live relation selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " + sequencePlacementTeaching + " " +
-			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
+			"Whole-block edits remain available for broader model-authored repairs. " + answerPatchModelOwnedBlockTeaching + " The system selects no action, relation, visible wording, layout, or conclusion."
 	}
 	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
 	if prev == nil {

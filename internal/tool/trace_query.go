@@ -5177,7 +5177,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			projection := traceQueryProjectedActualFields(impact.ProjectedImpactMs, impact.ProjectedTotalMs, impact.ActualImpactMs, impact.ActualTotalMs, impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)
 			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs)
 			priorityProof := traceQueryPriorityProofBannerFields(impact.PrioritySource, impact.PriorityArtifactSource, impact.TargetPrioritySource, impact.TargetPriorityArtifactSource, impact.PriorityRelationArtifactSources, impact.PriorityRelationCaliber, provenLower, unknownOrNonLower)
-			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s%s "+types.TraceNoteKeyPriorityRelation+"=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
 				traceThreadLabel(impact.Thread), impact.ChainDepth, traceQueryCausalityLabel(impact.OnChain),
 				sanitizeForBanner(impact.DominantState), impact.DominantImpactMs, impact.TotalMs, impact.TargetBlockedMs,
 				projection, impact.FragmentCount, impact.StateSwitches, impact.MaxSegmentMs, impact.P95SegmentMs,
@@ -5193,7 +5193,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			projection := traceQueryProjectedActualFields(aggregate.ProjectedImpactMs, aggregate.ProjectedTotalMs, aggregate.ActualImpactMs, aggregate.ActualTotalMs, aggregate.ActualFirstTs, aggregate.ActualLastTs)
 			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(aggregate.PriorityRelationCaliber, aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityRelationUnknownOrNonLowerMs)
 			priorityProof := traceQueryPriorityProofBannerFields("", "", "", "", aggregate.PriorityRelationArtifactSources, aggregate.PriorityRelationCaliber, provenLower, unknownOrNonLower)
-			fmt.Fprintf(&b, "- aggregated_impact thread=%s path=%s depth=%d occurrences=%d occurrence_windows=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+			fmt.Fprintf(&b, "- aggregated_impact thread=%s path=%s depth=%d occurrences=%d occurrence_windows=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms%s "+types.TraceNoteKeyPriorityRelation+"=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
 				traceThreadLabel(aggregate.Thread), sanitizeForBanner(aggregate.Path), aggregate.ChainDepth, aggregate.OccurrenceCount,
 				occurrenceWindows, sanitizeForBanner(aggregate.DominantState), aggregate.DominantImpactMs, aggregate.TotalMs, aggregate.TargetBlockedMs,
 				projection, aggregate.FragmentCount, aggregate.StateSwitches, aggregate.MaxSegmentMs,
@@ -11892,7 +11892,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
 		{types.TraceNoteKeyTargetPrioritySource, impact.TargetPrioritySource},
 		{types.TraceNoteKeyTargetPriorityArtifactSource, impact.TargetPriorityArtifactSource},
-		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelation, relation},
 		{types.TraceNoteKeyPriorityRelationCaliber, impact.PriorityRelationCaliber},
 		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
 		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
@@ -12197,7 +12197,7 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{types.TraceNoteKeyActualSleep, traceQueryObservationMSValue(aggregate.ActualSleepMs)},
 		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(aggregate.ActualDStateMs)},
 		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
-		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelation, relation},
 		{types.TraceNoteKeyPriorityRelationCaliber, aggregate.PriorityRelationCaliber},
 		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
 		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
@@ -13066,7 +13066,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 		{types.TraceNoteKeyWakeupWakerCPU, traceQueryTypedCPU(edge.WakerCPU, edge.WakerCPUKnown)},
 		{types.TraceNoteKeyWakeupWakeeTargetCPU, traceQueryTypedCPU(edge.WakeeTargetCPU, edge.WakeeTargetCPUKnown)},
 		{types.TraceNoteKeyWakeupCPURelation, edge.CPURelation},
-		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelation, relation},
 		{types.TraceNoteKeyPriorityRelationCaliber, edge.PriorityRelationCaliber},
 		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(inversion)},
 	})

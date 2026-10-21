@@ -2,6 +2,20 @@ package types
 
 import "strings"
 
+// Narrative roles control copying only. They do not validate the text, bind a
+// source, prove a relation or restore an accepted completion after JSON reload.
+type InvestigationInterpretationRole string
+
+const (
+	InvestigationIndependentAnalysis     InvestigationInterpretationRole = "independent_analysis"
+	InvestigationNativeRestatement       InvestigationInterpretationRole = "native_fact_restatement"
+	NativeFactInterpretationRoleTeaching                                 = "Use interpretation_role=independent_analysis for any independent diagnosis, derived quantity, uncertainty, negative finding or source/business clue (including mixed text). For native facts alone, prefer an empty interpretation with interpretation_role=native_fact_restatement; any existing pure restatement stays audit-only and is not copied into downstream narratives. Native facts come from the selected views, not this role."
+)
+
+func (r InvestigationInterpretationRole) Valid() bool {
+	return r == "" || r == InvestigationIndependentAnalysis || r == InvestigationNativeRestatement
+}
+
 // InvestigationNativeFactHandoff separates presentation references from model
 // interpretation. It contains no copied measurements or evidence permission.
 // JSON retains intent for audit only; every consumer rebinds current sources.
@@ -9,6 +23,7 @@ type InvestigationNativeFactHandoff struct {
 	RuntimeMeasurements   []AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
 	AnswerDisplay         []AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
 	Interpretation        string                            `json:"interpretation"`
+	InterpretationRole    InvestigationInterpretationRole   `json:"interpretation_role,omitempty"`
 	answerDisplayBindings map[string]string
 }
 
@@ -16,7 +31,7 @@ func (h *InvestigationNativeFactHandoff) Clone() *InvestigationNativeFactHandoff
 	if h == nil {
 		return nil
 	}
-	out := &InvestigationNativeFactHandoff{RuntimeMeasurements: cloneMeasurementMemberSetSelections(h.RuntimeMeasurements), AnswerDisplay: cloneMeasurementMemberSetSelections(h.AnswerDisplay), Interpretation: h.Interpretation}
+	out := &InvestigationNativeFactHandoff{RuntimeMeasurements: cloneMeasurementMemberSetSelections(h.RuntimeMeasurements), AnswerDisplay: cloneMeasurementMemberSetSelections(h.AnswerDisplay), Interpretation: h.Interpretation, InterpretationRole: h.InterpretationRole}
 	if h.answerDisplayBindings != nil {
 		out.answerDisplayBindings = make(map[string]string, len(h.answerDisplayBindings))
 		for key, value := range h.answerDisplayBindings {
@@ -24,6 +39,19 @@ func (h *InvestigationNativeFactHandoff) Clone() *InvestigationNativeFactHandoff
 		}
 	}
 	return out
+}
+
+// Legacy missing roles keep their original advisory behavior. No content is
+// classified or rewritten; explicit restatements remain in the audit carrier.
+func (h *InvestigationNativeFactHandoff) NarrativeInterpretation() string {
+	if h == nil || h.InterpretationRole == InvestigationNativeRestatement {
+		return ""
+	}
+	return h.Interpretation
+}
+
+func (h *InvestigationNativeFactHandoff) IsAuditOnlyInterpretationCopy(note string) bool {
+	return h != nil && h.InterpretationRole == InvestigationNativeRestatement && h.Interpretation != "" && note == h.Interpretation
 }
 
 type investigationNativeFactCompletion struct {
