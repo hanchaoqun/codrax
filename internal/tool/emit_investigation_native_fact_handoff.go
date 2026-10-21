@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -9,7 +11,7 @@ import (
 type completionNativeFactHandoff struct {
 	RuntimeMeasurements []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurements"`
 	AnswerDisplay       []types.AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
-	Interpretation      *string                                 `json:"interpretation"`
+	Interpretation      json.RawMessage                         `json:"interpretation"`
 	InterpretationRole  types.InvestigationInterpretationRole   `json:"interpretation_role,omitempty"`
 	InterpretationUnits []types.InvestigationInterpretationUnit `json:"interpretation_units,omitempty"`
 }
@@ -25,8 +27,13 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	fail := func(issues ...nativeFactHandoffViolation) (*types.InvestigationNativeFactHandoff, error) {
 		return nil, managedDeliveryNativeHandoffError{required: required, violations: issues, choices: NativeFactHandoffChoices(ctx), displayChoices: NativeFactAnswerDisplayChoices(ctx)}
 	}
-	if p.Interpretation == nil {
-		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation", "missing_interpretation"})
+	// Presence is not content: omitted legacy text is valid when units carry
+	// the interpretation, but an explicitly wrong scalar must not disappear
+	// behind those units. Keep the legacy empty string as explicit no analysis.
+	legacy := bytes.TrimSpace(p.Interpretation)
+	var interpretation string
+	if len(legacy) > 0 && (bytes.Equal(legacy, []byte("null")) || json.Unmarshal(legacy, &interpretation) != nil) {
+		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation", "expected_string"})
 	}
 	if !p.InterpretationRole.Valid() {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation_role", "unknown_role"})
@@ -43,10 +50,13 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if len(unitIssues) > 0 {
 		return fail(unitIssues...)
 	}
+	if len(legacy) == 0 && len(p.InterpretationUnits) == 0 {
+		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation", "missing_interpretation"})
+	}
 	if ctx == nil || ctx.Mutable == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})
 	}
-	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation, InterpretationRole: p.InterpretationRole, InterpretationUnits: p.InterpretationUnits}
+	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: interpretation, InterpretationRole: p.InterpretationRole, InterpretationUnits: p.InterpretationUnits}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if view == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})

@@ -17,6 +17,7 @@ type RuntimeMeasurementPublication struct {
 	Source                ObservationSourceRef      `json:"source"`
 	Tables                []RuntimeMeasurementTable `json:"tables"`
 	answerDisplayIdentity string
+	nativeFixedDisplay    bool
 	rawFacts              bool
 	sourcePresentation    *runtimeMeasurementSourcePresentation
 }
@@ -161,6 +162,7 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(publications)}
 	qualifyRuntimeMeasurementSourcePresentations(&out, publications)
 	out.answerDisplayIdentities = nativeAnswerDisplayPublicationIdentities(publications)
+	qualifyNativeMeasurementFacts(&out, publications)
 	out.qualifyNativeDisplayDimensions(input.RequestModel)
 	if !out.Active() {
 		return nil
@@ -226,7 +228,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					if !supplementary {
 						boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
 						if boundOriginal == original {
-							qualifyNativeAnswerDisplayPublication(&p, original, replay, requested)
+							qualifyCurrentNativeMeasurementDisplay(&p, r.Predicate, original, replay, requested, result.TraceViewCancellation != nil)
 						}
 					}
 				}

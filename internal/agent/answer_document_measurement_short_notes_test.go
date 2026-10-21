@@ -79,6 +79,12 @@ func TestRuntimeMeasurementHandoffShortProviderNotes(t *testing.T) {
 				if field := differingMeasurementFieldExceptPresentationHMC269(table, want); field != "" {
 					t.Fatalf("short notes changed native identity, rows, view or old private credential: %s", field)
 				}
+				if !table.HasNativeMeasurementFacts() || !table.IsValid() {
+					t.Fatal("fresh optional-note publication lost its exact display seal")
+				}
+				if !reflect.DeepEqual(beforeChoices[i].Notes, want.Notes) && want.HasNativeMeasurementFacts() {
+					t.Fatal("edited optional notes borrowed the old fixed-fact seal")
+				}
 				originalTitle, originalNotes, originalOwned := beforeChoices[i].NativeSourcePresentation("en")
 				title, sourceNotes, owned := table.NativeSourcePresentation("en")
 				if !originalOwned || !owned || title != originalTitle || !reflect.DeepEqual(sourceNotes, originalNotes) {

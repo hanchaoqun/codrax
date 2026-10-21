@@ -12,7 +12,9 @@ type InvestigationInterpretationUnit struct {
 	SupportRefs []string `json:"support_refs,omitempty"`
 }
 
-const InvestigationInterpretationUnitsTeaching = "Prefer concise interpretation_units for independent findings: keep each text with its boundaries and support_refs in one object. Each object is displayed whole or omitted whole under the existing shared narrative budget; a support_ref locates proposed support, not proof. When units are supplied, leave interpretation empty: units replace that legacy narrative, which remains audit-only if present. Missing units retain the legacy interpretation path without an extra retry. Both forms stay model-authored advisory and cannot replace native facts or grant causal authority."
+const InvestigationInterpretationFormTeaching = "Provide non-empty interpretation_units and omit interpretation, or provide legacy interpretation as a string; an empty string explicitly means no independent interpretation. Do not omit both."
+
+const InvestigationInterpretationUnitsTeaching = "Prefer concise interpretation_units for independent findings: keep each text with its boundaries and support_refs in one object. Each object is displayed whole or omitted whole under the existing shared narrative budget; a support_ref locates proposed support, not proof. " + InvestigationInterpretationFormTeaching + " When both are supplied, units replace the legacy narrative, which remains audit-only. Missing units retain the legacy interpretation path without an extra retry. Both forms stay model-authored advisory and cannot replace native facts or grant causal authority."
 
 func (u InvestigationInterpretationUnit) Valid() bool {
 	if strings.TrimSpace(u.Text) == "" || len(u.Boundaries) > 8 || len(u.SupportRefs) > 16 {

@@ -20,7 +20,7 @@ func differingMeasurementFieldExceptPresentationHMC269(a, b types.RuntimeMeasure
 	left, right := reflect.ValueOf(a), reflect.ValueOf(b)
 	for i := 0; i < left.NumField(); i++ {
 		name := left.Type().Field(i).Name
-		if name == "nativeSourcePresentation" {
+		if name == "nativeSourcePresentation" || name == "nativeMeasurementFactsDigest" {
 			continue
 		}
 		l, r := left.Field(i), right.Field(i)

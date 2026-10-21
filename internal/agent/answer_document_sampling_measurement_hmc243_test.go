@@ -13,20 +13,37 @@ import (
 
 func TestHMC243SamplingFactRecoverySurfaceAuthority(t *testing.T) {
 	for _, lane := range []string{"snapshot", "rejected", "text"} {
-		for _, family := range []string{"native", "legacy"} {
+		for _, family := range []string{"native_sampling", "native_measurement", "legacy_table"} {
 			for _, kind := range []types.AnswerBlockKind{types.BlockSummary, types.BlockTable, types.BlockDiagram} {
 				for _, missing := range []bool{false, true} {
 					t.Run(lane+"/"+family+"/"+string(kind)+map[bool]string{false: "/current", true: "/missing"}[missing], func(t *testing.T) {
 						ctx, result := filteredSamplingContextHMC242(t, false)
-						if family == "legacy" {
+						if family != "native_sampling" {
 							ctx, result, _ = ioInFlightPublicContext(t, "en", types.RuntimeQuestionScopeBoundedFactSet, "")
+						}
+						if family == "legacy_table" {
+							// Keep the real ordinary table but remove both current-original
+							// replay lanes. The helper's unmodified dispatch copy must not
+							// requalify the same publication as native fixed facts.
+							result.TraceQueryWindowReplay = types.TraceQueryWindowReplayRef{}
+							result.TraceStatistics = types.TraceStatisticsRef{}
+							ctx.Mutable.ResetDispatchToolResults()
 						}
 						ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 						view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 						var receipt *types.AnswerRuntimeMeasurementReceipt
 						for _, table := range view.RuntimeMeasurementContract.Choices() {
-							if (family == "native") != table.HasNativeSamplingFacts() || table.EventData != nil || family == "native" && (table.View != types.RuntimeMeasurementSummary || !strings.Contains(table.Label, "/app/A.so")) {
+							if (family == "native_sampling") != table.HasNativeSamplingFacts() || table.EventData != nil || family == "native_sampling" && (table.View != types.RuntimeMeasurementSummary || !strings.Contains(table.Label, "/app/A.so")) {
 								continue
+							}
+							if !table.IsValid() || len(table.Rows) == 0 {
+								t.Fatal("public fixture did not retain a valid nonempty table")
+							}
+							if family == "legacy_table" && table.HasNativeFixedFacts() {
+								t.Fatal("ordinary table borrowed a native fixed-fact qualification")
+							}
+							if family == "native_measurement" && (!table.HasNativeMeasurementFacts() || !table.HasNativeFixedFacts()) {
+								t.Fatal("current IO measurement lost its native fixed-fact qualification")
 							}
 							receipt = &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}
 							if !types.BindRuntimeMeasurementReceipt(receipt, view.RuntimeMeasurementContract) {
@@ -62,7 +79,7 @@ func TestHMC243SamplingFactRecoverySurfaceAuthority(t *testing.T) {
 						} else {
 							got, ok = recoverRetryStateAnswerDocumentV2(ctx)
 						}
-						want := !missing && (family == "native" || kind == types.BlockTable)
+						want := !missing && (family != "legacy_table" || kind == types.BlockTable)
 						if ok != want {
 							t.Fatalf("recovered=%t want=%t", ok, want)
 						}

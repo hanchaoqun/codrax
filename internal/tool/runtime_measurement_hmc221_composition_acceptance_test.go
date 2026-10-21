@@ -101,7 +101,13 @@ func TestHMC221NativeMeasurementCompositionPublicScopeAndOrder(t *testing.T) {
 					for _, table := range choices {
 						if table.ObservationID != report.ID {
 							singleTable := original[table.View]
-							if field := differingMeasurementFieldExceptPresentationHMC269(table, singleTable); field != "" {
+							// The later standalone query is pure memo, while the
+							// pair independently re-reads. Check the new positive
+							// witness explicitly; all older private scope stays equal.
+							if singleTable.HasNativeMeasurementFacts() != singleFirst || !table.HasNativeMeasurementFacts() {
+								t.Fatal("composition lost independent fixed facts or upgraded a standalone memo")
+							}
+							if field := differingMeasurementCompositionFieldHMC277(table, singleTable); field != "" {
 								t.Fatalf("composition changed native cells, source metadata or private scope: %s", field)
 							}
 							singleTitle, singleNotes, singleOwned := singleTable.NativeSourcePresentation("en")
@@ -153,6 +159,39 @@ func TestHMC221NativeMeasurementCompositionPublicScopeAndOrder(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Only this composition test compares a fresh pair with a pure memo. Its new
+// fixed-display witness is asserted above, and complete pair-vs-merged tables
+// are still DeepEqual. Do not weaken the older shared private-field comparator.
+func differingMeasurementCompositionFieldHMC277(a, b types.RuntimeMeasurementTable) string {
+	left, right := reflect.ValueOf(a), reflect.ValueOf(b)
+	for i := 0; i < left.NumField(); i++ {
+		name := left.Type().Field(i).Name
+		if name == "nativeSourcePresentation" || name == "nativeMeasurementFactsDigest" {
+			continue
+		}
+		l, r := left.Field(i), right.Field(i)
+		if l.CanInterface() {
+			if !reflect.DeepEqual(l.Interface(), r.Interface()) {
+				return name
+			}
+			continue
+		}
+		if l.Kind() == reflect.Pointer {
+			if l.IsNil() || r.IsNil() {
+				if l.IsNil() != r.IsNil() {
+					return name
+				}
+				continue
+			}
+			l, r = l.Elem(), r.Elem()
+		}
+		if !l.Comparable() || !l.Equal(r) {
+			return name
+		}
+	}
+	return ""
 }
 
 func TestHMC221NativeMeasurementCompositionRejectsWholeConflictingPublication(t *testing.T) {

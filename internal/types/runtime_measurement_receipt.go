@@ -53,10 +53,11 @@ type RuntimeMeasurementTable struct {
 	nativeTraceDisplayPopulation bool
 	// Exact whole-publication display identity, qualified by a current private
 	// source receipt. Never serialized or used as member/completion authority.
-	nativeFactIdentity        string
-	nativeSamplingFactsDigest string
-	nativeResourceFactsDigest string
-	nativeRawFactsDigest      string
+	nativeFactIdentity           string
+	nativeSamplingFactsDigest    string
+	nativeResourceFactsDigest    string
+	nativeRawFactsDigest         string
+	nativeMeasurementFactsDigest string
 	// Dispatch-local source presentation, derived from the existing current
 	// source receipt. It is not a new source/measurement/role authority.
 	nativeSourcePresentation *runtimeMeasurementSourcePresentation
@@ -92,6 +93,9 @@ func (p *RuntimeMeasurementDisplayPopulation) valid(rows int) bool {
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
+	if t.nativeMeasurementFactsDigest != "" && !t.HasNativeMeasurementFacts() {
+		return false
+	}
 	if t.nativeRawFactsDigest != "" && !t.HasNativeRawFacts() {
 		return false
 	}

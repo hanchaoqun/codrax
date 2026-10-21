@@ -76,6 +76,7 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	a.Tables = append([]RuntimeMeasurementTable(nil), a.Tables...)
 	b.Tables = append([]RuntimeMeasurementTable(nil), b.Tables...)
 	a.answerDisplayIdentity, b.answerDisplayIdentity = "", ""
+	a.nativeFixedDisplay, b.nativeFixedDisplay = false, false
 	a.rawFacts, b.rawFacts = false, false
 	a.sourcePresentation, b.sourcePresentation = nil, nil
 	for i := range a.Tables {

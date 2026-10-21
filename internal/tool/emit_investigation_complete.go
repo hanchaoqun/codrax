@@ -109,10 +109,10 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"properties": {
 					"runtime_measurements":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
 					"answer_display":{"type":"array","maxItems":16,"description":"Optional explicit final-display subset of runtime_measurements, only for requested native facts. The system rebinds and displays all retained rows and notes; inspected views are not automatically selected. No completeness, requested-dimension, source-code or causal authority is added.","items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
-					"interpretation":{"type":"string","description":"Legacy independent interpretation and missing-evidence boundaries, without copying selected native numbers. Leave empty when interpretation_units carries the analysis or when there is no independent interpretation."},
+					"interpretation":{"type":"string","description":"Legacy independent interpretation and missing-evidence boundaries, without copying selected native numbers. Omit when non-empty interpretation_units carries the analysis; an empty string explicitly means no independent interpretation. A supplied value must be a string, not null."},
 					"interpretation_units":{"type":"array","maxItems":__INTERPRETATION_UNITS_CAP__,"description":"__INTERPRETATION_UNITS_TEACHING__","items":{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string","minLength":1},"boundaries":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"support_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}}},"required":["text"]}},
 					"interpretation_role":{"type":"string","enum":["independent_analysis","native_fact_restatement"],"description":"__INTERPRETATION_ROLE_TEACHING__"}
-				},"required":["runtime_measurements","interpretation"]
+				},"required":["runtime_measurements"],"anyOf":[{"required":["interpretation"]},{"required":["interpretation_units"],"properties":{"interpretation_units":{"minItems":1}}}]
 			},
 			"runtime_measurement_member_sets": {
 				"type": "array", "maxItems": 16,

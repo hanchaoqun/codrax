@@ -33,7 +33,19 @@ func requiredRuntimeDiagramRelationCoverage(ctx *types.BusContext, doc *types.An
 	var blockIDs []string
 	counts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	for i, block := range doc.Blocks {
-		if block.Kind != types.BlockDiagram || block.Diagram == nil || block.Diagram.Kind != contract.RequiredKind {
+		if block.Kind != types.BlockDiagram {
+			continue
+		}
+		if block.Diagram == nil {
+			// A current native fact diagram is a valid edgeless display, but
+			// cannot discharge an independently required relationship. Rebind
+			// against this view because pre-emit selectors are not persisted yet.
+			if block.RuntimeMeasurement != nil && runtimeMeasurementBindingValid(block, view) {
+				blockIDs = append(blockIDs, block.ID)
+			}
+			continue
+		}
+		if block.Diagram.Kind != contract.RequiredKind {
 			continue
 		}
 		blockIDs = append(blockIDs, block.ID)
@@ -60,12 +72,32 @@ func preCheckRequiredRuntimeDiagramRelation(doc *types.AnswerDocumentV2, view *t
 	if !missing {
 		return nil
 	}
+	// Local edge edits require an existing Mermaid body. Never publish an
+	// inapplicable add-edge lease for a producer-owned edgeless fact selector.
+	var editableBlockIDs []string
+	for _, id := range blockIDs {
+		for _, block := range doc.Blocks {
+			if block.ID == id && block.Diagram != nil {
+				editableBlockIDs = append(editableBlockIDs, id)
+				break
+			}
+		}
+	}
+	if len(editableBlockIDs) == 0 {
+		return []emitFixHint{{
+			Field:               "blocks[kind=diagram]",
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
+			ExpectedShape:       "The native fact diagram is an edgeless measurement display, not the independently requested runtime relationship diagram. Preserve its exact facts as a runtime_measurement table and author the required diagram separately using an available producer-verified relation and its exact endpoint identity anchor. Use complete block replacements/additions; do not attach diagram content or relation metadata to the native fact selector. Do not invent a relationship or draw every candidate.",
+			Reason:              "a current native fact display cannot satisfy an independently required runtime relationship",
+		}}
+	}
 	// Publish only existing scoped provider candidates. The model chooses the
 	// relation, node IDs, labels and position; no synthetic failure selects an
 	// arbitrary missing edge or makes every provider row mandatory.
 	delta, _ := json.Marshal(types.AnswerDiagramRelationRepairDelta{
 		Version: types.AnswerDiagramRelationRepairDeltaVersion, PreserveUnlistedEdges: true,
-		AllowedAdditions: appendRuntimeDiagramRepairCandidates(nil, rows, blockIDs, 8),
+		AllowedAdditions: appendRuntimeDiagramRepairCandidates(nil, rows, editableBlockIDs, 8),
 	})
 	return []emitFixHint{{
 		Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors",

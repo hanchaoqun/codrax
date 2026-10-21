@@ -36,11 +36,12 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 	}
 	if len(sampling) > 0 {
 		property := blockProps["runtime_measurement"].(map[string]any)
-		samplingTeaching, resourceTeaching, rawTeaching := false, false, false
+		samplingTeaching, resourceTeaching, rawTeaching, measurementTeaching := false, false, false, false
 		for _, table := range choices {
 			samplingTeaching = samplingTeaching || table.HasNativeSamplingFacts()
 			resourceTeaching = resourceTeaching || table.HasNativeResourceFacts()
 			rawTeaching = rawTeaching || table.HasNativeRawFacts()
+			measurementTeaching = measurementTeaching || table.HasNativeMeasurementFacts()
 		}
 		if samplingTeaching {
 			property["description"] = property["description"].(string) + " " + runtimeSamplingFactTeaching
@@ -50,6 +51,9 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 		}
 		if rawTeaching {
 			property["description"] = property["description"].(string) + " " + types.RuntimeRawFactDisplayTeaching
+		}
+		if measurementTeaching {
+			property["description"] = property["description"].(string) + " " + types.RuntimeMeasurementFactDisplayTeaching
 		}
 	}
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {

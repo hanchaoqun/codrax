@@ -282,9 +282,20 @@ func AnswerSemanticViewAllowedBlockKinds(view *AnswerSemanticView) []AnswerBlock
 		}
 	}
 	hasDeclaredRoster := len(declared) > 0
+	// A producer-owned, edgeless fact diagram needs no relationship plan.
+	// This is only an optional carrier: the tool schema still withholds the
+	// ordinary diagram payload without DiagramPlan and requires a native pair.
+	nativeFactDiagram := false
+	for _, table := range view.RuntimeMeasurementContract.Choices() {
+		if table.HasNativeFixedFacts() {
+			nativeFactDiagram = true
+			declared[BlockDiagram] = true
+			break
+		}
+	}
 	out := make([]AnswerBlockKind, 0, len(all))
 	for _, kind := range all {
-		if kind == BlockDiagram && view.DiagramPlan == nil {
+		if kind == BlockDiagram && view.DiagramPlan == nil && !nativeFactDiagram {
 			continue
 		}
 		if hasDeclaredRoster && !declared[kind] {

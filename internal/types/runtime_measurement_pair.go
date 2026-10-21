@@ -270,6 +270,21 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					}
 					qualifyRuntimeMeasurementFactIdentity(&publication, original, result.RuntimeMeasurementPair.replay[sideIndex])
 					qualifyRuntimeRawFactPublication(&publication, original != "")
+					// reportFor already revalidated the private source/epoch and
+					// restored these producer publications. Reuse exactly the
+					// same display admission as a fresh standalone query, never
+					// infer a producer from table shape or the public pair status.
+					predicate, matches := "", 0
+					for _, state := range side.ProducerStates {
+						if state.ObservationID == publication.ObservationID {
+							predicate, matches = state.Predicate, matches+1
+						}
+					}
+					// Dedicated domains keep their pre-existing pair display and
+					// selector rules; this fills only the ordinary measurement lane.
+					if matches == 1 && nativeMeasurementGenericDisplayPredicate(predicate) {
+						qualifyCurrentNativeMeasurementDisplay(&publication, predicate, original, result.RuntimeMeasurementPair.replay[sideIndex], requested, false)
+					}
 					publication.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, publication.Source, original, result.RuntimeMeasurementPair.replay[sideIndex])
 					if p := publication.sourcePresentation; p != nil && p.roleBasis == "" {
 						p.role, p.roleBasis = side.Role, "query_side"

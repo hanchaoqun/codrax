@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -51,7 +52,14 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 		handoff["properties"], _ = json.Marshal(fields)
 		// New model calls declare the lane explicitly. The wire validator keeps
 		// accepting older persisted calls without a role as legacy advisory.
-		handoff["required"], _ = json.Marshal([]string{"runtime_measurements", "interpretation", "interpretation_role"})
+		var handoffRequired []string
+		if json.Unmarshal(handoff["required"], &handoffRequired) != nil {
+			continue
+		}
+		if !slices.Contains(handoffRequired, "interpretation_role") {
+			handoffRequired = append(handoffRequired, "interpretation_role")
+		}
+		handoff["required"], _ = json.Marshal(handoffRequired)
 		if required {
 			handoff["description"], _ = json.Marshal(tool.ManagedDeliveryNativeFactHandoffTeaching)
 			var fieldsRequired []string

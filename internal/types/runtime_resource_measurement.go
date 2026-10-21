@@ -69,7 +69,7 @@ func (t RuntimeMeasurementTable) HasNativeResourceFacts() bool {
 // HasNativeFixedFacts is only the common pure display surface. Each producer
 // retains its own validation, identity and population rules.
 func (t RuntimeMeasurementTable) HasNativeFixedFacts() bool {
-	return t.HasNativeSamplingFacts() || t.HasNativeResourceFacts() || t.HasNativeRawFacts()
+	return t.HasNativeSamplingFacts() || t.HasNativeResourceFacts() || t.HasNativeRawFacts() || t.HasNativeMeasurementFacts()
 }
 
 func runtimeResourceMeasurementMatchesRequest(r ObservationRecord, rm *RequestModel) bool {

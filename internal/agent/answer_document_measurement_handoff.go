@@ -61,6 +61,12 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 		}
 	}
 	for _, table := range choices {
+		if table.HasNativeMeasurementFacts() {
+			b.WriteString("- " + types.RuntimeMeasurementFactDisplayTeaching + "\n")
+			break
+		}
+	}
+	for _, table := range choices {
 		if table.HasNativeSamplingFacts() {
 			b.WriteString("- Native sampling fact choices also supply summary/table/diagram with the same runtime_measurement:{observation_id,view}; omit competing text/items/columns/diagram. summary retains separate event/producer/unit rows with their own denominators; distribution shows query-population quality, not hotspot-subset quality, counted in sample records rather than stack frames. Do not add cross-cohort weights or infer calls, elapsed time or causes. Keep interpretation separate; fact diagrams have no relationship edges.\n")
 			break
