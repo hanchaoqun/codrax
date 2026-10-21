@@ -9699,3 +9699,43 @@ B三个33行时序预览均为[0,32]，旧T尾未知与W/C真实170438.353768终
 同冻结全仓PID12096，UTC2026-10-21T03:16:27.328927Z–03:32:47.645044Z正式exit0，96包PASS/13无测试包SKIP，零失败/非JSON行；日志SHA `814a3b3e2a98dc73ba089c9c8bd03b1123072d11ee42c8c2eaf551ea0b7052d2`。相关窄race及独立五包37根race与普通全仓分开，旧失败不回签。
 
 UTC03:33:11.157153封存36原件/122新增复制、158文件索引，10源码快照及实际CLI保留；105个审计指定路径核实，158文件再验哈希一致。索引SHA `4371ebcbfb09d4df09cd55922b12bc046fb7875b64a48cf4948bc6727c6fbeae`，归档收据SHA `897bd649880a05452073c5fe4dd525728287c3a952d7b1a3f9f5a76a7df31df7`。代码`84bc3edb4f704aeae4671b117ae6422dc0398aab`已普通推送，文档另笔；最终发布收据按批汇总路径独立留存，不改封存索引。55开放不降低。
+
+## 273. 原生优先级关系与叙述角色交接、活跃WAL安全设计（2026-10-20）
+
+起点`442844d9ff5b55a7d8439fb2ff4da29c98a3c312`，79唯一/0重复＝24交付＋55开放。沿§272的实际消息修共享交接，不修改正确并行度统计器、不按问题或模型原文关键词建门；旧采样、旧完整人工FAIL及未触发项保留。
+
+### 273.1 实现及泛化边界
+
+原生优先级关系、caliber与两端artifact来源进入同一role摘要及冲突指纹，既有精确producer、主体、来源、窗口边界不变。只传原生已发布关系；unknown/弱不补same、不按数字重算、不升反转或根因。六场景真实TraceQuery→实际Finalizer已证明交接，旧物理源闭包、平台raw口径和因果投影保留。
+
+新增整体`interpretation_role`控制自身叙述复制：独立/混合分析保留；纯原生复述留审计，不重传Extract、Finalize及恢复advisory，其完全同字节notes副本共用投影，近似文本不删。当前schema明确角色，旧wire缺省兼容，未知枚举字段级修复；角色不证实原文真假、不恢复私有代次或来源权限，原生发布完整性与当前叙述所有权仍独立，不能借截断/省略复活reason。当前公共completion→两个实际消费者及恢复/近似/空/legacy负控通过。若模型误把复述选成独立分析，仍需按真实结果留账，不能声称所有语义冲突已根治。
+
+JSON patch说明同步当前字段所有权：模型只提供schema允许的完整payload，系统持有的原生标题省略；static、实际dispatch、add/replace说明同源。普通标题、事务拒绝及修复路径不变。该教学修复不新增硬门，也不替模型删字段。
+
+对照参考仓的查询结果/参数/缩减元信息分离、阻塞树主体信息保留及闭环包装合同分离设计；不照搬首条优先级推断、对原文段落过滤、mtime缓存或原件写索引。完整实现说明、每份正式收据和失败分类见[批汇总](../../eval/parallel_selected_summary_hmc_priority_narrative_wal_20261020.md)。
+
+### 273.2 活跃WAL缺口不误销账
+
+17.7新增公开安全负控：真实WAL-only提交发生后，默认PrepareExistingTraceDB保持精确代次拒绝、无发布、不额外改源bytes/旁车/代次。稳定/损坏/未提交/checkpoint/missing旧保护通过；这是安全拒绝PASS，不是在线快照PASS。首轮错用非SQLite共享入口未触发属于测试构造错误，原日志保留，不冒称产品RED。
+
+已核现代SQLite Backup支持一致读事务，但Darwin依赖实现的SHM节点可在同进程复用可写映射，root路径仍有owner操作，pathname打开亦未绑定授权held descriptor。因此`mode=ro`/`readonly_shm=1`不是本项目完整零副作用凭证。下步只做有界handle-bound只读WAL捕获/VFS安全原型，证明后再用独立捕获身份接共享准备；不弱化SameVersion，不用普通main/WAL复制、immutable或nolock绕过。参考db_pool的索引/commit为性能设计，不是只读快照。17.7与17.6真实格式/工具/平台前置继续开放。
+
+### 273.3 真实结果与高影响剩余接缝
+
+7209输入及实际CLI冻结，恰好两例各一次并行，均正式exit0/机器PASS、完整人工0/2。A有限08.4自然验收：8个原生视图完整到场，峰值/均值/深度分布/3ms末桶/时长及成员正确，旧峰值持续与桶忙时、upload/decode错配本次未复现；但正文无证据断言CPU资源充裕，08.4不销账。B同一完整设备文本的新命名ZIP：100ms状态账、33段、8唤醒/三线程两进程、显式窗和消歧重试均正确；6条选中边的原生高/同优先级关系、口径及来源真实进入成文上下文，有限交接PASS，正文未比较关系记NOT_TRIGGERED。正文将全runnable 1.088ms说成唤醒后等待，物理行及独立oracle证实其中0.533ms为4段R+切出后的再调度等待，真实8段唤醒后仅0.555ms，整答FAIL。
+
+新纯复述角色两例都未自然采用。A最终省略typed handoff走legacy reason，错误4/3峰值和待查询旧状态仍回流；B既有bounded-runtime分支先隔离自由摘要，新role抑制NOT_TRIGGERED。保公开生产正反例的有限交付，不能声称已清除所有摘要冲突。A初次原生表仍多传系统标题，后续合法patch改正；教学同步不等于模型必然遵从。
+
+A已证更前置的跨领域接缝：raw artifact/optional同带source_explanation outcome，规范化为mixed/required；bounded_fact_set又与mechanism/flow、stage_or_workflow、all scope组合延续源码义务。实际2次flow降级、后续mixed-origin阻断、3项source-inventory pending与legacy退路均保原。不把4次complete reject全归flow，不据think推因，也不把411秒全部归一个门。A上下文115,778/58%，B95,111/48%只是成本线索；先查typed声明一致性和公共教学/重复载体，不删除必需原件/来源/成员或扫问答关键词。
+
+完整人工报告见[审计汇总](../../eval/parallel_selected_summary_hmc_priority_narrative_wal_20261020_manual_audit.md)。无图/未启用根因旁路不代签，旧采样FAIL不回签，不追加第三例。完整能力新增0（累计24），共享生产子能力3组，活跃WAL安全负控/设计不计生产交付；两组整答欠项包含在55开放中。
+
+下一缺陷轨按影响面先收敛任务领域/源码义务与legacy退路，再统一状态转换来源/量尺；能力轨轮换03.2→08.3，17.7先有界只读WAL安全原型，18.4/18.5及sample-only按槽轮换。17.6真实格式/外部工具/原生平台前置继续留账，不重复已交付运输能力。
+
+### 273.4 字段契约登记修复与版本边界
+
+v1全仓发现新展示消费者已读取两端artifact来源而registry仍为display_only，`TestInfoContractNoteKeyCarrierTruth`正确报红。相邻priority_relation也已被解析，统一常量与soft_consumer注册/golden；这只是展示契约，不升级因果compile/node/rank/gate，原扫描器保留。v1正式结束并封存全部源码/CLI/失败/两例后再修，另冻结v2跑相关及全仓；两个live明确属于v1，不倒签v2自然PASS。
+
+v1全仓PID56420，UTC04:17:41.262613–04:33:15.521484正式exit1，95包PASS/13无测试/1包FAIL，唯一失败测试为上述registry census。修后37项相关回归、14项race通过；v2全仓PID57338，UTC04:37:09.131824–04:52:58.326859正式exit0，96包PASS/13无测试包、零失败/非JSON行，日志SHA `7fc1911819f1cdebe9cb2ca6b4edcc41f6a6f0a24992723723f700217a38c964`。完整日期均2026-10-21 UTC。
+
+v1封存354文件，含首次归档清单错误后完整保留的partial；v2另封存37文件/22源码快照并复核全部v1原件不变。v2索引SHA `683e34f7f2cf4356e298271c31a5fc60007ef4d776a501c83f9eddd4da6b6407`，收据SHA `949241c5224b647936f9e2ce831b52cd20d67b7022797746217c3c93971cf2d7`。代码`92323ba4fd4d11c5cefdd46a79b5094fa344bf77`已普通推送，文档另笔；最终远端/clean凭据按批汇总的独立publication路径保存，不改封存索引。55开放不减少。
