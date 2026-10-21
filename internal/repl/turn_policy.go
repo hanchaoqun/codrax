@@ -359,7 +359,7 @@ var turnPolicyTool = llm.ToolSchema{
     "current_source_evidence_mode": {
       "type": "string",
       "enum": ["required", "optional"],
-      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Repository availability, route=repo, and needs_repo_access=true are pipeline capabilities and NEVER by themselves make current source required. Set required only when the CURRENT request explicitly asks about current source/code/repository implementation or explicitly asks to correlate the artifact with current source; otherwise an artifact-only question sets optional. If your reason says current source/code must be analyzed, optional is self-contradictory. Never infer this field from answer prose."
+      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Repository availability, route=repo, and needs_repo_access=true are pipeline capabilities and NEVER by themselves make current source required. Set required only when the CURRENT request explicitly asks about current source/code/repository implementation or explicitly asks to correlate the artifact with current source; otherwise an artifact-only question sets optional. ` + turnSourceOutcomeConsistencyTeaching + ` Never infer this field from answer prose."
     },
     "needs_operation_access": {
       "type": "boolean",
@@ -1404,8 +1404,26 @@ func cleanPolicyStringList(in []string) []string {
 	return out
 }
 
-func unmarshalTurnPolicyParams(raw []byte, v any) error {
-	return unmarshalReplStructuredToolParams(turnPolicyTool, raw, v, "turn-policy classifier")
+func unmarshalTurnPolicyParams(raw []byte, v *turnPolicyParams) error {
+	// Every call is a complete replacement attempt, including legacy omissions.
+	// A rejected or superseded response must not donate fields to its repair.
+	var parsed turnPolicyParams
+	if err := unmarshalReplStructuredToolParams(turnPolicyTool, raw, &parsed, "turn-policy classifier"); err != nil {
+		return err
+	}
+	// Both values are explicit model-owned declarations. Do not silently make
+	// one win and widen source obligations, or delete an independently requested
+	// outcome. The existing single structural-repair budget owns this conflict
+	// too; legacy callers of ApplyTurnPolicyGuards keep their conservative rules.
+	if parsed.RequiredOutcomes.Has(types.TurnOutcomeSourceExplanation) &&
+		types.NormalizeTurnRouteCurrentSourceEvidenceMode(parsed.CurrentSourceEvidenceMode) == types.TurnRouteCurrentSourceEvidenceOptional {
+		logging.Info("[repl/turn_policy] rejected_domain conflict=source_outcome_optional raw_source=%s raw_current_source=optional raw_required_outcomes=%v",
+			turnPolicyDiagnosticEnum(parsed.Source, "current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact", "data"),
+			parsed.RequiredOutcomes.Names())
+		return fmt.Errorf("required_outcomes/current_source_evidence_mode are inconsistent and not yet accepted: %s", turnSourceOutcomeConsistencyTeaching)
+	}
+	*v = parsed
+	return nil
 }
 
 func repairTurnPolicyParamsJSON(raw []byte) ([]byte, bool) {

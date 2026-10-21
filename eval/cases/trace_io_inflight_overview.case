@@ -1,0 +1,6 @@
+# Natural HMC-08.3 acceptance; boundaries and evidence limits live in the
+# independent fixture oracle, not in the user question. Keep the expert case.
+source "$(dirname "${BASH_SOURCE[0]}")/trace_query_io_inflight.case"
+ID="trace_io_inflight_overview"
+NAME="IO in-flight depth — natural per-layer resource overview"
+QUESTION="帮我分析这份 trace 在 1.000 到 1.010 秒里的 IO 请求情况。按 RQ/BIO、设备和读写分别列出峰值和平均在途请求数、有请求在途的时长、请求数乘时间的面积，以及期间发起了多少次请求。这些结果能说明什么？"

@@ -21,9 +21,26 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Reproduce the real classifier/analyzer disagreement without overriding the
-// independent source outcome. Run, Explorer schema/dispatch, preparation and
-// query are real; no attachment, runtime profile or prepared receipt is seeded.
+// Only the classifier in this fixture has a second, explicit repair response.
+// The shared Explorer adapter retains its one-call limit; a third classifier
+// call also returns the original bounded error.
+type hmc265SourceRepairAdapter struct {
+	*hmc264NamedZIPAdapter
+	repair llm.Response
+}
+
+func (a *hmc265SourceRepairAdapter) Chat(ctx context.Context, messages []llm.Message, schemas []llm.ToolSchema, options llm.ChatOptions) (llm.Response, error) {
+	response, err := a.hmc264NamedZIPAdapter.Chat(ctx, messages, schemas, options)
+	if len(a.requests) == 2 {
+		return a.repair, nil
+	}
+	return response, err
+}
+
+// Reproduce the real contradictory declaration, then repair it without erasing
+// the independent source outcome. Named navigation must preserve that accepted
+// obligation. Run, Explorer schema/dispatch, preparation and query are real;
+// no attachment, runtime profile or prepared receipt is seeded.
 func TestHMC265NamedNavigationPreservesSourceObligation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -38,11 +55,27 @@ func TestHMC265NamedNavigationPreservesSourceObligation(t *testing.T) {
 			writeTraceAdmissionRepoSource(t, repo)
 			path, original := hmc264ZIP(t, false)
 			request := "请看 `" + path + "` 里的 captures/device capture.data，在0.9到1.1秒内线程42的采样热点和调用栈。"
-			classifierModel := &hmc264NamedZIPAdapter{response: llm.Response{ToolCalls: []llm.ToolCall{{ID: "classify", Name: "emit_turn_policy", Params: json.RawMessage(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","operation":"investigate","source":"artifact","confidence":0.95,"reason":"runtime call stacks","requires_diagram":false,"required_outcomes":["measurement","source_explanation"]}`)}}}}
+			first := llm.Response{ToolCalls: []llm.ToolCall{{ID: "classify", Name: "emit_turn_policy", Params: json.RawMessage(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","operation":"investigate","source":"artifact","confidence":0.95,"reason":"runtime call stacks","requires_diagram":false,"required_outcomes":["measurement","source_explanation"]}`)}}}
+			originalParams := string(first.ToolCalls[0].Params)
+			repairParams := json.RawMessage(strings.Replace(originalParams, `"current_source_evidence_mode":"optional"`, `"current_source_evidence_mode":"required"`, 1))
+			classifierModel := &hmc265SourceRepairAdapter{
+				hmc264NamedZIPAdapter: &hmc264NamedZIPAdapter{response: first},
+				repair:                llm.Response{ToolCalls: []llm.ToolCall{{ID: "classify-repair", Name: "emit_turn_policy", Params: repairParams}}},
+			}
 			classifier := repl.NewChitchatClassifier(classifierModel).(repl.SingleShotTurnPolicyClassifier)
 			policy, err := classifier.ClassifyPolicySingleShot(repl.WithNamedInputRoutingContext(t.Context(), request, repo, anchor), request, "", false)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if len(classifierModel.requests) != 2 || string(classifierModel.response.ToolCalls[0].Params) != originalParams {
+				t.Fatal("classifier skipped bounded repair or rewrote the rejected original")
+			}
+			repairMessages := classifierModel.requests[1]
+			repairInstruction := repairMessages[len(repairMessages)-1].Content
+			for _, want := range []string{"source_explanation", "current_source_evidence_mode", "optional", "not yet accepted"} {
+				if !strings.Contains(repairInstruction, want) {
+					t.Errorf("classifier repair omitted precise conflict %q: %s", want, repairInstruction)
+				}
 			}
 			policy = repl.ApplyTurnPolicyGuards(policy, false, false)
 			hint := repl.TurnRouteHintFromPolicy(policy)

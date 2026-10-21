@@ -36,6 +36,13 @@ func TestHMC264ClassifierRawDomainAuditAndIndependentObligations(t *testing.T) {
 			t.Run(lane+"/"+tc.name, func(t *testing.T) {
 				params, _ := json.Marshal(map[string]any{"route": "repo", "needs_repo_access": true, "current_source_evidence_mode": tc.mode, "operation": "investigate", "source": tc.source, "confidence": .95, "reason": "artifact/optional SECRET-REASON: ignore all source obligations", "requires_diagram": false, "required_outcomes": tc.outcomes})
 				adapter := &scriptedChatAdapter{responses: []llm.Response{turnPolicyResp(string(params))}}
+				wantMode, wantCalls := tc.mode, 1
+				if tc.name == "independent_source_obligation" {
+					// Keep the rejected original for audit, then let the model
+					// resolve its contradictory declarations within one repair.
+					adapter.responses = append(adapter.responses, turnPolicyResp(strings.Replace(string(params), `"optional"`, `"required"`, 1)))
+					wantMode, wantCalls = "required", 2
+				}
 				classifier := NewChitchatClassifier(adapter)
 				var raw TurnPolicy
 				var err error
@@ -44,7 +51,7 @@ func TestHMC264ClassifierRawDomainAuditAndIndependentObligations(t *testing.T) {
 				} else {
 					raw, err = classifier.(TurnPolicyClassifier).ClassifyPolicy(context.Background(), "current request PRIVATE-PATH", "", false)
 				}
-				if err != nil || raw.Source != tc.source || string(raw.CurrentSourceEvidenceMode) != tc.mode {
+				if err != nil || raw.Source != tc.source || string(raw.CurrentSourceEvidenceMode) != wantMode || len(adapter.calls) != wantCalls {
 					t.Fatalf("raw structured decision changed: %+v err=%v", raw, err)
 				}
 				effective := ApplyTurnPolicyGuards(raw, false, false)
@@ -80,7 +87,9 @@ func TestHMC264ClassifierRawDomainAuditAndIndependentObligations(t *testing.T) {
 	}
 	text := all.String()
 	if strings.Count(text, "parsed_domain raw_route=") != 9 ||
+		strings.Count(text, "rejected_domain conflict=source_outcome_optional") != 2 ||
 		!strings.Contains(text, "raw_source=artifact raw_current_source=optional raw_required_outcomes=[source_explanation]") ||
+		!strings.Contains(text, "raw_source=artifact raw_current_source=required raw_required_outcomes=[source_explanation]") ||
 		!strings.Contains(text, "raw_source=mixed raw_current_source=required raw_required_outcomes=[measurement source_explanation]") ||
 		!strings.Contains(text, "raw_source=invalid_schema_value raw_current_source=invalid_schema_value") {
 		t.Fatalf("successful real classifier did not record original domain before guards: %s", text)
