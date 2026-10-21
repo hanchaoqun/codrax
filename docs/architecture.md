@@ -411,6 +411,8 @@ Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模
 
 **独立交付义务（HMC §198）**：TurnPolicy与TurnRouteHint携带`required_outcomes`枚举集合（answer/measurement/source_explanation/external_artifact/computer_action/source_change），记录用户要的结果，不记录内部取证步骤、事实或权限。共享短教学明确“统计＋当前源码说明”中的说明不能因被判次要而丢失；没有外部产物/机器动作/明确写入要求时，typed源码义务将请求送入只读分析，普通工作目录访问不因此变源码任务。命令操作的request/plan/重规划/续跑保留原集合，短stdout也不能绕过复合目标的完成评估；确实未能评估时以partial保留未完义务，简单单一操作继续走原低成本路径。不扫描问答原文，不凭source_change位绕过写授权。provider专用计划全链传递及分类假阳性仍为开放验收范围，不宣称所有operation handler均已覆盖。
 
+**分类声明一致性（HMC §274）**：模型显式声明`source_explanation`结果却同时声明`current_source_evidence_mode=optional`时，两者尚未受理，复用分类器既有的一次same-schema结构修复额度。模型可重申required以保留独立源码任务，或撤去并非用户独立要求的source_explanation；系统不替模型选边、不扫描reason/问答原文。每次完整响应都解码到全新对象，校验通过后整体交接，避免修复轮省略字段继承被拒首轮值。重试仍矛盾则返回错误，走既有失败处理；不新增第三调用。legacy缺省及直接guard的兼容行为不变，合法mixed/required不降级。这不保证模型对自然任务的语义分类永远正确，也不放松后续来源、完整性和因果资格。
+
 > **这一章解决一个 LLM 系统里最容易出问题的环节：把自然语言问题翻译成下游可消费的 typed 结构。**
 
 ### 4.1 为什么要把"意图识别"做成一整层
