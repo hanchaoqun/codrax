@@ -153,12 +153,10 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 			fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; field_catalog=%s; retained_rows=%d; scope_refs=%s%s\n", table.ObservationID, table.View, table.Label, catalog, len(table.Rows), strings.Join(scopeRefs, ","), sourceTitle)
 			continue
 		}
-		rows := table.Rows[:count]
+		rowPreview := runtimeMeasurementHandoffPreview(table, count)
+		rows := rowPreview.Rows
 		previewRows += count
-		preview, _ := json.Marshal(struct {
-			Columns []string   `json:"columns"`
-			Rows    [][]string `json:"rows"`
-		}{table.Columns, rows})
+		preview, _ := json.Marshal(rowPreview)
 		fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q%s; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
 			table.ObservationID, table.View, table.Label, sourceTitle, len(table.Rows), len(table.Rows)-len(rows), preview)
 		samplingFacts.table(table, len(rows))
@@ -198,7 +196,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 		}
 		publication.observeMeasurementView(table, complete)
 	}
-	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
+	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. A table_boundary_sample preserves original source_row_indices in producer order, not a continuous time span or every subject's boundaries; a one-row allocation contains only the first row. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
 	samplingFacts.publish(ctx, publication)
 	return b.String()
 }

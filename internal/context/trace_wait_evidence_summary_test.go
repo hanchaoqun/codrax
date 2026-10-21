@@ -214,7 +214,7 @@ func TestTraceWaitEvidence_FinalizerProjectsBoundedNamedTargetRelations(t *testi
 // waker/wakee/timestamp; identical republications collapse; ts order.
 func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
-	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay).") {
+	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp). "+types.TraceWakeupPreWaitGuidance) {
 		t.Fatalf("wakeup edge lane missing:\n%s", summary)
 	}
 	for _, want := range []string{

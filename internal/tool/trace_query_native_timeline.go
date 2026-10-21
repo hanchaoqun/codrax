@@ -27,18 +27,18 @@ func traceQueryNativeTimelineObservations(result tracequery.Result, ref types.Ob
 	var out []types.ObservationRecord
 	if timeline := result.NativeTargetTimeline(); timeline != nil {
 		if table, ok := traceQueryNativeThreadTimelineTable(*timeline, ref, start, end); ok {
-			out = append(out, traceQueryNativeTimelineRecord(TraceThreadTimelinePredicate, traceThreadLabel(timeline.Thread), table, ref, scope, at))
+			out = append(out, traceQueryNativeTimelineRecord(TraceThreadTimelinePredicate, traceThreadLabel(timeline.Thread), table, ref, scope, at, result))
 		}
 	}
 	if stats := result.WindowStats; stats != nil {
 		if table, ok := traceQueryNativeCPUFrequencyTable(*stats, start, end); ok {
-			out = append(out, traceQueryNativeTimelineRecord(TraceCPUFrequencyTimelinePredicate, "CPU frequency", table, ref, scope, at))
+			out = append(out, traceQueryNativeTimelineRecord(TraceCPUFrequencyTimelinePredicate, "CPU frequency", table, ref, scope, at, result))
 		}
 	}
 	return out
 }
 
-func traceQueryNativeTimelineRecord(predicate, subject string, table types.RuntimeMeasurementTable, ref types.ObservationSourceRef, scope, at string) types.ObservationRecord {
+func traceQueryNativeTimelineRecord(predicate, subject string, table types.RuntimeMeasurementTable, ref types.ObservationSourceRef, scope, at string, result tracequery.Result) types.ObservationRecord {
 	r := types.ObservationRecord{ID: "trace_query:" + scope + "#" + predicate, Origin: types.AnswerEvidenceOriginRuntimeArtifact,
 		Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
 		ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref,
@@ -48,11 +48,37 @@ func traceQueryNativeTimelineRecord(predicate, subject string, table types.Runti
 		ObservedAt: at, Confidence: 1}
 	table.ObservationID = r.ID
 	table.Notes = append([]string{"来源：" + ref.Path,
-		fmt.Sprintf("所选窗口 [%s, %s) 秒；各行保留原生查询的区间和数值，不跨来源相加。", traceQueryDisplaySeconds(r.Span.StartTs), traceQueryDisplaySeconds(r.Span.EndTs))}, table.Notes...)
+		fmt.Sprintf("所选窗口 [%s, %s) 秒；各行保留原生查询的区间和数值，不跨来源相加。%s", traceQueryDisplaySeconds(r.Span.StartTs), traceQueryDisplaySeconds(r.Span.EndTs), traceQueryNativeIndexWitnessNote(result))}, table.Notes...)
 	publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: ref, Tables: []types.RuntimeMeasurementTable{table}}
 	data, _ := json.Marshal(publication) // all numeric inputs were validated before formatting
 	r.RichNotes = []string{types.TraceNoteKeyRuntimeMeasurement + "=" + string(data)}
 	return r
+}
+
+// The parser's declared index bounds are configuration, not proof that parsing
+// reached every bound, the selected measurement window, or complete capture. Keep them
+// in the existing scope note so compact note selection cannot displace the
+// producer's unknown-endpoint and waiting-location qualifications.
+func traceQueryNativeIndexWitnessNote(result tracequery.Result) string {
+	window := "索引未按时间限定"
+	if result.IndexWindowed {
+		window = "未发布，不能推定"
+		if traceQueryNativeFinite(result.IndexTimeStart) && traceQueryNativeFinite(result.IndexTimeEnd) && result.IndexTimeEnd > result.IndexTimeStart {
+			window = fmt.Sprintf("%.6f..%.6f 秒", result.IndexTimeStart, result.IndexTimeEnd)
+		}
+	}
+	lines := "未发布，不能推定"
+	switch {
+	case result.IndexLineStart == 0 && result.IndexLineEnd == 0:
+		lines = "索引未按行限定"
+	case result.IndexLineStart > 0 && result.IndexLineEnd >= result.IndexLineStart:
+		lines = fmt.Sprintf("%d..%d", result.IndexLineStart, result.IndexLineEnd)
+	case result.IndexLineStart > 0 && result.IndexLineEnd == 0:
+		lines = fmt.Sprintf("从第 %d 行起，末行未限定", result.IndexLineStart)
+	case result.IndexLineStart == 0 && result.IndexLineEnd > 0:
+		lines = fmt.Sprintf("截至第 %d 行，起行未限定", result.IndexLineEnd)
+	}
+	return fmt.Sprintf(" 本次查询的索引配置时间范围：%s；索引配置行范围：%s。不保证配置范围内已全部解析或采集完整；关闭事件仅按各表实际端点见证判定，各查询独立。", window, lines)
 }
 
 func traceQueryNativeThreadTimelineTable(timeline tracequery.TimelineResult, ref types.ObservationSourceRef, start, end float64) (types.RuntimeMeasurementTable, bool) {

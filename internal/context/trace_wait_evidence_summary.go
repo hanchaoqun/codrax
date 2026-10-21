@@ -1141,7 +1141,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	if len(selectedEdges) > 0 {
-		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). " + types.TraceWakeupPreWaitGuidance + " A healthy cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
+		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp). " + types.TraceWakeupPreWaitGuidance + " A healthy cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
 		degradedPlacement := false
 		for _, edge := range selectedEdges {
 			if edge.targetCPUPlacementDegraded {
