@@ -70,9 +70,9 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 		var description string
 		if json.Unmarshal(properties["reason"], &reason) == nil && json.Unmarshal(reason["description"], &description) == nil {
 			if required {
-				reason["description"], _ = json.Marshal("Lifecycle rationale only. Keep all independent analysis in native_fact_handoff.interpretation, not in reason. Delivery status and links belong to the terminal component.")
+				reason["description"], _ = json.Marshal("Lifecycle rationale only. Keep independent analysis in native_fact_handoff.interpretation_units or its legacy interpretation, not in reason. Delivery status and links belong to the terminal component.")
 			} else {
-				reason["description"], _ = json.Marshal("When native_fact_handoff is selected, reason is lifecycle rationale only; put every independent conclusion, diagnosis and scope boundary in its interpretation. Otherwise use the following legacy reason contract: " + description)
+				reason["description"], _ = json.Marshal("When native_fact_handoff is selected, reason is lifecycle rationale only; put every independent conclusion, diagnosis and scope boundary in its interpretation_units or legacy interpretation. Otherwise use the following legacy reason contract: " + description)
 			}
 			properties["reason"], _ = json.Marshal(reason)
 		}

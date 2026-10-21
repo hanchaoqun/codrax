@@ -1063,7 +1063,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if !skipForExtractor && len(ac.RelevantFacts) > 0 && !suppressKnownFactsForTypedSupportFinalizer(ac) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionKnownFacts,
-			Content: strings.Join(ac.RelevantFacts, "\n"),
+			Content: factObservationBoundary + strings.Join(ac.RelevantFacts, "\n"),
 		})
 	}
 
@@ -1724,13 +1724,8 @@ func trimKnownFactValue(key, val string) string {
 
 func extractRelevantFacts(facts []types.RepoFact) []string {
 	result := make([]string, 0, len(facts))
-	for _, f := range facts {
-		val := trimKnownFactValue(f.Key, f.Value)
-		if len(val) > maxFactValueLen {
-			val = types.CutPrefixRuneSafe(val, maxFactValueLen) + "... [truncated]"
-		}
-		result = append(result, fmt.Sprintf("[%s] %s = %s (source: %s, confidence: %.2f)",
-			f.Key, f.Key, val, f.Source, f.Confidence))
+	for i, f := range facts {
+		result = append(result, formatRelevantFact(i, f))
 	}
 	return result
 }

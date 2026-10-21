@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"golang.org/x/sys/unix"
 	"modernc.org/libc"
 	"modernc.org/sqlite"
@@ -34,6 +35,8 @@ type hmc275WALVFS struct {
 	tls                           *libc.TLS
 	reads, shmLocks, deniedWrites int
 	registered                    bool
+	closeSHMBefore, closeSHMAfter filegeneration.Identity
+	closeSHMChanged               bool
 }
 
 var hmc275VFSRegistry = struct {
@@ -176,10 +179,11 @@ func hmc275OpenVFS(ctx context.Context, path string) (_ *hmc275WALVFS, finalErr 
 	return v, nil
 }
 
-func (v *hmc275WALVFS) close() {
+func (v *hmc275WALVFS) close() error {
 	if v == nil {
-		return
+		return nil
 	}
+	var closeErr error
 	if v.cvfs != 0 {
 		if v.registered {
 			sqlite3.Xsqlite3_vfs_unregister(v.tls, v.cvfs)
@@ -192,8 +196,29 @@ func (v *hmc275WALVFS) close() {
 	if v.cname != 0 {
 		libc.Xfree(v.tls, v.cname)
 	}
-	for _, m := range v.mappings {
-		_ = unix.Munmap(m)
+	// An external writer can leave dirty SHM pages behind. On the tested Darwin
+	// filesystem, the last munmap (even PROT_READ) can change ctime. This is a
+	// terminal rejection, not a claim that read-only mappings have no effects.
+	// Compare full held-FD generations while it is still possible to do so;
+	// neither reopen by pathname nor weaken SameVersion to bytes/mtime alone.
+	if len(v.mappings) > 0 {
+		var err error
+		v.closeSHMBefore, err = filegeneration.FromFile(v.files[2])
+		if err != nil {
+			closeErr = fmt.Errorf("observe source before mapping release: %w", err)
+		}
+		for _, m := range v.mappings {
+			if err := unix.Munmap(m); err != nil && closeErr == nil {
+				closeErr = fmt.Errorf("release source mapping: %w", err)
+			}
+		}
+		v.closeSHMAfter, err = filegeneration.FromFile(v.files[2])
+		if err != nil {
+			closeErr = fmt.Errorf("observe source after mapping release: %w", err)
+		} else if !v.closeSHMBefore.SameVersion(v.closeSHMAfter) {
+			v.closeSHMChanged = true
+			closeErr = fmt.Errorf("source generation changed while releasing shared-memory mapping; active-WAL zero-effect capture is unsupported")
+		}
 	}
 	for _, f := range v.files {
 		if f != nil {
@@ -206,6 +231,7 @@ func (v *hmc275WALVFS) close() {
 	hmc275VFSRegistry.Lock()
 	delete(hmc275VFSRegistry.items, v.token)
 	hmc275VFSRegistry.Unlock()
+	return closeErr
 }
 
 func hmc275VFSOpen(_ *libc.TLS, p, name, file uintptr, flags int32, out uintptr) int32 {
@@ -353,20 +379,46 @@ func hmc275VFSShmUnmap(_ *libc.TLS, p uintptr, deleteFlag int32) int32 { return 
 // On any error/cancellation only this function's fresh temporary directory is
 // removed. Existing public preparation/SameVersion code is not involved.
 func hmc275Capture(ctx context.Context, source, outputParent string, pinned func(*hmc275WALVFS) error, stepped func(int)) (result string, finalErr error) {
+	return hmc275CaptureAtAdmission(ctx, source, outputParent, nil, pinned, stepped)
+}
+
+// The admission hook is test-only synchronization, after held-source protocol
+// locks and tuple checks but before SQLite establishes its read transaction.
+func hmc275CaptureAtAdmission(ctx context.Context, source, outputParent string, admitted, pinned func(*hmc275WALVFS) error, stepped func(int)) (result string, finalErr error) {
 	v, err := hmc275OpenVFS(ctx, source)
 	if err != nil {
 		return "", err
 	}
-	defer v.close()
-	dir, err := os.MkdirTemp(outputParent, "hmc275-private-")
+	var dir string
+	defer func() {
+		// Finish lifecycle checks before publishing or deleting the private
+		// directory. A late close failure must not leak a successful path.
+		if closeErr := v.close(); closeErr != nil {
+			if finalErr == nil {
+				finalErr = closeErr
+			} else {
+				finalErr = fmt.Errorf("%w; additionally: %v", finalErr, closeErr)
+			}
+		}
+		if finalErr == nil {
+			finalErr = ctx.Err()
+		}
+		if finalErr != nil {
+			result = ""
+			if dir != "" {
+				_ = os.RemoveAll(dir)
+			}
+		}
+	}()
+	if admitted != nil {
+		if err = admitted(v); err != nil {
+			return "", err
+		}
+	}
+	dir, err = os.MkdirTemp(outputParent, "hmc275-private-")
 	if err != nil {
 		return "", err
 	}
-	defer func() {
-		if finalErr != nil {
-			_ = os.RemoveAll(dir)
-		}
-	}()
 	db, err := sql.Open("sqlite", "file:capture?mode=ro&vfs="+v.name)
 	if err != nil {
 		return "", err

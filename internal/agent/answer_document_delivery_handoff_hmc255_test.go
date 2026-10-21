@@ -188,7 +188,7 @@ func TestHMC255ManagedDeliveryKeepsUnpublishedOrRejectedAnalysis(t *testing.T) {
 			}
 			interpretation := "HMC255_KEEP_BUSINESS_BOUNDARY"
 			if mode == "long_interpretation" {
-				interpretation += strings.Repeat(" independent analysis", 100)
+				interpretation += "\n\n" + strings.Repeat(" independent analysis", 100)
 			}
 			handoff := map[string]any{"runtime_measurements": choices[:1], "interpretation": interpretation}
 			if mode == "unknown_id" {

@@ -369,13 +369,7 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 		if r.Success {
 			confidence := e.toolConfidence(r.ToolName)
 			if confidence > 0 {
-				facts = append(facts, types.RepoFact{
-					Key:         r.ToolName,
-					Value:       r.Summary,
-					Source:      logicalFactSource(r.Summary, r.ToolName),
-					EvidenceRef: r.RawRef,
-					Confidence:  confidence,
-				})
+				facts = append(facts, types.NewToolResultRepoFact(r, logicalFactSource(r.Summary, r.ToolName), confidence))
 			}
 			if confidence > 0.5 {
 				sources[r.ToolName] = struct{}{}

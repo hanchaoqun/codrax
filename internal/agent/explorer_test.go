@@ -8136,7 +8136,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"`trace_query`",
 			"`root_cause_rank`",
 			"`wakeup_chain`",
-			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 		} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("runtime read hint missing %q:\n%s", want, sig.Hint)
@@ -8181,7 +8181,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			`grep(path="app.log"`,
 			"`grep -n`/awk filter",
 			"`read_file` around the selected line window",
-			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 		} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("log runtime read hint missing %q:\n%s", want, sig.Hint)
@@ -8219,7 +8219,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		if strings.Contains(sig.Hint, "broad/header page of a runtime/log/trace artifact") {
 			t.Fatalf("mixed code/runtime reads should not suppress source-evidence guidance:\n%s", sig.Hint)
 		}
-		for _, want := range []string{"batch only for real current-source anchors", "Preserve non-source observations", "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`"} {
+		for _, want := range []string{"batch only for real current-source anchors", "Preserve non-source observations", "the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`"} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("mixed code/runtime reads must retain source proof and separate observation handoff, missing %q:\n%s", want, sig.Hint)
 			}
@@ -8259,7 +8259,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			"artifact-only read backlog",
 			"not current-source code evidence",
 			"Do not convert trace/log rows into current-source `emit_evidence` citations",
-			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 			"`trace_query`",
 			"explicit window/target/view parameters",
 			"If a later step also needs current-code proof",
@@ -8315,7 +8315,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 		for _, want := range []string{
 			"Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources)",
-			"the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
+			"the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`",
 			"artifact line numbers do not make them current-source citations",
 		} {
 			if !strings.Contains(sig.Hint, want) {
@@ -9011,7 +9011,7 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 	}
 	if !strings.Contains(first.Hint, "Current-source claims left only in prose notes are not citeable evidence") ||
 		!strings.Contains(first.Hint, "batch only for real current-source anchors") ||
-		!strings.Contains(first.Hint, "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
+		!strings.Contains(first.Hint, "the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
 		t.Fatalf("first hint should remain full guidance, got: %s", first.Hint)
 	}
 
@@ -9040,7 +9040,7 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 		t.Fatalf("second same-family hint should not repeat full template:\n%s", second.Hint)
 	}
 	if !strings.Contains(second.Hint, "batch only for real current-source anchors") ||
-		!strings.Contains(second.Hint, "the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
+		!strings.Contains(second.Hint, "the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`") {
 		t.Fatalf("compact hint must retain both source obligations and observation handoff:\n%s", second.Hint)
 	}
 	if len(second.Hint) >= len(first.Hint) {

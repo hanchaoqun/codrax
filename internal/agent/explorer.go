@@ -6464,7 +6464,7 @@ func explorerReadHandoffGuidance() string {
 // Both mixed and source-excluded lanes hand non-source observations to the
 // same closure fields. Excluding source inspection must not erase this route.
 func explorerExternalObservationHandoffGuidance() string {
-	return "Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through the completion narrative (`native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`; artifact line numbers do not make them current-source citations. "
+	return "Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through the completion narrative (`native_fact_handoff.interpretation_units` or legacy `native_fact_handoff.interpretation` when selected or required, otherwise `emit_investigation_complete.reason`) plus `aggregate_facts`; artifact line numbers do not make them current-source citations. "
 }
 
 func (e *explorerEvaluator) renderCompactReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
@@ -13845,13 +13845,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if r.Success {
 			confidence := e.toolConfidence(r.ToolName)
 			if confidence > 0 {
-				facts = append(facts, types.RepoFact{
-					Key:         r.ToolName,
-					Value:       r.Summary,
-					Source:      logicalFactSource(r.Summary, r.ToolName),
-					EvidenceRef: r.RawRef,
-					Confidence:  confidence,
-				})
+				facts = append(facts, types.NewToolResultRepoFact(r, logicalFactSource(r.Summary, r.ToolName), confidence))
 			}
 			// Only evidence-bearing tools (Confidence > 0.5) count
 			// toward the "enough facts" floor. Navigation indexes and

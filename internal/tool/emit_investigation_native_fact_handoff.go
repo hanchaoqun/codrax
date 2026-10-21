@@ -11,6 +11,7 @@ type completionNativeFactHandoff struct {
 	AnswerDisplay       []types.AnswerRuntimeMeasurementReceipt `json:"answer_display,omitempty"`
 	Interpretation      *string                                 `json:"interpretation"`
 	InterpretationRole  types.InvestigationInterpretationRole   `json:"interpretation_role,omitempty"`
+	InterpretationUnits []types.InvestigationInterpretationUnit `json:"interpretation_units,omitempty"`
 }
 
 func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNativeFactHandoff) (*types.InvestigationNativeFactHandoff, error) {
@@ -30,10 +31,22 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if !p.InterpretationRole.Valid() {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation_role", "unknown_role"})
 	}
+	var unitIssues []nativeFactHandoffViolation
+	if len(p.InterpretationUnits) > types.MaxInvestigationInterpretationUnits {
+		unitIssues = append(unitIssues, nativeFactHandoffViolation{"native_fact_handoff.interpretation_units", "selection_limit_16"})
+	}
+	for i, unit := range p.InterpretationUnits {
+		if !unit.Valid() {
+			unitIssues = append(unitIssues, nativeFactHandoffViolation{fmt.Sprintf("native_fact_handoff.interpretation_units[%d]", i), "invalid_unit_shape"})
+		}
+	}
+	if len(unitIssues) > 0 {
+		return fail(unitIssues...)
+	}
 	if ctx == nil || ctx.Mutable == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})
 	}
-	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation, InterpretationRole: p.InterpretationRole}
+	h := &types.InvestigationNativeFactHandoff{RuntimeMeasurements: p.RuntimeMeasurements, AnswerDisplay: p.AnswerDisplay, Interpretation: *p.Interpretation, InterpretationRole: p.InterpretationRole, InterpretationUnits: p.InterpretationUnits}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if view == nil {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.runtime_measurements", "no_current_contract"})

@@ -91,22 +91,26 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		negativeTeachingJSON, _ := json.Marshal(types.NegativeObservationTeaching)
 		measurementTeachingJSON, _ := json.Marshal(types.RuntimeMeasurementMemberSetTeaching)
 		interpretationTeachingJSON, _ := json.Marshal(types.NativeFactInterpretationRoleTeaching)
+		unitTeachingJSON, _ := json.Marshal(types.InvestigationInterpretationUnitsTeaching)
 		emitInvestigationCompleteParametersCached = json.RawMessage(strings.NewReplacer(
 			"__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts),
 			"__AGG_FACTS_CAP_TEACHING__", string(capTeachingJSON[1:len(capTeachingJSON)-1]),
 			"__NEGATIVE_OBSERVATION_TEACHING__", string(negativeTeachingJSON[1:len(negativeTeachingJSON)-1]),
 			"__MEASUREMENT_MEMBER_SET_TEACHING__", string(measurementTeachingJSON[1:len(measurementTeachingJSON)-1]),
 			"__INTERPRETATION_ROLE_TEACHING__", string(interpretationTeachingJSON[1:len(interpretationTeachingJSON)-1]),
+			"__INTERPRETATION_UNITS_TEACHING__", string(unitTeachingJSON[1:len(unitTeachingJSON)-1]),
+			"__INTERPRETATION_UNITS_CAP__", strconv.Itoa(types.MaxInvestigationInterpretationUnits),
 		).Replace(`{
 		"type": "object",
 		"properties": {
 			"native_fact_handoff": {
 				"type":"object", "additionalProperties":false,
-				"description":"Optional separated handoff for native measurements. Select existing runtime_measurement observation_id/view pairs instead of restating their values. Put every independent diagnosis, hypothesis, negative finding, source explanation and scope caveat in interpretation; it stays advisory, never causal evidence. With this contract reason is lifecycle rationale only. After this completion is accepted and its references rebind to current sources, interpretation alone owns the current analysis narrative; reason stays in lifecycle audit. Interpretation truncation and native-view publication completeness are disclosed separately, never repaired by replaying reason. Other investigation notes are preserved. This does not waive any completion or evidence requirement.",
+				"description":"Optional separated handoff for native measurements. Select existing runtime_measurement observation_id/view pairs instead of restating their values. Put every independent diagnosis, hypothesis, negative finding, source explanation and scope caveat in interpretation_units or legacy interpretation; both stay advisory, never causal evidence. With this contract reason is lifecycle rationale only. After this completion is accepted and its references rebind to current sources, the separated interpretation alone owns the current analysis narrative; units take precedence over the legacy string, and reason stays in lifecycle audit. Interpretation truncation and native-view publication completeness are disclosed separately, never repaired by replaying reason. Other investigation notes are preserved. This does not waive any completion or evidence requirement.",
 				"properties": {
 					"runtime_measurements":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
 					"answer_display":{"type":"array","maxItems":16,"description":"Optional explicit final-display subset of runtime_measurements, only for requested native facts. The system rebinds and displays all retained rows and notes; inspected views are not automatically selected. No completeness, requested-dimension, source-code or causal authority is added.","items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
-					"interpretation":{"type":"string","description":"All independent interpretation and missing-evidence boundaries, without copying the selected native numbers. Empty only if there is no independent interpretation to preserve."},
+					"interpretation":{"type":"string","description":"Legacy independent interpretation and missing-evidence boundaries, without copying selected native numbers. Leave empty when interpretation_units carries the analysis or when there is no independent interpretation."},
+					"interpretation_units":{"type":"array","maxItems":__INTERPRETATION_UNITS_CAP__,"description":"__INTERPRETATION_UNITS_TEACHING__","items":{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string","minLength":1},"boundaries":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"support_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}}},"required":["text"]}},
 					"interpretation_role":{"type":"string","enum":["independent_analysis","native_fact_restatement"],"description":"__INTERPRETATION_ROLE_TEACHING__"}
 				},"required":["runtime_measurements","interpretation"]
 			},

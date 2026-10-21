@@ -225,7 +225,7 @@ func TestHMC247NativeFactHandoffConservativeBoundaries(t *testing.T) {
 			const independent = "HMC247_KEEP_INDEPENDENT_NOTE"
 			interpretation := "HMC247_KEEP_INDEPENDENT_INTERPRETATION"
 			if mode == "long_interpretation" {
-				interpretation += strings.Repeat(" independent boundary", 100)
+				interpretation += "\n\n" + strings.Repeat(" independent boundary", 100)
 			}
 			if mode == "sanitized_interpretation" {
 				interpretation += "\n\n<think>hidden scratch</think>"

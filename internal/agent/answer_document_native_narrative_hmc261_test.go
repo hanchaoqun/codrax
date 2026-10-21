@@ -22,7 +22,7 @@ func TestHMC261NativeNarrativeOwnershipSurvivesPresentationLimits(t *testing.T) 
 			const independent = "HMC261_INDEPENDENT_SOURCE_AND_CHAIN_BUSINESS_NOTE"
 			interpretation := strings.Repeat("independent source and business boundary; ", 28) + "HMC261_AFTER_900_BYTE_BOUNDARY"
 			if mode == "long_tail" {
-				interpretation += strings.Repeat("独立业务边界。", 200) + "HMC261_UNPUBLISHED_TAIL"
+				interpretation += "\n\n" + strings.Repeat("独立业务边界。", 200) + "HMC261_UNPUBLISHED_TAIL"
 			}
 			if mode == "sanitized" {
 				interpretation = "<think>HMC261_PRIVATE_SCRATCH</think>"

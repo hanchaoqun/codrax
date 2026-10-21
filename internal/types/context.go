@@ -7571,11 +7571,14 @@ type StageReport struct {
 
 // RepoFact is a single discovered fact about the repository.
 type RepoFact struct {
-	Key         string  `json:"key"`
-	Value       string  `json:"value"`
-	Source      string  `json:"source"`
-	EvidenceRef string  `json:"evidence_ref,omitempty"`
-	Confidence  float64 `json:"confidence"`
+	// Display-only provenance of the exact producer result. JSON/legacy facts
+	// cannot restore it; this grants neither evidence nor causal authority.
+	toolObservation *repoFactToolObservation
+	Key             string  `json:"key"`
+	Value           string  `json:"value"`
+	Source          string  `json:"source"`
+	EvidenceRef     string  `json:"evidence_ref,omitempty"`
+	Confidence      float64 `json:"confidence"`
 }
 
 // ToolResult records the outcome of a tool invocation.

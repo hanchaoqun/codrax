@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -79,29 +78,20 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 			}
 		}
 	}
-	originalInterpretation := strings.TrimSpace(h.NarrativeInterpretation())
-	interpretation := sanitizePriorDraftForSummary(originalInterpretation)
-	projection.sanitized = interpretation != originalInterpretation
-	projection.interpretationBytes = len(interpretation)
 	budget := 900
 	if projection.ownsCurrentNarrative {
 		// Reuse the former interpretation + lifecycle-synthesis slots. This
 		// does not enlarge the total narrative budget or independent note slots.
 		budget += 900
 	}
-	end := min(len(interpretation), budget)
-	for end > 0 && !utf8.ValidString(interpretation[:end]) {
-		end--
-	}
-	publishedInterpretation := interpretation[:end]
-	projection.publishedInterpretationBytes = end
+	preview := previewInvestigationInterpretation(h, budget, sanitizePriorDraftForSummary)
+	projection.sanitized = preview.sanitized
+	projection.interpretationBytes = preview.totalBytes
+	projection.publishedInterpretationBytes = preview.publishedBytes
 	var prose strings.Builder
-	if interpretation != "" {
+	if preview.text != "" {
 		prose.WriteString("## Independent Investigation Interpretation\n\nModel-authored hypotheses, diagnostic boundaries and source/business clues; advisory only, not native measurements or proof of a causal relation.\n\n")
-		prose.WriteString(publishedInterpretation + "\n\n")
-		if end < len(interpretation) {
-			fmt.Fprintf(&prose, "Interpretation is partial: %d of %d sanitized UTF-8 bytes shown; %d bytes omitted. The full original is retained in the accepted completion's native_fact_handoff.interpretation for audit; its omitted tail is not present in this view.\n\n", end, len(interpretation), len(interpretation)-end)
-		}
+		prose.WriteString(preview.text + "\n\n")
 	}
 	if projection.sanitized {
 		prose.WriteString("Interpretation safety filtering changed the displayed material; the original remains audit-only, not a second answer narrative.\n\n")

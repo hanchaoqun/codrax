@@ -32,8 +32,19 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 	fmt.Fprintf(&b, "- lifecycle rationale only (not an answer conclusion or evidence): %s\n", truncateExtractorPromptText(sanitizeExtractorStageHandoffText(reason), limit))
 	refs, _ := json.Marshal(h.RuntimeMeasurements)
 	fmt.Fprintf(&b, "- Native measurement references (rebind current observations; these do not certify publication, completeness or causality): %s\n", refs)
-	if interpretation := sanitizeExtractorStageHandoffText(sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, h.NarrativeInterpretation(), facts))); interpretation != "" {
-		fmt.Fprintf(&b, "- Independent interpretation (model-authored advisory; typed evidence remains authoritative): %s\n", truncateExtractorPromptText(interpretation, 900))
+	preview := previewInvestigationInterpretation(h, 900, func(s string) string {
+		s = sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, s, facts))
+		if len(h.InterpretationUnits) == 0 {
+			// Legacy prose retains stage-navigation formatting. Structured
+			// advisory units preserve opaque references and tool names: a
+			// display-label rewrite is not removal of unsafe content and must
+			// not silently discard the entire finding and its boundaries.
+			s = sanitizeExtractorStageHandoffText(s)
+		}
+		return s
+	})
+	if preview.text != "" {
+		fmt.Fprintf(&b, "- Independent interpretation (model-authored advisory; typed evidence remains authoritative): %s\n", preview.text)
 	}
 	return b.String()
 }

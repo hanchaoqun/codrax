@@ -122,7 +122,7 @@ func TestHMC256ActualExplorerLaterPublicationKeepsConditionalOwnership(t *testin
 		for _, m := range messages {
 			text.WriteString(m.Content)
 		}
-		if !strings.Contains(text.String(), "after later tool results change") || !strings.Contains(text.String(), "use native_fact_handoff.interpretation when the current completion schema requires") {
+		if !strings.Contains(text.String(), "after later tool results change") || !strings.Contains(text.String(), "use native_fact_handoff.interpretation_units or its legacy interpretation when the current completion schema requires") {
 			t.Fatal("initial legacy teaching survived publication without a conditional owner")
 		}
 		if strings.Contains(text.String(), "make `reason` the concise investigation conclusion") && !strings.Contains(text.String(), "legacy reason guidance applies only while native_fact_handoff is neither required nor selected") {
