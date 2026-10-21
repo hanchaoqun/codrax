@@ -9789,3 +9789,35 @@ WAL原型仅test-only，生产NO-GO：三文件原子准入/ABA、owner退出与
 首次全仓95包PASS/13无测试/1包FAIL，唯一为旧HMC218前缀预期与新typed timeline首尾合同不一致；原失败保留。正式定向RED后仅修该测试，按公开原始行号核每格、顺序、首尾、覆盖和128行预算，非时序仍前缀；定向及race通过。v2冻结7218输入仅该测试变化，生产、用例及实际CLI与两例v1完全同字节，后继全仓独立登记。完整能力新增0/累计24、共享生产子能力1组、WAL测试原型1项、整答欠项2组含于55，08.3/17.7/18.3不销账。正式收据、原件索引与分笔发布见[批汇总](../../eval/parallel_selected_summary_hmc_timeline_budget_wal_20261021.md)和[人工审计](../../eval/parallel_selected_summary_hmc_timeline_budget_wal_20261021_manual_audit.md)。
 
 v2全仓PID72722，2026-10-21 UTC08:28:36.387629–08:42:31.348779正式exit0，96包PASS/13无测试包，零失败/非JSON行；日志SHA `10e33f7de363a57c5e64b3b1bc2d2e57206b6692ea6862d695f1d521f960944a`。08:42:41.329673封存250文件并逐件重核，索引SHA `7fd8fb522b4a6ce9705e164fcc91762d7188b70cb33374c3045d33f577191ff3`、收据SHA `2e55bb5eb704f812c4c4e2cf6776d7f62037e9762976e024211bee99829b1793`。代码`44aa9ff2225f4185c4b69620dc4d921845571968`已普通推送，文档另笔，发布凭据独立不改封存；55开放不减少。
+
+## 276. 工具来源分层、解释原子预算与WAL生命周期（2026-10-21）
+
+起点`69d6afa0f79d8223176345c9f67073e5d84bffc8`，双侧及提交前逐checkbox复核79唯一/0重复＝24已交付＋55开放，33待实施/15部分/3待验收/3验收中/1持续执行。归现有01.3/16.4/18.4的两个共享接缝，17.7原型独立，不新建重复父项。参考重读`core/query_engine.py`参数、完整fetch与展示metadata及`core/db_pool.py`；借鉴全结果与显示成本分离，不照搬省来源、path+mtime缓存或源库CREATE INDEX/commit。
+
+### 276.1 两组生产子能力与有限验证
+
+主/子Explorer在真实成功ToolResult生成RepoFact时保不可变私有来源关联，共享Known Facts显示原件引用、工具、实际时间及typed origin，不再将类别confidence0.80作为正确率。来源未知、JSON恢复及字段变化不凭同标签/文本重接；复制/fork和防御性getter保原。typed事实与自由预览分层，重复carrier按既有精确ID去重，不合并不同原件，不把typed hard策略贴给自由摘要。四份冲突试算、合法count/VCS/源码/log均保留，原始ToolResult不改写。
+
+独立解释新增可选整单元协议：text、boundaries、support_refs整组JSON计入原900/1800B共享预算，整组保留或省略，并报告真实省略；引用仅定位提议支持，不证明因果。新单元存在时旧interpretation留审计，不双重成文；legacy短文本保兼容、长文本只保完整段落并披露限制可能遗漏。Clone/恢复、schema、工具/阶段教学同源。合法工具名引用及段间/首尾空白规范不误触安全删除，实际安全过滤改变内容则整项省略；保原始字节计费。未扫描用户/模型原文作新硬门，Trace投影、链上原因/业务线索、自动补齐与来源授权不变。
+
+公开真实工具→主/子ParseOutput→实际Finalizer来源反例RED→GREEN；解释实际Finalizer和Extractor handoff renderer正反（不是完整Extractor agent）。独立审查发现合法引用和空白误删后亦公开RED→GREEN。相关、race及完整context包通过；所有前置失败与错误测试夹具保原，未放宽产品门。
+
+### 276.2 WAL明确NO-GO
+
+test-only新增准入持锁后owner退出、pin后TRUNCATE/RESTART实际busy、helper结束后checkpoint成功/锁释放、新提交及一页后取消无发布。发现owner在pin后退出时最后readonly SHM munmap改变源ctime；字节/mtime/inode/uid/gid相同不满足完整强代次不变。原始FAIL、三次复现及紧邻munmap的held-FD探针保留。原型终态完整代次复核失败时拒绝发布、清空路径并清理本次私有备份，**并不撤销已发生副作用**。五根十四叶及race包括安全反证PASS，不能称持续写入快照能力PASS。
+
+生产仍NO-GO，17.7开放。三文件准入/ABA、owner/SHM生命周期、强杀回收、跨平台/owner/长期压力和正式捕获凭证/共享准备未交付；后续先做安全替代方案决策，不继续在已证不满足源零副作用的方案上无限追加局部场景。
+
+### 276.3 真实双例与剩余高ROI
+
+7229输入、实际CLI及真实恢复测试binary冻结后恰好两例各一次并行，机器2/2、完整人工1/2。A原自然IO题：四组统计/成员/13段时序及写末1ms正确，正文仍跨RQ/BIO相加、无映射断言同一物理IO，并从部分配对人口推设备不过载、无严重争用，整答FAIL。原生完整数据与边界已到场，不能把所有解释越权归为缺数据或摘要截断；不重写已正确统计器。
+
+A新Known Facts来源投影自然命中，四次awk分支未触发。解释单元生成受理，但基线已有runtime-only叙述保护在新预览之前return：实际typed source-not-required/direct-observation/deterministic-query同时满足，故原子预算自然NOT_TRIGGERED，**不是本批新交接丢失**，不关闭保护重传错误解释。两次因旧interpretation键仍必填而补键重试另记共享JSON存在性合同摩擦，下一批泛化收敛新旧载体，不追加问答关键词门。
+
+B只读登记：真实父controller/planner、独立恢复子controller、新执行后finish有限人工PASS；operator准备源码/旧验证，公开RunTests真实执行，`full_cli_run=false`。当前1 assertion/1pass/2commands与实际最终报告一致，累计有效2reports/2results/4commands；本轮runner3次尝试加旧operator1次，中间失败未误充成功。父/子原件、历史弱报告、3verify引用/2final链接及5次context-pack持久化一致，原件/HEAD/测试不变，归档文件不冒充执行次数。不扩签从零代码交付、read成文或WAL/sample-only。
+
+本批完整能力新增0（累计24），共享生产子能力2组、测试生命周期1组；本批整答验收欠项1组含于55开放，旧sample-only及历史FAIL不回签。下一ROI：共享成文消费与解释载体JSON合同→17.6真实格式/版本/工具/原生平台剩余凭证并轮换sample-only→17.7安全替代方案决策；普通ZIP/gzip运输、尾部读取与只读登记已交付部分不重复施工，缺平台/样本明确前置。完整审计见[批汇总](../../eval/parallel_selected_summary_hmc_fact_provenance_atomic_wal_20261021.md)及[人工审计](../../eval/parallel_selected_summary_hmc_fact_provenance_atomic_wal_20261021_manual_audit.md)。
+
+全仓PID58084，2026-10-21 UTC09:10:13.902995–09:23:31.819250，正式exit0，96包PASS/13无测试/零失败与非JSON行，日志SHA`b8efb507831a4a9ccf92b88ec000839738131c2d384ea027d91067ac3a034967`。两例各正式exit0不代替人工结论，原件封存与代码/文档分笔普通推送凭证见批汇总，发布收据不修改封存索引。
+
+09:28:34.278414封存196文件，含30源码快照，原目录50原件逐件保留；索引SHA`710a7a66f8330508d33d6e4d5113810a45652d7e26106a162de4ca0ec9060c1f`、归档收据SHA`b4da2ac03477acd54e05f89b9690ea32de599ee467282e27d4b3a817e9d4f8ab`。代码`c5352e214d664f00224e80f772e1527638a15b42`与文档分笔普通推送，最终remote/HEAD/clean与封存复核独立记录，不回签旧FAIL，55口径不变。
