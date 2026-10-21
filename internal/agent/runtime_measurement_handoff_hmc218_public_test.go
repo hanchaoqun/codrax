@@ -64,6 +64,7 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 			messages := dependencyObservationMessages(t, ctx)
 			previews := hmc218MeasurementMessagePreviews(t, messages)
 			total, shown := 0, 0
+			partialTimeline := false
 			for _, table := range choices {
 				total += len(table.Rows)
 				key := table.ObservationID + "/" + string(table.View)
@@ -73,8 +74,49 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 					continue
 				}
 				shown += len(preview.Rows)
-				if !reflect.DeepEqual(preview.Columns, table.Columns) || len(preview.Rows) > len(table.Rows) || !reflect.DeepEqual(preview.Rows, table.Rows[:len(preview.Rows)]) {
+				if !reflect.DeepEqual(preview.Columns, table.Columns) || len(preview.Rows) > len(table.Rows) {
 					t.Errorf("source-bound native measurement cells changed: %s", key)
+					continue
+				}
+				if table.View != types.RuntimeMeasurementTimeline {
+					// Non-temporal tables retain the original prefix contract.
+					if !reflect.DeepEqual(preview.Rows, table.Rows[:len(preview.Rows)]) || len(preview.SourceRowIndices) != 0 || preview.RowIndexBase != nil || preview.Selection != "" || preview.SeriesBoundaryCoverage != "" {
+						t.Errorf("non-timeline source prefix or metadata changed: %s", key)
+					}
+				} else {
+					// Independently check the published source coordinates, not
+					// the renderer helper's own output as its expected oracle.
+					if preview.RowIndexBase == nil || *preview.RowIndexBase != 0 || len(preview.SourceRowIndices) != len(preview.Rows) {
+						t.Errorf("timeline lacks exact source row coordinates: %s (%+v)", key, preview)
+						continue
+					}
+					partial := len(preview.Rows) < len(table.Rows)
+					partialTimeline = partialTimeline || partial
+					selection, coverage := "all_retained_rows", ""
+					if partial {
+						selection, coverage = "table_boundary_sample", "not_claimed"
+						if len(preview.Rows) == 0 {
+							selection = "no_rows"
+						} else if len(preview.Rows) == 1 {
+							selection = "first_retained_row"
+						}
+					}
+					if preview.Selection != selection || preview.SeriesBoundaryCoverage != coverage {
+						t.Errorf("timeline preview overstates retained/series coverage: %s (%+v)", key, preview)
+					}
+					for row, index := range preview.SourceRowIndices {
+						want := row
+						if partial && len(preview.Rows) > 1 && row == len(preview.Rows)-1 {
+							want = len(table.Rows) - 1
+						}
+						if index != want || index < 0 || index >= len(table.Rows) || row > 0 && index <= preview.SourceRowIndices[row-1] {
+							t.Errorf("timeline boundary/order changed: %s row=%d index=%d want=%d", key, row, index, want)
+							continue
+						}
+						if !reflect.DeepEqual(preview.Rows[row], table.Rows[index]) {
+							t.Errorf("source-bound timeline cells changed: %s row=%d source_index=%d", key, row, index)
+						}
+					}
 				}
 				if preview.OutputRows != len(table.Rows) || preview.OmittedRows != len(table.Rows)-len(preview.Rows) {
 					t.Errorf("preview/output completeness conflated: %s (%+v)", key, preview)
@@ -86,6 +128,9 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 			}
 			if shown != want {
 				t.Errorf("actual finalizer preview used %d rows for %d available rows, want %d within shared budget", shown, total, want)
+			}
+			if tc.name == "bounded_budget_five_captures" && !partialTimeline {
+				t.Fatal("bounded public fixture did not exercise a partial source-indexed timeline")
 			}
 			if total <= 128 {
 				for _, table := range choices {
@@ -116,10 +161,14 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 }
 
 type hmc218MeasurementPreview struct {
-	Columns     []string   `json:"columns"`
-	Rows        [][]string `json:"rows"`
-	OutputRows  int
-	OmittedRows int
+	Columns                []string   `json:"columns"`
+	Rows                   [][]string `json:"rows"`
+	SourceRowIndices       []int      `json:"source_row_indices"`
+	RowIndexBase           *int       `json:"row_index_base"`
+	Selection              string     `json:"selection"`
+	SeriesBoundaryCoverage string     `json:"series_boundary_coverage"`
+	OutputRows             int
+	OmittedRows            int
 }
 
 func hmc218MeasurementMessagePreviews(t *testing.T, messages string) map[string]hmc218MeasurementPreview {

@@ -75,19 +75,15 @@ func traceQueryIOInFlightGroupCoverage(stats *tracequery.IOInFlightStats, group 
 		family, status, stats.GroupCount, stats.OmittedGroups, group.OmittedSegments)
 }
 
-// A compact prompt's note budget is smaller than the public timeline. Publish
-// a bounded exact prefix with its own omission count, never silently clip an
-// endpoint token or describe this prefix as the complete timeline.
+// A compact prompt's note budget is smaller than the public timeline. Reserve
+// whole retained endpoints before filling the prefix, and publish their source
+// row indices: a gap between sampled rows is not a continuous interval. Neither
+// selection nor the original producer's omissions change the measurement.
 func traceQueryIOInFlightTimeline(group tracequery.IOInFlightGroup) string {
-	parts := make([]string, 0, len(group.Segments))
-	for _, s := range group.Segments {
-		part := fmt.Sprintf("[%s,%s):%d", traceQueryDisplaySeconds(s.StartTs), traceQueryDisplaySeconds(s.EndTs), s.Requests)
-		if len(strings.Join(append(parts, part), ";")) > 90 {
-			break
-		}
-		parts = append(parts, part)
-	}
-	return fmt.Sprintf("seconds:requests; omitted=%d; %s", group.OmittedSegments+len(group.Segments)-len(parts), strings.Join(parts, ";"))
+	return traceQueryCompactTimeline(types.TraceNoteKeyIOInFlightTimeline, "requests", len(group.Segments), group.OmittedSegments, func(index int) string {
+		s := group.Segments[index]
+		return fmt.Sprintf("[%s,%s):%d", traceQueryDisplaySeconds(s.StartTs), traceQueryDisplaySeconds(s.EndTs), s.Requests)
+	})
 }
 
 func traceQueryIOInFlightNotes(stats *tracequery.IOInFlightStats, group tracequery.IOInFlightGroup) []string {

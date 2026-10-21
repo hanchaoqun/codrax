@@ -46,21 +46,3 @@ func (p *answerDocNativePresentationReceipt) samplingTableKey(table types.Runtim
 	}
 	return p.samplingTableIdentities[samplingFactViewKey{table.ObservationID, table.View}]
 }
-
-// Equivalent previews consume rows once; selectors remain individually
-// listed. If the representative is truncated, aliases inherit no completeness.
-func samplingDistinctPreviewRows(tables []types.RuntimeMeasurementTable, p *answerDocNativePresentationReceipt) []int {
-	copy := append([]types.RuntimeMeasurementTable(nil), tables...)
-	seen := map[string]bool{}
-	for i, table := range tables {
-		key := p.samplingTableKey(table)
-		if key == "" {
-			continue
-		}
-		if seen[key] {
-			copy[i].Rows = nil
-		}
-		seen[key] = true
-	}
-	return runtimeMeasurementHandoffPreviewRows(copy)
-}

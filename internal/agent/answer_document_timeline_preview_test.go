@@ -30,7 +30,13 @@ func TestHMC272TimelinePreviewBudgetAndProducerOrder(t *testing.T) {
 			}
 		}
 		if len(p.Rows) < len(table.Rows) {
-			if p.Selection != "table_boundary_sample" || p.SeriesBoundaryCoverage != "not_claimed" {
+			selection := "table_boundary_sample"
+			if len(p.Rows) == 0 {
+				selection = "no_rows"
+			} else if len(p.Rows) == 1 {
+				selection = "first_retained_row"
+			}
+			if p.Selection != selection || p.SeriesBoundaryCoverage != "not_claimed" {
 				t.Fatalf("partial multi-series preview claims coverage: %+v", p)
 			}
 		} else if p.Selection != "all_retained_rows" || p.SeriesBoundaryCoverage != "" {
@@ -50,12 +56,11 @@ func TestHMC272TimelinePreviewBudgetAndProducerOrder(t *testing.T) {
 	}
 }
 
-func TestHMC272TimelinePreviewRequiresTypedDisplayIntent(t *testing.T) {
+func TestHMC272TimelinePreviewRequiresTypedTimeline(t *testing.T) {
 	for _, tc := range []struct {
 		view           types.RuntimeMeasurementView
 		defaultDisplay bool
 	}{
-		{types.RuntimeMeasurementTimeline, false},
 		{types.RuntimeMeasurementSummary, true},
 		{types.RuntimeMeasurementMembers, true},
 	} {
@@ -65,5 +70,10 @@ func TestHMC272TimelinePreviewRequiresTypedDisplayIntent(t *testing.T) {
 		if !reflect.DeepEqual(p.Rows, table.Rows[:2]) || p.Selection != "" || len(p.SourceRowIndices) != 0 {
 			t.Fatal("ID/column spelling or non-timeline intent enabled boundary selection")
 		}
+	}
+	table := types.RuntimeMeasurementTable{View: types.RuntimeMeasurementTimeline, DefaultPresentation: false,
+		Columns: []string{"time"}, Rows: [][]string{{"head"}, {"middle"}, {"tail"}}}
+	if p := runtimeMeasurementHandoffPreview(table, 2); !reflect.DeepEqual(p.SourceRowIndices, []int{0, 2}) || p.Selection != "table_boundary_sample" || table.DefaultPresentation {
+		t.Fatal("temporal preview depends on, or changes, default output layout")
 	}
 }

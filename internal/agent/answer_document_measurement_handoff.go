@@ -28,7 +28,8 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	const maxRosterGroups = 32
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
 	publication.prepareSamplingTableIdentities(ctx)
-	previewCounts := samplingDistinctPreviewRows(choices, publication)
+	previewKeys := runtimeMeasurementPreviewIdentities(ctx, choices, publication)
+	previewCounts := runtimeMeasurementDistinctPreviewRows(choices, previewKeys)
 	var b strings.Builder
 	if ctx.AnalysisIR != nil && len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) > 0 {
 		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
@@ -89,6 +90,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	eventCatalogs := map[string]string{}
 	eventNotes := map[string]string{}
 	samplingPreviews := map[string]samplingTablePreview{}
+	measurementPreviews := map[string]runtimeMeasurementPublishedPreview{}
 	sourcePresentations := runtimeMeasurementSourceNavigation{}
 	previewRows := 0
 	for i, table := range choices {
@@ -153,6 +155,21 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 			fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; field_catalog=%s; retained_rows=%d; scope_refs=%s%s\n", table.ObservationID, table.View, table.Label, catalog, len(table.Rows), strings.Join(scopeRefs, ","), sourceTitle)
 			continue
 		}
+		key := previewKeys[i]
+		if prior, found := measurementPreviews[key]; key != "" && found {
+			// Only an actually written representative can be referenced. The
+			// alias inherits the identical partial row/notes preview, not the
+			// unabridged table's completeness or the other query's authority.
+			if !publication.writePresentationNavigation(&b, fmt.Sprintf("- native_table_reuse label=%q observation_id=%q view=%q: reuse exactly the preview rows, source_row_indices and notes already supplied for observation_id=%q view=%q; same verified physical source, full query scope and complete producer table; retained_rows=%d; preview_omitted_rows=%d. Original selectors, populations and query receipts remain separate.%s\n", table.Label, table.ObservationID, table.View, prior.table.ObservationID, prior.table.View, len(table.Rows), len(table.Rows)-prior.rows, sourceTitle)) {
+				publication.observeMeasurementView(table, false)
+				continue
+			}
+			publication.observeMeasurementView(table, prior.complete)
+			if prior.rows > 0 {
+				previewed[table.ObservationID] = true
+			}
+			continue
+		}
 		rowPreview := runtimeMeasurementHandoffPreview(table, count)
 		rows := rowPreview.Rows
 		previewRows += count
@@ -195,6 +212,9 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 			complete = complete && writtenNotes[note]
 		}
 		publication.observeMeasurementView(table, complete)
+		if key != "" {
+			measurementPreviews[key] = runtimeMeasurementPublishedPreview{table, count, complete}
+		}
 	}
 	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. A table_boundary_sample preserves original source_row_indices in producer order, not a continuous time span or every subject's boundaries; a one-row allocation contains only the first row. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
 	samplingFacts.publish(ctx, publication)

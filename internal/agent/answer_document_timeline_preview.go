@@ -3,8 +3,8 @@ package agent
 import "github.com/hanchaoqun/codrax/internal/types"
 
 // measurementHandoffPreview changes only which retained rows fit an existing
-// preview allocation. The trusted producer's typed timeline/default-display
-// intent enables this policy; neither column names nor cell text infer it.
+// preview allocation. The trusted producer's typed timeline enables this
+// policy independently of default output layout; no cell text infers it.
 // Indices remain in producer order, including tables grouped by CPU/subject.
 type measurementHandoffPreview struct {
 	Columns                []string   `json:"columns"`
@@ -23,7 +23,7 @@ func runtimeMeasurementHandoffPreview(table types.RuntimeMeasurementTable, count
 		count = len(table.Rows)
 	}
 	p := measurementHandoffPreview{Columns: table.Columns, Rows: table.Rows[:count]}
-	if !table.DefaultPresentation || table.View != types.RuntimeMeasurementTimeline {
+	if table.View != types.RuntimeMeasurementTimeline {
 		return p
 	}
 	zero := 0
@@ -31,6 +31,11 @@ func runtimeMeasurementHandoffPreview(table types.RuntimeMeasurementTable, count
 	p.Selection = "all_retained_rows"
 	if count < len(table.Rows) {
 		p.Selection = "table_boundary_sample"
+		if count == 0 {
+			p.Selection = "no_rows"
+		} else if count == 1 {
+			p.Selection = "first_retained_row"
+		}
 		// Whole-table endpoints are not the endpoints of each independent
 		// series. Do not infer per-subject completeness from this preview.
 		p.SeriesBoundaryCoverage = "not_claimed"

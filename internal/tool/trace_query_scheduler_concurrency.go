@@ -72,15 +72,10 @@ func traceQuerySchedulerConcurrencyExclusions(c tracequery.SchedulerConcurrencyC
 }
 
 func traceQuerySchedulerConcurrencyTimeline(group tracequery.SchedulerConcurrencyGroup) string {
-	var parts []string
-	for _, segment := range group.Segments {
-		part := fmt.Sprintf("[%s,%s):%d", traceQueryDisplaySeconds(segment.StartTs), traceQueryDisplaySeconds(segment.EndTs), segment.Threads)
-		if len(strings.Join(append(parts, part), ";")) > 90 {
-			break
-		}
-		parts = append(parts, part)
-	}
-	return fmt.Sprintf("seconds:threads; omitted=%d; %s", group.OmittedSegments+len(group.Segments)-len(parts), strings.Join(parts, ";"))
+	return traceQueryCompactTimeline(types.TraceNoteKeySchedulerConcurrencyTimeline, "threads", len(group.Segments), group.OmittedSegments, func(index int) string {
+		s := group.Segments[index]
+		return fmt.Sprintf("[%s,%s):%d", traceQueryDisplaySeconds(s.StartTs), traceQueryDisplaySeconds(s.EndTs), s.Threads)
+	})
 }
 
 func traceQuerySchedulerConcurrencyWindowNotes(stats *tracequery.SchedulerConcurrencyStats) []string {
