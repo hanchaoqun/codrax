@@ -9917,3 +9917,37 @@ B真实完整PERFILE2目标164/259与两个82热点正确，源/窗/单位/执�
 完整父能力新增0/累计24，生产子能力2组；两份人工FAIL含3组解释欠项，仍55开放。下一能力轨05.2→05.3有源绑定时钟见证与指定窗联查，缺陷轨解释单元到实际成文/真实完成计数交接；17.6真实新原件/工具/宿主齐备即提高优先级，只读登记轮换剩余边界。17.7 WAL零副作用未满足保持生产NO-GO。完整源证、后继验证、两笔提交推送与最终clean/远端凭据见[批汇总](../../eval/parallel_selected_summary_hmc_resource_surfaces_identity_20261021.md)和[人工审计](../../eval/parallel_selected_summary_hmc_resource_surfaces_identity_20261021_manual_audit.md)。
 
 v2仅一测试变化，orchestrator整包PID55363于UTC2026-10-22 07:20:48.831447–07:23:16.931259正式exit0，2403顶层/1529子例PASS、6skip；定向race PID55443 exit0。后继8文件索引`ccf6316d94fe213501734da86dc2d5fa31d4d727db3c32ed9376dcce4720a39e`，旧270文件复核不变；生产/CLI/用例仍v1，没有第二次全仓，不伪称同版全仓全绿。代码`a8d01ebef5fa1b101533155bbe83158a6b088be2`与文档分笔普通推送，最终clean/远端与278文件复核见独立publication收据。
+
+## 280. 受理解释交接、真实完成计数与原生时钟点（2026-10-22，完整人工0/2）
+
+基线`65f4fb0b9d2d094bbd0d8b91df09408556cc669e`，独立逐checkbox核79唯一＝24交付＋55开放，原32待实施/16部分实施/3待验收/3验收中/1持续执行。能力轨05.2仅交付原生同步点见证，缺陷轨闭合§279实际eligible units被runtime-only整段抑制及拒绝重复计数两接缝，不将所有上游解释恢复为事实。05.2改部分实施后31待实施/17部分实施，其它状态与55总数不变。
+
+### 280.1 共享实现与参考意图
+
+runtime-only路径只准当前私有受理、同一不可变handoff、fresh来源/查询重新绑定、显式independent_analysis且非空units的整单元建议性投递。旧reason/notes/自由摘要、复述角色、缺角色、JSON恢复、陈旧来源、no-directed-path和未证日志关系继续抑制；support_refs为提议坐标而非已验证证据，受理/投递不验证语义。保1800B整单元预算、完整边界及省略披露，原生事实与因果边界优先；不改Trace投影、自动补齐、源/窗/身份权限，不扫描用户/模型原文做硬门。
+
+计数器按精确toolresult控制头计每次ok=false一次，不再加同一结果正文重复计数；旧ok=true语义拒绝只认紧接结果首行的工具专属leader。accepted/downgraded独立读取explorer类型化状态观察，接入正常/部分收尾及parallel汇总；多工具批次只有LastToolResult观察、缺日志等情况仍可能unknown，不能宣称calls总能拆成三个完备桶。多行日志非抗伪造收据，完整流程仍独立审计。空工具要求兼容Bash3.2，基线7/正确3反例已红转绿；旧HMC279 A只读复算4提交＝2拒绝＋1降级＋1受理，旧metrics和FAIL保原。
+
+原生clock-sync只认物理print/tracing_mark_write完整协议payload，原EventUnknown分类不变；精确物理header ns与原十进制参考值走稀疏sidecar、event_search、已有语义字段库存及原生展示，ParserVersion v58。非法/过长/未知载荷仍保事件，不授有效时间；B/E嵌套业务名、普通文本和异事件不能冒充见证。不创建持续区间、变换Trace时钟或获取根因/跨日志权限。protocol_clock/epoch仅协议解释；实际reference clock/epoch未证实，offset/drift/error/valid_interval未知，mapping状态为仅观察未映射。
+
+参考`core/llm_contract.py`坐标回查/成员字段值分离的意图，不复制正文扫词/查重硬门；`core/extensions/log_extender.py`分离解析与对齐值得复用，但中位wall−boot差、文件名时间、aligned布尔与关键词救回不能当本仓校准证据。官方[MarkClockSync](https://raw.githubusercontent.com/openharmony/hiviewdfx_hitrace/master/utils/common_utils.cpp)分开采样REALTIME后写毫秒、再采MONOTONIC后写浮点秒，非同时采样、数位不等于精度保证；该源码不证明本原件生产者。现有tracebundle affine合同只验证数值可用，也不证明实测校准成立。
+
+### 280.2 真实双例与未销账原因
+
+恰好2例并行各一次，机器2/2。A构造SQLite fixture（非设备实采）4事件/11按事件展开帧/3统计组及[10,10.05)窗口正确，原生表/HTML身份保真；实际Finalizer收到解释0/1两个整单元1445/2964B，披露1519B省略，旧eligible units交接缺口实际命中修复。原生reference publication=1/2，不能据解释所有权宣称所有视图完整。正文仍把原深度/帧成员写成有向路径、源记录齐全写完整栈、NULL subtype写字典解析失败，人工FAIL；未投递unit2的错误不能被指认为正文错误原因，已投递unit1确有subtype竞争解释。
+
+B完整真实gzip原件3,602,086B/429766行，两见证值及坐标正确，实际Finalizer两行完整含协议与实际身份区别、无映射/误差/有效期边界，无这两行预算丢失。答案将单点相减结果直接称全程固定偏移，认为任意时刻可换算并达到毫秒级对齐，主审FAIL；尾部caveat不能撤销肯定断言。条件估算本可允许，不把算术计算本身判错。actual Finalizer日志5561行把command_measurement/aggregate“固定偏移”置policy=hard、authority_ceiling=factual，5936行作为principal_answer，5645行却保原生未映射边界；这是已证共享标签/关系权限竞争，归16.4/18.4 P1。不能直接归纯模型波动，也不能未经反事实复验就断定它是输出错误的唯一原因。
+
+旧sample-only执行状态/权重耗时解释越权仍留18.3，未重跑不改签。A附件bundle显示大小来自systrace、resource_views指标不覆盖resource_stack分别记16.5/18.5低优先级，不把它们误报成身份绑定或零查询故障。事件搜索carrier视图与资源统计的边界/人口不同，不能互换计数；本批最终主表未换错，不新增未经证实的越窗主表事故。完整HTML及逐流程人工原证据见批报告，静态内容核验不是浏览器布局验收；没有自然图，不扩签图能力。
+
+### 280.3 验证、完整能力退出条件与下一ROI
+
+解释公共RED及相关30主例109子例/race2主例19子例通过；clock四包定向count3/race通过，含indexed/streaming、大小值/0/尾零/无效、源换代重查、实际Finalizer与因果不扩权负控。历史无作用域库存收据仍保留，不冒称统一隐藏所有陈旧成文。计数整套runner v2通过；v1运行期间脚本编辑产生读入语法失败及空要求兼容问题，原失败保留。时钟施工期编译/测试期假设错误仅有原工具输出时如实说明，不伪造磁盘日志。
+
+7270项及CLI冻结SHA`4027ebc33f7517b66447ec7d944200a821c6cb90c34a4e1d44f18ccd32fc1c01`；正式全仓PID53114 UTC08:15:16.579304–08:29:58.358751 exit0，97包PASS/12无测试/零fail及非JSON行，日志SHA`4b5ab02dd1aa72eb6caa4a2c969fca409d169e9ce5cdbdf9926580b986b15d47`。freeze过滤器漏含非Go internal/testdata，505B新fixture事后逐字核原gzip429168/429170行，SHA`66dd89ced013825e604dba9dce3bf6387ddc91d7f601290437e53d835fdb2e91`；独立addendum不是事前冻结。下批共享运行器需涵盖testdata与实际输入依赖，不修改此次原收据。生产Go/CLI/用例/两份真实运行原件仍同冻结版。
+
+完整能力新增0/累计24，生产子能力2组＋评测修复1组，两个整答欠项含于55开放。后续按ROI：先command_measurement/aggregate数值与标签中物理关系的共享权限分离，统一原生边界/Claim Binding/principal成文，不据命令成功授映射、顺序或因果；再分组人口/原始成员清单义务与修补教学冲突。不无限追同题或修正确统计器。05.2/05.3应在源/启动身份、日志年份时区、独立微核桥、校准有效期及误差依据齐备后一次交付统一校准/联窗入口，不继续拆marker片。14.1尚缺statistic累计/增量/reset生产协议，17.6新真实格式/工具/宿主前置齐备即提升；只读登记轮换剩余终态，不重复已验入口。17.7 WAL零副作用未满足，生产NO-GO，本批未接线或探针。
+
+逐侧独立审计、原件封存与分笔普通提交/推送凭证见[批汇总](../../eval/parallel_selected_summary_hmc_interpretation_clock_witness_20261022.md)和[人工审计](../../eval/parallel_selected_summary_hmc_interpretation_clock_witness_20261022_manual_audit.md)，旧FAIL不覆盖。
+
+两侧完整独立审计均FAIL；B额外24行CPU频率自动补表逐列同源正确，不授时钟映射或因果，不因主文失败关闭补齐。UTC08:51:50.096817封存242文件（原26结果文件、复制216材料，含25源码/fixture快照及实际CLI），两侧原始输入与完整准备/上下文/MD/HTML/失败都保留；索引SHA`fa775596ea851a38a5f5d8a7fa79397011b09f6547cd1fa33b4cd8e2a2af945a`，归档收据SHA`918ba129f3861df709f7fffa9daaaceffb967e75e60dbfcee340ef50eaf555b6`。代码`7d75ced9eb9c219caeef07fa9cdd83511a14b061`与文档分笔普通推送，最终clean/远端与freeze/索引自身/242原件逐SHA复核另记publication收据，不修改原始评测。
