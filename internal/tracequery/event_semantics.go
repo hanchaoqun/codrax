@@ -13,6 +13,9 @@ import (
 // It never reparses Raw/FieldText, creates intervals, resolves owners or grants
 // causal/pairing authority. The native parser remains the single admission site.
 func ProjectTraceEventSemantics(event Event) *types.TraceEventSemantics {
+	if event.Type == EventUnknown && event.PluginFields != nil && event.PluginFields.ClockSync != nil {
+		return projectClockSyncWitness(*event.PluginFields.ClockSync)
+	}
 	p := traceEventSemanticProjector{value: types.TraceEventSemantics{SchemaVersion: types.TraceEventSemanticsVersion}}
 	switch event.Type {
 	case EventSchedWakeup, EventSchedWaking, EventSchedSwitch:

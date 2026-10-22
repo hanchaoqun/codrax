@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v57"
+const ParserVersion = "tracequery-v58"
 
 type EventType string
 
@@ -452,6 +452,7 @@ type FileFields struct {
 // it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
 // rows keep it nil unless an I row carries parsed NativeHook resource metadata.
 type PluginFields struct {
+	ClockSync           *ClockSyncFields                  `json:"clock_sync,omitempty"`
 	Measure             *tracewire.MeasureInterval        `json:"measure,omitempty"`
 	ProcessMeasure      *tracewire.ProcessMeasureInterval `json:"process_measure,omitempty"`
 	NativeHookSemantics *types.TraceEventSemantics        `json:"native_hook_semantics,omitempty"`

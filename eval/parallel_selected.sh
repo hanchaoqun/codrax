@@ -216,8 +216,10 @@ eval_selected_run_one() {
   midloop="$(eval_metric_field "$metrics" midloop_inject)"
   inv_calls="$(eval_metric_field "$metrics" investigation_complete_calls)"
   inv_rejects="$(eval_metric_field "$metrics" investigation_complete_rejects)"
+  inv_accepted="$(eval_metric_field "$metrics" investigation_complete_accepted)"
+  inv_downgraded="$(eval_metric_field "$metrics" investigation_complete_downgraded)"
   tool_summary="read=${read_calls},repo_map=${repo_map_calls},list=${list_calls},trace=${trace_calls},source_lens=${source_lens}"
-  churn_summary="midloop=${midloop},inv=${inv_calls}/${inv_rejects},fin_reject=${rejects},unavail=${unavailable},prune=${prunes}"
+  churn_summary="midloop=${midloop},inv_calls=${inv_calls},inv_rejects=${inv_rejects},inv_accepted=${inv_accepted},inv_downgraded=${inv_downgraded},fin_reject=${rejects},unavail=${unavailable},prune=${prunes}"
   printf "| %d | %s | %s | %s | %s | %s | %ds | %s | %s | %s | TODO | TODO |\n" \
     "$idx" "$case_id" "$verdict" "$dir" "$oracle_surface" "$runtime_auth" "$elapsed" "$ctx_pct" "$tool_summary" "$churn_summary" >>"$MANUAL_AUDIT"
   echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] done $case_id -> $verdict (${elapsed}s)" >&2

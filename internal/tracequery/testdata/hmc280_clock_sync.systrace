@@ -1,0 +1,4 @@
+# Verbatim clock markers from reference logandtrace/record_trace_20260821095539@6YF0126116-5955.sys.gz.
+# Compressed SHA256 4d66880019663f81462fe5df1615da58b368b6c5225e211dae88600cfc5396e9; original physical lines 429168 and 429170 respectively.
+         hitrace-53455   (  53455) [002] .... 170441.373302: tracing_mark_write: trace_event_clock_sync: realtime_ts=1787277345616
+         hitrace-53455   (  53455) [002] .... 170441.373322: tracing_mark_write: trace_event_clock_sync: parent_ts=10143.297852

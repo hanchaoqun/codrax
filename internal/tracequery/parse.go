@@ -128,6 +128,9 @@ func eventSideTableBytes(ev *Event) int64 {
 	}
 	if ev.PluginFields != nil {
 		n += int64(unsafe.Sizeof(PluginFields{}))
+		if witness := ev.PluginFields.ClockSync; witness != nil {
+			n += int64(unsafe.Sizeof(ClockSyncFields{})) + int64(len(witness.HeaderNS)+len(witness.Field)+len(witness.RawValue)+len(witness.IssueReason))
+		}
 		if origin := ev.PluginFields.MarkerNameOrigin; origin != nil {
 			n += int64(unsafe.Sizeof(tracewire.MarkerNameOrigin{})) + int64(len(origin.SourceTable)+len(origin.Name.Status))
 			if origin.Record != nil {
@@ -4538,6 +4541,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
+	attachClockSyncWitness(&ev, m[5], trimTraceMarkEnvelopeLeft(rawFields))
 	if sourceRawVisibilityPayloadClaimed(fields) {
 		// This exact converter-owned wire preserves a physical source record for
 		// generic-viewer visibility. Its original event name is deliberately

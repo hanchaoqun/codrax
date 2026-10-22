@@ -42,6 +42,7 @@ func (p *answerDocNativePresentationReceipt) observeMeasurementView(table types.
 type answerDocNativeNarrativeProjection struct {
 	text                         string
 	ownsCurrentNarrative         bool
+	independentUnits             bool
 	selectedViews                int
 	completeViews                int
 	interpretationBytes          int
@@ -53,6 +54,19 @@ func (p answerDocNativeNarrativeProjection) nativeViewsComplete() bool {
 	return p.selectedViews > 0 && p.completeViews == p.selectedViews
 }
 
+// The runtime-only lane continues to suppress unstructured synthesis. Only an
+// explicitly independent, current accepted unit handoff can cross that lane,
+// and only after its native references rebind to this dispatch's exact sources
+// and query scope. This is advisory transport, not validation of the units or
+// their proposed support_refs. Restored intent cannot acquire this exception.
+func renderAnswerDocRuntimeInterpretationUnits(ctx *types.AgentContext, p *answerDocNativePresentationReceipt) string {
+	projection := answerDocSeparatedNativeFactHandoff(ctx, p)
+	if !projection.ownsCurrentNarrative || !projection.independentUnits {
+		return ""
+	}
+	return projection.text
+}
+
 func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNativePresentationReceipt) answerDocNativeNarrativeProjection {
 	var projection answerDocNativeNarrativeProjection
 	if ctx == nil || ctx.Mutable == nil {
@@ -62,6 +76,8 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 	if h == nil {
 		return projection
 	}
+	// Eligibility and rendering use the same immutable handoff snapshot.
+	projection.independentUnits = h.InterpretationRole == types.InvestigationIndependentAnalysis && len(h.InterpretationUnits) > 0
 	// Only the private current completion credential plus fresh source binding
 	// can own the current narrative. Restored JSON and stale references retain
 	// their conservative advisory/legacy path, independent of display budgets.
@@ -91,6 +107,9 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 	var prose strings.Builder
 	if preview.text != "" {
 		prose.WriteString("## Independent Investigation Interpretation\n\nModel-authored hypotheses, diagnostic boundaries and source/business clues; advisory only, not native measurements or proof of a causal relation.\n\n")
+		if len(h.InterpretationUnits) > 0 {
+			prose.WriteString("Read each unit together with all its boundaries. Its support_refs are proposed locators, not verified evidence. Completion acceptance and delivery do not verify the unit's claims; if a unit conflicts with source-bound native facts or typed causal boundaries, use those facts/boundaries and do not promote the unit into a fact, ordered relation or root cause.\n\n")
+		}
 		prose.WriteString(preview.text + "\n\n")
 	}
 	if projection.sanitized {

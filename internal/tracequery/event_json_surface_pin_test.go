@@ -32,7 +32,7 @@ import (
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
 // HMC-17.7 adds 29 leaves under the optional raw measure side-table only.
-const eventSerializableLeafCount = 267 + 29
+const eventSerializableLeafCount = 267 + 29 + 4
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -239,6 +239,14 @@ const eventJSONGoldenMeasure = `  "measure": {
   },
 `
 
+const eventJSONGoldenClockSync = `  "clock_sync": {
+    "header_ns": "header_ns",
+    "field": "field",
+    "raw_value": "raw_value",
+    "issue_reason": "issue_reason"
+  },
+`
+
 const eventJSONGoldenFull = `{
   "line": 1190,
   "ts": 2435.25,
@@ -356,7 +364,7 @@ const eventJSONGoldenFull = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
-` + eventJSONGoldenMeasure + `  "process_measure": {
+` + eventJSONGoldenClockSync + eventJSONGoldenMeasure + `  "process_measure": {
     "row_id": "4250",
     "filter_id": {
       "status": "status",
@@ -687,7 +695,7 @@ const eventJSONGoldenView = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
-` + eventJSONGoldenMeasure + `  "process_measure": {
+` + eventJSONGoldenClockSync + eventJSONGoldenMeasure + `  "process_measure": {
     "row_id": "4250",
     "filter_id": {
       "status": "status",

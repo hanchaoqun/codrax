@@ -1845,6 +1845,9 @@ eval_count_successful_tool_results() {
 
 eval_successful_tool_result_reasons() {
   local file="$1" names="${2:-}" tool
+  # Bash 3.2 with nounset treats an empty read -a result as an unbound array.
+  # An absent requirement is valid and must not emit a shell error.
+  [[ -n "${names//[[:space:]]/}" ]] || return 0
   local -a tool_names
   read -r -a tool_names <<<"$names"
   for tool in "${tool_names[@]}"; do
@@ -2790,6 +2793,8 @@ eval_materialize_partial_run_result() {
       echo "pipeline_dispatches=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
       echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
       echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
+      echo "investigation_complete_accepted=$(eval_count_investigation_outcomes "$log" accepted)"
+      echo "investigation_complete_downgraded=$(eval_count_investigation_outcomes "$log" downgraded)"
       echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"
       echo "finalizer_rewrites=$(eval_count_finalizer_rewrites "$log")"
       echo "analyzer_iters=$(eval_count_agent_iterations "$log" analyzer)"
@@ -2884,19 +2889,39 @@ eval_wait_for_slot() {
   done
 }
 
-# eval_count_tool_rejects <log> <tool> — control-plane count of explicit
-# transport failures plus typed semantic rejections for one emit tool.
-# Emit tools deliberately return ok=true when their typed result asks the
-# agent to repair evidence; the anchored "<tool> rejected:" result leader is
-# therefore also a rejection round. Assistant/prompt prose is not counted.
+# Count each failed result once, even when its ok=false header also has the
+# semantic rejection leader. Legacy ok=true semantic rejects count only when
+# the leader is the FIRST line of that result, never an unrelated payload.
+# These legacy multiline logs are not tamper-proof receipts (see the
+# successful-result counter); use independently audited publications as proof.
 eval_count_tool_rejects() {
   local file="$1" tool="$2"
-  if [[ -z "$file" || ! -f "$file" || -z "$tool" ]]; then
+  if [[ -z "$file" || ! -f "$file" || ! "$tool" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo 0
     return
   fi
-  local transport semantic
-  transport="$(eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolresult TOOLRESULT ${tool} ok=false" "$file")"
-  semantic="$(LC_ALL=C grep -aEc "^${tool} rejected:" "$file" 2>/dev/null || true)"
-  echo $((transport + semantic))
+  LC_ALL=C awk -v tool="$tool" '
+    BEGIN {
+      header = "^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]* DEBUG \\[diag [^]]+\\] iter=[0-9]+ phase=toolresult TOOLRESULT " tool " ok="
+    }
+    {
+      if (pending && index($0, tool " rejected:") == 1) count++
+      pending = 0
+      if ($0 ~ (header "false len=[0-9]+:$")) count++
+      else if ($0 ~ (header "true len=[0-9]+:$")) pending = 1
+    }
+    END { print count + 0 }
+  ' "$file"
+}
+
+# Only the explorer typed-state observation reports acceptance/downgrade.
+# ToolResult.Success alone does not distinguish these outcomes.
+eval_count_investigation_outcomes() {
+  local file="$1" outcome="$2" pattern
+  case "$outcome" in
+    accepted) pattern='INFO \[explorer\] emit_investigation_complete observed at iter=[0-9]+$' ;;
+    downgraded) pattern='INFO \[explorer\] emit_investigation_complete DOWNGRADED at iter=[0-9]+ — loop continues$' ;;
+    *) echo 0; return ;;
+  esac
+  eval_count_control_pattern "$pattern" "$file"
 }

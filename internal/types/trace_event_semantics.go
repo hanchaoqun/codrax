@@ -54,6 +54,22 @@ type TraceEventSemanticDescriptor struct {
 }
 
 var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
+	{"clock_sync.protocol", "clock_sync", "text", "", "时钟同步记录协议（仅原始点见证）"},
+	{"clock_sync.trace_time_ns", "clock_sync", "uint64", "ns", "该物理记录的原始Trace时刻（不是canonical映射结果）"},
+	{"clock_sync.raw_value", "clock_sync", "text", "", "同步载荷原始值（保留十进制原文，不代表测量精度）"},
+	{"clock_sync.protocol_clock", "clock_sync", "text", "", "HiTrace/atrace协议定义的参考时钟（非本文件生产者身份验证）"},
+	{"clock_sync.protocol_epoch", "clock_sync", "text", "", "HiTrace/atrace协议定义的纪元（不绑定外部日志时区或启动代次）"},
+	{"clock_sync.reference_clock", "clock_sync", "text", "", "本原件实际参考时钟身份（生产者未验证）"},
+	{"clock_sync.reference_epoch", "clock_sync", "text", "", "本原件实际参考时钟纪元（生产者未验证）"},
+	{"clock_sync.realtime_ms", "clock_sync", "int64", "ms", "记录的CLOCK_REALTIME值（Unix纪元毫秒）"},
+	{"clock_sync.parent_seconds", "clock_sync", "decimal", "s", "记录的CLOCK_MONOTONIC值（生产者浮点格式化秒）"},
+	{"clock_sync.reference_value", "clock_sync", "text", "", "未接纳的参考时钟值"},
+	{"clock_sync.offset_ns", "clock_sync", "int64", "ns", "校准偏移（记录点不提供校准）"},
+	{"clock_sync.drift", "clock_sync", "text", "", "时钟漂移（未记录）"},
+	{"clock_sync.error_bound_ns", "clock_sync", "uint64", "ns", "校准误差上界（未记录）"},
+	{"clock_sync.valid_interval", "clock_sync", "text", "", "映射有效区间（单点未确立）"},
+	{"clock_sync.mapping_status", "clock_sync", "text", "", "时钟映射权限"},
+	{"clock_sync.limitations", "clock_sync", "text", "", "记录见证与校准权限边界"},
 	{"plugin.domain", "plugin", "text", "", "业务域"},
 	{"plugin.event_name", "plugin", "text", "", "业务事件名"},
 	{"plugin.event_label", "plugin", "text", "", "解析事件标签（原字段是否存在未确定）"},
@@ -277,6 +293,9 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 		}
 		descriptor, ok := LookupTraceEventSemanticDescriptor(field.Key)
 		if !ok || descriptor.Family == "plugin" && !plugin || (descriptor.Family == "marker" || descriptor.Family == "counter" || descriptor.Family == "resource") && !marker || descriptor.Family == "source" && !plugin && !marker {
+			return false
+		}
+		if descriptor.Family == "clock_sync" && eventType != "unknown" {
 			return false
 		}
 		if descriptor.Family == "scheduler" && !traceSchedulerSemanticFieldMatches(field.Key, eventType) {

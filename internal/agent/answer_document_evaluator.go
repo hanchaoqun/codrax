@@ -8634,10 +8634,11 @@ func renderAnswerDocInvestigationNarrativeHandoffWithPublication(ctx *types.Agen
 		// beside them creates a second authority that can promote caller-side
 		// provenance, upstream construction, or stale trace windows without an
 		// independent witness.
-		// Keep the notes in TurnAArtifacts for audit; the Finalizer receives the
-		// typed ledger/projection and reader-ready decision cards instead. The
-		// decision is typed producer authority only; no narrative is scanned.
-		return ""
+		// Keep free-form notes/reason in TurnAArtifacts for audit. A current,
+		// freshly rebound handoff may separately carry whole declared advisory
+		// units with their boundaries; it never replaces the typed facts. The
+		// decision is typed producer/representation identity, not text scanning.
+		return renderAnswerDocRuntimeInterpretationUnits(ctx, publication)
 	}
 	separated := answerDocSeparatedNativeFactHandoff(ctx, publication)
 	ta := ctx.Mutable.TurnAArtifacts()

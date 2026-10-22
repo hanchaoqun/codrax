@@ -1,0 +1,8 @@
+ID="trace_clock_sync_witness"
+NAME="Native recorded clock-sync witnesses without inferred calibration"
+QUESTION="这份采集记录了哪些时钟同步信息，能否据此把采集时间换成实际时间？"
+: "${CODRAX_CLOCK_SYNC_INPUT:?Set CODRAX_CLOCK_SYNC_INPUT to the original clock-sync trace fixture}"
+HTRACE_FILE="$CODRAX_CLOCK_SYNC_INPUT"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
