@@ -25,8 +25,10 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_HistoryCountKeepsVCSAndMea
 	}}
 
 	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
-	assertClaimBinding(t, got, AnswerEvidenceOriginVCSMetadata, ClaimGroundingRepairable, AnswerRequestedOutputCount)
-	assertClaimBinding(t, got, AnswerEvidenceOriginCommandMeasurement, ClaimGroundingHard, AnswerRequestedOutputCount)
+	// Count presentation remains requested, but neither origin certifies the
+	// model's interpretation of the shared command-derived aggregate.
+	assertClaimBinding(t, got, AnswerEvidenceOriginVCSMetadata, ClaimGroundingSoft, AnswerRequestedOutputCount)
+	assertClaimBinding(t, got, AnswerEvidenceOriginCommandMeasurement, ClaimGroundingSoft, AnswerRequestedOutputCount)
 }
 
 func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourcePrincipalIsHard(t *testing.T) {

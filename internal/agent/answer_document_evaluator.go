@@ -5606,7 +5606,7 @@ func renderAnswerDocUnifiedIntentContract(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime artifact facts may answer what was observed without current-repo citations. Do not invent current-source file:line citations unless a separate current-source lane is present and grounded.\n")
 	}
 	if contract.HasOrigin(types.AnswerEvidenceOriginCommandMeasurement) {
-		b.WriteString("- Command measurement facts can support exact counts or scalar measurements without pretending the value lives at a source `file:line`.\n")
+		b.WriteString("- Command output can support exact counts or calculated values without pretending the value lives at a source `file:line`; its evidence origin does not certify a model-authored interpretation or relationship.\n")
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -5677,13 +5677,19 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 		if binding.DriftReason != "" {
 			driftPart = fmt.Sprintf("; drift_reason=`%s`", binding.DriftReason)
 		}
+		targetField := "target"
+		if binding.ValueOnlySupport {
+			targetField = "model_label"
+			authorityPart += "; " + commandValueOnlyPresentation
+		}
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s%s%s%s\n",
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; %s=%q; support_refs=%d%s%s%s%s\n",
 			binding.ClaimID,
 			binding.Origin,
 			binding.GroundingPolicy,
 			renderAnswerIntentOutputs(binding.RequestedOutputs),
 			source,
+			targetField,
 			binding.TargetRef,
 			len(binding.SupportRefs),
 			exactSourcePart,
@@ -11683,7 +11689,10 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		b.WriteString("- Observation-only runtime/log/trace answers: direct artifact observations are authoritative for error type, message, stack/span/timing, artifact-local line/order, and literal log content. Model-authored aggregate facts with `kind=behavior_outcome` or `kind=error_granularity_verdict` are supporting synthesis unless they carry explicit support refs or current-source proof; do not promote caller-owned values, variable provenance, or upstream data construction from those aggregate facts into a final root-cause fact.\n")
 	}
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
-	b.WriteString("- Facts marked `role=principal_answer` and backed by a non-illustrative typed evidence origin are answer payloads. A fact marked `fact_authority=advisory_model_inference` is retained exploration synthesis: use it as a candidate, but do not treat it as a required roster or as proof of a relation/path merely because its model-authored role says principal.\n")
+	b.WriteString("- `role=principal_answer` selects relevant answer payload, not proof of its label or meaning. Follow the field-specific authority below; a typed origin alone does not verify a model-authored claim. A fact marked `fact_authority=advisory_model_inference` is retained exploration synthesis: use it as a candidate, not a required roster or proof of a relation/path.\n")
+	if aggregateFactsHaveCommandValues(plan.StableAggregateFacts) {
+		b.WriteString("- " + commandValueOnlyTeaching + "\n")
+	}
 	if aggregateFactPromptOmitExcludedCandidates(ctx) {
 		b.WriteString("- The active typed exclusion policy keeps concrete excluded candidates out of the answer surface. Excluded categories and counts may be used as scope boundaries; omitted `excluded[]` names are intentionally not part of the visible answer.\n")
 	}

@@ -170,9 +170,9 @@ func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) 
 	got := renderAnswerDocClaimBindings(ctx)
 	for _, want := range []string{
 		"Claim Binding / Gate Policy Handoff",
-		"origin=`vcs_metadata`; policy=`repairable`",
-		"origin=`command_measurement`; policy=`hard`",
-		"authority_ceiling=`historical`",
+		"origin=`vcs_metadata`; policy=`soft`",
+		"origin=`command_measurement`; policy=`soft`",
+		"authority_ceiling=`illustrative`",
 		"outputs=`summary`, `scalar`, `count`",
 		"ledger_records=aggregate:0#vcs_metadata",
 		"ledger_records=aggregate:0#command_measurement",

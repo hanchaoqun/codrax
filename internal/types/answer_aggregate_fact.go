@@ -2946,6 +2946,12 @@ func aggregateFactHasIndependentTypedAuthorityInContext(fact AnswerAggregateFact
 		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
 		return true
 	}
+	if AnswerAggregateFactHasCommandValueOnlySupport(fact) {
+		// A source line can witness an operand, not the relation the model
+		// names after calculating with it. Keep value visibility independent
+		// from whole-aggregate proof, including mixed-origin carriers.
+		return false
+	}
 	if !answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
 		return false
 	}

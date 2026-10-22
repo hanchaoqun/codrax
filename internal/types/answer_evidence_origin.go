@@ -236,6 +236,42 @@ func aggregateSourceMemberSystemAuthority(fact AnswerAggregateFact) bool {
 		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance)
 }
 
+// AnswerAggregateFactHasCommandValueOnlySupport separates a model's command-
+// derived payload from the meaning it attaches to that payload. A command
+// origin can retain arithmetic/count values for exact presentation, but neither
+// that origin nor an operand's source coordinate proves the model's label,
+// physical unit interpretation, relation, or causal explanation. This is not
+// proof that a command ran or that the calculation was correct.
+//
+// Only explicit evidence-lane metadata is read here. Request-inferred command
+// origins must not demote an independently supported current-source sibling.
+// System-verified relation/inventory carriers keep their existing authority;
+// producer-owned runtime/tool records do not pass through this model-aggregate
+// qualification at all. No label, request, or answer text is inspected.
+func AnswerAggregateFactHasCommandValueOnlySupport(fact AnswerAggregateFact) bool {
+	if aggregateSourceMemberSystemAuthority(fact) {
+		return false
+	}
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+		if origin == AnswerEvidenceOriginCommandMeasurement {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateBindingHasCommandValueOnlySupport(fact AnswerAggregateFact, origin AnswerEvidenceOrigin) bool {
+	return !aggregateSourceMemberSystemAuthority(fact) &&
+		(origin == AnswerEvidenceOriginCommandMeasurement || AnswerAggregateFactHasCommandValueOnlySupport(fact))
+}
+
+func aggregateBindingGroundingPolicy(fact AnswerAggregateFact, origin AnswerEvidenceOrigin, role AnswerAggregateRole) ClaimGroundingPolicy {
+	if aggregateBindingHasCommandValueOnlySupport(fact, origin) {
+		return ClaimGroundingSoft
+	}
+	return AnswerClaimBindingGroundingPolicy(origin, role)
+}
+
 // AnswerAggregateFactAuthorizesSourceMemberCarrier keeps principal external
 // support separate from permission to publish a source-member carrier.
 func AnswerAggregateFactAuthorizesSourceMemberCarrier(fact AnswerAggregateFact, rm *RequestModel, source ObservationLedgerInput) bool {

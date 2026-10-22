@@ -19,6 +19,19 @@ const (
 	structuredAggregateMaxPromptFacts     = types.AggregateFactsPromptMaxLimit
 )
 
+const commandValueOnlyPresentation = "value_support=`reported_command_value`, label_authority=`model_inference`"
+
+const commandValueOnlyTeaching = "For `value_support=reported_command_value`, retain the investigator-reported value, unit text, operands/scope and references when relevant and supported by actual tool evidence. This marker does not verify execution or arithmetic. Even a verified calculation does not independently verify model_label, physical meaning, calibration, capacity or causal relationship; those require native typed observations or validated relations. A conditional calculation remains usable with its assumptions stated. A successful command or a support location alone does not certify the label."
+
+func aggregateFactsHaveCommandValues(facts []types.AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		if types.AnswerAggregateFactHasCommandValueOnlySupport(fact) {
+			return true
+		}
+	}
+	return false
+}
+
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
 	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx != nil && ctx.AnalysisIR != nil {
@@ -207,6 +220,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 	for displayIdx := 0; displayIdx < maxFacts; displayIdx++ {
 		i := order[displayIdx]
 		fact := facts[i]
+		valueOnly := types.AnswerAggregateFactHasCommandValueOnlySupport(fact)
 		omitAdvisoryNumeric := aggregateFactRuntimeAdvisoryNumericMustOmitValue(opts.requestModel, fact)
 		unverifiedNegative := types.AnswerAggregateHasUnverifiedNegativeObservation(fact)
 		compactMembers := opts.compactMemberSetRows[i] &&
@@ -232,6 +246,8 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			fmt.Fprintf(&b, ", label_omitted=runtime_advisory_without_typed_support, value_omitted=runtime_advisory_without_typed_support, numeric_observation_authority=`not_authorized`, arithmetic_operand=`not_authorized`")
 		} else if compactNarrativeRelation {
 			fmt.Fprintf(&b, ", label_omitted=precise_typed_relation_handoff_available")
+		} else if valueOnly {
+			fmt.Fprintf(&b, ", model_label=%q", fact.Label)
 		} else {
 			fmt.Fprintf(&b, ", label=%s", fact.Label)
 		}
@@ -254,6 +270,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		}
 		if origins := renderAggregateEvidenceOrigins(types.AnswerAggregateFactEvidenceOrigins(fact, opts.requestModel)); origins != "" {
 			fmt.Fprintf(&b, ", evidence_origin=[%s]", origins)
+		}
+		if valueOnly {
+			fmt.Fprintf(&b, ", %s", commandValueOnlyPresentation)
 		}
 		if !unverifiedNegative && types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
 			!opts.principalContractIndexes[i] &&

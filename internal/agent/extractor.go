@@ -791,6 +791,9 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	if len(aggregateFacts) > 0 {
 		b.WriteString("- structured aggregate facts:\n")
+		if aggregateFactsHaveCommandValues(aggregateFacts) {
+			b.WriteString("- " + commandValueOnlyTeaching + "\n")
+		}
 		b.WriteString(renderStructuredAggregateFactsForContext(ctx, aggregateFacts))
 	}
 	if principal := renderExtractorPrincipalAggregateSlate(ctx, aggregateFacts); principal != "" {

@@ -988,8 +988,14 @@ func normalizeCompletionAggregateFacts(
 	resultKind string,
 	raw []types.AnswerAggregateFact,
 ) ([]types.AnswerAggregateFact, []string, error) {
-	var preNotes []string
-	raw, preNotes = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	// This is the fresh model-payload boundary, before normalization or
+	// merging retained/system facts. A model may report values and provenance,
+	// but cannot reproduce the tool-owned authority stamps. Do not move this
+	// to post-explore refresh: real inventory projections live there too.
+	raw, preNotes := normalizeCompletionModelAuthorityProvenance(raw)
+	var negativeNotes []string
+	raw, negativeNotes = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	preNotes = append(preNotes, negativeNotes...)
 	var compatNotes []string
 	raw, compatNotes = normalizeCompletionAggregateFactCompat(ctx, raw)
 	preNotes = append(preNotes, compatNotes...)
@@ -1079,6 +1085,31 @@ func normalizeCompletionAggregateFacts(
 		notes = append(notes, fmt.Sprintf("kept %d/%d aggregate_facts after dropping contextual non-principal entries", len(merged), len(raw)))
 	}
 	return merged, notes, nil
+}
+
+func normalizeCompletionModelAuthorityProvenance(raw []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+	out := raw
+	var notes []string
+	for i, fact := range raw {
+		provenance := fact.Provenance
+		for _, reserved := range []string{
+			types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			types.TypedRelationPrincipalMemberSetAggregateProvenance,
+			types.TypedRelationImplicitSiblingAggregateDemotionProvenance,
+			types.TypedExclusionExactEmptyMemberSetAggregateProvenance,
+		} {
+			provenance = strings.ReplaceAll(provenance, reserved, "")
+		}
+		if provenance == fact.Provenance {
+			continue
+		}
+		if notes == nil {
+			out = cloneCompletionAggregateFacts(raw)
+		}
+		out[i].Provenance = strings.Trim(provenance, " ;,")
+		notes = append(notes, fmt.Sprintf("aggregate_facts[%d].provenance: ignored model-supplied reserved system authority markers; values and support retained for independent verification", i))
+	}
+	return out, notes
 }
 
 func completionAggregateFactsCanDropContextualNegativeObservation(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) bool {

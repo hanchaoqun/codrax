@@ -1501,7 +1501,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				Origin:          origin,
 				Producer:        firstNonEmptyString(fact.Provenance, "aggregate_facts"),
 				Role:            role,
-				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+				GroundingPolicy: aggregateBindingGroundingPolicy(fact, origin, role),
 				ProvenanceLane:  observationProvenanceLaneForAggregateFact(dims),
 				ClaimAuthority:  claimAuthority,
 				SourceRef:       sourceRef,

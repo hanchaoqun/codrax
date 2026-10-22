@@ -156,6 +156,7 @@ type SemanticClaimBindingSummary struct {
 	ExactSourceSupport bool
 	AuthorityCeiling   string
 	DriftReason        string
+	ValueOnlySupport   bool
 }
 
 // SemanticObservationSummary is the reviewer-facing projection of one
@@ -720,8 +721,13 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			if cb.DriftReason != "" {
 				drift = fmt.Sprintf(" drift_reason=`%s`", cb.DriftReason)
 			}
-			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s`%s outputs=%s target=%q support_refs=%d%s%s\n",
-				cb.ClaimID, cb.Origin, cb.Policy, authority, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount, exactSource, drift)
+			targetField := "target"
+			if cb.ValueOnlySupport {
+				targetField = "model_label"
+				authority += " value_support=`reported_command_value` label_authority=`model_inference`; execution/arithmetic need tool evidence and do not by themselves prove the interpretation"
+			}
+			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s`%s outputs=%s %s=%q support_refs=%d%s%s\n",
+				cb.ClaimID, cb.Origin, cb.Policy, authority, strings.Join(cb.Outputs, ","), targetField, cb.Target, cb.SupportRefCount, exactSource, drift)
 		}
 	}
 	if len(in.Observations) > 0 {
@@ -805,6 +811,7 @@ func semanticClaimBindingSummaries(bindings []types.AnswerClaimBinding) []Semant
 			ExactSourceSupport: types.AnswerClaimBindingHasExactCurrentSourceSupport(b),
 			AuthorityCeiling:   string(types.AnswerClaimBindingAuthorityCeiling(b)),
 			DriftReason:        string(b.DriftReason),
+			ValueOnlySupport:   b.ValueOnlySupport,
 		})
 	}
 	return out

@@ -25,6 +25,10 @@ type AnswerClaimBinding struct {
 	AuthorityCeiling   AuthorityCeiling
 	DriftReason        DriftReason
 	GroundingPolicy    ClaimGroundingPolicy
+	// ValueOnlySupport keeps the accepted payload available without granting
+	// the model-authored label or interpretation the command's authority.
+	// Principal value visibility is a separate contract and remains intact.
+	ValueOnlySupport bool
 }
 
 func CompileAnswerClaimBindings(facts []AnswerAggregateFact, rm *RequestModel, answerContract *AnswerContract) []AnswerClaimBinding {
@@ -65,7 +69,12 @@ func CompileAnswerClaimBindingsFromAggregateFacts(facts []AnswerAggregateFact, r
 				continue
 			}
 			exactCurrentSourceSupport := origin == AnswerEvidenceOriginCurrentSource && answerAggregateFactHasExactCurrentSourceSupport(fact)
-			policy := AnswerClaimBindingGroundingPolicy(origin, role)
+			policy := aggregateBindingGroundingPolicy(fact, origin, role)
+			valueOnlySupport := aggregateBindingHasCommandValueOnlySupport(fact, origin)
+			ceiling := AnswerClaimBindingDefaultAuthorityCeiling(origin, exactCurrentSourceSupport)
+			if valueOnlySupport {
+				ceiling = AuthorityIllustrative
+			}
 			if origin == AnswerEvidenceOriginCurrentSource &&
 				policy == ClaimGroundingHard &&
 				!exactCurrentSourceSupport {
@@ -84,8 +93,9 @@ func CompileAnswerClaimBindingsFromAggregateFacts(facts []AnswerAggregateFact, r
 				RequestedOutputs:   cloneAnswerRequestedOutputs(outputs),
 				SupportRefs:        cloneAnswerClaimBindingStrings(fact.SupportRefs),
 				ExactSourceSupport: exactCurrentSourceSupport,
-				AuthorityCeiling:   AnswerClaimBindingDefaultAuthorityCeiling(origin, exactCurrentSourceSupport),
+				AuthorityCeiling:   ceiling,
 				GroundingPolicy:    policy,
+				ValueOnlySupport:   valueOnlySupport,
 			})
 		}
 	}
@@ -184,6 +194,9 @@ func AnswerClaimBindingDefaultAuthorityCeiling(origin AnswerEvidenceOrigin, exac
 }
 
 func AnswerClaimBindingAuthorityCeiling(binding AnswerClaimBinding) AuthorityCeiling {
+	if binding.ValueOnlySupport {
+		return AuthorityIllustrative
+	}
 	if binding.AuthorityCeiling != "" {
 		return binding.AuthorityCeiling
 	}
