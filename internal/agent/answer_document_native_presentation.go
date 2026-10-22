@@ -13,10 +13,11 @@ import (
 // checks and all their display budgets. It conveys no factual/causal authority
 // and is never persisted into a future dispatch.
 type answerDocNativePresentationReceipt struct {
-	measurementViews map[string]bool
-	queries          map[string]bool
-	records          map[string]bool
-	eventMembers     map[answerDocEventMemberKey]bool
+	measurementViews       map[string]bool
+	measurementViewDetails map[string]answerDocMeasurementViewPresentation
+	queries                map[string]bool
+	records                map[string]bool
+	eventMembers           map[answerDocEventMemberKey]bool
 	// Selection and publication completeness are independent: reference
 	// previews must not hide exact flat member quantities from the same query.
 	// This private routing receipt cannot satisfy completeFor or remove notes.

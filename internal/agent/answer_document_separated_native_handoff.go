@@ -20,6 +20,30 @@ func nativeFactHandoffViewKey(table types.RuntimeMeasurementTable) string {
 }
 
 func (p *answerDocNativePresentationReceipt) observeMeasurementView(table types.RuntimeMeasurementTable, complete bool) {
+	p.observeMeasurementViewDetails(table, complete, complete)
+}
+
+// Row publication and producer-note publication have separate display
+// boundaries. Neither implies capture completeness or semantic authority.
+// The exact full-table key keeps this diagnostic local to its own selector.
+type answerDocMeasurementViewPresentation struct {
+	rowsComplete  bool
+	notesComplete bool
+}
+
+func (p *answerDocNativePresentationReceipt) measurementViewPresentation(table types.RuntimeMeasurementTable) answerDocMeasurementViewPresentation {
+	if p == nil {
+		return answerDocMeasurementViewPresentation{}
+	}
+	key := nativeFactHandoffViewKey(table)
+	if detail, found := p.measurementViewDetails[key]; found {
+		return detail
+	}
+	complete := p.measurementViews[key]
+	return answerDocMeasurementViewPresentation{complete, complete}
+}
+
+func (p *answerDocNativePresentationReceipt) observeMeasurementViewDetails(table types.RuntimeMeasurementTable, rowsComplete, notesComplete bool) {
 	if p == nil {
 		return
 	}
@@ -30,10 +54,16 @@ func (p *answerDocNativePresentationReceipt) observeMeasurementView(table types.
 	if p.measurementViews == nil {
 		p.measurementViews = map[string]bool{}
 	}
-	if prior, found := p.measurementViews[key]; found {
-		complete = complete && prior
+	if _, found := p.measurementViews[key]; found {
+		prior := p.measurementViewPresentation(table)
+		rowsComplete = rowsComplete && prior.rowsComplete
+		notesComplete = notesComplete && prior.notesComplete
 	}
-	p.measurementViews[key] = complete
+	if p.measurementViewDetails == nil {
+		p.measurementViewDetails = map[string]answerDocMeasurementViewPresentation{}
+	}
+	p.measurementViewDetails[key] = answerDocMeasurementViewPresentation{rowsComplete, notesComplete}
+	p.measurementViews[key] = rowsComplete && notesComplete
 }
 
 // Narrative ownership and native publication are separate facts. A bounded
@@ -45,6 +75,8 @@ type answerDocNativeNarrativeProjection struct {
 	independentUnits             bool
 	selectedViews                int
 	completeViews                int
+	rowsCompleteViews            int
+	notesCompleteViews           int
 	interpretationBytes          int
 	publishedInterpretationBytes int
 	sanitized                    bool
@@ -90,6 +122,13 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 					if p != nil && p.measurementViews[nativeFactHandoffViewKey(*r.BoundTable)] {
 						projection.completeViews++
 					}
+					detail := p.measurementViewPresentation(*r.BoundTable)
+					if detail.rowsComplete {
+						projection.rowsCompleteViews++
+					}
+					if detail.notesComplete {
+						projection.notesCompleteViews++
+					}
 				}
 			}
 		}
@@ -116,7 +155,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 		prose.WriteString("Interpretation safety filtering changed the displayed material; the original remains audit-only, not a second answer narrative.\n\n")
 	}
 	if projection.ownsCurrentNarrative && !projection.nativeViewsComplete() {
-		fmt.Fprintf(&prose, "Native reference publication: %d of %d selected views are completely represented in this prompt. Other selected views remain partial or absent; narrative ownership does not make their publication complete.\n\n", projection.completeViews, projection.selectedViews)
+		fmt.Fprintf(&prose, "Native reference publication: %d of %d selected views are completely represented in this prompt; %d of %d selected views have all retained rows represented, and %d of %d have all producer notes represented. These are separate prompt-publication checks, not capture completeness. A failed check means partial or unconfirmed publication for that component, not missing source facts; narrative ownership does not complete it.\n\n", projection.completeViews, projection.selectedViews, projection.rowsCompleteViews, projection.selectedViews, projection.notesCompleteViews, projection.selectedViews)
 	}
 	projection.text = prose.String()
 	return projection

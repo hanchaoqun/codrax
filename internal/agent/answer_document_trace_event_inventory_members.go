@@ -24,6 +24,7 @@ type traceInventoryDisplayKey struct{ source, row [sha256.Size]byte }
 
 func traceEventInventoryMembers(records []types.ObservationRecord) traceInventoryMembers {
 	keys := make([][]traceInventoryDisplayKey, len(records))
+	priorities := make([][]int, len(records))
 	maxRows := 0
 	for n, record := range records {
 		source := record.SourceRef
@@ -43,14 +44,21 @@ func traceEventInventoryMembers(records []types.ObservationRecord) traceInventor
 		if len(keys[n]) > maxRows {
 			maxRows = len(keys[n])
 		}
+		priorities[n] = traceEventInventoryPreviewOrder(len(keys[n]))
 	}
 	selected := make(map[traceInventoryDisplayKey]string)
 	out := traceInventoryMembers{refs: make([][]string, len(records)), positions: make([][]int, len(records))}
-	// Fairness is by query and original row order, not a heuristic relevance
-	// score. Previously selected objects do not consume another display slot.
-	for row := 0; row < maxRows && len(out.rows) < traceEventInventoryPromptRowLimit; row++ {
+	// Fairness remains by query. Within each finite retained member set,
+	// prioritize its boundaries then split positional gaps so a second display
+	// limit does not silently become another head-only preview. This is neither
+	// random sampling nor a statement that displayed rows represent the source.
+	for rank := 0; rank < maxRows && len(out.rows) < traceEventInventoryPromptRowLimit; rank++ {
 		for n, record := range records {
-			if row >= len(keys[n]) || selected[keys[n][row]] != "" {
+			if rank >= len(priorities[n]) {
+				continue
+			}
+			row := priorities[n][rank]
+			if selected[keys[n][row]] != "" {
 				continue
 			}
 			selected[keys[n][row]] = fmt.Sprintf("row-%d", len(out.rows)+1)
@@ -70,6 +78,32 @@ func traceEventInventoryMembers(records []types.ObservationRecord) traceInventor
 				out.positions[n] = append(out.positions[n], position)
 			}
 		}
+	}
+	return out
+}
+
+// A deterministic, prefix-stable allocation order over retained positions.
+// Member references are rebuilt in original order after allocation, so the
+// budget cannot reverse chronology or misaddress a query-local selector ID.
+func traceEventInventoryPreviewOrder(count int) []int {
+	if count == 0 {
+		return nil
+	}
+	out := []int{0}
+	if count == 1 {
+		return out
+	}
+	out = append(out, count-1)
+	type gap struct{ left, right int }
+	gaps := []gap{{0, count - 1}}
+	for n := 0; n < len(gaps); n++ {
+		g := gaps[n]
+		if g.right-g.left <= 1 {
+			continue
+		}
+		middle := g.left + (g.right-g.left+1)/2
+		out = append(out, middle)
+		gaps = append(gaps, gap{g.left, middle}, gap{middle, g.right})
 	}
 	return out
 }

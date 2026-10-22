@@ -36,5 +36,5 @@ func publishSamplingTablePreview(table types.RuntimeMeasurementTable, rows int, 
 	for _, note := range table.Notes {
 		facts.note(table, note)
 	}
-	receipt.observeMeasurementView(table, rows == len(table.Rows))
+	receipt.observeMeasurementViewDetails(table, rows == len(table.Rows), true)
 }
