@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -77,8 +79,23 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 					}
 				} else {
 					original, _ := registry.Get(offered.Name)
-					if !bytes.Equal(offered.Parameters, original.Parameters()) || bytes.Contains(offered.Parameters, []byte(`"assertion_ref"`)) {
-						t.Fatalf("inactive request acquired selection schema: %s", offered.Name)
+					canonical := append(json.RawMessage(nil), original.Parameters()...)
+					expected := llm.CompactToolSchemas([]llm.ToolSchema{{Name: offered.Name, Parameters: canonical}})[0]
+					if !bytes.Equal(offered.Parameters, expected.Parameters) {
+						t.Fatalf("inactive %s wire differs from exact canonical transport projection", offered.Name)
+					}
+					expanded := nativeRegistrationExpandWireSchema(t, offered.Parameters)
+					if !reflect.DeepEqual(expanded, nativeRegistrationDecodeSchema(t, canonical)) {
+						t.Fatalf("inactive %s wire changed canonical constraints or identities", offered.Name)
+					}
+					expandedJSON := b1122JSON(t, expanded)
+					for _, schema := range [][]byte{offered.Parameters, expandedJSON} {
+						if bytes.Contains(schema, []byte(`"assertion_ref"`)) || bytes.Contains(schema, []byte(choices[0].Ref)) {
+							t.Fatalf("inactive request acquired selection schema: %s", offered.Name)
+						}
+					}
+					if !bytes.Equal(canonical, original.Parameters()) {
+						t.Fatalf("wire projection mutated canonical %s schema", offered.Name)
 					}
 				}
 			}
@@ -97,4 +114,64 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func nativeRegistrationDecodeSchema(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var schema map[string]any
+	if err := dec.Decode(&schema); err != nil {
+		t.Fatal(err)
+	}
+	return schema
+}
+
+// Independently expand only generated schema references. Instance-valued
+// const/default/enum/example data is not a schema and must remain unchanged.
+func nativeRegistrationExpandWireSchema(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	root := nativeRegistrationDecodeSchema(t, raw)
+	defs, _ := root["$defs"].(map[string]any)
+	delete(root, "$defs")
+	active := map[string]bool{}
+	var expand func(map[string]any) map[string]any
+	expand = func(node map[string]any) map[string]any {
+		if value, exists := node["$ref"]; exists {
+			ref, ok := value.(string)
+			if !ok || len(node) != 1 || !strings.HasPrefix(ref, "#/$defs/shared_schema_") {
+				t.Fatalf("unexpected schema reference: %v", node)
+			}
+			definition, ok := defs[strings.TrimPrefix(ref, "#/$defs/")].(map[string]any)
+			if !ok || active[ref] {
+				t.Fatalf("dangling or cyclic schema reference: %s", ref)
+			}
+			active[ref] = true
+			expanded := expand(definition)
+			delete(active, ref)
+			return expanded
+		}
+		for _, key := range []string{"properties", "patternProperties", "dependencies", "dependentSchemas"} {
+			children, _ := node[key].(map[string]any)
+			for name, child := range children {
+				if schema, ok := child.(map[string]any); ok {
+					children[name] = expand(schema)
+				}
+			}
+		}
+		for _, key := range []string{"items", "additionalItems", "contains", "contentSchema", "additionalProperties", "unevaluatedProperties", "unevaluatedItems", "propertyNames", "not", "if", "then", "else", "allOf", "anyOf", "oneOf", "prefixItems"} {
+			switch child := node[key].(type) {
+			case map[string]any:
+				node[key] = expand(child)
+			case []any:
+				for i, item := range child {
+					if schema, ok := item.(map[string]any); ok {
+						child[i] = expand(schema)
+					}
+				}
+			}
+		}
+		return node
+	}
+	return expand(root)
 }

@@ -89,6 +89,9 @@ func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string 
 	}
 	shown := 0
 	fmt.Fprintf(&b, "匹配资源事件=%d；源帧统计与展示省略分别计数。\n", p.MatchedEvents)
+	if s := p.EventStatistics; s != nil {
+		fmt.Fprintf(&b, "原查询事件统计：完整扫描事件=%d，分组=%d；统计分组展示=%d，省略=%d（对应事件=%d），分组展示完整=%t。统计属于原查询总体，不以本次展示的事件明细为分母；不表示资源存量、配对或线程耗时。完整分组见原始查询结果。\n", s.EventCount, s.TotalGroups, len(s.Groups), s.OmittedGroups, s.OmittedGroupEvents, s.Complete)
+	}
 	for _, e := range p.Events {
 		if shown >= limit {
 			break

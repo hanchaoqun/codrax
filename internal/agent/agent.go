@@ -1429,12 +1429,16 @@ func resolveToolChoice(ctx *types.AgentContext) string {
 // breached, not a vague "pressure is high."
 func contextPressureDirective(name types.AgentName, promptBytes, byteBudget int, hardRatio float64) string {
 	ratioPct := float64(promptBytes) / float64(byteBudget) * 100
+	return renderContextPressureDirective(name, fmt.Sprintf(
+		"Cumulative prompt bytes %d of %d estimated (%.1f%% ≥ hard threshold %.1f%%); next iteration risks a provider 400.",
+		promptBytes, byteBudget, ratioPct, hardRatio*100,
+	))
+}
+
+func renderContextPressureDirective(name types.AgentName, why string) string {
 	h := &hint.Hint{
-		WhatFailed: "Context window approaching the model's limit",
-		WhyItFailed: fmt.Sprintf(
-			"Cumulative prompt bytes %d of %d estimated (%.1f%% ≥ hard threshold %.1f%%); next iteration risks a provider 400.",
-			promptBytes, byteBudget, ratioPct, hardRatio*100,
-		),
+		WhatFailed:        "Context window approaching the model's limit",
+		WhyItFailed:       why,
 		WhatSystemDid:     "Marked the ReAct loop forceStop=true — the iteration about to fire will be the last, so its output must close the stage.",
 		ForbiddenPatterns: contextPressureForbiddenPatterns(name),
 	}
@@ -2281,44 +2285,6 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		}
 
-		// Context-pressure watchdog. Measure the post-prune prompt
-		// byte total against the adapter's declared context window
-		// (× BytesPerToken). The soft ratio logs a warning; the hard
-		// ratio sets forceStop and appends a terminal directive to
-		// the user message list so the CURRENT iteration (the one
-		// about to fire below) is the last. The watchdog is quiet
-		// when any input is missing / pathological: zero window,
-		// zero budget, zero both ratios.
-		//
-		// The hard directive is **agent-specific** — each agent's
-		// terminal tool set differs, and naming tools an agent does
-		// not have access to (e.g. telling a verifier to call
-		// emit_answer_symbol) would actively harm the retry. The
-		// directive body is composed from contextPressureDirective
-		// below, which keys off the agent's name.
-		if ctxWindow := b.deps.LLM.MaxContextTokens(); ctxWindow > 0 {
-			byteBudget := ctxWindow * types.BytesPerToken
-			promptBytes := llm.EstimateMessagesBytes(messages)
-			soft := b.deps.AgentSettings.ContextPressureSoftRatio
-			hard := b.deps.AgentSettings.ContextPressureHardRatio
-			if byteBudget > 0 && (soft > 0 || hard > 0) {
-				ratio := float64(promptBytes) / float64(byteBudget)
-				switch {
-				case hard > 0 && ratio >= hard:
-					logging.Warning("[agent %s] context-pressure HARD: iter=%d prompt=%d/%d bytes (%.1f%% ≥ %.1f%%) — force-stopping after this iteration",
-						b.name, i, promptBytes, byteBudget, ratio*100, hard*100)
-					messages = append(messages, llm.Message{
-						Role:    "user",
-						Content: contextPressureDirective(b.name, promptBytes, byteBudget, hard),
-					})
-					forceStop = true
-				case soft > 0 && ratio >= soft:
-					logging.Warning("[agent %s] context-pressure SOFT: iter=%d prompt=%d/%d bytes (%.1f%% ≥ %.1f%%) — consider terminating soon",
-						b.name, i, promptBytes, byteBudget, ratio*100, soft*100)
-				}
-			}
-		}
-
 		// Per-iter tool schema refresh (2026-05-17 T2 hotfix).
 		// buildToolSchemas is now invoked PER ITER instead of once at
 		// Execute() entry. The auto-gates inside buildToolSchemas
@@ -2367,6 +2333,11 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			break
 		}
 		effectiveToolNames := toolSchemaNameSet(effectiveTools)
+		// The wire projection only shares exact repeated schema nodes. Local
+		// normalization still requires the complete canonical tree: its schema
+		// walker does not resolve wire-only $defs/$ref references.
+		canonicalEffectiveTools := effectiveTools
+		effectiveTools = llm.CompactToolSchemas(effectiveTools)
 
 		requestMessages := messages
 		if directive, ok := toolSurfaceState.message(ctx, iterToolSchemas, effectiveTools); ok {
@@ -2385,6 +2356,38 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if _, currentReq := types.SplitConversation(ctx.Objective); true {
 			if nudge := promptctx.ReasoningLanguageTailNudge(ctx.Language, currentReq); nudge != "" {
 				requestMessages = append(requestMessages, llm.Message{Role: "user", Content: nudge})
+			}
+		}
+
+		// Account for the same catalog and ephemeral tails that Chat receives,
+		// not merely durable history. Known output capacity shares this window;
+		// zero output cap is unknown server policy, never a known zero reserve.
+		pressure := measureContextRequestPressure(b.deps.LLM, requestMessages, effectiveTools)
+		soft := b.deps.AgentSettings.ContextPressureSoftRatio
+		hard := b.deps.AgentSettings.ContextPressureHardRatio
+		if pressure.WindowBytes > 0 && (soft > 0 || hard > 0) {
+			ratio := pressure.ratio()
+			skipOptionalRepair := false
+			switch {
+			case hard > 0 && ratio >= hard:
+				if keeper, ok := b.eval.(acceptedAnswerPressureKeeper); ok && keeper.keepAcceptedAnswerUnderPressure(ctx) {
+					logging.Warning("[agent %s] context-pressure HARD: iter=%d messages=%d tools=%d output_tokens=%d output_known=%t window=%d — skipping optional post-emit repair; preserving accepted answer",
+						b.name, i, pressure.MessageBytes, pressure.ToolBytes, pressure.OutputTokens, pressure.OutputKnown, pressure.WindowBytes)
+					skipOptionalRepair = true
+					break
+				}
+				logging.Warning("[agent %s] context-pressure HARD: iter=%d prompt=%d/%d bytes messages=%d tools=%d output_tokens=%d output_known=%t (%.1f%% ≥ %.1f%%) — force-stopping after this iteration",
+					b.name, i, pressure.promptBytes(), pressure.WindowBytes, pressure.MessageBytes, pressure.ToolBytes, pressure.OutputTokens, pressure.OutputKnown, ratio*100, hard*100)
+				directive := llm.Message{Role: "user", Content: contextRequestPressureDirective(b.name, pressure, hard)}
+				requestMessages = append(append([]llm.Message(nil), requestMessages...), directive)
+				messages = append(messages, directive)
+				forceStop = true
+			case soft > 0 && ratio >= soft:
+				logging.Warning("[agent %s] context-pressure SOFT: iter=%d prompt=%d/%d bytes messages=%d tools=%d output_tokens=%d output_known=%t (%.1f%% ≥ %.1f%%) — consider terminating soon",
+					b.name, i, pressure.promptBytes(), pressure.WindowBytes, pressure.MessageBytes, pressure.ToolBytes, pressure.OutputTokens, pressure.OutputKnown, ratio*100, soft*100)
+			}
+			if skipOptionalRepair {
+				break
 			}
 		}
 
@@ -2571,7 +2574,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		repositoryReadDelivery.commit(ctx, readDeliverySnapshot)
-		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
+		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, canonicalEffectiveTools)
 		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
 		var toolBatchGuardHint string
 		resp.ToolCalls, toolBatchGuardHint = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)

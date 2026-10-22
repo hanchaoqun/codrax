@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -34,8 +35,15 @@ func exportTraceDBResourceStacks(ctx context.Context, tdb *traceDB, sink *traceD
 	if err != nil {
 		return result(err)
 	}
-	optional := []string{"id", "addr", "heap_size", "end_ts"}
+	optional := []string{"id", "addr", "heap_size", "end_ts", "sub_type_id"}
 	selects := resourceOptionalSelects(columns, optional)
+	var subtypes map[int64]traceDBNativeHookSubtype
+	if selects[4] != "NULL" {
+		subtypes, err = loadTraceDBNativeHookSubtypes(ctx, tdb)
+		if err != nil {
+			return result(err)
+		}
+	}
 	rows, err := tdb.db.QueryContext(ctx, `SELECT `+stable+`,start_ts,event_type,itid,ipid,callchain_id,`+strings.Join(selects, ",")+` FROM native_hook ORDER BY `+stable)
 	if err != nil {
 		return result(err)
@@ -47,8 +55,8 @@ func exportTraceDBResourceStacks(ctx context.Context, tdb *traceDB, sink *traceD
 			return result(err)
 		}
 		var rowRaw, tsRaw, opRaw, itidRaw, ipidRaw, callRaw any
-		var raw [4]any
-		if err := rows.Scan(&rowRaw, &tsRaw, &opRaw, &itidRaw, &ipidRaw, &callRaw, &raw[0], &raw[1], &raw[2], &raw[3]); err != nil {
+		var raw [5]any
+		if err := rows.Scan(&rowRaw, &tsRaw, &opRaw, &itidRaw, &ipidRaw, &callRaw, &raw[0], &raw[1], &raw[2], &raw[3], &raw[4]); err != nil {
 			return result(err)
 		}
 		row, rowOK := traceDBStrictSQLiteInt(rowRaw)
@@ -66,7 +74,9 @@ func exportTraceDBResourceStacks(ctx context.Context, tdb *traceDB, sink *traceD
 			continue
 		}
 		e := tracewire.ResourceEvent{PID: int(process.PID), TID: int(thread.TID), IPID: ipid, ITID: itid, Thread: thread.Name, Operation: op, CallchainID: resourceSQLScalar(callRaw, true)}
+		e.Process = process.Name
 		e.SourceID, e.Address, e.Size, e.EndNS = resourceSQLScalar(raw[0], selects[0] != "NULL"), resourceSQLScalar(raw[1], selects[1] != "NULL"), resourceSQLScalar(raw[2], selects[2] != "NULL"), resourceSQLScalar(raw[3], selects[3] != "NULL")
+		e.Subtype = resourceSQLSubtype(raw[4], selects[4] != "NULL", subtypes)
 		e.StackStatus = "unresolved_callchain"
 		var attached []tracewire.ResourceFrame
 		if chain, ok := e.CallchainID.Integer(); ok && chain >= 0 && chain < math.MaxUint32 {
@@ -104,6 +114,44 @@ func exportTraceDBResourceStacks(ctx context.Context, tdb *traceDB, sink *traceD
 	}
 	c.Skipped = traceDBCountSummary(skipped)
 	return result(rows.Err())
+}
+
+func resourceSQLSubtype(raw any, present bool, dictionary map[int64]traceDBNativeHookSubtype) *tracewire.ResourceSubtype {
+	s := &tracewire.ResourceSubtype{ID: resourceSQLScalar(raw, present), Name: tracewire.ResourceText{Status: "unavailable"}}
+	if s.ID.Status == "null" {
+		s.Name.Status = "null"
+		return s
+	}
+	id, ok := s.ID.Integer()
+	if !ok {
+		return s
+	}
+	if id < 0 || id > math.MaxUint32 {
+		s.Name.Status = "invalid"
+		return s
+	}
+	item, found := dictionary[id]
+	if !found {
+		return s
+	}
+	if item.reason == "unresolvable_sub_type_id" {
+		s.Name.Status = "ambiguous"
+		return s
+	}
+	if item.reason != "" {
+		s.Name.Status = "invalid"
+		return s
+	}
+	if item.jsonName == "null" {
+		s.Name.Status = "null"
+		return s
+	}
+	if json.Unmarshal([]byte(item.jsonName), &s.Name.Value) != nil {
+		s.Name.Status = "invalid"
+		return s
+	}
+	s.Name.Status = "known"
+	return s
 }
 
 func resourceOptionalSelects(columns, names []string) []string {

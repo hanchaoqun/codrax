@@ -79,6 +79,9 @@ func buildResourceStack(idx *Index, q Query) *ResourceStackResult {
 	}
 	var selected []*ResourceStackEvent
 	for id, e := range byID {
+		if q.runCancel.tick() {
+			return fail("scan_canceled")
+		}
 		if len(frames[id]) != e.Source.FrameCount {
 			return fail("resource_frame_binding_incomplete")
 		}
@@ -86,16 +89,7 @@ func buildResourceStack(idx *Index, q Query) *ResourceStackResult {
 		if ts < q.TimeStart || ts > q.TimeEnd || ts == q.TimeEnd && !q.timeEndBackfilled {
 			continue
 		}
-		if q.PID != 0 {
-			target := e.Source.TID
-			if q.TargetScope == TargetScopeProcess {
-				target = e.Source.PID
-			}
-			if target != q.PID {
-				continue
-			}
-		}
-		if q.Thread != "" && q.PID == 0 && q.Thread != e.Source.Thread {
+		if !resourceStackOwnerMatches(e.Source.PID, e.Source.TID, e.Source.Thread, q.PID, q.Thread, q.TargetScope) {
 			continue
 		}
 		e.Frames = frames[id]
@@ -110,8 +104,13 @@ func buildResourceStack(idx *Index, q Query) *ResourceStackResult {
 		}
 		return selected[i].RowID < selected[j].RowID
 	})
+	statistics := buildResourceEventStatistics(selected, q.runCancel)
+	if statistics == nil {
+		return fail("scan_canceled")
+	}
 	p.Status = "available"
 	p.MatchedEvents = len(selected)
+	p.EventStatistics = statistics
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 40
@@ -131,6 +130,7 @@ func buildResourceStack(idx *Index, q Query) *ResourceStackResult {
 		p.Events = append(p.Events, *e)
 	}
 	p.Caveats = []string{"Frames are linked through an observed resource event's same-capture owner and callchain; frame rows themselves have no owner or execution timestamp.", "Source depth is preserved without declaring a business leaf. Contiguous observed depths do not prove that upstream unwinding reached the true stack end.", "Unknown symbols and NULL scalar fields stay unknown. Resource end time is metadata, not thread running or blocking time; no CPU, leak verdict or response cause is inferred."}
+	p.Caveats = append(p.Caveats, "Event statistics cover the complete selected native_hook event population before display limits, using each event start timestamp, not lifetime overlap. Releases are counted only as explicit release events; end_ns does not synthesize a release. Source size totals are event flow, not active stock, matched allocation/free pairs or execution duration; unspecified units are not bytes. native_hook_statistic reports are not aggregated.")
 	return p
 }
 
@@ -196,9 +196,12 @@ func ValidResourceStack(p ResourceStackResult) bool {
 		return false
 	}
 	if p.Status == "unavailable" {
-		return p.Reason != "" && p.MatchedEvents == 0 && p.OmittedEvents == 0 && len(p.Events) == 0
+		return p.Reason != "" && p.MatchedEvents == 0 && p.OmittedEvents == 0 && len(p.Events) == 0 && p.EventStatistics == nil
 	}
 	if p.Status != "available" || p.Reason != "" || p.MatchedEvents < 0 || p.OmittedEvents < 0 || p.MatchedEvents != len(p.Events)+p.OmittedEvents {
+		return false
+	}
+	if p.EventStatistics != nil && !validResourceEventStatistics(p) {
 		return false
 	}
 	ids := map[int64]bool{}
@@ -212,16 +215,7 @@ func ValidResourceStack(p ResourceStackResult) bool {
 		if ts < p.Window.StartTs || ts > p.Window.EndTs || ts == p.Window.EndTs && !p.Window.EndInclusive {
 			return false
 		}
-		if p.TargetPID != 0 {
-			pid := e.Source.TID
-			if p.TargetScope == TargetScopeProcess {
-				pid = e.Source.PID
-			}
-			if pid != p.TargetPID {
-				return false
-			}
-		}
-		if p.TargetPID == 0 && p.TargetThread != "" && p.TargetThread != e.Source.Thread {
+		if !resourceStackOwnerMatches(e.Source.PID, e.Source.TID, e.Source.Thread, p.TargetPID, p.TargetThread, p.TargetScope) {
 			return false
 		}
 		if e.MissingDepths < 0 || e.DuplicateDepths < 0 || e.InvalidDepths < 0 || e.UnknownSymbols < 0 || e.UnknownSymbols > e.Source.FrameCount || e.DuplicateDepths+e.InvalidDepths > e.Source.FrameCount {
@@ -251,4 +245,14 @@ func ValidResourceStack(p ResourceStackResult) bool {
 		}
 	}
 	return true
+}
+
+func resourceStackOwnerMatches(pid, tid int, thread string, targetPID int, targetThread, scope string) bool {
+	if targetPID != 0 {
+		if scope == TargetScopeProcess {
+			return pid == targetPID
+		}
+		return tid == targetPID
+	}
+	return targetThread == "" || targetThread == thread
 }

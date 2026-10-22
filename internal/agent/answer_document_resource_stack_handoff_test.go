@@ -164,6 +164,10 @@ func TestNativeResourceStackHandoffIdentityAndScope(t *testing.T) {
 	// Individually valid but conflicting publications for the same receipt
 	// cannot be resolved by record order or by choosing the first one.
 	p.Events[0].Source.Size.Value = "1024"
+	// This branch exercises the legacy carrier without optional event stats.
+	// New carriers additionally reject a size/aggregate contradiction before
+	// publication comparison (covered by HMC278 full-census validation).
+	p.EventStatistics = nil
 	body, _ := json.Marshal(p)
 	conflict := record
 	conflict.RichNotes = []string{types.TraceNoteKeyResourceStack + "=" + string(body)}

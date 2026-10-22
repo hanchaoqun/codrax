@@ -149,6 +149,10 @@ func resourceSelectionAllRecordHMC248(t *testing.T, results []types.ToolResult) 
 }
 
 func resourceSelectionRecordPayloadHMC248(t *testing.T, r types.ObservationRecord, p tracequery.ResourceStackResult) types.ObservationRecord {
+	// These manually rewritten source/owner/empty-result fixtures exercise the
+	// original resource member projection contract, not HMC278's independently
+	// checked event aggregates. Keep the optional legacy carrier explicit.
+	p.EventStatistics = nil
 	t.Helper()
 	data, err := json.Marshal(p)
 	if err != nil {

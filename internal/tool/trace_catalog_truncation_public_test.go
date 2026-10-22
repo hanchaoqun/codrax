@@ -123,6 +123,18 @@ func TestTraceQueryResourceStackEnumerationPreservesSharedBoundariesWithoutGrant
 	}
 	p.MatchedEvents++
 	p.OmittedEvents++
+	if p.EventStatistics == nil || p.EventStatistics.EventCount != p.MatchedEvents-1 {
+		t.Fatal("fixture must retain the original event statistics after changing only enumeration counters")
+	}
+	if tracequery.ValidResourceStack(p) {
+		t.Fatal("event counters conflicting with native statistics were accepted")
+	}
+	if traceQueryResourceStackIncompleteEnumeration(tracequery.Result{View: tracequery.ViewResourceStack, ResourceStack: &p}) != nil {
+		t.Fatal("conflicting native statistics granted a resource enumeration boundary")
+	}
+	// The original omission fixture predates optional event statistics. Keep
+	// its legacy scope explicit; do not weaken validation of current payloads.
+	p.EventStatistics = nil
 	result := tracequery.Result{View: tracequery.ViewResourceStack, ResourceStack: &p,
 		Compactions: []tracequery.ViewCompaction{{View: "existing_view", Dimension: "existing_rows", Total: 5, Emitted: 2}}}
 	before, _ := json.Marshal(result)

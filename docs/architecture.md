@@ -264,7 +264,9 @@ graph TB
 | coder | `WriteClosure.AppliedSet ⊇ ChangePlan.TargetPaths` |
 | verifier | `run_tests` 成功安装 ChangeReport（`emit_test_results` 可选） |
 
-**Context-pressure 监控**：每轮裁剪 tool history 之后，`BaseAgent.Execute` 估算 wire-level prompt 字节数和 `context_window × BytesPerToken` 比值。`agent_context_pressure_soft_ratio`（默认 0.7）超过则记 `WARN [SOFT]`；`agent_context_pressure_hard_ratio`（默认 0.9）超过则 append 一条 user-role hint（用 6 段格式：What failed / Why / What I already did / How to fix / Allowed / Do NOT），下一轮强制退出。每个 agent 自带的 AllowedSet / ForbiddenPatterns 跟它真正能调的工具集合对齐——verifier 看到的 hint 只列 `run_tests`，coder 只列 `apply_patch`，避免跨 stage 工具名误导。
+**Context-pressure 监控**：每轮裁剪 tool history、刷新工具与临时尾部之后，`BaseAgent.Execute` 按实际发送的消息和工具目录估算字节数，并加入适配器已知的输出预留，与 `context_window × BytesPerToken` 比较；输出上限为0表示服务端策略未知，不声称预留了0。该值仍是近似token估算，不是服务端精确计费。`agent_context_pressure_soft_ratio`（默认0.7）超过记WARN；hard ratio（默认0.9）通常保留合法工具、追加agent专属终止提示并在当前轮后退出。唯一可提前结束的是当前Finalizer已经受理完整答案且已发出本dispatch的可选post-emit advisory：不再发送超预算可选修补，沿正常ParseOutput保留已受理稿；pending/rejected草稿、其它dispatch或未发advisory不能借此退出。硬校验与失败稿状态不改，也不吞掉通用API错误。
+
+工具目录传输可无损共享精确重复的大JSON Schema子树到本地`$defs`，预算、telemetry与Chat使用同一投影；本地参数修复/指纹/执行仍使用完整canonical schema，不能让不支持`$ref`的本地walker消费传输定义。字段/查询enum/说明/约束完整保留，已有作用域或引用（包括`contentSchema`内部）则整份不动；const/default/examples等实例数据不解释为schema。该优化不改变工具可用性、调用身份或事实权限。
 
 ### 3.2 Skill 的角色
 
@@ -1154,6 +1156,8 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 HMC §275 将所有受信 `Timeline` 的预览资格与 `DefaultPresentation` 输出意图分离：预算至少两行时保留整表首尾，再按生产顺序补前段，携原始零基行号；零/一行明确标为 `no_rows`/`first_retained_row`，不声称每个独立系列都已覆盖。IO在途和调度并发的紧凑时序共用同样的完整区间选择，仍受90字节主体/160字节整条note限制，不截断端点。128行预算中的重复预览仅在当前私有物理来源代次、完整查询坐标、整个原生publication（含其它视图、成员、单位、notes及省略）精确一致时共享；每个选择器及查询凭证仍独立。别名必须引用已实际写入的代表及导航，截断代表不授完整性；事件库存和采样专用人口规则保持原合同。此优化不改统计、自动展示或因果资格。
 
+HMC §278 对普通原生量测的重复说明另做完整字符串导航：定义先于引用发布，scope/boundary引用仍绑定各自精确选择器。只共享完全相同的说明字节（含空串与空白），不以相同数值合并查询、原件、时间窗或总体；引用不替代实际完整性收据。原表Notes、保留行、最终绑定输出与独立采样/事件通道不变，单条说明亦须投递，避免旧首尾切片漏掉唯一说明。
+
 调度并发的成员展示16条、深度档32条、时间桶32条，与既有16段精确时序上限相互独立；全部统计先于展示截断，完整成员数=展示+上限省略+端点见证不可用。成员保留物理来源行和实际端点，窗口内贡献另列；行选择仍能统计真实成员/线程数，但不推定连续时间分母。`bucket_ms`与IO活动共享精确十进制轴（默认100、正数限1..60000ms），保零贡献桶及短尾实宽。分位数按完整窗口持续时间累计，浮点比较处于舍入不确定范围时用十进制端点精确复核，不用容差抹去1ns差异，也不从展示桶峰值或成员名称反推总体。
 
 CPU状态×频率同样注册`summary/distribution/timeline`，不支持`members`。在工具16项预览截断前，由已经完整校验的原生结果生成数值表：逐核已知/未知、状态码×频率组合、精确起止段/来源行；遵守查询原有64核/组/段上限并披露省略，不把预览页当全集。每核完整窗口、全核CPU-ms、频率kHz和未知分别说明；源idle码释义未核实时不猜状态。模型只选择当前observation_id/view，普通自定义表/解释仍由模型创作。负观察、来源/窗口/载荷冲突或过期供给不授绑定资格；该表不授线程执行或根因权威。
@@ -1489,6 +1493,8 @@ HMC §258进一步区分材料地址与用途：合法恢复snapshot的文件坐
 运行时图的支持判定复用authoring/emit/repair/post同一原生关系池，types通过工具启动时的一次性resolver接入，不增加模型字段。只恢复已请求且当前已校验关系可支持的图型，不从附件存在或业务名字授边；provider空结果不借旧wakeup兜底。精确源码图义务与纯源码问题不被运行时图替代，软探索建议也不阻断真实运行时关系。`observe`始终只是协议观察，不升级为调用、唤醒或根因。局部显式节点声明在库内规范安全标签换行并精确返回失败原因，终端兼容层负责转义与显示保真，本地依赖限制不向LLM教学泄漏。
 
 `trace_query(view=resource_stack,time_start,time_end,pid/thread)`只展开同源资源事件与源帧；显式time_end右开，默认包络包含最后已观测点，单点可查但不生成持续时间，也不证明完整采集范围。源帧载体齐全、源深度缺口/重复/无效、未知符号、真实展开终点未知和展示省略分开。先全量统计，再展示最多40事件×128帧；typed交接8事件×32帧且JSON/文字各24KiB，最终最多4查询/64KiB。预算删除完整帧、事件或查询并记省略，绝不截断符号为另一个函数名；原始payload保留。跨查询相同身份冲突不选首个；inclusive末点不得借到用户右开边界。栈仅支持资源事件的业务调用位置线索，不固定max_depth-2或最深帧为业务叶子，不把资源生命周期当执行/等待时长，不授泄漏或响应根因资格。
+
+§278同一入口的`event_statistics`在完整选中事件集上按owner、资源族/规范操作、subtype分组，再裁剪事件明细；逐组主体同样满足查询选择器。按事件start时间计入，只计显式释放，不从end_ns合成release，不推净存量。已知非负size（含0）精确十进制求和，NULL/未提供/无效/负数另列；只有heap/mapping声明bytes，扩展族保unspecified。统计group的有界交接另分配整组预算，完整总组数、展示省略组数和对应事件数分开；不截字段、不改完整payload、不拿明细预览当统计分母。旧载体省略process/subtype/statistics仍兼容。当前交付查询统计与有界交接，尚非最终答案的原生统计表；`native_hook_statistic`增量/累计/reset协议未证实，不做推测SUM。
 
 资源导出覆盖分别登记`native_hook`事件和`native_hook_frame`帧表，区分源表总行、被引用帧、实际发布的去重源帧及逐事件重复载体数量；未知/无效/歧义字段按源帧计一次。未引用、所属事件未发布、非法callchain和未转换列显式保留；实际消费过的帧表不再同时列为unsupported，缺表/缺列/隐藏行身份及真正未消费的其它表不被全局隐藏。
 

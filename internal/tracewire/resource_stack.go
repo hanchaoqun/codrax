@@ -81,22 +81,37 @@ func (f ResourceFrame) Valid() bool {
 // ResourceEvent carries an owner proven in the same sealed capture. CPU is
 // deliberately absent: resource observation does not require sched execution.
 type ResourceEvent struct {
-	SourceID    ResourceScalar `json:"source_id"`
-	PID         int            `json:"pid"`
-	TID         int            `json:"tid"`
-	IPID        int64          `json:"ipid,string"`
-	ITID        int64          `json:"itid,string"`
-	Thread      string         `json:"thread"`
-	Operation   string         `json:"operation"`
-	CallchainID ResourceScalar `json:"callchain_id"`
-	Address     ResourceScalar `json:"address"`
-	Size        ResourceScalar `json:"size"`
-	EndNS       ResourceScalar `json:"end_ns"`
-	FrameCount  int            `json:"frame_count"`
-	StackStatus string         `json:"stack_status"`
+	SourceID    ResourceScalar   `json:"source_id"`
+	PID         int              `json:"pid"`
+	TID         int              `json:"tid"`
+	IPID        int64            `json:"ipid,string"`
+	ITID        int64            `json:"itid,string"`
+	Thread      string           `json:"thread"`
+	Process     string           `json:"process,omitempty"`
+	Operation   string           `json:"operation"`
+	CallchainID ResourceScalar   `json:"callchain_id"`
+	Address     ResourceScalar   `json:"address"`
+	Size        ResourceScalar   `json:"size"`
+	EndNS       ResourceScalar   `json:"end_ns"`
+	FrameCount  int              `json:"frame_count"`
+	StackStatus string           `json:"stack_status"`
+	Subtype     *ResourceSubtype `json:"subtype,omitempty"`
+}
+
+// Subtype is optional for older v1 carriers. Absence means not published,
+// never the zero dictionary ID; a known empty dictionary name stays known.
+type ResourceSubtype struct {
+	ID   ResourceScalar `json:"id"`
+	Name ResourceText   `json:"name"`
 }
 
 func (e ResourceEvent) Valid() bool {
+	if len(e.Process) > 4096 || !utf8.ValidString(e.Process) {
+		return false
+	}
+	if e.Subtype != nil && (!e.Subtype.ID.Valid() || !e.Subtype.Name.Valid()) {
+		return false
+	}
 	if e.PID <= 0 || e.TID <= 0 || e.PID > math.MaxInt32 || e.TID > math.MaxInt32 || e.IPID <= 0 || e.ITID <= 0 || len(e.Thread) > 4096 || !utf8.ValidString(e.Thread) || !e.SourceID.Valid() || !e.CallchainID.Valid() || !e.Address.Valid() || !e.Size.Valid() || !e.EndNS.Valid() || e.FrameCount < 0 || e.FrameCount > 1_000_000 {
 		return false
 	}

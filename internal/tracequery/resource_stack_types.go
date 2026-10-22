@@ -7,17 +7,18 @@ const ViewResourceStack = "resource_stack"
 const ResourceStackTeaching = "resource_stack expands observed native resource events into same-capture callchain frames using time and optional pid/thread selectors. Frame depth is recorded depth, not execution order or a business-leaf rule; repeated or missing depths do not establish edges. Source frame census, missing symbols/depths and display omissions are distinct; complete source rows do not prove complete unwinding. Resource lifetimes and stack frames do not prove execution duration, CPU or response causality."
 
 type ResourceStackResult struct {
-	SourcePath    string               `json:"source_path"`
-	Window        ResourceStackWindow  `json:"window"`
-	Status        string               `json:"status"`
-	Reason        string               `json:"reason,omitempty"`
-	TargetPID     int                  `json:"target_pid,omitempty"`
-	TargetThread  string               `json:"target_thread,omitempty"`
-	TargetScope   string               `json:"target_scope,omitempty"`
-	MatchedEvents int                  `json:"matched_events"`
-	OmittedEvents int                  `json:"omitted_events"`
-	Events        []ResourceStackEvent `json:"events,omitempty"`
-	Caveats       []string             `json:"caveats,omitempty"`
+	SourcePath      string                   `json:"source_path"`
+	Window          ResourceStackWindow      `json:"window"`
+	Status          string                   `json:"status"`
+	Reason          string                   `json:"reason,omitempty"`
+	TargetPID       int                      `json:"target_pid,omitempty"`
+	TargetThread    string                   `json:"target_thread,omitempty"`
+	TargetScope     string                   `json:"target_scope,omitempty"`
+	MatchedEvents   int                      `json:"matched_events"`
+	OmittedEvents   int                      `json:"omitted_events"`
+	Events          []ResourceStackEvent     `json:"events,omitempty"`
+	Caveats         []string                 `json:"caveats,omitempty"`
+	EventStatistics *ResourceEventStatistics `json:"event_statistics,omitempty"`
 }
 
 type ResourceStackWindow struct {
