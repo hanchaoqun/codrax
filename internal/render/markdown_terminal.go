@@ -83,6 +83,7 @@ func newTerminalMarkdown(styles ansi.StyleConfig) *terminalMarkdown {
 		// Strikethrough opens on a single tilde.
 		goldmark.WithExtensions(
 			markdownext.ArtifactLiteral,
+			markdownext.QualifiedIdentifierLiteral,
 			extension.Linkify,
 			extension.Table,
 			markdownext.StrikethroughDoubleTildeOnly,

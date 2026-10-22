@@ -129,7 +129,7 @@ func TestHMC257NativeCompletenessActualFinalizer(t *testing.T) {
 			text := render.RenderAnswerDocument(doc, "zh")
 			// Bounded fact-only requests intentionally do not materialize a
 			// causal-report footer. Native views retain their own measurements.
-			for _, want := range []string{"10005000000", "单位未在该载体声明", "原深度"} {
+			for _, want := range []string{"10005000000", "单位=bytes", "原深度"} {
 				if !strings.Contains(text, want) {
 					t.Errorf("rendered %s lost scope/native fact %q", kind, want)
 				}

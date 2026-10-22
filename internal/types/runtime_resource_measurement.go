@@ -12,8 +12,9 @@ const RuntimeResourceMeasurementPredicate = "resource_stack_observation"
 // JSON cannot recreate it. Source freshness is checked again by the contract
 // against the current private prepared/read receipt, not the displayed path.
 type runtimeResourcePublicationWitness struct {
-	digest       string
-	endInclusive bool
+	digest                  string
+	endInclusive            bool
+	statisticsBudgetOmitted bool
 }
 
 func PublishRuntimeResourceMeasurement(r ObservationRecord, tables []RuntimeMeasurementTable, endInclusive bool) (ObservationRecord, bool) {
@@ -22,13 +23,16 @@ func PublishRuntimeResourceMeasurement(r ObservationRecord, tables []RuntimeMeas
 		!RuntimeObservationProducerIsDeterministicQuery(r.Producer) || r.Origin != AnswerEvidenceOriginRuntimeArtifact || r.Role != AnswerAggregateRoleSupportingCoverage ||
 		r.GroundingPolicy != ClaimGroundingHard || r.ProvenanceLane != ObservationProvenanceArtifactSpan ||
 		ref.Kind != ObservationSourceRuntimeArtifact || !ref.QueryWindowKnown || !ref.QueryLineRangeKnown || ref.QueryLineStart != 0 || ref.QueryLineEnd != 0 ||
-		!runtimeResourceExactSelector(ref) || len(tables) != 2 {
+		(len(tables) != 2 && len(tables) != 3) ||
+		(!runtimeResourceExactSelector(ref) && !(runtimeResourceBroadSelector(ref) && len(tables) == 3)) {
 		return r, false
 	}
 	for i, t := range tables {
 		view := RuntimeMeasurementSummary
 		if i == 1 {
 			view = RuntimeMeasurementMembers
+		} else if i == 2 {
+			view = RuntimeMeasurementDistribution
 		}
 		// Only the event summary is the producer's default. Physical frames
 		// remain separately selectable; neither view supplies population or
@@ -45,6 +49,33 @@ func PublishRuntimeResourceMeasurement(r ObservationRecord, tables []RuntimeMeas
 	r.RichNotes = append(append([]string(nil), r.RichNotes...), TraceNoteKeyRuntimeMeasurement+"="+string(raw))
 	r.runtimeResourcePublication = &runtimeResourcePublicationWitness{digest: runtimeSamplingDigest(r), endInclusive: endInclusive}
 	return r, true
+}
+
+// Broad native facts remain a display-only query population, never an exact
+// target or member-completeness credential. Legacy two-table producers do not
+// gain this path; the event-statistics producer supplies the third view.
+func runtimeResourceBroadSelector(ref ObservationSourceRef) bool {
+	return ref.QueryTargetScope == "thread" && ref.QueryTargetPID == 0 && ref.QueryTargetThread == ""
+}
+
+// WithRuntimeResourceStatisticsDisplayOmission records a bounded publication
+// disposition on an already native-sealed legacy pair. It grants no new facts.
+func WithRuntimeResourceStatisticsDisplayOmission(r ObservationRecord) ObservationRecord {
+	if !runtimeResourcePublicationValid(r) {
+		return r
+	}
+	p, ok := DecodeRuntimeMeasurementPublication(r)
+	if !ok || len(p.Tables) != 2 {
+		return r
+	}
+	witness := *r.runtimeResourcePublication
+	witness.statisticsBudgetOmitted = true
+	r.runtimeResourcePublication = &witness
+	return r
+}
+
+func RuntimeResourceStatisticsDisplayOmitted(r ObservationRecord) bool {
+	return runtimeResourcePublicationValid(r) && r.runtimeResourcePublication.statisticsBudgetOmitted
 }
 
 func runtimeResourceExactSelector(ref ObservationSourceRef) bool {
@@ -73,7 +104,21 @@ func (t RuntimeMeasurementTable) HasNativeFixedFacts() bool {
 }
 
 func runtimeResourceMeasurementMatchesRequest(r ObservationRecord, rm *RequestModel) bool {
-	if r.Predicate != RuntimeResourceMeasurementPredicate || rm == nil {
+	if r.Predicate != RuntimeResourceMeasurementPredicate {
+		return true
+	}
+	if runtimeResourceBroadSelector(r.SourceRef) {
+		if rm == nil {
+			return false
+		}
+		for _, target := range rm.RuntimeTargets {
+			if !RuntimeTargetIsExplorationCursorSource(target.Source) {
+				return false
+			}
+		}
+		return true
+	}
+	if rm == nil {
 		return true
 	}
 	hasTarget := false

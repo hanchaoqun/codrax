@@ -28,8 +28,8 @@ func TestHMC255ExecutedResourceFactsSurviveTargetHandoff(t *testing.T) {
 	ledgerBefore, _ := json.Marshal(answerDocObservationLedger(ctx))
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	choices := view.RuntimeMeasurementContract.Choices()
-	if len(choices) != 8 {
-		t.Fatalf("four current executed queries need eight independent native views, got %d", len(choices))
+	if len(choices) != 12 {
+		t.Fatalf("four current executed queries need twelve independent native views, got %d", len(choices))
 	}
 	defaults := types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)
 	if len(defaults) != 2 {
@@ -57,11 +57,11 @@ func TestHMC255ExecutedResourceFactsSurviveTargetHandoff(t *testing.T) {
 			}
 		}
 	}
-	if frames != 14 || supplementary != 4 {
+	if frames != 14 || supplementary != 6 {
 		t.Fatalf("lost full physical frame rows or query scope: frames=%d supplementary=%d", frames, supplementary)
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{"补充查询", "tid=202", "10015000000", "128", "单位未在该载体声明", "原深度", "匹配资源事件=0", "deterministic_runtime_queries=4"} {
+	for _, want := range []string{"补充查询", "tid=202", "10015000000", "128", "单位=bytes", "原深度", "匹配资源事件=0", "deterministic_runtime_queries=4"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("actual finalizer lost %q", want)
 		}

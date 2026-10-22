@@ -26,12 +26,12 @@ func TestHMC249ResourceFactDiagramDoesNotSupplyRelationships(t *testing.T) {
 	}
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 	contract := types.BuildAnswerSemanticViewForBusContext(bus).RuntimeMeasurementContract
-	count := 0
+	views := make(map[types.RuntimeMeasurementView]int)
 	for _, table := range contract.Choices() {
 		if !table.HasNativeResourceFacts() {
 			continue
 		}
-		count++
+		views[table.View]++
 		for _, caliber := range []types.TraceCausalClaimCaliber{"", types.TraceCausalClaimNoConclusion} {
 			ref := &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}
 			if !types.BindRuntimeMeasurementReceipt(ref, contract) {
@@ -57,7 +57,15 @@ func TestHMC249ResourceFactDiagramDoesNotSupplyRelationships(t *testing.T) {
 			}
 		}
 	}
-	if count != 2 {
-		t.Fatalf("expected two native views, got%d", count)
+	// The optional aggregate is another fixed-fact view, not a relationship
+	// credential. Exercise every published view through the same negatives.
+	wantViews := []types.RuntimeMeasurementView{types.RuntimeMeasurementSummary, types.RuntimeMeasurementMembers, types.RuntimeMeasurementDistribution}
+	if len(views) != len(wantViews) {
+		t.Fatalf("unexpected native views: %v", views)
+	}
+	for _, view := range wantViews {
+		if views[view] != 1 {
+			t.Fatalf("expected exactly one %s view, got %v", view, views)
+		}
 	}
 }

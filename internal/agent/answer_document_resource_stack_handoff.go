@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -71,6 +72,9 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 				continue
 			}
 		}
+		if resourceStatisticsDisplayBudgetOmitted(ctx, r, p) {
+			text += "\n资源事件分组统计表因独立展示预算未发布；不是未查询或零结果。原事件与栈帧表保持可用，完整分组数值需读取上列原始查询载荷，不应从事件预览重算或声称统计表已交付。\n"
+		}
 		key := keyOf(r)
 		if seen[key] || conflicts[key] {
 			continue
@@ -109,6 +113,36 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 	}
 	out.text = b.String()
 	return out
+}
+
+// Ledger normalization may add call-position navigation. Read the private
+// disposition only from the original native result after exact source/query
+// and full resource-payload equality; never reseal normalized ledger text.
+// The caller has already enforced current source, requested window and target.
+func resourceStatisticsDisplayBudgetOmitted(ctx *types.AgentContext, r types.ObservationRecord, p tracequery.ResourceStackResult) bool {
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 0)
+	for _, results := range [][]types.ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
+		for _, result := range results {
+			if !result.Success || result.ToolName != "trace_query" || result.ReusedFromRunMemo || result.TraceViewCancellation != nil {
+				continue
+			}
+			for _, original := range result.Observations {
+				if original.ID != r.ID || !types.RuntimeResourceStatisticsDisplayOmitted(original) {
+					continue
+				}
+				a, b := original.SourceRef, r.SourceRef
+				a.ToolCallID, b.ToolCallID = "", ""
+				if !reflect.DeepEqual(a, b) {
+					continue
+				}
+				payload, valid := tool.DecodeTraceResourceStack(original)
+				if valid && reflect.DeepEqual(payload, p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func resourceStackInsideRequestedWindow(profile *types.RuntimeArtifactScopeProfile, w tracequery.ResourceStackWindow) bool {

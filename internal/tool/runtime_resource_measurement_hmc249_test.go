@@ -64,7 +64,9 @@ func resourceMeasurementContextHMC249(t *testing.T, nested bool, pid int, edits 
 func resourceNativeTablesHMC249(view *types.AnswerSemanticView) []types.RuntimeMeasurementTable {
 	var out []types.RuntimeMeasurementTable
 	for _, table := range view.RuntimeMeasurementContract.Choices() {
-		if table.HasNativeResourceFacts() {
+		// This legacy suite covers the original event/frame pair. HMC279
+		// independently exercises the optional whole-query distribution.
+		if table.HasNativeResourceFacts() && (table.View == types.RuntimeMeasurementSummary || table.View == types.RuntimeMeasurementMembers) {
 			out = append(out, table)
 		}
 	}
@@ -107,7 +109,7 @@ func TestHMC249ResourcePublicEmitPatchRecovery(t *testing.T) {
 				if table.View == types.RuntimeMeasurementMembers && (!strings.Contains(visible, "原深度") || !strings.Contains(visible, "buffer_cleanup") || !strings.Contains(visible, "物理行=")) {
 					t.Fatal("frame identity/depth disappeared")
 				}
-				if table.View == types.RuntimeMeasurementSummary && (!strings.Contains(visible, "AllocEvent") || !strings.Contains(visible, "源数量/大小=512") || !strings.Contains(visible, "单位未在该载体声明")) {
+				if table.View == types.RuntimeMeasurementSummary && (!strings.Contains(visible, "AllocEvent") || !strings.Contains(visible, "源数量/大小=512") || !strings.Contains(visible, "单位=bytes")) {
 					t.Fatal("allocation source value or unit boundary changed")
 				}
 				if strings.Contains(visible, "-->") || strings.Contains(visible, "trace-query-result-") {
@@ -223,7 +225,7 @@ func TestHMC249ResourcePublicationBoundaries(t *testing.T) {
 	}
 }
 
-func TestHMC249ResourceEmptyAndBroadBoundaries(t *testing.T) {
+func TestHMC249ResourceEmptyAndBroadNamedTargetBoundaries(t *testing.T) {
 	_, _, view := resourceMeasurementContextHMC249(t, true, 202)
 	tables := resourceNativeTablesHMC249(view)
 	if len(tables) != 2 {
@@ -238,7 +240,11 @@ func TestHMC249ResourceEmptyAndBroadBoundaries(t *testing.T) {
 			t.Fatal("empty source invented frames")
 		}
 	}
-	_, result, broad := resourceMeasurementContextHMC249(t, false, 0)
+	bus, result, _ := resourceMeasurementContextHMC249(t, false, 0)
+	// A canonical broad query may display observed facts for a targetless
+	// request, but cannot acquire the authority of this named exact target.
+	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 101, Source: "user_explicit"}}
+	broad := types.BuildAnswerSemanticViewForBusContext(bus)
 	if len(resourceNativeTablesHMC249(broad)) != 0 {
 		t.Fatal("broad query silently gained exact selector authority")
 	}

@@ -1,0 +1,8 @@
+ID="trace_native_resource_statistics"
+NAME="Native resource events — per-thread allocation and release statistics"
+QUESTION="请统计这份采集中 10.000 到 10.050 秒期间的内存申请和释放，按线程和资源类型分别列出次数、记录的大小合计，并说明主要出现在哪些调用位置。"
+HTRACE_FILE="eval/fixtures/hmosperf_native_resource_stack/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

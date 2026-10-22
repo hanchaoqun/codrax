@@ -43,6 +43,7 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 		// internal/markdownext. Do not collapse back to extension.GFM.
 		goldmark.WithExtensions(
 			markdownext.ArtifactLiteral,
+			markdownext.QualifiedIdentifierLiteral,
 			extension.Linkify,
 			extension.Table,
 			extension.TaskList,

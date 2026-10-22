@@ -37,7 +37,9 @@ func TestHMC249ResourceFactsActualFinalizer(t *testing.T) {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	var tables []types.RuntimeMeasurementTable
 	for _, table := range view.RuntimeMeasurementContract.Choices() {
-		if strings.HasSuffix(table.ObservationID, "#resource_stack") {
+		// Preserve the original event/frame-pair oracle; HMC279 separately
+		// verifies complete-query statistics in the actual Finalizer context.
+		if strings.HasSuffix(table.ObservationID, "#resource_stack") && table.View != types.RuntimeMeasurementDistribution {
 			tables = append(tables, table)
 		}
 	}
@@ -135,7 +137,7 @@ func TestHMC249ResourceFactsActualScope(t *testing.T) {
 				// different ID nor thread/process resemblance owns the answer.
 				view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 				choices := view.RuntimeMeasurementContract.Choices()
-				if len(choices) != 8 || len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) != 0 {
+				if len(choices) != 12 || len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) != 0 {
 					t.Fatal("target mismatch lost execution facts or acquired default scope")
 				}
 				for _, table := range choices {

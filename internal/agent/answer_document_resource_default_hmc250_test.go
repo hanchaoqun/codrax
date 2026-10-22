@@ -72,7 +72,7 @@ func TestHMC250ResourceDefaultActualFinalizer(t *testing.T) {
 		t.Fatal("default rendering changed original query evidence")
 	}
 	visible := render.RenderAnswerDocument(doc, "zh")
-	for _, want := range []string{"FreeEvent", "无匹配记录", "线程名=gallery-main", "线程名=editor-main", "单位未在该载体声明", "不是函数执行顺序"} {
+	for _, want := range []string{"FreeEvent", "无匹配记录", "线程名=gallery-main", "线程名=editor-main", "单位=bytes", "不是函数执行顺序"} {
 		if !strings.Contains(visible, want) {
 			t.Errorf("default resource facts lost %q", want)
 		}

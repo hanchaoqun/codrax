@@ -98,7 +98,7 @@ func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string 
 		}
 		shown++
 		fmt.Fprintf(&b, "源事件物理rowid=%d；原始id=%s；\n", e.RowID, resourceScalarText(e.Source.SourceID))
-		fmt.Fprintf(&b, "事件行%d；时间=%sns；线程=%s（tid=%d，pid=%d）；操作=%s；栈键=%s；%s；地址signed=%s", e.Line, fmt.Sprint(e.TimestampNS), resourceStackEscape(e.Source.Thread), e.Source.TID, e.Source.PID, e.Source.Operation, resourceScalarText(e.Source.CallchainID), resourceQuantityText(e.Source.Size), resourceScalarText(e.Source.Address))
+		fmt.Fprintf(&b, "事件行%d；时间=%sns；线程=%s（tid=%d，pid=%d）；操作=%s；栈键=%s；%s；地址signed=%s", e.Line, fmt.Sprint(e.TimestampNS), resourceStackEscape(e.Source.Thread), e.Source.TID, e.Source.PID, e.Source.Operation, resourceScalarText(e.Source.CallchainID), resourceQuantityText(e.Source.Operation, e.Source.Size), resourceScalarText(e.Source.Address))
 		if n, ok := e.Source.Address.Integer(); ok {
 			fmt.Fprintf(&b, "，地址位型=0x%016x", uint64(n))
 		}

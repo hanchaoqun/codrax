@@ -33,7 +33,7 @@ func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
 	if predicate == RuntimeResourceMeasurementPredicate {
-		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers
+		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
 	}
 	if predicate == RuntimeSamplingMeasurementPredicate {
 		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementDistribution

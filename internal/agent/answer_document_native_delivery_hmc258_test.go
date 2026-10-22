@@ -152,7 +152,7 @@ func TestHMC258NativeDisplayStaleAndRestoredSelection(t *testing.T) {
 				t.Fatal("stale/restored display regained current facts")
 			}
 			if mode == "changed_window" || mode == "changed_target" || mode == "missing_query" || mode == "source_generation" {
-				if !strings.Contains(prompt, "no longer current: 8") {
+				if !strings.Contains(prompt, "no longer current: 12") {
 					t.Fatalf("stale selection silently disappeared: %s", prompt)
 				}
 			}
@@ -224,7 +224,7 @@ func TestHMC258SelectedNativeFactsReachActualAnswer(t *testing.T) {
 		t.Fatalf("public answer emit: %v %s", err, r.Summary)
 	}
 	doc := ctx.Mutable.AnswerDocumentV2()
-	events, frames, empty, queries := 0, 0, 0, 0
+	events, frames, empty, queries, groups := 0, 0, 0, 0, 0
 	for _, block := range doc.Blocks {
 		if block.RuntimeMeasurement == nil || !block.RuntimeMeasurement.IsBound() || !block.RuntimeMeasurement.BoundTable.HasNativeResourceFacts() {
 			continue
@@ -236,12 +236,14 @@ func TestHMC258SelectedNativeFactsReachActualAnswer(t *testing.T) {
 			if len(table.Rows) == 0 {
 				empty++
 			}
-		} else {
+		} else if table.View == types.RuntimeMeasurementMembers {
 			frames += len(table.Rows)
+		} else if table.View == types.RuntimeMeasurementDistribution {
+			groups += len(table.Rows)
 		}
 	}
-	if queries != 4 || events != 5 || frames != 14 || empty != 1 || doc.Blocks[0].Text != interpretation {
-		t.Fatalf("selected view became preview or lost identity: queries=%d events=%d frames=%d empty=%d", queries, events, frames, empty)
+	if queries != 4 || events != 5 || frames != 14 || empty != 1 || groups != 4 || doc.Blocks[0].Text != interpretation {
+		t.Fatalf("selected view became preview or lost identity: queries=%d events=%d frames=%d empty=%d groups=%d", queries, events, frames, empty, groups)
 	}
 	encoded, _ := json.Marshal(doc)
 	var recovered types.AnswerDocumentV2
@@ -249,7 +251,7 @@ func TestHMC258SelectedNativeFactsReachActualAnswer(t *testing.T) {
 		t.Fatal("persisted native selectors failed current-source rebind")
 	}
 	visible := render.RenderAnswerDocument(&recovered, "zh")
-	for _, want := range []string{interpretation, "原深度", "10005000000", "单位未在该载体声明", "真实展开=未知", "gallery-main", "editor-main"} {
+	for _, want := range []string{interpretation, "原深度", "10005000000", "单位=bytes", "真实展开=未知", "gallery-main", "editor-main"} {
 		if !strings.Contains(visible, want) {
 			t.Errorf("rendered facts lost %q", want)
 		}

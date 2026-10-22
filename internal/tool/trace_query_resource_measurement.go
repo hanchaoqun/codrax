@@ -42,6 +42,9 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 	label := fmt.Sprintf("资源事件与栈记录（请求%s %d）", ownerKind, p.TargetPID)
 	if p.TargetPID == 0 {
 		label = "资源事实 — 请求线程名 " + p.TargetThread
+		if p.TargetThread == "" {
+			label = "资源事实 — 查询范围内全部已观测主体"
+		}
 	}
 	summary := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementSummary, Label: label, DefaultPresentation: true,
 		Columns: []string{"源事件", "事件时刻（ns）", "观测主体", "资源操作", "栈记录质量", "深度形态"}, Notes: notes}
@@ -50,7 +53,7 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 	for _, e := range p.Events {
 		event, ts := strconv.FormatInt(e.RowID, 10), strconv.FormatInt(e.TimestampNS, 10)
 		owner := fmt.Sprintf("线程ID=%d；进程ID=%d；线程名=%s", e.Source.TID, e.Source.PID, resourceFactName(e.Source.Thread))
-		operation := fmt.Sprintf("%s；%s；地址（signed）=%s", e.Source.Operation, resourceQuantityText(e.Source.Size), resourceFactScalar(e.Source.Address))
+		operation := fmt.Sprintf("%s；%s；地址（signed）=%s", e.Source.Operation, resourceQuantityText(e.Source.Operation, e.Source.Size), resourceFactScalar(e.Source.Address))
 		quality := fmt.Sprintf("源帧=%d；缺深度=%d；重复深度=%d；无效深度=%d；未知符号=%d；展示省略帧=%d", e.Source.FrameCount, e.MissingDepths, e.DuplicateDepths, e.InvalidDepths, e.UnknownSymbols, e.OmittedFrames)
 		quality += fmt.Sprintf("；源帧载体完整=%t；栈记录=%s；真实展开=%s", e.SourceFramesComplete, resourceFactState(e.Source.StackStatus), resourceFactState(e.UnwindCompleteness))
 		summary.Rows = append(summary.Rows, []string{event, ts, owner, operation, quality, resourceDepthState(e.DepthStatus)})
@@ -64,10 +67,7 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 	// Empty is a query disposition in Notes, not an observed event row.
 	// Retain both selectors and the source/window boundary without inventing
 	// a placeholder member that downstream row counts could treat as data.
-	if published, ok := types.PublishRuntimeResourceMeasurement(r, []types.RuntimeMeasurementTable{summary, members}, p.Window.EndInclusive); ok {
-		return published
-	}
-	return r
+	return publishResourceEventStatistics(r, p, []types.RuntimeMeasurementTable{summary, members})
 }
 
 func resourceFactScalar(v tracewire.ResourceScalar) string {
@@ -129,9 +129,13 @@ func resourceDepthState(state string) string {
 	}
 }
 
-// The wire carries an exact scalar, not a unit. Both public displays share
-// this boundary without inferring bytes from the resource operation name.
-func resourceQuantityText(size tracewire.ResourceScalar) string {
+// The closed source protocol declares bytes only for malloc/mmap events.
+// Extended families retain unknown units across both native display paths.
+func resourceQuantityText(operation string, size tracewire.ResourceScalar) string {
+	_, _, unit, valid := tracewire.ResourceOperationDescriptor(operation)
+	if valid && unit == "bytes" {
+		return "源数量/大小=" + resourceFactScalar(size) + "（单位=bytes）"
+	}
 	return "源数量/大小=" + resourceFactScalar(size) + "（单位未在该载体声明）"
 }
 

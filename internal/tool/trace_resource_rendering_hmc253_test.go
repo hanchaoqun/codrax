@@ -92,12 +92,12 @@ func TestHMC253ResourceStatusDomainsAndEscaping(t *testing.T) {
 
 func TestHMC253ResourceQuantityDisplaySharedWithoutUnitInference(t *testing.T) {
 	for _, tc := range []struct {
-		name, operation, sqlValue, display string
+		name, operation, sqlValue, display, unit string
 	}{
-		{"allocation", "AllocEvent", "512", "512"},
-		{"descriptor", "FD_Open_Event", "512", "512"},
-		{"thread_zero", "THREAD_Create_Event", "0", "0"},
-		{"unknown", "AllocEvent", "NULL", "未知（空值）"},
+		{"allocation", "AllocEvent", "512", "512", "单位=bytes"},
+		{"descriptor", "FD_Open_Event", "512", "512", "单位未在该载体声明"},
+		{"thread_zero", "THREAD_Create_Event", "0", "0", "单位未在该载体声明"},
+		{"unknown", "AllocEvent", "NULL", "未知（空值）", "单位=bytes"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, result, view := resourceMeasurementContextHMC249(t, false, 101, func(db *sql.DB) {
@@ -105,7 +105,7 @@ func TestHMC253ResourceQuantityDisplaySharedWithoutUnitInference(t *testing.T) {
 					t.Fatal(err)
 				}
 			})
-			quantity := "源数量/大小=" + tc.display + "（单位未在该载体声明）"
+			quantity := "源数量/大小=" + tc.display + "（" + tc.unit + "）"
 			if !strings.Contains(result.Summary, quantity) {
 				t.Errorf("tool text quantity differs from native fact: want %q", quantity)
 			}

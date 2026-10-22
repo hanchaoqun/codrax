@@ -16,7 +16,7 @@ func TestHMC258NativeDisplaySchemaAndPublicSelectionBoundary(t *testing.T) {
 	ctx := resourcePageContextHMC257(t)
 	bus := types.ToolBusContext(ctx, types.AgentExplorer)
 	choices := tool.NativeFactAnswerDisplayChoices(bus)
-	if len(choices) != 8 {
+	if len(choices) != 12 {
 		t.Fatalf("current exact native views=%d", len(choices))
 	}
 	acceptNativeDisplayHMC258(t, ctx, choices, choices[:1])
