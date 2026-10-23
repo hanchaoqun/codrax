@@ -34,7 +34,8 @@ func TestProcessMeasurementPublicFinalizerEmitPatchRender(t *testing.T) {
 	}
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 	choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
-	if len(choices) != 3 {
+	measurements, _ := splitSourceMetadataHMC287(t, choices, map[string][3]string{path: {"0", "3000000000", "3000000000"}})
+	if len(measurements) != 3 || len(choices) != 4 {
 		t.Fatalf("wrong process selector roster: %+v", choices)
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
@@ -138,8 +139,11 @@ func TestProcessMeasurementPublicFinalizerEmitPatchRender(t *testing.T) {
 	rm.RuntimeArtifactScopeProfile.TimeEnd = &narrowEnd
 	ctx.AnalysisIR.RequestModel = rm
 	ctx.Mutable.SetRequestModel(rm)
-	if contract := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract; contract != nil && len(contract.Choices()) > 0 {
-		t.Fatal("out-of-window native table leaked")
+	if contract := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract; contract != nil {
+		remaining, _ := splitSourceMetadataHMC287(t, contract.Choices(), map[string][3]string{path: {"0", "3000000000", "3000000000"}})
+		if len(remaining) > 0 {
+			t.Fatal("out-of-window native table leaked")
+		}
 	}
 	execute(selected(choices[0]), true, false)
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{})

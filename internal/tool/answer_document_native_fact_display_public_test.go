@@ -57,6 +57,12 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			bus.AnalysisIR = &types.AnalysisIR{RequestModel: rm, AnswerContract: types.AnswerContract{Language: "zh"}}
 			bus.Mutable.SetRequestModel(rm)
 			bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
+			original := ""
+			wantMetadata := 0
+			if domain == "measurement" {
+				original, wantMetadata = hmc287MeasurementOriginal(t), 1
+			}
+			metadataOracle := hmc287CurrentMetadataOracle(t, bus, original, "3000000000")
 			ledgerBefore, _ := json.Marshal(types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit)))
 			const prose = "记录的解释保持模型所有；未证明的身份、单位、时钟与因果关系仍未知。"
 			input := map[string]any{"blocks": []any{map[string]any{"id": "interpretation", "kind": "summary", "text": prose}}}
@@ -65,8 +71,12 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 				t.Fatal(out.Summary)
 			}
 			doc := bus.Mutable.AnswerDocumentV2()
+			facts, metadata := metadataOracle.splitBlocks(t, doc.Blocks)
+			if len(metadata) != wantMetadata {
+				t.Fatalf("background metadata count=%d, want %d", len(metadata), wantMetadata)
+			}
 			rows, tables := 0, 0
-			for _, b := range doc.Blocks {
+			for _, b := range facts {
 				if b.RuntimeMeasurement != nil && b.RuntimeMeasurement.IsBound() {
 					tables++
 					rows += len(b.RuntimeMeasurement.BoundTable.Rows)
@@ -93,7 +103,7 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			if types.ReauthenticateSystemSnapshotBlockKinds(&recovered, nil) != 0 {
 				t.Fatal("missing snapshot receipt invented system identity")
 			}
-			if types.ReauthenticateSystemSnapshotBlockKinds(&recovered, types.CaptureSystemGeneratedBlockKinds(doc)) != 1 {
+			if types.ReauthenticateSystemSnapshotBlockKinds(&recovered, types.CaptureSystemGeneratedBlockKinds(doc)) != 1+wantMetadata {
 				t.Fatal("authenticated system ownership did not survive snapshot")
 			}
 			if !types.RebindRuntimeAnswerReceipts(&recovered, types.BuildAnswerSemanticViewForBusContext(bus)) || render.RenderAnswerDocument(&recovered, "zh") != render.RenderAnswerDocument(doc, "zh") {
@@ -119,7 +129,7 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			// A model-selected exact view owns its placement, without an extra
 			// system copy. Patching prose neither drops nor duplicates the table.
 			var chosen *types.AnswerRuntimeMeasurementReceipt
-			for _, block := range doc.Blocks {
+			for _, block := range facts {
 				if block.RuntimeMeasurement != nil {
 					chosen = block.RuntimeMeasurement
 				}
@@ -133,7 +143,8 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			if !out.Success {
 				t.Fatal(out.Summary)
 			}
-			if len(bus.Mutable.AnswerDocumentV2().Blocks) != 2 {
+			selectedFacts, selectedMetadata := metadataOracle.splitBlocks(t, bus.Mutable.AnswerDocumentV2().Blocks)
+			if len(bus.Mutable.AnswerDocumentV2().Blocks) != 2+wantMetadata || len(selectedFacts) != 1 || selectedFacts[0].ID != "selected" || len(selectedMetadata) != wantMetadata {
 				t.Fatal("selected table duplicated by automatic display")
 			}
 			if domain == "measurement" {
@@ -142,8 +153,21 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 				if !out.Success {
 					t.Fatal(out.Summary)
 				}
-				if len(bus.Mutable.AnswerDocumentV2().Blocks) != 3 {
+				summaryFacts, summaryMetadata := metadataOracle.splitBlocks(t, bus.Mutable.AnswerDocumentV2().Blocks)
+				if len(bus.Mutable.AnswerDocumentV2().Blocks) != 3+wantMetadata || len(summaryFacts) != 2 || len(summaryMetadata) != wantMetadata {
 					t.Fatal("summary selector suppressed full raw members/time intervals")
+				}
+				members := 0
+				for _, block := range summaryFacts {
+					if block.RuntimeMeasurement.View == types.RuntimeMeasurementMembers {
+						members++
+						if len(block.RuntimeMeasurement.BoundTable.Rows) != wantRows {
+							t.Fatal("summary selector changed the original raw member population")
+						}
+					}
+				}
+				if members != 1 {
+					t.Fatal("summary selector lost or duplicated the original members")
 				}
 			}
 			// Model text is independent even when factually wrong; the feature

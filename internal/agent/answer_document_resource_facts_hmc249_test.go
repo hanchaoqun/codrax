@@ -136,8 +136,8 @@ func TestHMC249ResourceFactsActualScope(t *testing.T) {
 				// Current exact executions remain readable, but neither a
 				// different ID nor thread/process resemblance owns the answer.
 				view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-				choices := view.RuntimeMeasurementContract.Choices()
-				if len(choices) != 12 || len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) != 0 {
+				choices := resourceOnlyChoicesHMC287(t, view.RuntimeMeasurementContract.Choices())
+				if len(choices) != 12 || resourceOnlyDefaultsHMC287(t, ctx, view.RuntimeMeasurementContract) != 0 {
 					t.Fatal("target mismatch lost execution facts or acquired default scope")
 				}
 				for _, table := range choices {

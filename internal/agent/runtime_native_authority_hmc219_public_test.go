@@ -119,8 +119,9 @@ func TestHMC219NativeMeasurementAuthorityActualFinalizer(t *testing.T) {
 			hmc219AcceptedLifecycle(bus.Mutable, []types.ToolResult{types.AttachToolHandoffCarrier(result)}, false)
 			ctx := ctxbuilder.BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
 			choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
-			if len(choices) != 3 {
-				t.Fatalf("native table oracle=%d, want summary/members/timeline", len(choices))
+			measurements, metadata := splitSourceMetadataHMC287(t, choices, map[string][3]string{path: {"0", "3000000000", "3000000000"}})
+			if len(measurements) != 3 || len(choices) != 4 {
+				t.Fatalf("native table oracle=%d, want three measurement views plus independent metadata", len(choices))
 			}
 			// Trace-only optional context already withholds unbound model
 			// synthesis. The new mixed-source handoff must not undo that
@@ -131,19 +132,26 @@ func TestHMC219NativeMeasurementAuthorityActualFinalizer(t *testing.T) {
 			}
 			messages := hmc219AssertNativeAdvisoryHandoff(t, ctx, !suppress, suppress)
 			previews := hmc218MeasurementMessagePreviews(t, messages)
-			rows := 0
+			rows, metadataRows := 0, 0
 			for _, table := range choices {
 				preview := previews[table.ObservationID+"/"+string(table.View)]
 				if !reflect.DeepEqual(preview.Rows, table.Rows) || !reflect.DeepEqual(preview.Columns, table.Columns) || preview.OmittedRows != 0 {
 					t.Errorf("native table changed or disappeared: %s/%s", table.ObservationID, table.View)
 				}
-				rows += len(preview.Rows)
+				if table.ObservationID == metadata[0].ObservationID {
+					metadataRows += len(preview.Rows)
+				} else {
+					rows += len(preview.Rows)
+				}
 			}
 			if rows != 33 {
 				t.Errorf("native complete preview=%d, want 33", rows)
 			}
+			if metadataRows != 7 {
+				t.Errorf("independent metadata preview=%d, want 7", metadataRows)
+			}
 			var ids []string
-			for _, table := range choices {
+			for _, table := range measurements {
 				ids = append(ids, table.ObservationID)
 			}
 			hmc219AssertNativeSupportReferences(t, messages, "trace_record", ids)

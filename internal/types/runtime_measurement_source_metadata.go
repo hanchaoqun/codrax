@@ -53,6 +53,35 @@ func runtimeMeasurementMetadataLabels(fields []attachment.TraceSourceMetadataFie
 	return d, w, strings.Join(parser, "; ")
 }
 
+// One display formatter is shared by separately queried and paired sources.
+// Range declarations retain their own label; they never become device/workload
+// identity or feed a measured/query window.
+func runtimeMeasurementMetadataContext(fields []attachment.TraceSourceMetadataField) string {
+	device, workload, parser := runtimeMeasurementMetadataLabels(fields)
+	metadata := device + " / " + workload
+	if parser != "" {
+		metadata += " / 解析器原文（不证明设备或负载身份）: " + parser
+	}
+	var ranges []string
+	for _, field := range fields {
+		if field.Kind != "source_range" {
+			continue
+		}
+		label := field.Origin + "." + field.Name + "=" + field.State
+		if field.Value != "" {
+			label += " " + strconv.Quote(field.Value)
+		}
+		if field.Detail != "" {
+			label += " (" + field.Detail + ")"
+		}
+		ranges = append(ranges, label)
+	}
+	if len(ranges) > 0 {
+		metadata += " / 原件声明时间范围: " + strings.Join(ranges, "; ")
+	}
+	return metadata
+}
+
 // Single-source queries use the same native table transport as the pair status.
 // No metadata means no extra empty table. Source stays empty so this diagnostic
 // table cannot stand in for measured data, a user window or investigation work.
@@ -87,7 +116,7 @@ func buildRuntimeMeasurementSingleSourceMetadata(input ObservationLedgerInput) [
 			raw, _ := json.Marshal(fields)
 			hash := sha256.Sum256(append([]byte(original), raw...))
 			id := "trace_source_metadata:" + hex.EncodeToString(hash[:12])
-			table := RuntimeMeasurementTable{ObservationID: id, View: RuntimeMeasurementSummary, Label: "采集记录的设备与负载信息", DefaultPresentation: true,
+			table := RuntimeMeasurementTable{ObservationID: id, View: RuntimeMeasurementSummary, Label: "采集原件记录的背景信息", DefaultPresentation: true,
 				Columns: []string{"原始采集", "记录位置", "字段类别", "字段", "状态", "原值", "说明"},
 				Notes:   []string{"仅展示本次真实准备且仍有效的原件记录；字段不证明设备等同、负载一致、时间同步、量测完整或因果。解析器原文字段不升级为设备或负载身份。"}}
 			for _, f := range fields {

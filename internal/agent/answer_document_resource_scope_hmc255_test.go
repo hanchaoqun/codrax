@@ -27,13 +27,13 @@ func TestHMC255ExecutedResourceFactsSurviveTargetHandoff(t *testing.T) {
 	before, _ := json.Marshal(ctx.AnalysisIR.RequestModel)
 	ledgerBefore, _ := json.Marshal(answerDocObservationLedger(ctx))
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	choices := view.RuntimeMeasurementContract.Choices()
+	choices := resourceOnlyChoicesHMC287(t, view.RuntimeMeasurementContract.Choices())
 	if len(choices) != 12 {
 		t.Fatalf("four current executed queries need twelve independent native views, got %d", len(choices))
 	}
-	defaults := types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)
-	if len(defaults) != 2 {
-		t.Fatalf("accepted thread 101 must own exactly two defaults, got %d", len(defaults))
+	defaults := resourceOnlyDefaultsHMC287(t, ctx, view.RuntimeMeasurementContract)
+	if defaults != 2 {
+		t.Fatalf("accepted thread 101 must own exactly two defaults, got %d", defaults)
 	}
 	frames, supplementary := 0, 0
 	for _, table := range choices {

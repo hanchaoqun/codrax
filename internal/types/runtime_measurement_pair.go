@@ -210,7 +210,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 				continue
 			}
 			status := RuntimeMeasurementTable{ObservationID: report.ID, View: RuntimeMeasurementSummary, Label: "两份采集的独立取数状态", DefaultPresentation: true,
-				Columns: []string{"角色", "状态", "本侧查询请求", "来源/代次", "原生测量引用与实际窗口", "设备/工作负载", "单位、分母与覆盖"}, Notes: []string{report.Boundary, "角色和本侧窗口来自查询选择；不另授予原始用户问题中的逐源窗口绑定。失败/取消/未请求不能补0。完整原生值在各侧独立表中。"}}
+				Columns: []string{"角色", "状态", "本侧查询请求", "来源/代次", "原生测量引用与实际窗口", "原件背景信息", "单位、分母与覆盖"}, Notes: []string{report.Boundary, "角色和本侧窗口来自查询选择；不另授予原始用户问题中的逐源窗口绑定。失败/取消/未请求不能补0。完整原生值在各侧独立表中。"}}
 			if input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil && input.RequestModel.RuntimeArtifactScopeProfile.Comparison != nil {
 				status.Notes[1] = "每侧实际原始来源分别校验；只约束本侧明确指定的窗口，未指定不补造端点。失败/取消/未执行不能补0。完整原生值在各侧独立表中。"
 			}
@@ -291,11 +291,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					}
 					out = append(out, publication)
 				}
-				_, _, parser := runtimeMeasurementMetadataLabels(side.SourceMetadata)
-				metadata := side.Device + " / " + side.Workload
-				if parser != "" {
-					metadata += " / 解析器原文（不证明设备或负载身份）: " + parser
-				}
+				metadata := runtimeMeasurementMetadataContext(side.SourceMetadata)
 				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), metadata, side.Detail})
 			}
 			if sharedCatalog == nil {

@@ -42,7 +42,12 @@ func TestCPUStateFrequencyMeasurementPublicFinalizerEmitPatchRender(t *testing.T
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 			view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 			choices := view.RuntimeMeasurementContract.Choices()
-			if len(choices) != 3 {
+			metadataRanges := map[string][3]string{}
+			if tc.name == "native" {
+				metadataRanges[path] = [3]string{"0", "", ""}
+			}
+			measurements, _ := splitSourceMetadataHMC287(t, choices, metadataRanges)
+			if len(measurements) != 3 || len(choices) != 3+len(metadataRanges) {
 				t.Fatalf("wrong CPU selector roster: %+v", choices)
 			}
 			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)

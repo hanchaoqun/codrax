@@ -9,6 +9,23 @@ import "github.com/hanchaoqun/codrax/internal/types"
 // physical delivery before each invocation. Missing/conflicting history keeps
 // the ordinary conservative localization projection.
 func WorkflowRegistrationReusesVerifiedSource(run types.WriteWorkflowRun, plan *types.ChangePlan) bool {
+	return workflowRegistrationSourceScopeQualified(run, plan, false)
+}
+
+// WorkflowRegistrationHasNoNewSourceOwnerObligation only classifies the active
+// read-only registration's localization scope. A missing source terminal is
+// not a new source edit when the exact apply is bound and source verification
+// has not occurred. A complete successful verify chain also qualifies, even
+// when legacy normalization backfilled its terminal. Neither case certifies
+// source ownership or creates a source verification. Genuinely absent source
+// verdicts remain absent for the existing overall completion aggregator.
+// An explicit non-verified terminal, incomplete history or new owner scope
+// keeps the ordinary localization requirements.
+func WorkflowRegistrationHasNoNewSourceOwnerObligation(run types.WriteWorkflowRun, plan *types.ChangePlan) bool {
+	return workflowRegistrationSourceScopeQualified(run, plan, true)
+}
+
+func workflowRegistrationSourceScopeQualified(run types.WriteWorkflowRun, plan *types.ChangePlan, allowMissingTerminal bool) bool {
 	if run.Identity == nil || run.Identity.IdentitySchema != types.WriteWorkflowRepoIdentitySchemaVersion ||
 		run.Identity.CanonicalRepoRoot == "" || !WorkflowLocalizationAppliedHistoryCovered(run, plan) ||
 		!types.NativeTestRegistrationMatchesRun(plan, &run, run.Identity.CanonicalRepoRoot) {
@@ -67,9 +84,15 @@ func WorkflowRegistrationReusesVerifiedSource(run types.WriteWorkflowRun, plan *
 		sourceCount++
 		if batch.ID == run.ActiveBatchID || batch.Status != types.WriteWorkflowBatchComplete ||
 			batch.Purpose == "verification_proof_followup" || batch.Purpose == "impact_and_verification_proof_followup" ||
-			batch.ApplyRef != delivery.AppliedCommitSHA || len(batch.Slices) != 0 || batch.ActiveSliceID != "" ||
-			batch.Completion == nil || batch.Completion.Verdict != types.WriteWorkflowCompletionVerified ||
-			batch.Completion.Source != "verify_attempt" || batch.VerifyRef == "" {
+			batch.ApplyRef != delivery.AppliedCommitSHA || len(batch.Slices) != 0 || batch.ActiveSliceID != "" {
+			return false
+		}
+		if batch.Completion == nil {
+			if !allowMissingTerminal {
+				return false
+			}
+		} else if batch.Completion.Verdict != types.WriteWorkflowCompletionVerified ||
+			(batch.Completion.Source != "verify_attempt" && !(allowMissingTerminal && batch.Completion.Source == "attempts_backfill")) {
 			return false
 		}
 		applied := false
@@ -83,7 +106,15 @@ func WorkflowRegistrationReusesVerifiedSource(run types.WriteWorkflowRun, plan *
 				latestVerify = attempt
 			}
 		}
-		if !applied || latestVerify == nil || latestVerify.Status != "passed" ||
+		if !applied {
+			return false
+		}
+		if allowMissingTerminal && batch.Completion == nil && batch.VerifyRef == "" && latestVerify == nil {
+			// Source verification is genuinely absent, not failed, pending or
+			// identified by a dangling report. Its overall verdict stays absent.
+			continue
+		}
+		if batch.VerifyRef == "" || latestVerify == nil || latestVerify.Status != "passed" ||
 			latestVerify.PlanID != delivery.SourcePlanID || latestVerify.ReportID != batch.VerifyRef ||
 			(latestVerify.ArtifactRef != "" && latestVerify.ArtifactRef != batch.VerifyRef) {
 			return false

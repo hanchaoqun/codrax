@@ -39,6 +39,12 @@ func TestHMC250ResourceDefaultActualFinalizer(t *testing.T) {
 			t.Fatal("default is not an authenticated resource summary")
 		}
 		table := block.RuntimeMeasurement.BoundTable
+		if strings.HasPrefix(table.ObservationID, "trace_source_metadata:") {
+			if table.MemberSet != nil || table.HasCompleteNativeDisplayPopulation() {
+				t.Fatal("source metadata acquired population authority")
+			}
+			continue
+		}
 		if !table.HasNativeResourceFacts() || table.MemberSet != nil || table.HasCompleteNativeDisplayPopulation() {
 			t.Fatal("default summary acquired population authority")
 		}

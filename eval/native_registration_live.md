@@ -53,3 +53,20 @@ provider 默认读取项目 `providers.yaml`，可通过 `CODRAX_LIVE_PROVIDERS`
 2026-10-07 冻结 `91aaa9be3` 的原评测已暴露新补证批次被错误附加源码定位义务，原始 workflow 保留 `verification_proof_incomplete`，不能按新断言重新签绿。后续 `db54efcd2` 公共新进程回归修复该接缝；未追加第三例真实模型重跑。
 
 上述“未追加真实模型重跑”仅指 §203 当批。后续独立 §206 已运行一次 `TestNativeRegistrationLiveRestoredFollowup`，真实 planner＋独立恢复子进程限定人工 PASS：新补证批 `verified`，来源批仍无终态凭证，整体诚实保留 `unverified / missing_terminal_verify_verdict`。实际父/子 PID 为44867/45788，旧/新 invocation 不同；controller 决策仍脚本化，`full_cli_run=false`。见[§206完整人工审计](parallel_selected_summary_hmc_native_sql_cpu_20261007_manual_audit.md)、[原始收据](results/hmc_native_sql_cpu_20261007/native_registration_restored/receipt.json)及[原始工作流](results/hmc_native_sql_cpu_20261007/native_registration_restored/workflow.json)。这份后续收据不回签[§203原始FAIL](parallel_selected_summary_hmc_restart_graph_20261007_manual_audit.md)，也不覆盖真实自然controller的缺来源负向决策、完整CLI、多来源或其他框架。此后再次运行相同负向入口属于当前版本轮换回归，不算首次能力补齐。
+
+## 来源已应用但尚未验证：HMC287 独立负控
+
+§286 轮换旧入口的机器及完整人工结论仍为 FAIL：新原生测试和证明账通过，但补证批先因 `localization_observed_without_owner` 未验证，未达到预期缺来源终态断言。该旧 fixture 的 run 同时缺 `ApplyRef`、apply attempt 的 `ArtifactRef` 和来源验证终态，不能用它单独证明“只缺终态”的行为。旧入口、原件及[§286人工审计](parallel_selected_summary_hmc_resource_window_projection_20261022_manual_audit.md)保留，不回签。
+
+新入口只在 operator 公开 apply 工具、真实 Git 提交和完整源补丁已产生后，将同一实际提交填入独立 run 的两个 apply 坐标。来源批保持 **没有 controller verify attempt、VerifyRef 为空、Completion=nil**；历史工具测试仍只是旧执行，不伪造成 controller 来源验证。真实 planner 读取并登记现有断言，脚本化控制器驱动独立恢复子 verify/finish，期望本轮 proof verified、整体 `unverified / missing_terminal_verify_verdict`，且源码/测试/HEAD 不变。没有新增源码义务不等于来源 owner 或整体完成已证明，明确失败/未验证/执行中来源、悬空引用及当前额外 owner 义务继续保留。
+
+这不是“仅删除 Completion”：若末次来源 verify 已真实 passed，既有正规化会回填 `verified / attempts_backfill`，该合法成功应另作正控。新负例不运行来源 controller verify，也不删除已发生的验证记录。
+
+```sh
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+CODRAX_LIVE_REGISTRATION_MISSING_TERMINAL_EVAL_DIR=/absolute/new-result-directory \
+  go test ./internal/orchestrator \
+  -run '^TestNativeRegistrationLiveRestoredMissingTerminalReceipt$' -count=1 -timeout=20m -v
+```
+
+只设置这个独立 opt-in，不同时设置旧 live 环境变量。该入口占固定两例中的一例，必须冻结后只执行一次。`evaluation.json` 明示 `source_controller_verification_absent=true`、`source_apply_receipt_completed_from_real_delivery=true`、`full_cli_run=false` 和 scripted controller；它是 **真实 planner＋脚本恢复控制器＋真实原生执行**，不是自然 controller、完整 CLI 或模型源码创作。通过前不得预签收据；旧 §286 失败不因本入口变更而改写。

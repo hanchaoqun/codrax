@@ -184,16 +184,21 @@ func (*controllerRegistrationLLM) MaxOutputTokens() int          { return 4096 }
 func (*controllerRegistrationLLM) RequestTimeout() time.Duration { return 0 }
 func (*controllerRegistrationLLM) RetryMaxAttempts() int         { return 0 }
 
-func (f controllerRegistrationFixture) register(t *testing.T, entry string) *types.ChangePlan {
+func (f controllerRegistrationFixture) register(t *testing.T, entry string, readSource ...bool) *types.ChangePlan {
 	t.Helper()
 	o, mu := f.o, f.o.busCtx.Mutable
 	before, _ := json.Marshal(f.source)
 	adapter := &controllerRegistrationLLM{t: t, entry: entry}
+	var model llm.Adapter = adapter
+	if len(readSource) > 0 && readSource[0] {
+		sourceReader := &registrationSourceReadLLM{controllerRegistrationLLM: *adapter}
+		adapter, model = &sourceReader.controllerRegistrationLLM, sourceReader
+	}
 	registry := tool.NewRegistry()
 	registry.Register(&tool.ReadFile{})
 	registry.Register(&tool.EmitChangePlan{})
 	registry.Register(&tool.EmitPlanSkeleton{})
-	planner := agent.NewPlannerAgent(&agent.Dependencies{Tools: registry, LLM: adapter, MaxIterations: 2, AgentSettings: types.DefaultAgentSettings(), Emit: func(render.Event) {}})
+	planner := agent.NewPlannerAgent(&agent.Dependencies{Tools: registry, LLM: model, MaxIterations: 2, AgentSettings: types.DefaultAgentSettings(), Emit: func(render.Event) {}})
 	o.controllerWriteStageFn = func(stage types.PipelineStage, steps *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan || mu.NativeTestRegistrationAuthorization() == nil || mu.ChangeReport() != nil {
 			t.Fatal("scheduler did not prepare grant and clear old execution before planning")

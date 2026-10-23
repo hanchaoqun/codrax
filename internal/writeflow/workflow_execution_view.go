@@ -79,6 +79,9 @@ type WorkflowExecutionView struct {
 // ChangePlan when available; it is ignored when its ID conflicts with the
 // active batch's PlanID.
 func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflowRun, plan *types.ChangePlan) WorkflowExecutionView {
+	// Classify before normalization can erase an explicit empty terminal. This
+	// scope decision grants neither owner evidence nor a source completion.
+	registrationHasNoNewOwner := loopkernel.WorkflowRegistrationHasNoNewSourceOwnerObligation(run, plan)
 	run = types.NormalizeWriteWorkflowRun(run)
 	view := WorkflowExecutionView{
 		Mode:      mode.Normalize(),
@@ -134,7 +137,7 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 		// when its context pack is absent; it cannot take the no-context bypass.
 		view.LocalizationGateEligible = true
 	}
-	if loopkernel.WorkflowRegistrationReusesVerifiedSource(run, activePlan) {
+	if registrationHasNoNewOwner {
 		// This exact read-only registration has no new source-owner obligation.
 		// Do not invent owner_supported or discard the retained read anchors.
 		// The empty authority also keeps truth projection from reopening it.

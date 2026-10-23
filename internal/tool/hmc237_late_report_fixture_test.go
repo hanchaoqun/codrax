@@ -117,8 +117,23 @@ func TestHMC237LateReportBinaryNativeFactReuse(t *testing.T) {
 	displayBus.ToolResults = []types.ToolResult{result}
 	originalRecord, _ := json.Marshal(record)
 	contract := types.BuildRuntimeMeasurementContract(types.ObservationLedgerInputFromBusContext(displayBus, 0))
-	if contract == nil || len(contract.Tables) != 1 {
+	metadataOracle := hmc287CurrentMetadataOracle(t, displayBus, path, "")
+	if contract == nil {
 		t.Fatal("native request-scoped contract missing")
+	}
+	measured, metadata := 0, 0
+	for _, table := range contract.Choices() {
+		if metadataOracle.matches(t, table) {
+			metadata++
+			continue
+		}
+		measured++
+		if table.ObservationID != record.ID || table.View != types.RuntimeMeasurementMembers || table.EventData == nil {
+			t.Fatalf("native request-scoped event identity changed: %+v", table)
+		}
+	}
+	if measured != 1 || metadata != 1 || len(contract.Tables) != measured+metadata {
+		t.Fatalf("native event/metadata roster changed: event=%d metadata=%d", measured, metadata)
 	}
 	var wantedFields, wantedGroups [][]string
 	for _, row := range oracle.Rows {

@@ -172,9 +172,9 @@ func runtimeResourceProjectionOriginal(result ToolResult, record ObservationReco
 func projectRuntimeResourceTable(table RuntimeMeasurementTable, r ObservationRecord, projection RuntimeResourceDisplayProjection) RuntimeMeasurementTable {
 	out := table.Clone()
 	if table.View == RuntimeMeasurementDistribution {
-		out.Label = "原查询总体统计（不替代请求成员统计）：" + out.Label
+		out.Label = "原查询总体统计（保留原查询范围）：" + out.Label
 		out.DefaultPresentation = false
-		out.Notes = append(out.Notes, "以下统计保持原查询完整扫描总体及分母，未按当前展示成员重算；不能用作请求主体或窗口的合计。")
+		out.Notes = append(out.Notes, "以下统计保持原查询完整扫描总体及分母，未按当前展示成员重算；适用范围以原查询筛选条件为准。展示成员相同不单独证明覆盖了整个请求范围。")
 	} else {
 		index := r.runtimeResourcePublication.eventDisplay
 		out.Notes = append(out.Notes, "原查询表说明："+table.Label)

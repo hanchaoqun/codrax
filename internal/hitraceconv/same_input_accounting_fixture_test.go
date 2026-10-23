@@ -95,6 +95,20 @@ func TestSameInputTraceStreamerAccountingReceiptIsDeterministic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("same-input conversion run %d: %v", run, err)
 		}
+		fields := hmc287SourceRangeFields(t, result.TraceDBCoverage)
+		for _, expected := range []struct{ name, state, value string }{
+			{"start_ts", "observed", "2942124416000"},
+			{"end_ts", "missing", ""},
+			{"duration_ns", "missing", ""},
+		} {
+			got := fields[expected.name]
+			if got.State != expected.state || got.Value != expected.value {
+				t.Fatalf("same-input original range field drifted: %s=%+v", expected.name, got)
+			}
+		}
+		if len(fields) != 3 {
+			t.Fatalf("same-input original range roster changed: %+v", fields)
+		}
 		receipt := buildSameInputAccountingReceipt(t, input, childInput, output, result)
 		// HMC-17.7 adds exactly three independently pinned raw measure rows.
 		// Remove only those rows and HMC-03's resource metadata suffix to
@@ -226,6 +240,25 @@ func sameInputCoverageProjection(items []TraceDBCoverage) []sameInputCoverageRec
 func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingReceipt) {
 	t.Helper()
 	receipt = sameInputBeforeMeasureExtension(t, receipt)
+	// HMC287 adds one display-only source-range receipt. This old fixture
+	// declares only start_ts. Pin the entire new row, then remove exactly
+	// that addition; all historical output bytes and accounting hashes remain.
+	var declaredRange, beforeRange []sameInputCoverageReceipt
+	for _, item := range receipt.Coverage {
+		if item.Family == "metadata" && item.Table == "trace_range" && item.Role == "diagnostic_metadata" {
+			declaredRange = append(declaredRange, item)
+		} else {
+			beforeRange = append(beforeRange, item)
+		}
+	}
+	if !reflect.DeepEqual(declaredRange, []sameInputCoverageReceipt{{
+		Family: "metadata", Table: "trace_range", Role: "diagnostic_metadata",
+		Found: true, RowsRead: 1, RowsEmitted: 1, Skipped: "missing required columns: end_ts",
+		Metrics: map[string]int64{"start_ts_observed": 1, "end_ts_missing": 1, "duration_ns_missing": 1},
+	}}) {
+		t.Fatalf("same-input source-range extension drifted: %+v", declaredRange)
+	}
+	receipt.Coverage = beforeRange
 	// HMC-03.3 resource-stack inspection adds one independent coverage lane.
 	// This legacy fixture has one native_hook row but no callchain_id, so
 	// that lane must account for the row without emitting a carrier or reading

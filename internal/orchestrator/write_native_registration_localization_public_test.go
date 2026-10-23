@@ -229,7 +229,7 @@ func TestNativeRegistrationSourceReadLocalizationBoundariesPublic(t *testing.T) 
 				t.Fatalf("reused source=%t for %s", got, condition)
 			}
 			view := writeflow.DeriveWorkflowExecutionView(types.ModeApply, *run, plan)
-			if condition == "valid" {
+			if condition == "valid" || condition == "missing_source_terminal" {
 				if view.Localization.State != "" || view.Localization.RequiresMoreContext || view.LocalizationGateEligible {
 					t.Fatalf("read-only verification acquired a new source-owner obligation: %+v", view.Localization)
 				}

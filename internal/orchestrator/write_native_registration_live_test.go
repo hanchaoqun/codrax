@@ -34,6 +34,11 @@ func TestNativeRegistrationLiveRestoredTerminal(t *testing.T) {
 }
 
 func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTerminal bool, naturalController ...bool) {
+	natural := len(naturalController) > 0 && naturalController[0]
+	runNativeRegistrationLiveEvaluationWithScope(t, out, sourceTerminal, natural, false)
+}
+
+func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sourceTerminal, natural, completeApplyReceipt bool) {
 	t.Helper()
 	if out == "" {
 		t.Skip("explicit live evaluation not requested")
@@ -74,7 +79,6 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 		t.Fatal(err)
 	}
 	const question = "实现已修好，请运行保留的现有测试，确认返回值正确。不要再修改源码、测试、配置或依赖。"
-	natural := len(naturalController) > 0 && naturalController[0]
 	var controller agent.Agent
 	controllerModel, controllerDecisions := "", "scripted_verify_then_finish"
 	if natural {
@@ -99,8 +103,22 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 	if natural {
 		kind = "native_registration_natural_controller_terminal"
 	}
-	save("evaluation.json", map[string]any{"kind": kind, "model": adapter.ModelID(), "controller_model": controllerModel, "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": controllerDecisions, "source_terminal_verification": sourceTerminal, "source_preparation": "operator_public_emit_apply_git_and_native_execution", "verification_executor": "public_run_tests_not_model_verifier"})
+	if completeApplyReceipt {
+		if sourceTerminal || natural {
+			t.Fatal("unverified-source control requires absent source controller verification and a scripted restored controller")
+		}
+		kind = "native_registration_restored_unverified_source"
+	}
+	evaluation := map[string]any{"kind": kind, "model": adapter.ModelID(), "controller_model": controllerModel, "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": controllerDecisions, "source_terminal_verification": sourceTerminal, "source_preparation": "operator_public_emit_apply_git_and_native_execution", "verification_executor": "public_run_tests_not_model_verifier"}
+	if completeApplyReceipt {
+		evaluation["source_controller_verification_absent"] = true
+		evaluation["source_apply_receipt_completed_from_real_delivery"] = true
+	}
+	save("evaluation.json", evaluation)
 	f := newControllerRegistrationFixture(t)
+	if completeApplyReceipt {
+		completeControllerRegistrationApplyReceipt(t, f)
+	}
 	o, mu := f.o, f.o.busCtx.Mutable
 	mu.SetObjective(question)
 	// Rehydrate the old *actual* execution from the exact source-plan path.

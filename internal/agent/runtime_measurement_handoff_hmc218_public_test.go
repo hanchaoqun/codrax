@@ -42,6 +42,7 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 				t.Fatal(err)
 			}
 			var results []types.ToolResult
+			metadataRanges := map[string][3]string{}
 			for i := 0; i < tc.copies; i++ {
 				path := filepath.Join(dir, fmt.Sprintf("capture-%d%s", i, filepath.Ext(tc.fixture)))
 				if err := os.WriteFile(path, original, 0600); err != nil {
@@ -53,18 +54,24 @@ func TestHMC218RuntimeMeasurementActualFinalizerMessages(t *testing.T) {
 					t.Fatalf("public prepare/query: %v / %s", err, result.Summary)
 				}
 				results = append(results, types.AttachToolHandoffCarrier(result))
+				if filepath.Ext(tc.fixture) == ".data" {
+					metadataRanges[path] = [3]string{"0", "3000000000", "3000000000"}
+				}
 			}
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: results,
 				HandoffCarriers: types.ToolHandoffCarriersFromTurnAInputs(results, nil, nil)})
 			choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
-			if len(choices) != 3*tc.copies {
-				t.Fatalf("native measurement roster=%d, want %d", len(choices), 3*tc.copies)
+			measurements, _ := splitSourceMetadataHMC287(t, choices, metadataRanges)
+			if len(measurements) != 3*tc.copies || len(choices) != 3*tc.copies+len(metadataRanges) {
+				t.Fatalf("native measurement roster=%d, metadata=%d, want measurements=%d", len(measurements), len(metadataRanges), 3*tc.copies)
 			}
 			before := hmc218CausalProjection(t, ctx)
 			messages := dependencyObservationMessages(t, ctx)
 			previews := hmc218MeasurementMessagePreviews(t, messages)
 			total, shown := 0, 0
 			partialTimeline := false
+			// All selectors, including independent source metadata, share the
+			// same 128-row preview budget; never filter metadata out here.
 			for _, table := range choices {
 				total += len(table.Rows)
 				key := table.ObservationID + "/" + string(table.View)

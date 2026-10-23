@@ -33,7 +33,8 @@ func TestPreferredFrameRateActualFinalizerEmitPatch(t *testing.T) {
 	}
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{out}})
 	choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
-	if len(choices) != 3 {
+	measurements, _ := splitSourceMetadataHMC287(t, choices, map[string][3]string{path: {"0", "3000000000", "3000000000"}})
+	if len(measurements) != 3 || len(choices) != 4 {
 		t.Fatalf("wrong tables: %+v", choices)
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)

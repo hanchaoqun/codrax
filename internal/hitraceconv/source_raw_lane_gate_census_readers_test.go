@@ -2633,8 +2633,8 @@ func TestTraceDBUnresolvedKeyForwardingRosterIsLoadBearing(t *testing.T) {
 		t.Fatalf("roster declares %d writes, want the two of streamerdb_metadata.go", len(declared))
 	}
 	want := []string{
-		"streamerdb_metadata.go:105: a value the census cannot resolve written under a Metadata key the census cannot resolve (field.name)",
-		"streamerdb_metadata.go:228: a value the census cannot resolve written under a Metadata key the census cannot resolve (name)",
+		"streamerdb_metadata.go:109: a value the census cannot resolve written under a Metadata key the census cannot resolve (field.name)",
+		"streamerdb_metadata.go:232: a value the census cannot resolve written under a Metadata key the census cannot resolve (name)",
 	}
 	if got := census(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("with the roster withdrawn the live tree reported\n%s\nwant exactly\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

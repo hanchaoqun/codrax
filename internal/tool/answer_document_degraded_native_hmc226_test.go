@@ -23,12 +23,17 @@ func TestHMC226DegradedNativeFactsPublicExport(t *testing.T) {
 	for _, domain := range []string{"log", "measurement"} {
 		t.Run(domain, func(t *testing.T) {
 			bus, wantRows := nativeMixedPublicContext(t, domain)
+			originalPath := ""
+			if domain == "measurement" {
+				originalPath = hmc287MeasurementOriginal(t)
+			}
+			metadataOracle := hmc287CurrentMetadataOracle(t, bus, originalPath, "3000000000")
 			model := types.AnswerBlock{ID: "lead", Kind: types.BlockSummary, Text: "The original records are separate from this unaccepted draft."}
 			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{model}}
 			view := types.BuildAnswerSemanticViewForBusContext(bus)
 			var original types.RuntimeMeasurementTable
 			for _, table := range view.RuntimeMeasurementContract.Choices() {
-				if table.DefaultPresentation {
+				if table.DefaultPresentation && !metadataOracle.matches(t, table) {
 					original = table
 				}
 			}
@@ -37,10 +42,15 @@ func TestHMC226DegradedNativeFactsPublicExport(t *testing.T) {
 			for i := 0; i < 2; i++ {
 				sections := MaterializeDeterministicAnswerSectionsForDegradedDoc(bus, doc)
 				blocks := hmc226DegradedNativeBlocks(doc)
-				if !slices.Contains(sections, "native_facts") || len(blocks) != 1 {
+				facts, metadata := metadataOracle.splitBlocks(t, blocks)
+				wantMetadata := 0
+				if domain == "measurement" {
+					wantMetadata = 1
+				}
+				if !slices.Contains(sections, "native_facts") || len(facts) != 1 || len(metadata) != wantMetadata || len(blocks) != len(facts)+len(metadata) {
 					t.Fatalf("degraded export lost native facts/disclosure: sections=%v blocks=%d", sections, len(blocks))
 				}
-				receipt := blocks[0].RuntimeMeasurement
+				receipt := facts[0].RuntimeMeasurement
 				if receipt == nil || !receipt.IsBound() || len(receipt.BoundTable.Rows) != wantRows || !reflect.DeepEqual(receipt.BoundTable.Rows, original.Rows) {
 					t.Fatal("degraded export reconstructed or duplicated original rows")
 				}
@@ -61,6 +71,7 @@ func TestHMC226DegradedNativeFactsCurrentScopeBoundaries(t *testing.T) {
 	for _, negative := range []string{"no_fact_dimension", "source_inventory", "outside_window", "cleared_supply"} {
 		t.Run(negative, func(t *testing.T) {
 			bus, _ := nativeMixedPublicContext(t, "measurement")
+			metadataOracle := hmc287CurrentMetadataOracle(t, bus, hmc287MeasurementOriginal(t), "3000000000")
 			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "lead", Kind: types.BlockSummary, Text: "Unaccepted draft."}}}
 			MaterializeDeterministicAnswerSectionsForDegradedDoc(bus, doc)
 			if len(hmc226DegradedNativeBlocks(doc)) == 0 {
@@ -80,7 +91,13 @@ func TestHMC226DegradedNativeFactsCurrentScopeBoundaries(t *testing.T) {
 			}
 			bus.Mutable.SetRequestModel(*rm)
 			sections := MaterializeDeterministicAnswerSectionsForDegradedDoc(bus, doc)
-			if len(hmc226DegradedNativeBlocks(doc)) != 0 || slices.Contains(sections, "native_facts") {
+			blocks := hmc226DegradedNativeBlocks(doc)
+			facts, metadata := metadataOracle.splitBlocks(t, blocks)
+			wantMetadata := 0
+			if negative == "outside_window" {
+				wantMetadata = 1
+			}
+			if len(facts) != 0 || len(metadata) != wantMetadata || len(blocks) != wantMetadata || slices.Contains(sections, "native_facts") != (wantMetadata != 0) {
 				t.Fatal("recovery retained stale/foreign default facts or claimed nonexistent output")
 			}
 		})

@@ -16,6 +16,11 @@ func TestHMC221MixedRuntimeNativeFactsPublicBoundaries(t *testing.T) {
 		for _, negative := range []string{"causal_only", "relation_only", "contributors_only", "verdict_only", "optional", "unspecified", "not_applicable", "inventory", "window"} {
 			t.Run(domain+"/"+negative, func(t *testing.T) {
 				bus, _ := nativeMixedPublicContext(t, domain)
+				original := ""
+				if domain == "measurement" {
+					original = hmc287MeasurementOriginal(t)
+				}
+				metadataOracle := hmc287CurrentMetadataOracle(t, bus, original, "3000000000")
 				rm := &bus.AnalysisIR.RequestModel
 				roles := map[string]types.RequestedAnswerDimensionRole{"causal_only": types.RequestedAnswerDimensionCausalAttribution,
 					"relation_only": types.RequestedAnswerDimensionRelationPath, "contributors_only": types.RequestedAnswerDimensionCausalContributorSet,
@@ -41,10 +46,13 @@ func TestHMC221MixedRuntimeNativeFactsPublicBoundaries(t *testing.T) {
 				if !out.Success {
 					t.Fatal(out.Summary)
 				}
-				for _, block := range bus.Mutable.AnswerDocumentV2().Blocks {
-					if block.RuntimeMeasurement != nil {
-						t.Fatalf("%s imported unrelated default facts", negative)
-					}
+				facts, metadata := metadataOracle.splitBlocks(t, bus.Mutable.AnswerDocumentV2().Blocks)
+				wantMetadata := 0
+				if domain == "measurement" && negative == "window" {
+					wantMetadata = 1 // The original's declaration is not a windowed measurement.
+				}
+				if len(facts) != 0 || len(metadata) != wantMetadata {
+					t.Fatalf("%s imported unrelated facts: measured=%d metadata=%d (want %d)", negative, len(facts), len(metadata), wantMetadata)
 				}
 			})
 		}

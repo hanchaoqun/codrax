@@ -60,7 +60,7 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 	hash := sha256.Sum256(append([]byte(catalog.ID()), raw...))
 	id := "trace_measurement_acquisition:" + hex.EncodeToString(hash[:12])
 	table := RuntimeMeasurementTable{ObservationID: id, View: RuntimeMeasurementSummary, Label: "两份采集的独立取数状态", DefaultPresentation: true,
-		Columns: []string{"角色", "状态", "用户来源与范围", "来源/代次", "已保留的原生测量", "设备/工作负载", "查询记录与边界"},
+		Columns: []string{"角色", "状态", "用户来源与范围", "来源/代次", "已保留的原生测量", "原件背景信息", "查询记录与边界"},
 		Notes:   []string{"每份输入独立准备和查询；未指定窗口不补造端点。状态不证明数据为空、可比性、同一时钟、差值或因果。", "状态来自本轮真实准备和查询记录；原生值保留各自单位、分母、窗口、未知与省略。失败历史不覆盖仍有效的成功结果，未执行和失败不能补0。"}}
 	states := runtimeMeasurementProducerStates(input)
 	queries := catalog.Snapshot().Queries
@@ -70,13 +70,9 @@ func buildRuntimeMeasurementAcquisitionStatus(input ObservationLedgerInput, publ
 		if windows[i].Valid() {
 			window = fmt.Sprintf("[%g,%g) 秒", *windows[i].TimeStart, *windows[i].TimeEnd)
 		}
-		device, workload, parser := "设备未知", "负载未知", ""
+		metadata := runtimeMeasurementMetadataContext(nil)
 		if issues[i] == nil {
-			device, workload, parser = runtimeMeasurementMetadataLabels(runtimeMeasurementMetadataForOriginal(input, RuntimeArtifactComparisonLocalPath(side.Path, input.RepoRoot)))
-		}
-		metadata := device + " / " + workload
-		if parser != "" {
-			metadata += " / 解析器原文（不证明设备或负载身份）: " + parser
+			metadata = runtimeMeasurementMetadataContext(runtimeMeasurementMetadataForOriginal(input, RuntimeArtifactComparisonLocalPath(side.Path, input.RepoRoot)))
 		}
 		table.Rows = append(table.Rows, []string{[]string{"baseline", "current"}[i], status, side.Path + " " + window,
 			artifacts[i].Path + " @" + artifacts[i].RevisionID, strings.Join(refs, "; "), metadata, strings.Join(history, "; ")})

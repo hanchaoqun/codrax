@@ -680,7 +680,16 @@ func TestTraceArchiveZIPTraceStreamerConsumesSelectedMemberInExplicitAndAutoMode
 			if err != nil {
 				t.Fatal(err)
 			}
-			firstArg := strings.Split(strings.TrimSpace(string(args)), "\n")[0]
+			argLines := strings.Split(strings.TrimSpace(string(args)), "\n")
+			if len(argLines) != 3 || argLines[1] != "-e" || filepath.Base(argLines[2]) != "trace_streamer_export.db" {
+				t.Fatalf("unexpected trace_streamer export arguments: %q", argLines)
+			}
+			firstArg := argLines[0]
+			stagingDB := argLines[2]
+			stagingDir := filepath.Dir(stagingDB)
+			if !strings.HasPrefix(filepath.Base(stagingDir), strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")) {
+				t.Fatalf("export did not use its private staging directory: %q", stagingDB)
+			}
 			if runtime.GOOS == "linux" {
 				if !strings.HasPrefix(firstArg, "/proc/self/fd/") {
 					t.Fatalf("Linux trace_streamer did not receive the verified FD transport: %q", firstArg)
@@ -692,10 +701,54 @@ func TestTraceArchiveZIPTraceStreamerConsumesSelectedMemberInExplicitAndAutoMode
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, private := range []string{traceArchiveMemberSnapshotLeaf, ".archive/", strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")} {
-				if bytes.Contains(manifest, []byte(private)) {
-					t.Fatalf("trace_streamer archive bundle leaked private token %q: %s", private, manifest)
-				}
+			if private := traceArchivePrivateManifestToken(manifest, stagingDir, stagingDB); private != "" {
+				t.Fatalf("trace_streamer archive bundle leaked private token %q: %s", private, manifest)
+			}
+		})
+	}
+}
+
+// Check the actual transport identity, including a relative/private-leaf
+// disclosure, without confusing the short directory prefix with field prose.
+func traceArchivePrivateManifestToken(manifest []byte, stagingDir, stagingDB string) string {
+	for _, private := range []string{
+		traceArchiveMemberSnapshotLeaf, ".archive/",
+		stagingDir, filepath.ToSlash(stagingDir), filepath.Base(stagingDir),
+		stagingDB, filepath.ToSlash(stagingDB), filepath.Base(stagingDB),
+	} {
+		encoded, _ := json.Marshal(private)
+		if bytes.Contains(manifest, []byte(private)) || bytes.Contains(manifest, encoded[1:len(encoded)-1]) {
+			return private
+		}
+	}
+	return ""
+}
+
+func TestHMC287ArchivePrivateIdentityCheckPreservesFieldProse(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "ts-0123456789abcdef0123456789abcdef")
+	stagingDB := filepath.Join(stagingDir, "trace_streamer_export.db")
+	for _, test := range []struct {
+		name, value string
+		leaks       bool
+	}{
+		{"formula", "原件声明端点差 end_ts-start_ts，单位 ns", false},
+		{"field", "start_ts", false},
+		{"directory", stagingDir, true},
+		{"relative_directory", filepath.Base(stagingDir), true},
+		{"input", filepath.Join(stagingDir, "customer-capture.htrace"), true},
+		{"database", stagingDB, true},
+		{"database_leaf", filepath.Base(stagingDB), true},
+		{"archive_snapshot", traceArchiveMemberSnapshotLeaf, true},
+		{"archive_directory", ".archive/customer-capture.htrace", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Paths can leak through explanatory fields as well as path fields.
+			manifest, err := json.Marshal(map[string]any{"coverage": []any{map[string]string{"detail": "observed " + test.value}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := traceArchivePrivateManifestToken(manifest, stagingDir, stagingDB); (got != "") != test.leaks {
+				t.Fatalf("private disclosure=%q want leaks=%t: %s", got, test.leaks, manifest)
 			}
 		})
 	}

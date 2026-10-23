@@ -62,6 +62,11 @@ func TestHMC221MixedRuntimeNativeFactsPublicEmitPatchRender(t *testing.T) {
 		for _, scope := range []types.RuntimeQuestionScope{types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeRelationAnalysis, types.RuntimeQuestionScopeBoundedEffectVerdict, types.RuntimeQuestionScopeSystemOverview} {
 			t.Run(domain+"/"+string(scope), func(t *testing.T) {
 				bus, wantRows := nativeMixedPublicContext(t, domain)
+				original := ""
+				if domain == "measurement" {
+					original = hmc287MeasurementOriginal(t)
+				}
+				metadataOracle := hmc287CurrentMetadataOracle(t, bus, original, "3000000000")
 				bus.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = scope
 				before, _ := json.Marshal(types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit)))
 				const prose = "记录归属、时间和数值按原始事实展示；关系解释仍需独立证据。"
@@ -79,13 +84,22 @@ func TestHMC221MixedRuntimeNativeFactsPublicEmitPatchRender(t *testing.T) {
 					t.Fatal(out.Summary)
 				}
 				doc := bus.Mutable.AnswerDocumentV2()
+				facts, metadata := metadataOracle.splitBlocks(t, doc.Blocks)
+				wantMetadata := 0
+				if domain == "measurement" {
+					wantMetadata = 1
+				}
+				if len(metadata) != wantMetadata {
+					t.Fatalf("background metadata count=%d, want %d", len(metadata), wantMetadata)
+				}
 				var kept []types.AnswerBlock
 				rows, tables := 0, 0
+				for _, block := range facts {
+					rows += len(block.RuntimeMeasurement.BoundTable.Rows)
+					tables++
+				}
 				for _, block := range doc.Blocks {
-					if block.RuntimeMeasurement != nil && block.RuntimeMeasurement.IsBound() {
-						rows += len(block.RuntimeMeasurement.BoundTable.Rows)
-						tables++
-					} else {
+					if block.RuntimeMeasurement == nil || !block.RuntimeMeasurement.IsBound() {
 						kept = append(kept, block)
 					}
 				}

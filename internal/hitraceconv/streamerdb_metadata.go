@@ -20,7 +20,7 @@ const (
 	maxTraceDBParserMetadataTotalBytes = 16 << 10
 )
 
-// inspectTraceDBDiagnosticMetadata preserves bounded device/parser context as
+// inspectTraceDBDiagnosticMetadata preserves bounded device/parser/range context as
 // coverage metadata. These values are deliberately outside the systrace row
 // sink and never participate in source admission or hard gates.
 func inspectTraceDBDiagnosticMetadata(ctx context.Context, tdb *traceDB) ([]TraceDBCoverage, error) {
@@ -29,7 +29,11 @@ func inspectTraceDBDiagnosticMetadata(ctx context.Context, tdb *traceDB) ([]Trac
 		return []TraceDBCoverage{device}, err
 	}
 	parser, err := inspectTraceDBParserMetadata(ctx, tdb)
-	return []TraceDBCoverage{device, parser}, err
+	if err != nil {
+		return []TraceDBCoverage{device, parser}, err
+	}
+	declaredRange, err := inspectTraceDBSourceRangeMetadata(ctx, tdb)
+	return []TraceDBCoverage{device, parser, declaredRange}, err
 }
 
 func inspectTraceDBDeviceInfoMetadata(ctx context.Context, tdb *traceDB) (coverage TraceDBCoverage, err error) {

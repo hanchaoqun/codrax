@@ -41,7 +41,8 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 		t.Fatalf("default prepare/query: %v / %s", err, result.Summary)
 	}
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
-	choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
+	allChoices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
+	choices, metadata := splitSourceMetadataHMC287(t, allChoices, map[string][3]string{path: {"0", "3000000000", "3000000000"}})
 	if len(choices) != 3 {
 		t.Fatalf("expected raw summary/members/timeline: %+v", choices)
 	}
@@ -114,7 +115,7 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 			// The explicit selector keeps its identity and values. Choosing a
 			// summary/timeline additionally retains the producer's full members;
 			// choosing members itself must not duplicate the same selector.
-			seenRaw, seenLead, seenDefault, generated := 0, 0, 0, 0
+			seenRaw, seenLead, seenDefault, generated, seenMetadata := 0, 0, 0, 0, 0
 			for _, saved := range doc.Blocks {
 				switch saved.ID {
 				case "lead":
@@ -129,6 +130,13 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 						t.Fatal("native data or explicit selector changed at emit/patch")
 					}
 				default:
+					if saved.RuntimeMeasurement != nil && saved.RuntimeMeasurement.ObservationID == metadata[0].ObservationID {
+						seenMetadata++
+						if saved.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts || !reflect.DeepEqual(saved.RuntimeMeasurement.BoundTable, &metadata[0]) {
+							t.Fatal("automatic source metadata changed its exact native table")
+						}
+						continue
+					}
 					generated++
 					if saved.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts || saved.RuntimeMeasurement == nil ||
 						!reflect.DeepEqual(saved.RuntimeMeasurement.BoundTable, defaultMembers) {
@@ -143,8 +151,8 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 			if table.View == defaultMembers.View {
 				wantGenerated = 0
 			}
-			if seenRaw != 1 || seenLead != 1 || seenDefault != 1 || generated != wantGenerated || len(doc.Blocks) != 2+wantGenerated {
-				t.Fatalf("explicit/default selectors lost or duplicated: raw=%d lead=%d default=%d generated=%d", seenRaw, seenLead, seenDefault, generated)
+			if seenRaw != 1 || seenLead != 1 || seenDefault != 1 || seenMetadata != 1 || generated != wantGenerated || len(doc.Blocks) != 3+wantGenerated {
+				t.Fatalf("explicit/default selectors lost or duplicated: raw=%d lead=%d default=%d generated=%d metadata=%d", seenRaw, seenLead, seenDefault, generated, seenMetadata)
 			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "zh"))
 			for _, row := range table.Rows {
@@ -162,6 +170,11 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 					t.Fatalf("default member row not displayed exactly once: %v", row)
 				}
 			}
+			for _, row := range metadata[0].Rows {
+				if strings.Count(visible, "| "+strings.Join(row, " | ")+" |") != 1 {
+					t.Fatalf("source metadata row not displayed exactly once: %v", row)
+				}
+			}
 		}
 	}
 	if !bytes.Equal(beforeProjection, projection()) || ctx.Mutable.TraceRootCauseReport() != nil {
@@ -171,8 +184,11 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 	rm.RuntimeArtifactScopeProfile.TimeEnd = &endNarrow
 	ctx.AnalysisIR.RequestModel = rm
 	ctx.Mutable.SetRequestModel(rm)
-	if c := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract; c != nil && len(c.Choices()) != 0 {
-		t.Fatal("wider source data relabelled as narrow request window")
+	if c := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract; c != nil {
+		remaining, _ := splitSourceMetadataHMC287(t, c.Choices(), map[string][3]string{path: {"0", "3000000000", "3000000000"}})
+		if len(remaining) != 0 {
+			t.Fatal("wider source data relabelled as narrow request window")
+		}
 	}
 	accepted := ctx.Mutable.AnswerDocumentV2()
 	bad, _ := json.Marshal(map[string]any{"replace_blocks": []any{map[string]any{"id": "raw", "kind": "table", "runtime_measurement": map[string]any{"observation_id": choices[0].ObservationID, "view": choices[0].View}}}, "unchanged_block_ids": []string{"lead"}})
