@@ -10133,3 +10133,33 @@ B实际INIT含controller_preplan owner要求；静态来源复用资格要求精
 下一ROI：16.4同源解释的采集/查询/观察范围与关系权限；11.2已有组合能力的推荐工作流和原矩阵自然选择；只读登记来源/owner/terminal资格及失败父子状态交接。17.6新真实格式/可运行工具/原生宿主材料齐即提级；14.1statistic上报协议及05.2/05.3独立校准证据候补，不反复包装旧材料充能力。17.7活跃WAL零副作用未闭环，生产NO-GO，无接线。
 
 正式全仓97包PASS/12无测试/零FAIL，7332冻结输入前后不变；162文件封存，索引`f13374c7e134ce20fd978daef89d66f52c2a8b210687203e5f994ba31e107814`。代码`175601547cf16cd229348e6c4625860557e54d56`与文档分笔普通推送。不可变索引、各版失败及最终远端/clean/两提交树核验见[批汇总](../../eval/parallel_selected_summary_hmc_resource_window_projection_20261022.md)及[人工审计](../../eval/parallel_selected_summary_hmc_resource_window_projection_20261022_manual_audit.md)；不以定向绿、机器PASS或局部数值正确倒签整答。
+
+## 287. 原件范围同源展示与只读登记缺来源终态（2026-10-23）
+
+基线`fea0c262e48a26167865b38f7fbaddeda446c77a`；79唯一/0重复＝25完整交付＋54开放，18类及状态分布不变。本批完整能力新增0，共享子能力2组；A整答FAIL、B限定负向PASS，剩余成文与只读上下文两组债留既有16.4/18.4/18.5，不新增/误销父项。
+
+### 287.1 同源范围和当前证明分权
+
+参考`core/hiperf_converter.py:33`、`core/extensions/log_extender.py:135`读取trace_range起止，结合query_engine完整参数/总体与预览分离、llm_contract精确来源/字段值及heap原事件/帧展开。当前原件100ms只在原SQL存在，转换后50ms包络不能替代它。新增严格单行、非负INTEGER纳秒的原件元数据，起/止/差独立状态；NULL、缺列、非法存储类、负数、反序、多行不猜测。单源、双侧及状态目录复用当前准备凭证；原查询总体说明兼容宽投影和精确查询。声明范围不授端点包含规则、测量分母、完整性、线程耗时、源码或因果权限；JSON/旧来源负控保留，不扫描正文关键词。
+
+只读scope的新typed分类只免除本轮没有新增的源码归属义务，不证明来源已验证。精确run/repo/plan/delivery/apply齐全、来源真正无verify attempt/ref/completion时允许本轮证明继续；整体仍缺来源终态。显式空/失败终态、已开始未完成verify、悬空报告、新修改/owner scope仍不放行；原strict verified-source helper保原。Normalize前分类，防显式状态被抹去。初始“只删Completion保留passed verify”的反例会被合法attempts_backfill归一化，不是纯缺来源验证oracle；失败原件保留，后改精确无verify fixture，并用旧strict helper overlay复现当前义务错误。
+
+### 287.2 两例真实审计
+
+正式v2冻结7338输入，A实际CLI与B测试二进制独立SHA；v1构建与最后注释编辑重叠在零模型阶段发现，稳定复建后另冻v2，未多跑模型。两例共同屏障且实际模型请求区间重叠，各一次，无第三例。
+
+A构造SQLite，机器PASS、完整人工FAIL。9参数/8不同结果，精确4/11、101独立3/8、宽[0,60)5/14分列；未独立查询202，但多主体结果完整，不误记漏查。100ms三字段实际进入Finalizer和完整MD/HTML附表，终稿未再把原件写50ms；primary用精确表，自动附表自然投影宽查询窗内4并保原总体5及排除1。101申请2/768、释放1/512bytes；202申请1/128、释放0；右界和11帧保留。最终仍“负载完全一线程”与202事实矛盾，深度升调用上下层/业务发起关系；前文免责声明不为后文越权背书。其它非堆事件全源不存在的措辞亦超出资源视图。多查询同成员重复展示为噪音，不是原统计错误。
+
+实际Finalizer原生metadata7行完整，解释单元3/4投递、最后单元整条省略，原生notes及grounding另有关系限制；不能把未投递单元全算污染或把所有边界写成缺失。Finalizer估算88296与explorer最大104865分列，非provider wire token实测。完整HTML8表、无实际Mermaid/SVG，图关系/时序及像素QA不代签；根因合同未激活，不扩签根因质量。
+
+B真实planner完整读现有源码/测试→零变更登记，脚本verify/finish controller，新进程真实执行；不是完整CLI/自然controller。source真实apply两坐标齐，三份快照均无verify attempt/ref/completion；当前proof verified、整体unverified/missing_terminal_verify_verdict。1断言/2命令、旧新invocation分列；父子各4原件＋1verifyref逐字节/SHA正确，源码/测试/HEAD只读。限定负向目标人工PASS，但planner仍带旧owner提示、最终loop仍observed_only/localize；继续留18.4/18.5。fixture无完整durable store/contextpack durability，不能签生产持久化；旧缺apply/失败owner/旧HMC286整答不倒签。
+
+### 287.3 验证失败、优先级与发布
+
+相关三包、四包race及orchestrator定向race通过后，首轮全仓UTC09:04:25.449924–09:19:17.038061，PID20436 exit1，94包PASS/12无测试/3包FAIL，日志SHA`a7cd18013a028b1112ec5755f2c2bc29effb918fb64879ada9745412142835eb`。新增独立metadata触发旧表数量/默认视图/固定accounting收据期待；动态Metadata[field.Name]不被严格lane census解析，必须改为精确键而非豁免；ZIP裸ts-误击合法end_ts-start_ts，需精确真实路径身份负控。v2原始FAIL、两例和人工审计先封存再修，后继版本单独验证，不预签全仓。
+
+下一ROI保两条并行轨：完整能力轨先11.2真实代表选择原矩阵及选择/未选/执行状态；同批高影响缺陷轨统一原生事实/解释的范围和关系资格、同成员去重。当前只读scope贯通planner和最终loop继续留18.4/18.5轮换，不因本次旧提示无限阻塞其它高ROI交付。17.6新真实格式/可执行工具/原生宿主材料到位提级，旧ZIP/gzip不充新增；旧IO/采样解释及新权限分支自然覆盖保原，14.1statistic协议及05.2/05.3校准候补。WAL零副作用未闭环，生产NO-GO，无接线。
+
+后继唯一生产差异为动态metadata写入换三个显式键，13组范围完整收据及真实转换输出共14项逐字节等价，结构门不豁免；其余17个测试文件把新metadata与原测量、原收据分别精确验收。相关/race/稳定复建通过，中间旧行号及Ruby脚本失败另保原。v3冻结7340输入，PID46293于UTC09:30:36.896858–09:45:33.638242正式exit0，97包PASS/12无测试/零FAIL，日志SHA`46c7e4c56a1908c7fbafbfb44cf6c00f94dc4673745c6b240e9f32eabdb15da0`，运行前后输入不变。真实两例未在v3重跑，不把等价回归写成新人工验收。
+
+v2原173件保原，索引`d626125ddcba7246176d1628f6eca17571f2aa6123e3dc816bbec5bd445f4b04`；v3另封52件，索引`dacc0fa498cf447d6ce313e2047b6093bbeebaea7af12d15b87810cc11990350`。代码`fd67e3a5c4f851d509a4b7f3cf7a60041f1e4663`已普通推送，文档分笔；不可变225原件与两提交树/远端/clean凭证见[批汇总](../../eval/parallel_selected_summary_hmc_resource_display_registration_terminal_20261023.md)与[人工审计](../../eval/parallel_selected_summary_hmc_resource_display_registration_terminal_20261023_manual_audit.md)。完整能力0新增/累计25、54开放不因数值或限定负向通过而改变。
