@@ -50,11 +50,13 @@ func renderAnswerDocResourceStackPresentation(ctx *types.AgentContext, ledger ty
 			continue
 		}
 		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
-		if !qualified || profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, p.Window) {
+		if !qualified || candidate.projection == nil && profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, p.Window) {
 			continue
 		}
 		text := tool.TraceResourceStackText(p, 12)
-		if rm := resourceStackNamedDisplayRequest(ctx); rm != nil {
+		if candidate.projection != nil {
+			text = tool.TraceResourceStackProjectedText(p, *candidate.projection, 12)
+		} else if rm := resourceStackNamedDisplayRequest(ctx); rm != nil {
 			selected, eligible := resourceStackDisplayMembers(p, rm)
 			if candidate.supplementary {
 				text = types.RuntimeResourceSupplementaryScopeNote + "\n" + text

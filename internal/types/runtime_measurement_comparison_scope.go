@@ -19,12 +19,16 @@ func runtimeMeasurementQueryDisplayScope(input ObservationLedgerInput, result To
 		return nil, "", false
 	}
 	requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
-	if !qualified || !runtimeSamplingMeasurementWithinWindows(r, requested) || !runtimeResourceMeasurementWithinWindows(r, requested) {
+	_, resourcePoints := runtimeResourceProjectionOriginal(result, r, input.RequestModel)
+	if resourcePoints {
+		_, resourcePoints = runtimeResourceProjectEvents(r, input.RequestModel, requested)
+	}
+	if !qualified || !runtimeSamplingMeasurementWithinWindows(r, requested) || !resourcePoints && !runtimeResourceMeasurementWithinWindows(r, requested) {
 		return nil, "", false
 	}
 	// Event receipts own individual points and are projected row-by-row from a
 	// wider lookup envelope; other native query windows must be contained.
-	if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate {
+	if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate && !resourcePoints {
 		return nil, "", false
 	}
 	return requested, original, true

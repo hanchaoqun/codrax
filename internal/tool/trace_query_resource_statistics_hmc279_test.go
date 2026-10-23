@@ -103,6 +103,26 @@ func TestHMC279ResourceBroadTargetlessOnlyAndLegacy(t *testing.T) {
 			t.Fatal("broad facts gained target or population authority", c)
 		}
 	}
+	// Preserve the legacy boundary without the HMC286 native per-event
+	// index. A publication seal alone still cannot project a broad query to
+	// an explicit target; the new typed producer path has separate tests.
+	legacyResult := result
+	legacyResult.Observations = append([]types.ObservationRecord(nil), result.Observations...)
+	for i, r := range legacyResult.Observations {
+		if r.Predicate != TraceResourceStackPredicate {
+			continue
+		}
+		pub, ok := types.DecodeRuntimeMeasurementPublication(r)
+		if !ok {
+			t.Fatal("missing legacy publication fixture")
+		}
+		legacy, ok := types.PublishRuntimeResourceMeasurement(unpublishResourceHMC279(r), pub.Tables, false)
+		if !ok {
+			t.Fatal("could not restore legacy native publication")
+		}
+		legacyResult.Observations[i] = legacy
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{legacyResult}})
 	for _, kind := range []types.RuntimeTargetKind{types.RuntimeTargetKindThread, types.RuntimeTargetKindProcess, types.RuntimeTargetKind("other")} {
 		bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{Kind: kind, PID: 101, Source: "user_explicit"}}
 		for _, c := range types.BuildAnswerSemanticViewForBusContext(bus).RuntimeMeasurementContract.Choices() {

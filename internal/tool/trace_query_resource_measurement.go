@@ -50,7 +50,10 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 		Columns: []string{"源事件", "事件时刻（ns）", "观测主体", "资源操作", "栈记录质量", "深度形态"}, Notes: notes}
 	members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: label + " — 源帧记录（不是有序调用链）",
 		Columns: []string{"源事件", "事件时刻（ns）", "观测主体", "源帧", "原深度", "符号", "库", "帧地址信息"}, Notes: append([]string(nil), notes...)}
+	var eventDisplay []types.RuntimeResourceDisplayEvent
 	for _, e := range p.Events {
+		display := types.RuntimeResourceDisplayEvent{TimestampNS: e.TimestampNS, TID: e.Source.TID, PID: e.Source.PID, Thread: e.Source.Thread,
+			SummaryRow: len(summary.Rows), FrameStart: len(members.Rows), FrameNote: len(members.Notes)}
 		event, ts := strconv.FormatInt(e.RowID, 10), strconv.FormatInt(e.TimestampNS, 10)
 		owner := fmt.Sprintf("线程ID=%d；进程ID=%d；线程名=%s", e.Source.TID, e.Source.PID, resourceFactName(e.Source.Thread))
 		operation := fmt.Sprintf("%s；%s；地址（signed）=%s", e.Source.Operation, resourceQuantityText(e.Source.Operation, e.Source.Size), resourceFactScalar(e.Source.Address))
@@ -63,11 +66,14 @@ func traceQueryResourceMeasurement(r types.ObservationRecord, p tracequery.Resou
 			address := fmt.Sprintf("IP（signed）=%s；offset=%s；symbol offset=%s；vaddr=%s", resourceFactScalar(f.IP), resourceFactScalar(f.Offset), resourceFactScalar(f.SymbolOffset), resourceFactText(f.VAddr))
 			members.Rows = append(members.Rows, []string{event, ts, owner, frame, resourceFactScalar(f.Depth), resourceFactText(f.Symbol), resourceFactText(f.Library), address})
 		}
+		display.FrameEnd = len(members.Rows)
+		eventDisplay = append(eventDisplay, display)
 	}
 	// Empty is a query disposition in Notes, not an observed event row.
 	// Retain both selectors and the source/window boundary without inventing
 	// a placeholder member that downstream row counts could treat as data.
-	return publishResourceEventStatistics(r, p, []types.RuntimeMeasurementTable{summary, members})
+	r = publishResourceEventStatistics(r, p, []types.RuntimeMeasurementTable{summary, members})
+	return types.WithRuntimeResourceEventDisplayIndex(r, p.MatchedEvents, eventDisplay)
 }
 
 func resourceFactScalar(v tracewire.ResourceScalar) string {

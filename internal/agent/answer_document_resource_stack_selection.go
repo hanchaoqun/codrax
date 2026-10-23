@@ -16,6 +16,7 @@ import (
 type resourceStackDisplayCandidate struct {
 	record        types.ObservationRecord
 	supplementary bool
+	projection    *types.RuntimeResourceDisplayProjection
 }
 
 func resourceStackSupplementaryQueries(ctx *types.AgentContext, ledger types.ObservationLedger) []resourceStackDisplayCandidate {
@@ -23,11 +24,22 @@ func resourceStackSupplementaryQueries(ctx *types.AgentContext, ledger types.Obs
 	for i, r := range ledger.Records {
 		ordered[i].record = r
 	}
+	// The private source receipt and typed point/owner selector are the same
+	// ones used by tables and diagrams. Ledger navigation is not a new seal.
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 0)
+	for i, r := range ledger.Records {
+		for _, results := range [][]types.ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
+			for _, result := range results {
+				if projection, ok := types.RuntimeResourceCurrentDisplayProjection(input, result, r); ok {
+					ordered[i].projection = &projection
+				}
+			}
+		}
+	}
 	rm := resourceStackNamedDisplayRequest(ctx)
 	if rm == nil {
 		return ordered
 	}
-	input := types.ObservationLedgerInputFromAgentContext(ctx, 0)
 	choices := types.BuildRuntimeMeasurementContract(input).Choices()
 	current := map[string]bool{}
 	for _, table := range choices {
@@ -85,7 +97,7 @@ func resourceStackNamedDisplayRequest(ctx *types.AgentContext) *types.RequestMod
 }
 
 func renderAnswerDocScopedResourceStacks(ctx *types.AgentContext, accepted, principal types.ObservationLedger) resourceStackPresentation {
-	if resourceStackNamedDisplayRequest(ctx) == nil {
+	if resourceStackNamedDisplayRequest(ctx) == nil && !resourceStackWindowDisplayRequest(ctx) {
 		return renderAnswerDocResourceStackPresentation(ctx, principal)
 	}
 	// Keep the original scope index and all conflicting copies for the existing
@@ -98,6 +110,15 @@ func renderAnswerDocScopedResourceStacks(ctx *types.AgentContext, accepted, prin
 		}
 	}
 	return renderAnswerDocResourceStackPresentation(ctx, candidates)
+}
+
+func resourceStackWindowDisplayRequest(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	return rm.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
+		(rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() || rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.Comparison != nil)
 }
 
 func resourceStackDisplayMembers(p tracequery.ResourceStackResult, rm *types.RequestModel) ([]int, bool) {

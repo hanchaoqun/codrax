@@ -71,6 +71,10 @@ func DecodeTraceResourceStack(r types.ObservationRecord) (tracequery.ResourceSta
 }
 
 func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string {
+	return traceResourceStackText(p, limit, nil)
+}
+
+func traceResourceStackText(p tracequery.ResourceStackResult, limit int, projection *types.RuntimeResourceDisplayProjection) string {
 	var b strings.Builder
 	right := ")"
 	if p.Window.EndInclusive {
@@ -114,7 +118,12 @@ func TraceResourceStackText(p tracequery.ResourceStackResult, limit int) string 
 		}
 		fmt.Fprintf(&b, "本事件展示省略帧=%d；深度形态=%s；不按最深帧或固定倒数层指定业务根因。\n", e.OmittedFrames, resourceDepthState(e.DepthStatus))
 	}
-	fmt.Fprintf(&b, "展示事件=%d，省略事件=%d。资源时间是事件时间，栈帧没有独立执行时长；资源生命周期不等于线程运行/等待，栈关联不证明泄漏或响应根因。\n", shown, p.MatchedEvents-shown)
+	if projection == nil {
+		fmt.Fprintf(&b, "展示事件=%d，省略事件=%d。", shown, p.MatchedEvents-shown)
+	} else {
+		fmt.Fprintf(&b, "本次筛选后的事件明细展示=%d，因明细展示预算另省略=%d；原查询交接省略=%d、主体筛选排除=%d、时间窗筛选排除=%d，分别计数。", shown, len(p.Events)-shown, p.OmittedEvents, projection.TargetExcludedEvents, projection.WindowExcludedEvents)
+	}
+	b.WriteString("资源时间是事件时间，栈帧没有独立执行时长；资源生命周期不等于线程运行/等待，栈关联不证明泄漏或响应根因。\n")
 	return b.String()
 }
 

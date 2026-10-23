@@ -180,8 +180,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 			}
 			participants := NewTraceEventParticipantDisplayRoster(result.Observations)
 			for _, r := range result.Observations {
+				resourceProjection, resourcePoints := RuntimeResourceCurrentDisplayProjection(input, result, r)
 				supplementary := !result.ReusedFromRunMemo && RuntimeResourceQueryIsSupplementary(r, input.RequestModel)
-				if !runtimeSamplingMeasurementMatchesRequest(r, input.RequestModel) || !runtimeResourceMeasurementMatchesRequest(r, input.RequestModel) && !supplementary {
+				if !runtimeSamplingMeasurementMatchesRequest(r, input.RequestModel) || !runtimeResourceMeasurementMatchesRequest(r, input.RequestModel) && !supplementary && !resourcePoints {
 					continue
 				}
 				p, ok := DecodeRuntimeMeasurementPublication(r)
@@ -196,6 +197,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				validTables := true
 				for i, table := range p.Tables {
 					table = table.Clone()
+					if resourcePoints {
+						table = projectRuntimeResourceTable(table, r, resourceProjection)
+					}
 					var valid bool
 					table, valid = scopeRuntimeEventTableForRequest(table, r, requested, input.RequestModel, participants)
 					if !valid {
@@ -208,7 +212,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					}
 					// Native event rows were just qualified and projected point by
 					// point. No continuous denominator is needed for that display.
-					if requested.HasExplicitTimeWindows() && !(table.nativeEventData && table.EventData != nil) && (!known || r.Predicate == "unpositioned_measurements_observation") {
+					if requested.HasExplicitTimeWindows() && !resourcePoints && !(table.nativeEventData && table.EventData != nil) && (!known || r.Predicate == "unpositioned_measurements_observation") {
 						table = runtimeMeasurementUnverifiedWindowTable(table)
 					}
 					if supplementary {

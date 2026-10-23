@@ -241,12 +241,26 @@ func TestHMC249ResourceEmptyAndBroadNamedTargetBoundaries(t *testing.T) {
 		}
 	}
 	bus, result, _ := resourceMeasurementContextHMC249(t, false, 0)
-	// A canonical broad query may display observed facts for a targetless
-	// request, but cannot acquire the authority of this named exact target.
+	// A current typed broad query can now display its exact retained members,
+	// but still cannot acquire the authority of an executed named-target query.
 	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 101, Source: "user_explicit"}}
 	broad := types.BuildAnswerSemanticViewForBusContext(bus)
-	if len(resourceNativeTablesHMC249(broad)) != 0 {
-		t.Fatal("broad query silently gained exact selector authority")
+	projected := resourceNativeTablesHMC249(broad)
+	if len(projected) != 2 {
+		t.Fatal("broad query lost its finite native member display")
+	}
+	for _, table := range projected {
+		want := 3
+		if table.View == types.RuntimeMeasurementMembers {
+			want = 8
+		}
+		if len(table.Rows) != want || table.CoversMemberSet(&bus.AnalysisIR.RequestModel) || table.HasCompleteNativeDisplayPopulation() || table.MemberSet != nil || table.DisplayPopulation != nil {
+			t.Fatalf("broad query changed finite members or gained exact selector authority: %+v", table)
+		}
+		raw, _ := json.Marshal(table.Rows)
+		if strings.Contains(string(raw), "线程ID=202") {
+			t.Fatal("finite display leaked an unmatched owner")
+		}
 	}
 	kept := false
 	for _, r := range result.Observations {

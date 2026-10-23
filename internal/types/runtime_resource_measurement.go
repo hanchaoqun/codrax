@@ -15,6 +15,7 @@ type runtimeResourcePublicationWitness struct {
 	digest                  string
 	endInclusive            bool
 	statisticsBudgetOmitted bool
+	eventDisplay            *runtimeResourceEventDisplayIndex
 }
 
 func PublishRuntimeResourceMeasurement(r ObservationRecord, tables []RuntimeMeasurementTable, endInclusive bool) (ObservationRecord, bool) {

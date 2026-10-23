@@ -1,0 +1,8 @@
+ID="trace_native_resource_window_members"
+NAME="Native resource observations — capture overview and two-thread window comparison"
+QUESTION="先概括这份采集的内存申请和释放情况，再比较线程101和202在[10.000,10.050)秒内的情况，分别列出申请、释放的次数和记录的大小合计，并展开相关调用栈，说明能定位到哪些业务调用位置。只分析采集文件。"
+HTRACE_FILE="eval/fixtures/hmosperf_catalog_objects/captures/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
