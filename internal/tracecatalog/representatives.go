@@ -44,8 +44,10 @@ type representativePlan struct {
 	ID        string
 	Sequence  uint64
 	Options   RepresentativeOptions
+	Scope     string
 	Clusters  []representativeCluster
 	Unmatched []string
+	Excluded  []string
 }
 
 type RepresentativeMemberCoverage struct {
@@ -65,6 +67,7 @@ type RepresentativeCoverage struct {
 	SkippedClusters  int `json:"budget_skipped_clusters"`
 	Unmatched        int `json:"unmatched_candidates"`
 	NotInSelection   int `json:"new_queries_not_in_selection"`
+	Excluded         int `json:"queries_outside_selection_scope"`
 }
 
 type RepresentativeMember struct {
@@ -93,15 +96,17 @@ type RepresentativeCluster struct {
 // no restoration API, execution authority or evidence weight. Outcomes are
 // refreshed from current exact query IDs, while selection membership is fixed.
 type RepresentativeSnapshot struct {
-	CatalogID      string                  `json:"catalog_id"`
-	SelectionID    string                  `json:"selection_id"`
-	NavigationOnly bool                    `json:"navigation_only"`
-	Options        RepresentativeOptions   `json:"options"`
-	Discovery      Discovery               `json:"discovery"`
-	Coverage       RepresentativeCoverage  `json:"coverage"`
-	Clusters       []RepresentativeCluster `json:"clusters"`
-	Unmatched      []Artifact              `json:"unmatched_candidates"`
-	NewQueryIDs    []string                `json:"new_query_ids,omitempty"`
+	CatalogID        string                  `json:"catalog_id"`
+	SelectionID      string                  `json:"selection_id"`
+	NavigationOnly   bool                    `json:"navigation_only"`
+	Options          RepresentativeOptions   `json:"options"`
+	SelectionScope   string                  `json:"selection_scope"`
+	Discovery        Discovery               `json:"discovery"`
+	Coverage         RepresentativeCoverage  `json:"coverage"`
+	Clusters         []RepresentativeCluster `json:"clusters"`
+	Unmatched        []Artifact              `json:"unmatched_candidates"`
+	NewQueryIDs      []string                `json:"new_query_ids,omitempty"`
+	ExcludedQueryIDs []string                `json:"excluded_query_ids,omitempty"`
 }
 
 func normalizeRepresentativeOptions(o RepresentativeOptions) (RepresentativeOptions, error) {
@@ -129,6 +134,22 @@ func normalizeRepresentativeOptions(o RepresentativeOptions) (RepresentativeOpti
 // perform current host authorization/source checks before this navigation
 // action. No query is executed and no input/window permission is added here.
 func (c *Catalog) SelectRepresentatives(ctx context.Context, options RepresentativeOptions) (RepresentativeSnapshot, error) {
+	return c.selectRepresentatives(ctx, options, nil)
+}
+
+// SelectRepresentativesForQueries freezes only the explicitly supplied current
+// query IDs. It is used after a single discover call has registered its complete
+// specifications. Earlier exploratory/planned work remains executable, but is
+// not silently promoted into this comparison's population. No text matching,
+// view inference or input/result authority is introduced here.
+func (c *Catalog) SelectRepresentativesForQueries(ctx context.Context, options RepresentativeOptions, queryIDs []string) (RepresentativeSnapshot, error) {
+	if len(queryIDs) == 0 || len(queryIDs) > MaxQueries {
+		return RepresentativeSnapshot{}, fmt.Errorf("explicit representative scope requires 1..%d current query IDs", MaxQueries)
+	}
+	return c.selectRepresentatives(ctx, options, queryIDs)
+}
+
+func (c *Catalog) selectRepresentatives(ctx context.Context, options RepresentativeOptions, queryIDs []string) (RepresentativeSnapshot, error) {
 	defer c.trackDeliveryBranch()
 	o, err := normalizeRepresentativeOptions(options)
 	if err != nil {
@@ -142,9 +163,26 @@ func (c *Catalog) SelectRepresentatives(ctx context.Context, options Representat
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	scope := "all_current_queries"
+	var selectedScope map[string]bool
+	if queryIDs != nil {
+		scope = "explicit_query_ids"
+		selectedScope = make(map[string]bool, len(queryIDs))
+		for _, id := range queryIDs {
+			if _, ok := c.queries[id]; !ok {
+				return RepresentativeSnapshot{}, fmt.Errorf("representative scope contains a query ID not registered in this current catalog")
+			}
+			selectedScope[id] = true
+		}
+	}
 	groups := map[string]*representativeCluster{}
 	matched := map[string]bool{}
+	p := &representativePlan{Options: o, Scope: scope}
 	for _, q := range c.queries {
+		if selectedScope != nil && !selectedScope[q.ID] {
+			p.Excluded = append(p.Excluded, q.ID)
+			continue
+		}
 		// Plans are canonicalized at registration. Source/path are already
 		// absent from public tool plans; strip only those exact top-level keys
 		// for generic callers, never filters, target kind, scopes or units.
@@ -159,7 +197,7 @@ func (c *Catalog) SelectRepresentatives(ctx context.Context, options Representat
 		groups[id].Members = append(groups[id].Members, q.ID)
 		matched[q.ArtifactID] = true
 	}
-	p := &representativePlan{Options: o}
+	sort.Strings(p.Excluded)
 	for _, group := range groups {
 		sort.Slice(group.Members, func(i, j int) bool {
 			a, b := c.queries[group.Members[i]], c.queries[group.Members[j]]
@@ -215,9 +253,11 @@ func (c *Catalog) SelectRepresentatives(ctx context.Context, options Representat
 	p.ID = digest("selection_", struct {
 		Catalog   string
 		Options   RepresentativeOptions
+		Scope     string
 		Clusters  []representativeCluster
 		Unmatched []string
-	}{c.id, o, p.Clusters, p.Unmatched})
+		Excluded  []string
+	}{c.id, o, p.Scope, p.Clusters, p.Unmatched, p.Excluded})
 	if err := ctx.Err(); err != nil {
 		return RepresentativeSnapshot{}, err
 	}
@@ -261,10 +301,15 @@ func countRepresentativeMember(c *RepresentativeMemberCoverage, m Representative
 
 func (c *Catalog) representativeSnapshotLocked() RepresentativeSnapshot {
 	p := c.representatives
-	s := RepresentativeSnapshot{CatalogID: c.id, SelectionID: p.ID, NavigationOnly: true, Options: p.Options, Discovery: c.discovery, Coverage: RepresentativeCoverage{RepresentativeMemberCoverage: representativeCoverage()}}
+	s := RepresentativeSnapshot{CatalogID: c.id, SelectionID: p.ID, NavigationOnly: true, Options: p.Options, SelectionScope: p.Scope, Discovery: c.discovery, Coverage: RepresentativeCoverage{RepresentativeMemberCoverage: representativeCoverage()}}
 	s.Discovery.Issues = append([]Issue(nil), s.Discovery.Issues...)
 	s.Coverage.Candidates = len(c.artifacts)
 	known := map[string]bool{}
+	s.ExcludedQueryIDs = append([]string(nil), p.Excluded...)
+	s.Coverage.Excluded = len(p.Excluded)
+	for _, id := range p.Excluded {
+		known[id] = true
+	}
 	for _, original := range p.Clusters {
 		g := RepresentativeCluster{ID: original.ID, Specification: cloneQuerySpecification(original.Specification), BudgetSkipped: original.BudgetSkipped, Coverage: representativeCoverage()}
 		chosen := map[string]bool{}
@@ -329,6 +374,7 @@ func cloneRepresentativePlan(p *representativePlan) *representativePlan {
 	}
 	o := *p
 	o.Unmatched = append([]string(nil), p.Unmatched...)
+	o.Excluded = append([]string(nil), p.Excluded...)
 	o.Clusters = make([]representativeCluster, len(p.Clusters))
 	for i, g := range p.Clusters {
 		o.Clusters[i] = g

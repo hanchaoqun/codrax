@@ -285,6 +285,7 @@ func (c *Catalog) ExportDeliveries(ctx context.Context, outputRoot string) ([]Ex
 func cloneExportReceipt(r ExportReceipt) ExportReceipt {
 	r.ExecutionCoverage.PlannedOutcomes = cloneOutcomeCounts(r.ExecutionCoverage.PlannedOutcomes)
 	r.ExecutionCoverage.ObservedOutcomes = cloneOutcomeCounts(r.ExecutionCoverage.ObservedOutcomes)
+	r.ExecutionCoverage.AttemptOutcomes = cloneOutcomeCounts(r.ExecutionCoverage.AttemptOutcomes)
 	return r
 }
 

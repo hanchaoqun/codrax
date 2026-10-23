@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -28,7 +29,7 @@ func (*TraceCatalog) Parameters() json.RawMessage {
 	return traceCatalogPlanSchema(json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
 	"action":{"type":"string","enum":["discover","status","resume","representatives","representative_status","export"],"description":"Default discover; status reads a current catalog; resume re-admits a historical roster. representatives freezes soft-ranked representatives of exact query-specification groups; representative_status pages that fixed selection with current execution states. export archives current native references to a new explicit managed package target without running queries."},
 	"export":{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"type":"string","minLength":1,"maxLength":120,"description":"Explicit new package name, not a path. Published below the host-managed evidence-exports directory; no overwrite or customer source/report mutation."}},"description":"Only action=export with current catalog_id. Package manifest and report separate execution coverage, material copying, and unknown native availability; export is not analysis completion."},
-	"representatives":{"type":"object","additionalProperties":false,"properties":{"per_cluster":{"type":"integer","minimum":1,"maximum":5,"description":"Default 1; resource limit, not statistical coverage."},"max_clusters":{"type":"integer","minimum":1,"maximum":50,"description":"Default 10; resource limit. Other groups remain listed as budget-skipped."},"priority":{"type":"string","enum":["unexecuted_first","retry_first","largest_input_first"],"description":"Default unexecuted_first. Navigation metadata only, not severity; unknown sizes are not zero. Exact query IDs break ties."}},"description":"Only action=representatives. Does not execute or prohibit any member; a new explicit selection replaces the previous run-local selection."},
+	"representatives":{"type":"object","additionalProperties":false,"properties":{"per_cluster":{"type":"integer","minimum":1,"maximum":5,"description":"Default 1; resource limit, not statistical coverage."},"max_clusters":{"type":"integer","minimum":1,"maximum":50,"description":"Default 10; resource limit. Other groups remain listed as budget-skipped."},"priority":{"type":"string","enum":["unexecuted_first","retry_first","largest_input_first"],"description":"Default unexecuted_first. Navigation metadata only, not severity; unknown sizes are not zero. Exact query IDs break ties."}},"description":"Explicit selection request: with discover and nonempty queries, select only the exact plans registered by that call, excluding prior exploratory plans. With action=representatives, select from the entire current catalog. Neither executes nor prohibits any member; a new explicit selection replaces the previous run-local selection."},
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
 	"recursive":{"type":"boolean","description":"Default true. Symbolic links are not followed; skipped and incomplete traversal are disclosed."},
@@ -63,9 +64,23 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	if p.Export != nil || p.Action == "export" {
 		return traceCatalogExport(ctx, p, out)
 	}
-	if p.Representatives != nil && p.Action != "representatives" {
-		out.Summary = "representatives configuration requires action=representatives"
+	discoverSelection := p.Representatives != nil && (p.Action == "" || p.Action == "discover")
+	if p.Representatives != nil && p.Action != "representatives" && !discoverSelection {
+		out.Summary = "representatives configuration requires action=representatives or discover with explicit queries"
 		return out, nil
+	}
+	if discoverSelection && (len(p.Queries) == 0 || p.Offset != 0) {
+		out.Summary = "discover with representatives requires nonempty explicit queries and offset 0; use representative_status to page the resulting selection"
+		return out, nil
+	}
+	if discoverSelection {
+		// This explicit combined action has no legacy default-query contract.
+		// Validate its published plan/option schema before changing the catalog;
+		// never silently replace an omitted view or invalid selection budget.
+		if err := toolparam.Validate(raw, t.Parameters()); err != nil {
+			out.Summary = "discover representative selection requires schema-valid explicit query specifications and budget: " + err.Error()
+			return out, nil
+		}
 	}
 	if p.Offset < 0 || len(p.Queries) > 16 {
 		out.Summary = "invalid catalog page or query count"
@@ -130,13 +145,29 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 			out.Summary = err.Error()
 			return out, nil
 		}
+		var scopeQueryIDs []string
+		scopeSeen := map[string]bool{}
 		for _, a := range c.Snapshot().Artifacts {
 			for i, q := range p.Queries {
 				plan, _ := traceCatalogQueryPlan(parsed[i], q, a.ID)
-				if _, err := c.RegisterDeclaredQuery(contextFromBus(ctx), plan); err != nil {
+				registered, err := c.RegisterDeclaredQuery(contextFromBus(ctx), plan)
+				if err != nil {
 					out.Summary = err.Error()
 					return out, nil
 				}
+				if !scopeSeen[registered.ID] {
+					scopeSeen[registered.ID] = true
+					scopeQueryIDs = append(scopeQueryIDs, registered.ID)
+				}
+			}
+		}
+		if discoverSelection {
+			for _, a := range c.Snapshot().Artifacts {
+				_, _ = c.Resolve(contextFromBus(ctx), a.ID)
+			}
+			if _, err := c.SelectRepresentativesForQueries(contextFromBus(ctx), *p.Representatives, scopeQueryIDs); err != nil {
+				out.Summary = "plans retained, but explicit representative selection failed: " + err.Error()
+				return out, nil
 			}
 		}
 	case "resume":
@@ -194,7 +225,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 		out.Summary = "catalog retained in this run, but persistence failed: " + err.Error()
 		return out, nil
 	}
-	if p.Action == "representatives" || p.Action == "representative_status" {
+	if discoverSelection || p.Action == "representatives" || p.Action == "representative_status" {
 		out.Summary, err = traceCatalogRepresentativePage(ctx, c, ref, p.Offset)
 	} else {
 		out.Summary, err = traceCatalogLivePage(c, ref, p.Offset)
@@ -248,6 +279,12 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int, live ...t
 	if len(live) == 1 {
 		page["current_execution"] = live[0].Coverage
 		page["coverage_boundary"] = tracecatalog.ExecutionCoverageBoundary
+		page["representative_selection_state"] = live[0].SelectionState()
+		if selection := live[0].Selection; selection != nil {
+			page["selection_id"] = selection.SelectionID
+			page["selection_scope"] = selection.SelectionScope
+			page["representative_status_call"] = map[string]any{"action": "representative_status", "catalog_id": s.ID}
+		}
 	}
 	if len(queryCalls) > 0 {
 		page["execution"] = "Pass one returned query_calls object unchanged to trace_query for normal preparation and a real query. Plans, attempts, and artifact-object pairs are different counts; no count here is a runtime measurement."

@@ -16,12 +16,15 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 	}
 	var b strings.Builder
 	b.WriteString("Representative comparison — fixed query-plan selection, soft navigation priority only. Equal specifications do not establish common physical identity, clock, device or cause. Unselected or skipped members remain unassessed; empty, failure and pending are not interchangeable. Read actual query evidence for measurements.\n")
-	header, _ := json.Marshal(map[string]any{"selection_id": s.SelectionID, "options": s.Options, "coverage": s.Coverage})
+	header, _ := json.Marshal(map[string]any{"selection_id": s.SelectionID, "selection_scope": s.SelectionScope, "options": s.Options, "coverage": s.Coverage})
 	if b.Len()+len(header)+1024 > budget {
 		return ""
 	}
 	b.Write(header)
 	b.WriteByte('\n')
+	if len(s.ExcludedQueryIDs) > 0 {
+		fmt.Fprintf(&b, "queries_outside_selection_scope=%d were already registered but excluded by the explicit selection scope; they remain executable and their outcomes are unchanged, not unselected members or newly discovered work.\n", len(s.ExcludedQueryIDs))
+	}
 	groups, members := 0, 0
 	for _, g := range s.Clusters {
 		row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "specification": g.Specification, "coverage": g.Coverage, "budget_skipped": g.BudgetSkipped})

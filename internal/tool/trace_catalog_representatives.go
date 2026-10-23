@@ -10,7 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceCatalogRepresentativesTeaching = `For representative comparison, first register the requested per-capture query specifications with discover.queries (view is required; object/window/filter fields come from the task). Re-discover the same root to add plans without resetting attempts. Then use {"action":"representatives","catalog_id":"<current id>"} with an optional representatives budget, and pass a returned query_calls object unchanged to trace_query. action="representative_status" refreshes states without changing the selected members. Groups mean exact query specifications, not shared physical identities or common causes. Unselected, source-skipped and unmatched candidates are not proven normal; success/empty/failure/pending remain separate.`
+const traceCatalogRepresentativesTeaching = `For representative comparison, use discover with the explicit requested queries and representatives budget together: this registers those exact specifications and freezes selection only within that call's plans, without executing them. View is required; object/window/filter fields come from the task. Earlier exploration remains registered but outside that selection. Alternatively, after planning use {"action":"representatives","catalog_id":"<current id>"} to explicitly select from the entire current catalog. Pass returned query_calls unchanged to trace_query; representative_status refreshes the fixed selected/unselected roster. Discovery without representatives never selects. Groups are exact query specifications, not result similarity, shared physical identities or common causes. Unselected, source-skipped, outside-scope and unmatched work are not proven normal; success/empty/failure/pending remain separate.`
 
 func traceCatalogRepresentativePage(ctx *types.BusContext, c *tracecatalog.Catalog, catalogRef string, offset int) (string, error) {
 	s, ok := c.Representatives()
@@ -47,13 +47,16 @@ func traceCatalogRepresentativePage(ctx *types.BusContext, c *tracecatalog.Catal
 	for _, a := range s.Unmatched {
 		records = append(records, map[string]any{"record_kind": "unmatched_candidate", "artifact": a})
 	}
+	for _, id := range s.ExcludedQueryIDs {
+		records = append(records, map[string]any{"record_kind": "query_outside_selection_scope", "query_id": id})
+	}
 	for _, id := range s.NewQueryIDs {
 		records = append(records, map[string]any{"record_kind": "query_not_in_selection", "query_id": id})
 	}
 	if offset < 0 || offset > len(records) {
 		return "", fmt.Errorf("representative offset exceeds %d navigation records", len(records))
 	}
-	page := map[string]any{"catalog_id": s.CatalogID, "selection_id": s.SelectionID, "navigation_only": true, "options": s.Options, "coverage": s.Coverage, "discovery": s.Discovery, "saved_index": catalogRef, "selection_snapshot": ref, "selection_snapshot_sha256": hex.EncodeToString(digest[:]), "offset": offset, "total_records": len(records), "guidance": "Selection membership is frozen; outcomes and original result references are current navigation status. Same specification across captures does not prove the same thread, device, clock or cause. These counts are query plans, not runtime events or completed artifacts. Do not extrapolate selected results to unselected members; even an empty result is only that actual query's observation. New plans are outside this selection. Use actual payload evidence for values."}
+	page := map[string]any{"catalog_id": s.CatalogID, "selection_id": s.SelectionID, "selection_scope": s.SelectionScope, "navigation_only": true, "options": s.Options, "coverage": s.Coverage, "discovery": s.Discovery, "saved_index": catalogRef, "selection_snapshot": ref, "selection_snapshot_sha256": hex.EncodeToString(digest[:]), "offset": offset, "total_records": len(records), "guidance": "Selection membership is frozen; outcomes and original result references are current navigation status. Same specification across captures does not prove the same thread, device, clock or cause. These counts are query plans, not runtime events or completed artifacts. Do not extrapolate selected results to unselected members; even an empty result is only that actual query's observation. Prior queries excluded by explicit scope and plans registered after selection are listed separately; both remain executable through ordinary catalog status/query calls. Use actual payload evidence for values."}
 	shown := []any{}
 	calls := map[string]any{}
 	encode := func() ([]byte, error) {

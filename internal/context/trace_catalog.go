@@ -33,7 +33,7 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		}
 		countJSON, _ := json.Marshal(counts)
 		coverageJSON, _ := json.Marshal(execution.Coverage)
-		header := fmt.Sprintf("catalog_id=%q root=%q candidates=%d registered_query_records=%d discovery_complete=%t query_status_counts=%s\ncurrent_execution=%s\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON, coverageJSON)
+		header := fmt.Sprintf("catalog_id=%q root=%q candidates=%d registered_query_records=%d discovery_complete=%t query_status_counts=%s\ncurrent_execution=%s\nrepresentative_selection_state=%q\n", s.ID, s.Root, len(s.Artifacts), len(s.Queries), s.Discovery.Complete, countJSON, coverageJSON, execution.SelectionState())
 		if b.Len()+len(header) > (24<<10)-512 {
 			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
 			break
@@ -54,10 +54,11 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		if issueRows > issuesShown {
 			fmt.Fprintf(&b, "input_issue_records_displayed=%d omitted=%d; see full catalog status.\n", issuesShown, issueRows-issuesShown)
 		}
-		if selection, ok := c.Representatives(); ok {
+		if execution.Selection != nil {
+			selection := *execution.Selection
 			remaining := (24 << 10) - b.Len() - 256
 			reserve := 0
-			if len(selection.NewQueryIDs) > 0 {
+			if len(selection.NewQueryIDs)+len(selection.ExcludedQueryIDs) > 0 {
 				reserve = min(8<<10, remaining/3)
 			}
 			if section := formatTraceCatalogRepresentatives(selection, remaining-reserve); section != "" {
@@ -68,6 +69,17 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			if b.Len() > 24<<10 {
 				break
 			}
+			if len(selection.ExcludedQueryIDs) > 0 {
+				ids := map[string]bool{}
+				for _, id := range selection.ExcludedQueryIDs {
+					ids[id] = true
+				}
+				budget := (24 << 10) - b.Len() - 256
+				if len(selection.NewQueryIDs) > 0 {
+					budget /= 2
+				}
+				b.WriteString(formatTraceCatalogQueryNavigation(execution, ids, budget, "queries_outside_selection_scope"))
+			}
 			if len(selection.NewQueryIDs) > 0 {
 				ids := map[string]bool{}
 				for _, id := range selection.NewQueryIDs {
@@ -77,6 +89,7 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			}
 			continue
 		}
+		b.WriteString("No representative selection has occurred in this run. The exact specification groups below describe registered work, not selected representatives; discovery and direct queries do not perform selection.\n")
 		b.WriteString(formatTraceCatalogExecutionGroups(execution, min(8<<10, ((24<<10)-b.Len()-256)/3)))
 		b.WriteString(formatTraceCatalogQueryNavigation(execution, nil, (24<<10)-b.Len()-256, "query_records"))
 		if len(s.Queries) == 0 {

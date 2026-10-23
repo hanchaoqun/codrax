@@ -100,7 +100,7 @@ func plainPackageFile(root, name string) error {
 }
 
 func inspectExportReferences(m tracecatalog.ExportManifest, files map[string]tracecatalog.ExportFile) error {
-	coverage := tracecatalog.ExecutionCoverage{Basis: "observed_queries_only", PlannedOutcomes: map[tracecatalog.Outcome]int{}, ObservedOutcomes: map[tracecatalog.Outcome]int{}}
+	coverage := tracecatalog.ExecutionCoverage{Basis: "observed_queries_only", PlannedOutcomes: map[tracecatalog.Outcome]int{}, ObservedOutcomes: map[tracecatalog.Outcome]int{}, AttemptOutcomes: map[tracecatalog.Outcome]int{}}
 	type key struct{ query, attempt, role string }
 	expectedRefs := map[key]string{}
 	seenQueries, seenAttempts := map[string]bool{}, map[string]bool{}
@@ -123,6 +123,11 @@ func inspectExportReferences(m tracecatalog.ExportManifest, files map[string]tra
 			return errors.New("exported query has missing or unknown current origin")
 		}
 		coverage.Attempts += len(q.Attempts)
+		if len(q.Attempts) == 0 {
+			coverage.QueriesWithoutAttempts++
+		} else {
+			coverage.QueriesWithAttempts++
+		}
 		if len(q.Attempts) == 0 && m.MaterialComplete {
 			return errors.New("unexecuted query labeled material complete")
 		}
@@ -131,6 +136,7 @@ func inspectExportReferences(m tracecatalog.ExportManifest, files map[string]tra
 				return errors.New("empty or duplicate exported attempt identity")
 			}
 			seenAttempts[attempt.ID] = true
+			coverage.AttemptOutcomes[attempt.Outcome]++
 			if m.MaterialComplete && (attempt.Truncated || (attempt.PayloadRef == "" && attempt.RawRef == "")) {
 				return errors.New("missing or truncated attempt labeled material complete")
 			}
