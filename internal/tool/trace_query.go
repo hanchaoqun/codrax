@@ -17073,6 +17073,31 @@ func traceQueryJoinCallCaveats(items ...string) string {
 }
 
 func traceQueryUntypedTargetHintCaveat(ctx *types.BusContext) string {
+	// Follow the same request-source precedence as single-target inheritance.
+	// Multiple typed candidates are not missing analyzer declarations. This
+	// diagnostic must not ask the model to recreate already accepted targets or
+	// imply that an intentionally broad query needs a target to succeed.
+	var request *types.RequestModel
+	if ctx != nil {
+		if ctx.AnalysisIR != nil {
+			for _, target := range ctx.AnalysisIR.RequestModel.RuntimeTargets {
+				if target.Active() {
+					request = &ctx.AnalysisIR.RequestModel
+					break
+				}
+			}
+		}
+		if request == nil && ctx.Mutable != nil {
+			request = ctx.Mutable.RequestModel()
+		}
+	}
+	if request != nil {
+		for _, target := range request.RuntimeTargets {
+			if _, valid := traceQuerySingleRuntimeTargetFromRequestModel(&types.RequestModel{RuntimeTargets: []types.RuntimeTarget{target}}); valid {
+				return "trace_query_target_not_inherited=true; reason=typed target candidates did not resolve to one inheritable selector; no implicit pid/thread filter was applied; unscoped queries remain valid, and an explicit pid/thread is needed only when narrowing to a particular subject is intended"
+			}
+		}
+	}
 	if !traceQueryHasUntypedTargetHints(ctx) {
 		return ""
 	}

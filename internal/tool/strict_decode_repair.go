@@ -10,7 +10,14 @@ import (
 )
 
 func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte) (types.ToolResult, error) {
-	return strictDecodeFailure(name, now, err, hints, raw, nil, "", "", false)
+	failed, decodeErr := strictDecodeFailure(name, now, err, hints, raw, nil, "", "", false)
+	switch name {
+	case "emit_answer_document":
+		failed = withRuntimeEventSelectionDecodeRepair(failed, err, raw, "blocks")
+	case "emit_answer_document_patch":
+		failed = withRuntimeEventSelectionDecodeRepair(failed, err, raw, "replace_blocks", "add_blocks")
+	}
+	return failed, decodeErr
 }
 
 func failStrictDecodeWithError(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte) (types.ToolResult, error) {

@@ -188,6 +188,8 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 
 func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	var hints []emitFixHint
+	diagnostics := runtimeMeasurementPairDiagnostics(doc, view)
+	diagnosticHintIndex := -1
 	for i, block := range doc.Blocks {
 		if hint, conflict := runtimeMeasurementSourceTitleHint(block, view, i); conflict {
 			hints = append(hints, hint)
@@ -196,12 +198,25 @@ func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types
 		if runtimeMeasurementBindingValid(block, view) {
 			continue
 		}
-		hints = append(hints, emitFixHint{
+		hint := emitFixHint{
 			Field:         fmt.Sprintf("blocks[%d].runtime_measurement", i),
 			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table; published native fixed facts and event_selection also support available summary/diagram kinds. Fixed facts require no event_selection. Omit competing text/items/columns/diagram/runtime_work_relation. Optional requested_dimension_indices must select current published member-set indices on a complete native display table. Do not copy rows to repair display ownership. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",
 			Reason:        "This measurement selector is unavailable, stale, or has competing table content; no prose or causal conclusion is checked.",
 			ForceHard:     true, HardSignal: preEmitHardSignalExactReceiptBinding,
-		})
+		}
+		if diagnostic := runtimeMeasurementPairDiagnostic(block, view, fmt.Sprintf("blocks[%d].runtime_measurement", i)); diagnostic != nil {
+			hint.Field = diagnostic.Field
+			hint.ExpectedShape = runtimeMeasurementPairRepairAction(diagnostic)
+			hint.Reason = diagnostic.Problem + "; exact identity is required, including every suffix and the original query scope."
+			if diagnosticHintIndex < 0 {
+				diagnosticHintIndex = len(hints)
+			}
+		}
+		hints = append(hints, hint)
+	}
+	if diagnosticHintIndex >= 0 {
+		// One shared bounded roster, not a fresh candidate expansion per block.
+		hints[diagnosticHintIndex].ExpectedShape += " " + diagnostics.summary()
 	}
 	return hints
 }

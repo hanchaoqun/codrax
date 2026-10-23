@@ -6205,6 +6205,14 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, ag
 	if count == 0 {
 		return "", false
 	}
+	// Native records have their own origin/query references. Optional source
+	// navigation must not turn those into a repository-line citation obligation.
+	// Explicit source-origin aggregate claims keep their existing compatibility
+	// check; this does not alter the broad source-lane retention helpers.
+	if types.NativeRuntimeAnswerSourceCitationFloorNotApplicable(ctx, nil) &&
+		traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx, aggregateFacts) {
+		return fmt.Sprintf("native_runtime_source_citation_not_applicable:observations=%d", count), true
+	}
 	if ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
 		if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLandingWithAggregateFacts(ctx, aggregateFacts); decided {

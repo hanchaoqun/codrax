@@ -3284,7 +3284,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// typed candidates as unlisted additions); the next contract mints
 					// its own typed delta through the evaluator.
 					stageAnswerDocumentPatchGeneration(ctx.Mutable, merged, nil, &stagedByThisCall)
-					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
+					return failEmitWithRepair(t.Name(), now, withRuntimeMeasurementBindingRepair(emitFixHintsRepair(hardHints), merged, view),
 						"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 				}
 			}

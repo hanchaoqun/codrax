@@ -73,8 +73,9 @@ func runtimeEventSelectorSchema(base map[string]any, choices []types.RuntimeMeas
 }
 
 func runtimeEventChoiceArray(choices []string, maximum int) map[string]any {
+	const description = "JSON array of published string identifiers (for example []), never an item/items wrapper object."
 	if len(choices) == 0 {
-		return map[string]any{"type": "array", "maxItems": 0}
+		return map[string]any{"type": "array", "maxItems": 0, "description": description}
 	}
-	return map[string]any{"type": "array", "maxItems": maximum, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": choices}}
+	return map[string]any{"type": "array", "maxItems": maximum, "uniqueItems": true, "description": description, "items": map[string]any{"type": "string", "enum": choices}}
 }

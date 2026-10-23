@@ -317,6 +317,38 @@ func (s RuntimeSourceAnswerAuthoritySnapshot) AllowsProceedWithoutAdditionalCurr
 	return s.CurrentSourceSatisfied || s.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
+// AllowsNativeRuntimeAnswerWithoutSourceCitationFloor separates applicability
+// from evidence availability. Incidental source reads or negative navigation
+// remain useful proof, but cannot create a repository-citation count obligation
+// for a native runtime answer. This does not waive grounding of selected source
+// claims, count runtime references as source lines, or certify answer coverage.
+func (s RuntimeSourceAnswerAuthoritySnapshot) AllowsNativeRuntimeAnswerWithoutSourceCitationFloor(rm *RequestModel, contract *AnswerContract) bool {
+	if !s.Active || !s.ExternalObservationRequested ||
+		s.AddressableDeterministicRuntimeQueryCount == 0 ||
+		s.CurrentSourceRequired || s.CurrentSourceExplanationRequested ||
+		s.CurrentSourceRequirement != RuntimeSourceRequirementNone ||
+		typesContractRequiresCurrentSource(contract) {
+		return false
+	}
+	return rm != nil && !rm.ChangeImpactProfile.Active() &&
+		!rm.DiagnosticProfile.CurrentVersionCheck &&
+		!runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm)
+}
+
+// NativeRuntimeAnswerSourceCitationFloorNotApplicable is the common completion
+// and final-contract adapter. Only accepted deterministic, addressable runtime
+// records in the current bus can activate this narrowly scoped count decision.
+func NativeRuntimeAnswerSourceCitationFloorNotApplicable(ctx *BusContext, contract *AnswerContract) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if contract == nil {
+		contract = &ctx.AnalysisIR.AnswerContract
+	}
+	return BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ObservationLedger{}).
+		AllowsNativeRuntimeAnswerWithoutSourceCitationFloor(RuntimeSourceAuthorityRequestModelFromBusContext(ctx), contract)
+}
+
 // HasRuntimeSourceHandoffSurface reports whether prompt/status/refinement
 // consumers should render the runtime/source authority as a compact mixed-lane
 // handoff surface. This is soft guidance only; hard gates must check

@@ -153,7 +153,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if o != nil {
 		contractBus = o.busCtx
 	}
-	if runtimeArtifactCitationFloorWaived(mut, o) {
+	if runtimeArtifactCitationFloorWaived(mut, o, &c) {
 		c.CitationReq.Required = false
 		c.CitationReq.MinCitations = 0
 		c.AcceptanceTests = dropCitationCountGEContract(c.AcceptanceTests)
@@ -715,7 +715,18 @@ func acceptedDiagramParticipantCoverageReceiptLogFields(
 		receipt.Version, receipt.Required, receipt.Covered, receipt.UnprovenBoundaries), true
 }
 
-func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator) bool {
+func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator, contracts ...*types.AnswerContract) bool {
+	// Applicability is separate from source availability: an incidental read
+	// or negative lookup does not make a native runtime answer owe repo lines.
+	// Keep this out of runtimeArtifactCitationFloorWaivedForBus, which also
+	// controls support-count inflation and other authority-bearing consumers.
+	var checkedContract *types.AnswerContract
+	if len(contracts) > 0 {
+		checkedContract = contracts[0]
+	}
+	if o != nil && types.NativeRuntimeAnswerSourceCitationFloorNotApplicable(o.busCtx, checkedContract) {
+		return true
+	}
 	if mut != nil {
 		// F1-T1 (2026-07-03): typed post-acceptance waiver arm. A
 		// model-declared EvidenceFloorWaiver is retained into the
