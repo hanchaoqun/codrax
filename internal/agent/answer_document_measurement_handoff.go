@@ -298,10 +298,11 @@ func (n runtimeMeasurementSourceNavigation) selector(b *strings.Builder, table t
 		return ""
 	}
 	ref := struct {
-		SourceRef   string `json:"source_ref,omitempty"`
-		QueryWindow string `json:"query_window,omitempty"`
-	}{QueryWindow: basis.QueryWindow}
-	basis.QueryWindow = ""
+		SourceRef      string `json:"source_ref,omitempty"`
+		QueryWindow    string `json:"query_window,omitempty"`
+		QuerySelection string `json:"query_selection,omitempty"`
+	}{QueryWindow: basis.QueryWindow, QuerySelection: basis.QuerySelection}
+	basis.QueryWindow, basis.QuerySelection = "", ""
 	if basis.OriginalSource != "" {
 		raw, _ := json.Marshal(basis)
 		ref.SourceRef = n[string(raw)]

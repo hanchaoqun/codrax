@@ -206,7 +206,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
 						table.coverageScope = nil
 					}
-					if requested.HasExplicitTimeWindows() && (!known || r.Predicate == "unpositioned_measurements_observation") {
+					// Native event rows were just qualified and projected point by
+					// point. No continuous denominator is needed for that display.
+					if requested.HasExplicitTimeWindows() && !(table.nativeEventData && table.EventData != nil) && (!known || r.Predicate == "unpositioned_measurements_observation") {
 						table = runtimeMeasurementUnverifiedWindowTable(table)
 					}
 					if supplementary {

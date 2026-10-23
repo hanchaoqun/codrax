@@ -197,7 +197,7 @@ func TestTraceQueryBusinessTreeCompositePublisherMapsVirtualCoordinates(t *testi
 	n := tracequery.TraceMarkerTreeNode{ID: "second:7:102", SourcePath: "/captures/second.systrace", Thread: tracequery.ThreadRef{Comm: "worker", PID: 7}, Name: "Work", StartLine: 102, EndLine: 103, ActualStartTs: 1, ActualEndTs: &end, ParentStatus: "observed_root", Closure: "closed",
 		Inclusive: &tracequery.TraceMarkerTreeAccount{DurationMs: 10, Segments: []tracequery.TraceMarkerTreeWindow{{StartTs: 1, EndTs: end}}},
 		Self:      &tracequery.TraceMarkerTreeAccount{DurationMs: 10, Segments: []tracequery.TraceMarkerTreeWindow{{StartTs: 1, EndTs: end}}}}
-	r := tracequery.Result{SourcePath: "/captures/both.tracebundle.json", TimeStart: 1, TimeEnd: end, TraceArtifacts: []tracequery.TraceArtifactSource{
+	r := tracequery.Result{View: "window_stats", SourcePath: "/captures/both.tracebundle.json", TimeStart: 1, TimeEnd: end, TraceArtifacts: []tracequery.TraceArtifactSource{
 		{SourcePath: "/captures/first.systrace", LocalLineCount: 3, TimeDomain: "trace_seconds", CanonicalTimeDomain: "trace_seconds", CausalCompatible: true},
 		{SourcePath: n.SourcePath, VirtualLineBase: 100, LocalLineCount: 3, TimeDomain: "trace_seconds", CanonicalTimeDomain: "trace_seconds", CausalCompatible: true},
 	}, WindowStats: &tracequery.WindowStats{Window: tracequery.TimeWindow{StartTs: 1, EndTs: end}, BusinessTree: &tracequery.TraceMarkerTreeStats{Window: tracequery.TraceMarkerTreeWindow{StartTs: 1, EndTs: end}, NodeCount: 1, Nodes: []tracequery.TraceMarkerTreeNode{n}}}}

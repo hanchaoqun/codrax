@@ -15,6 +15,7 @@ type runtimeMeasurementSourcePresentation struct {
 	original, queryPath, generation string
 	role, roleBasis                 string
 	window                          string
+	selection                       string
 	digest                          string
 }
 
@@ -28,6 +29,7 @@ type RuntimeMeasurementSourceTitleBasis struct {
 	Role               string `json:"role,omitempty"`
 	RoleBasis          string `json:"role_basis,omitempty"`
 	QueryWindow        string `json:"query_window,omitempty"`
+	QuerySelection     string `json:"query_selection,omitempty"`
 }
 
 func (t RuntimeMeasurementTable) NativeSourceTitleBasis() (RuntimeMeasurementSourceTitleBasis, bool) {
@@ -37,7 +39,7 @@ func (t RuntimeMeasurementTable) NativeSourceTitleBasis() (RuntimeMeasurementSou
 	p := t.nativeSourcePresentation
 	return RuntimeMeasurementSourceTitleBasis{
 		OriginalSource: p.original, QuerySource: p.queryPath, QuerySourceVersion: p.generation,
-		Role: p.role, RoleBasis: p.roleBasis, QueryWindow: p.window,
+		Role: p.role, RoleBasis: p.roleBasis, QueryWindow: p.window, QuerySelection: p.selection,
 	}, true
 }
 
@@ -115,6 +117,13 @@ func qualifyRuntimeMeasurementSourcePresentations(c *RuntimeMeasurementContract,
 			continue
 		}
 		cp := *p
+		if table.nativeEventData && table.EventData != nil {
+			// Point lookup selectors are not continuous statistical windows.
+			// Use only the producer's executed scan, not the observed envelope
+			// or a request window whose half-open point projection is separate.
+			cp.window = ""
+			cp.selection = runtimeEventQuerySelection(table.EventData.Coverage.ScanScope)
+		}
 		cp.role, cp.roleBasis = "", ""
 		candidates := roles[identity{p.original, p.queryPath, p.generation}]
 		// Accepted-user roles have already passed the original-source contract.
@@ -215,5 +224,40 @@ func (t RuntimeMeasurementTable) NativeSourcePresentation(language string) (stri
 			note += "; actual query window: " + p.window
 		}
 	}
+	if p.selection != "" {
+		if zh {
+			note += "；查询筛选范围：" + p.selection
+		} else {
+			note += "; query selection: " + p.selection
+		}
+	}
 	return name + " · " + label, []string{note}, true
+}
+
+// Display-only disclosure. Applied flags preserve inclusive/one-sided engine
+// semantics, including explicit zero and line precedence. This text is never
+// parsed to admit evidence, derive rates, or expand request/causal authority.
+func runtimeEventQuerySelection(scope *TraceEventSearchScanScope) string {
+	if scope == nil {
+		return "selection unavailable (legacy producer)"
+	}
+	selection := "no time or line filter"
+	switch {
+	case scope.LineStart > 0 && scope.LineEnd > 0:
+		selection = fmt.Sprintf("lines [%d,%d] (inclusive; time arguments not applied)", scope.LineStart, scope.LineEnd)
+	case scope.LineStart > 0:
+		selection = fmt.Sprintf("lines >= %d (time arguments not applied)", scope.LineStart)
+	case scope.LineEnd > 0:
+		selection = fmt.Sprintf("lines <= %d (time arguments not applied)", scope.LineEnd)
+	case scope.TimeStartApplied && scope.TimeEndApplied:
+		selection = fmt.Sprintf("time [%g,%g] s (both endpoints included)", scope.TimeStart, scope.TimeEnd)
+	case scope.TimeStartApplied:
+		selection = fmt.Sprintf("time >= %g s", scope.TimeStart)
+	case scope.TimeEndApplied:
+		selection = fmt.Sprintf("time <= %g s", scope.TimeEnd)
+	}
+	if scope.IndexRestricted {
+		selection += "; restricted to indexed candidates"
+	}
+	return selection
 }

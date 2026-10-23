@@ -1036,14 +1036,20 @@ func traceQueryPublicationScope(result tracequery.Result, payloadRef, rawRef, id
 	return fmt.Sprintf("%s:query=%x:query_lines=%d..%d", scope, queryDigest, q.LineStart, q.LineEnd)
 }
 
-// The effective result owns its analysis ruler; a recursive leaf's span or
-// local selected_window must not impersonate that parent query. The submitted
-// selector remains just a selector, including a name-only/unknown target.
+// The effective measured result owns its analysis ruler; a recursive leaf's
+// span must not impersonate that parent query. Event search is a lookup, not
+// a continuous measurement: its Result endpoints may be the emitted-member
+// envelope or index defaults. Its precise (inclusive/one-sided/line) selector
+// remains in EventSearchCoverage.ScanScope, including lookup tolerance. Even
+// explicit lookup bounds must not acquire a half-open metric denominator.
 func traceQueryStampParentQuerySource(ref *types.ObservationSourceRef, result tracequery.Result, q tracequery.Query) {
 	if ref == nil || ref.QueryScopeID == "" {
 		return
 	}
-	if !math.IsInf(result.TimeStart, 0) && !math.IsInf(result.TimeEnd, 0) &&
+	if tracequery.CanonicalViewName(result.View) == "event_search" {
+		ref.QueryWindowKnown = false
+		ref.QueryWindowStartTs, ref.QueryWindowEndTs = 0, 0
+	} else if !math.IsInf(result.TimeStart, 0) && !math.IsInf(result.TimeEnd, 0) &&
 		types.TraceCausalProjectionWindowPresent(result.TimeStart, result.TimeEnd) {
 		ref.QueryWindowKnown = true
 		ref.QueryWindowStartTs, ref.QueryWindowEndTs = result.TimeStart, result.TimeEnd
@@ -4779,7 +4785,7 @@ func normalizedTraceQueryWindow(p traceQueryParams) traceQueryNormalizedWindow {
 	}
 	if startTol > 0 || endTol > 0 {
 		window.LookupCaveat = fmt.Sprintf(
-			"trace_timestamp_lookup_window requested_window=%.6f..%.6f matching_window=%.6f..%.6f matching_window_policy=lookup_only_boundary_tolerance query_tolerance_seconds=start±%.9f/end±%.9f; causal/statistical selected_window metrics, durations, percentages, and reports always use requested_window",
+			"trace_timestamp_lookup_window requested_window=%.6f..%.6f matching_window=%.6f..%.6f matching_window_policy=lookup_only_boundary_tolerance query_tolerance_seconds=start±%.9f/end±%.9f; event lookup has no statistical denominator. Separate causal/statistical calculations require a verified requested measurement window, never the lookup-tolerance expansion.",
 			window.RequestedStart, window.RequestedEnd, window.LookupStart, window.LookupEnd, startTol, endTol)
 	}
 	return window
@@ -4800,7 +4806,7 @@ func traceQueryAnnotateLookupWindowContract(records []types.ObservationRecord, w
 			requested,
 			matching,
 			"matching_window_policy=lookup_only_boundary_tolerance",
-			"metric_denominator_window=requested_window",
+			"metric_denominator_window=not_applicable_to_event_lookup",
 		)
 		traceQueryPublishEventInventoryDisplay(&records[i])
 	}

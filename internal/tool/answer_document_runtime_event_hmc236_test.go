@@ -46,7 +46,7 @@ func TestRuntimeEventLookupWindowRepublication236(t *testing.T) {
 		t.Fatal("post-query window annotation invalidated native display publication")
 	}
 	joined := strings.Join(publication.Tables[0].Notes, "\n")
-	for _, want := range []string{"requested_window=1.200000..1.200000", "matching_window=1.199995..1.200005", "matching_window_policy=lookup_only_boundary_tolerance", "metric_denominator_window=requested_window"} {
+	for _, want := range []string{"requested_window=1.200000..1.200000", "matching_window=1.199995..1.200005", "matching_window_policy=lookup_only_boundary_tolerance", "metric_denominator_window=not_applicable_to_event_lookup"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("native surfaces lost %s", want)
 		}

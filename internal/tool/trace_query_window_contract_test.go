@@ -112,7 +112,7 @@ func TestTraceQueryEventSearchTolerancePublishesTypedLookupWindowContract(t *tes
 		"requested_window=1.010000..1.010000",
 		"matching_window=1.009995..1.010005",
 		"matching_window_policy=lookup_only_boundary_tolerance",
-		"causal/statistical selected_window metrics, durations, percentages, and reports always use requested_window",
+		"event lookup has no statistical denominator. Separate causal/statistical calculations require a verified requested measurement window, never the lookup-tolerance expansion.",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("lookup summary missing %q:\n%s", want, res.Summary)
@@ -126,7 +126,7 @@ func TestTraceQueryEventSearchTolerancePublishesTypedLookupWindowContract(t *tes
 		"requested_window=1.010000..1.010000",
 		"matching_window=1.009995..1.010005",
 		"matching_window_policy=lookup_only_boundary_tolerance",
-		"metric_denominator_window=requested_window",
+		"metric_denominator_window=not_applicable_to_event_lookup",
 	} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("typed lookup observation missing %q: %+v", want, res.Observations[0])

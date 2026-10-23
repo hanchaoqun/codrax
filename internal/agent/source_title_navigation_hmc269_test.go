@@ -25,8 +25,9 @@ type sourceTitleBasisHMC269 struct {
 }
 
 type sourceTitleRefHMC269 struct {
-	SourceRef   string `json:"source_ref"`
-	QueryWindow string `json:"query_window"`
+	SourceRef      string `json:"source_ref"`
+	QueryWindow    string `json:"query_window"`
+	QuerySelection string `json:"query_selection"`
 }
 
 // Decode only the exact generated display dictionary and selector suffix.
@@ -94,7 +95,7 @@ func assertSourceTitleNavigationHMC269(t *testing.T, prompt string, choices []ty
 			t.Fatalf("current source navigation absent for %s/%s", table.ObservationID, table.View)
 		}
 		basis := bases[ref.SourceRef]
-		if strings.HasPrefix(table.ObservationID, "trace_source_metadata:") && ref.QueryWindow != "" {
+		if strings.HasPrefix(table.ObservationID, "trace_source_metadata:") && (ref.QueryWindow != "" || ref.QuerySelection != "") {
 			t.Fatal("metadata borrowed the measurement query's window")
 		}
 		title := table.Label
@@ -119,8 +120,11 @@ func assertSourceTitleNavigationHMC269(t *testing.T, prompt string, choices []ty
 			if ref.QueryWindow != "" {
 				note += "; actual query window: " + ref.QueryWindow
 			}
+			if ref.QuerySelection != "" {
+				note += "; query selection: " + ref.QuerySelection
+			}
 			notes = []string{note}
-		} else if ref.SourceRef != "" || ref.QueryWindow != "" {
+		} else if ref.SourceRef != "" || ref.QueryWindow != "" || ref.QuerySelection != "" {
 			t.Fatal("multi-source status borrowed a physical source/window")
 		}
 		if title != wantTitle || !reflect.DeepEqual(notes, wantNotes) {

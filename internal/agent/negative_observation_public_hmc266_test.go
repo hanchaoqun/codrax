@@ -249,8 +249,31 @@ func TestHMC266NegativePublicRealZeroQueryKeepsExactScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if views[0].Source.Path != canonicalPath || views[0].Source.QueryWindowStartTs != 6 || views[0].Source.QueryWindowEndTs != 6.1 || !strings.Contains(prompt, "genuinely-absent-event") {
-		t.Fatalf("verified zero escaped its exact source/predicate/window: %+v", views[0])
+	view := views[0]
+	if view.Source.Path != canonicalPath || view.Source.QueryScopeID == "" || view.Source.QueryScopeID != view.Inventory.QueryScopeID {
+		t.Fatalf("verified zero escaped its exact source/query identity: %+v", view)
+	}
+	// Event lookup preserves its executed selector separately from continuous
+	// accounting windows. A true zero must retain the former without gaining
+	// a denominator or recording-coverage claim from the latter.
+	if view.Source.QueryWindowKnown || view.Source.QueryWindowStartTs != 0 || view.Source.QueryWindowEndTs != 0 {
+		t.Fatalf("event lookup acquired a continuous accounting window: %+v", view.Source)
+	}
+	query := view.Inventory.Query
+	if query.View != "event_search" || query.Pattern != "genuinely-absent-event" ||
+		!query.TimeStartSet || !query.TimeEndSet || query.TimeStart != 6 || query.TimeEnd != 6.1 ||
+		query.LineStart != 0 || query.LineEnd != 0 || !strings.Contains(prompt, "genuinely-absent-event") {
+		t.Fatalf("verified zero lost its requested predicate/window: %+v", query)
+	}
+	scan := view.Inventory.Coverage.ScanScope
+	if scan == nil || !scan.TimeStartApplied || !scan.TimeEndApplied || scan.TimeStart != 6 || scan.TimeEnd != 6.1 ||
+		scan.LineStart != 0 || scan.LineEnd != 0 {
+		t.Fatalf("verified zero lost its executed inclusive selector: %+v", scan)
+	}
+	if raw, err := json.Marshal(view); err != nil {
+		t.Fatal(err)
+	} else {
+		t.Logf("actual finalizer zero-result inventory: %s", raw)
 	}
 	if hmc266NegativeSnapshot(t, ctx) != before {
 		t.Fatal("zero display changed originals or causal authority")

@@ -329,6 +329,9 @@ func TestEmitAnalysisSchemaDeclaresDedicatedRuntimeSelectionProfile(t *testing.T
 	}
 	for _, want := range []string{
 		"one stated discriminator value",
+		"Choosing capture files, observations, or representative samples for analysis is evidence navigation",
+		"not condition-dependent implementation selection",
+		"a mixed request still declares true for its implementation-selection part",
 		"initial/full output",
 		"retry/error/patch",
 		"sink=\"\", sink_mode=discover",
