@@ -10163,3 +10163,33 @@ B真实planner完整读现有源码/测试→零变更登记，脚本verify/fini
 后继唯一生产差异为动态metadata写入换三个显式键，13组范围完整收据及真实转换输出共14项逐字节等价，结构门不豁免；其余17个测试文件把新metadata与原测量、原收据分别精确验收。相关/race/稳定复建通过，中间旧行号及Ruby脚本失败另保原。v3冻结7340输入，PID46293于UTC09:30:36.896858–09:45:33.638242正式exit0，97包PASS/12无测试/零FAIL，日志SHA`46c7e4c56a1908c7fbafbfb44cf6c00f94dc4673745c6b240e9f32eabdb15da0`，运行前后输入不变。真实两例未在v3重跑，不把等价回归写成新人工验收。
 
 v2原173件保原，索引`d626125ddcba7246176d1628f6eca17571f2aa6123e3dc816bbec5bd445f4b04`；v3另封52件，索引`dacc0fa498cf447d6ce313e2047b6093bbeebaea7af12d15b87810cc11990350`。代码`fd67e3a5c4f851d509a4b7f3cf7a60041f1e4663`已普通推送，文档分笔；不可变225原件与两提交树/远端/clean凭证见[批汇总](../../eval/parallel_selected_summary_hmc_resource_display_registration_terminal_20261023.md)与[人工审计](../../eval/parallel_selected_summary_hmc_resource_display_registration_terminal_20261023_manual_audit.md)。完整能力0新增/累计25、54开放不因数值或限定负向通过而改变。
+
+## 288. 代表选择与同源成文、落败分支目录交接（2026-10-24）
+
+基线`be27daafec957c8c3ed57c1ea7d329f6b945308e`，79唯一/0重复＝25完整实现交付＋54开放，18类及状态分布不变。双轨验11.2原代表选择矩阵、修共享事实与状态交接；不因重复场景或新增测试虚增完整交付。
+
+### 288.1 事实保真与明确的系统缺口
+
+旧失败的5/14宽查询、4/11请求双主体、3/8线程101及深度限制确已进入实际Finalizer，不能再宣称统计器漏行。新增公开现状保真回归经真实TraceQuery/BuildAgentContext/Finalizer，验证逐查询总体、原始分组、主体/半开窗/多展示面、完整保留帧、空洞/重复深度/未知字典及JSON私有凭证/异源负控；这不是生产修复前RED。真实唤醒关系正控保留，合法计算、Trace因果投影与自动补齐不变。
+
+B自然评测证实新P1：非获胜探索分支的11个完成工具结果得到保留，但同运行目录计划、代表选择和真实尝试未并入父状态，实际Finalizer同catalog显示旧20记录/17尝试和not_selected，磁盘交付视图44/27。普通Catalog.Clone/Merge和完整fork合并原本正确；数据保留路径遗漏私有catalog。两个公开零模型RED分别覆盖真实原生查询后和纯选样：普通merge通过，salvage路径父计划/尝试/选择缺失，不能靠修改提示或回读JSON掩盖。
+
+窄修在fork锁内快照catalog及source generation，父锁内复用既有同代/同live run合并，先于零producer提前返回；纯导航刷新answer-plan revision。精确查询/尝试身份、较新显式selection序列、来源revision冲突置stale、容量上限保原。失败与空结果只保真实导航状态，未选/未执行不变零；producer结果准入、模型完成/聚合/修补/信号均未放宽，reset/foreign/摘要JSON不恢复权限。
+
+参考`core/batch/closure/select.py`稳定有界选择并保成员/跳过；`core/llm_contract.py`实际代表成员/字段/值绑定；`core/query_engine.py`完整参数/总体与预览分离。参考没有Codrax并行私有代次协议，复用本项目既有机制而非照搬词面验证、固定栈深推调用方向。既有核心merge错误返回的诊断可见性不在本次闭环范围，不能宣称所有合并失败都已向用户报告。
+
+### 288.2 恰好两例并行，完整人工0/2
+
+v1冻结7341输入及实际CLI，两例公共屏障各一次；实际UTC07:37:47.93并行启动，A07:42:20结束，B07:42:57结束。A机器PASS、人工FAIL：六次查询与原生表正确，正文仍混101/双线程、4/11与3/8、51ms查询覆盖100ms声明及深度→调用层次；实际解释只投unit[0,1]（2/5），未投箭头不算已投递污染。首次emit受理后一次patch数组形状错误未恢复；后继只读核实它精确命中一次可选advisory，架构与既有专项测试明确失败保已受理稿，专项PASS，不列新恢复缺陷或造RED，原正文FAIL与坏形状保原。
+
+B自然selection/status已触发，不是NOT_TRIGGERED；实际16成员/4规格组/8选/8未选不符原8/2/4/4任务选择矩阵。合法辅助探索本身不判失败，但不该替代代表任务规格。最后已观测status6成功/2未执行，随后两项已有实际查询；当前选择/未选/执行集合未忠实交接终答，不要求额外固定status步骤。原助手以真实同次index/snapshot/SHA一次审计exit1。最终按结果画像冒代表、缺真未选名册，跨源检索进度错配、不同事件帧串套用继续FAIL。8resource_stack/12event_search原生结果、最终MD/HTML17表与实际INIT均审；A的11张HTML表亦审。均无实际图，图N/A，未做像素QA，根因合同未激活。
+
+两份均构造SQLite，不充新二进制格式或实机验收。A命令计算权限记录为0，旧新权限自然覆盖、IO/采样解释FAIL继续留账；只读登记未在本对重复跑，不拿上批限定PASS扩签。
+
+### 288.3 验证、分批发布与下一ROI
+
+v1相关/race/原代表离线包通过，公开保真测试最初错误期待及oracle列名/冻结helper零模型失败原件保留。v1全仓97包PASS/12无测试，7341输入前后不变；261文件先封存，索引`adcb9a81dacbad19734a6bfbf044db179be4ce21a778a4fb7cdd50744b374c4d`，再落共享生产修复。后继仅确定性验证、不加第三例、不回写两份FAIL。最终v2验证、独立权限审阅、代码/文档分笔普通推送及远端/clean凭证见[批汇总](../../eval/parallel_selected_summary_hmc_representative_scope_fidelity_20261024.md)和[人工审计](../../eval/parallel_selected_summary_hmc_representative_scope_fidelity_20261024_manual_audit.md)。
+
+完整能力新增0/累计25；共享生产子能力1组，现状保真回归不充第二个生产交付；两组整答验收债归54。下一ROI先复验选择/未选/当前执行的修后自然交接和原线程窗口矩阵；同批高影响轨收敛同成员解释与重复展示，一次可选修补的预算边界已证为设计，不新增恢复施工，不再无证据重写统计器。旧IO/采样和计算权限覆盖保原；只读登记自然controller/持久化终态轮换；17.6新真实格式/工具/宿主齐备即提级，05.2/05.3校准与14.1协议候补。17.7活跃WAL未满足零副作用，生产NO-GO，无接线。
+
+后继落仓交接定向/race各3包10顶层/9子例，相邻并行调度/成文/原生唤醒2包20顶层/53子例及make通过；一次可选修补既有专项另1顶层PASS。v2冻结7342输入，实际CLI重建；PID10765于UTC07:59:01.752894–08:13:35.602514全仓exit0，97包PASS/12无测试/零FAIL，日志SHA`73ba911fcc8a8eedea73e2fc00a4ebe9c9bd0d61607179cd95e286bf69810445`，输入前后不变。另封23件，索引`0bf55074cf309e1184cd816266c00612eb568145e13f3d141e0a811b934c539a`；原261件及两份人工FAIL保原。代码`cf4ce38f2dbab703c32ab1687f47710e75a6631f`已普通推送，文档分笔；最终两提交树7342输入/远端main/clean与284原件逐SHA核验由批汇总publication凭证记录。完整能力新增0、54开放、无第三模型和WAL NO-GO不变。
