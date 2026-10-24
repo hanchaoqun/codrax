@@ -231,49 +231,61 @@ func audit(ctx context.Context, input auditInput) error {
 		"status": "representatives_smoke_pass_human_pending", "current_index": input.Index,
 		"selection_snapshot": input.Selection, "selection_snapshot_sha256": input.SelectionSHA,
 		"catalog_id": current.ID, "selection_id": selection.SelectionID, "coverage": selection.Coverage,
+		"current_queries": current.Queries, "excluded_query_ids": selection.ExcludedQueryIDs, "new_query_ids": selection.NewQueryIDs,
 		"limits": "Navigation-only structural audit: verify actual model selection before queries, unchanged selection IDs across status, current native payloads, all final answer surfaces and permissions against original logs. No serialized field is authenticated as evidence by this audit.",
 	})
 }
 
 func auditSnapshots(seed preparation, current tracecatalog.Snapshot, selection selectionDocument) error {
-	if current.Root != filepath.Join(seed.Workspace, "captures") || len(current.Artifacts) != 4 || len(current.Queries) != 8 || len(current.History) != 0 || !current.Discovery.Complete || current.Discovery.Canceled || current.Discovery.Truncated {
+	if current.Root != filepath.Join(seed.Workspace, "captures") || len(current.Artifacts) != 4 || len(current.Queries) < 8 || len(current.History) != 0 || !current.Discovery.Complete || current.Discovery.Canceled || current.Discovery.Truncated {
 		return errors.New("current catalog differs from the complete four-capture/eight-plan roster")
 	}
-	if selection.Kind != "query_specification_representatives/v1" || !selection.NavigationOnly || selection.CatalogID != current.ID || selection.SelectionID == "" || selection.Options.PerCluster != 2 || selection.Options.MaxClusters < 2 || len(selection.Clusters) != 2 || len(selection.Unmatched) != 0 || len(selection.NewQueryIDs) != 0 || !reflect.DeepEqual(selection.Discovery, current.Discovery) {
+	if selection.Kind != "query_specification_representatives/v1" || !selection.NavigationOnly || selection.CatalogID != current.ID || selection.SelectionID == "" || selection.Options.PerCluster != 2 || selection.Options.MaxClusters < 2 || len(selection.Clusters) != 2 || len(selection.Unmatched) != 0 || !reflect.DeepEqual(selection.Discovery, current.Discovery) {
 		return errors.New("selection does not match this current complete two-group roster")
+	}
+	if selection.SelectionScope != "explicit_query_ids" && selection.SelectionScope != "all_current_queries" || selection.SelectionScope == "all_current_queries" && len(selection.ExcludedQueryIDs) != 0 {
+		return errors.New("selection has an unknown or contradictory scope")
 	}
 	artifacts := map[string]tracecatalog.Artifact{}
 	queries := map[string]tracecatalog.QueryRecord{}
 	expectations := map[string]expectedQuery{}
 	seenPaths, seenPairs := map[string]bool{}, map[string]bool{}
+	attemptIDs, attemptSequences := map[string]bool{}, map[uint64]bool{}
 	for _, want := range seed.Expected {
 		expectations[filepath.Join(seed.Workspace, want.Path)+"#"+strconv.Itoa(want.TID)] = want
 	}
 	for _, artifact := range current.Artifacts {
 		rel, err := filepath.Rel(seed.Workspace, artifact.Path)
-		if err != nil || seed.SourceSHA[rel] == "" || seenPaths[artifact.Path] || artifact.RevisionID == "" {
+		if err != nil || seed.SourceSHA[rel] == "" || seenPaths[artifact.Path] || artifact.ID == "" || artifacts[artifact.ID].ID != "" || artifact.RevisionID == "" {
 			return errors.New("foreign, duplicate or unversioned artifact")
 		}
 		seenPaths[artifact.Path], artifacts[artifact.ID] = true, artifact
 	}
 	for _, query := range current.Queries {
 		a, found := artifacts[query.ArtifactID]
-		key := a.Path + "#" + query.Object.ID
-		want, expected := expectations[key]
-		if !found || !expected || seenPairs[key] || query.ArtifactRevision != a.RevisionID || !validSpec(query.Object, query.View, query.Window, query.Parameters, want.TID) {
-			return errors.New("current member source/selector/window is mismatched or duplicated")
+		if !found || query.ID == "" || queries[query.ID].ID != "" || query.ArtifactRevision != a.RevisionID || !json.Valid(query.Parameters) {
+			return errors.New("current query source/identity is mismatched or duplicated")
 		}
-		seenPairs[key], queries[query.ID] = true, query
+		if err := auditAttemptHistory(query, attemptIDs, attemptSequences); err != nil {
+			return err
+		}
+		for _, attempt := range query.Attempts {
+			if (attempt.Outcome == tracecatalog.OutcomeSuccess || attempt.Outcome == tracecatalog.OutcomeEmpty) && attempt.SourceRevision != a.SourceRevision {
+				return errors.New("successful query attempt belongs to a different source revision")
+			}
+		}
+		queries[query.ID] = query
 	}
-	seenMembers, seenGroups := map[string]bool{}, map[string]bool{}
+	seenMembers, seenGroups, seenGroupIDs := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	counts := tracecatalog.RepresentativeCoverage{Candidates: 4, Clusters: 2, SelectedClusters: 2,
 		RepresentativeMemberCoverage: tracecatalog.RepresentativeMemberCoverage{Outcomes: map[tracecatalog.Outcome]int{}, SelectedOutcomes: map[tracecatalog.Outcome]int{}}}
 	for _, group := range selection.Clusters {
 		tid, err := strconv.Atoi(group.Specification.Object.ID)
-		if err != nil || seenGroups[group.Specification.Object.ID] || group.ID == "" || group.BudgetSkipped || len(group.Members) != 4 || !validSpec(group.Specification.Object, group.Specification.View, group.Specification.Window, group.Specification.Parameters, tid) {
+		if err != nil || seenGroups[group.Specification.Object.ID] || group.ID == "" || seenGroupIDs[group.ID] || group.BudgetSkipped || len(group.Members) != 4 || !validSpec(group.Specification.Object, group.Specification.View, group.Specification.Window, group.Specification.Parameters, tid) {
 			return errors.New("cluster specification or full membership differs")
 		}
 		seenGroups[group.Specification.Object.ID] = true
+		seenGroupIDs[group.ID] = true
 		groupCounts := tracecatalog.RepresentativeMemberCoverage{Outcomes: map[tracecatalog.Outcome]int{}, SelectedOutcomes: map[tracecatalog.Outcome]int{}}
 		for _, member := range group.Members {
 			q, exists := queries[member.QueryID]
@@ -281,22 +293,44 @@ func auditSnapshots(seed preparation, current tracecatalog.Snapshot, selection s
 			if !exists || seenMembers[member.QueryID] || q.Object != group.Specification.Object || q.View != group.Specification.View || !reflect.DeepEqual(q.Window, group.Specification.Window) || !jsonEqual(q.Parameters, group.Specification.Parameters) || member.ArtifactID != q.ArtifactID || member.ArtifactRevision != q.ArtifactRevision || member.Path != a.Path || member.SourceRevision != a.SourceRevision || member.SourceStatus != a.Status || member.Outcome != q.Outcome || member.Attempts != len(q.Attempts) {
 				return errors.New("selection member is not the exact current source/query/state")
 			}
+			key := a.Path + "#" + q.Object.ID
+			want, expected := expectations[key]
+			if !expected || seenPairs[key] || !validSpec(q.Object, q.View, q.Window, q.Parameters, want.TID) {
+				return errors.New("core task member source/selector/window is mismatched or duplicated")
+			}
+			seenPairs[key] = true
 			seenMembers[member.QueryID] = true
-			want := expectations[a.Path+"#"+q.Object.ID]
+			// Selection membership and execution are independent. An unselected
+			// member may be queried normally; it never becomes a representative.
+			if len(q.Attempts) == 0 {
+				if member.LatestAttempt != nil {
+					return errors.New("unexecuted member carries a fabricated latest attempt")
+				}
+			} else if member.LatestAttempt == nil || !sameAttempt(*member.LatestAttempt, q.Attempts[len(q.Attempts)-1]) {
+				return errors.New("member latest attempt differs from its complete current history")
+			}
+			outcome := tracecatalog.OutcomeSuccess
+			if want.Events == 0 {
+				outcome = tracecatalog.OutcomeEmpty
+			}
+			for _, attempt := range q.Attempts {
+				if attempt.Outcome == tracecatalog.OutcomeSuccess || attempt.Outcome == tracecatalog.OutcomeEmpty {
+					if attempt.Outcome != outcome || attempt.SourceRevision == "" || attempt.SourceRevision != a.SourceRevision || attempt.PayloadRef == "" || !jsonEqual(q.Parameters, attempt.ExecutedParameters) {
+						return errors.New("core effective query/source/payload does not match its exact plan")
+					}
+				} else if len(attempt.ExecutedParameters) > 0 && !jsonEqual(q.Parameters, attempt.ExecutedParameters) {
+					return errors.New("core failed attempt changed the planned parameters")
+				}
+			}
 			if member.Selected {
-				outcome := tracecatalog.OutcomeSuccess
-				if want.Events == 0 {
-					outcome = tracecatalog.OutcomeEmpty
+				if len(q.Attempts) == 0 || q.Outcome != outcome || member.SelectionReason != "soft_priority" {
+					return errors.New("selected representative lacks a successful/empty latest current query")
 				}
-				if len(q.Attempts) != 1 || q.Outcome != outcome || member.SelectionReason != "soft_priority" {
-					return errors.New("selected representative does not have exactly one successful/empty current query")
+				if q.Attempts[len(q.Attempts)-1].Truncated {
+					return errors.New("selected representative latest query is incomplete")
 				}
-				last := q.Attempts[0]
-				if member.LatestAttempt == nil || !sameAttempt(*member.LatestAttempt, last) || last.Outcome != outcome || last.SourceRevision == "" || last.SourceRevision != a.SourceRevision || last.PayloadRef == "" || last.Truncated || !jsonEqual(q.Parameters, last.ExecutedParameters) {
-					return errors.New("selected effective query/source/payload does not match its full plan")
-				}
-			} else if q.Outcome != tracecatalog.OutcomeNotExecuted || len(q.Attempts) != 0 || member.LatestAttempt != nil || member.SelectionReason != "per_cluster_budget" {
-				return errors.New("unselected member was queried, hidden or incorrectly signed complete")
+			} else if member.SelectionReason != "per_cluster_budget" {
+				return errors.New("unselected member lost its selection status")
 			}
 			for _, count := range []*tracecatalog.RepresentativeMemberCoverage{&counts.RepresentativeMemberCoverage, &groupCounts} {
 				count.Members++
@@ -313,8 +347,58 @@ func auditSnapshots(seed preparation, current tracecatalog.Snapshot, selection s
 			return errors.New("cluster coverage does not equal its exact member states")
 		}
 	}
-	if len(seenMembers) != 8 || counts.Selected != 4 || counts.BudgetNotSelected != 4 || !reflect.DeepEqual(counts, selection.Coverage) {
+	// Reconcile every catalog query, rather than silently filtering extras to
+	// make the core matrix pass. The two navigation sets must be disjoint from
+	// the complete task selection and from each other, and contain real IDs.
+	allIDs := map[string]bool{}
+	for id := range seenMembers {
+		allIDs[id] = true
+	}
+	for _, ids := range [][]string{selection.ExcludedQueryIDs, selection.NewQueryIDs} {
+		for _, id := range ids {
+			if queries[id].ID == "" || allIDs[id] {
+				return errors.New("outside/new query roster is unknown, duplicated or overlaps task members")
+			}
+			allIDs[id] = true
+		}
+	}
+	counts.Excluded, counts.NotInSelection = len(selection.ExcludedQueryIDs), len(selection.NewQueryIDs)
+	if len(allIDs) != len(queries) {
+		return errors.New("outside/new query roster omitted current work")
+	}
+	if len(seenMembers) != 8 || len(seenPairs) != 8 || counts.Selected != 4 || counts.BudgetNotSelected != 4 || !reflect.DeepEqual(counts, selection.Coverage) {
 		return errors.New("selection totals do not preserve all eight members, four selected and four unselected")
+	}
+	return nil
+}
+
+// Navigation JSON cannot authenticate execution; Load already checks canonical
+// IDs. This independent pass also checks the whole visible attempt history and
+// current state, including extra queries, without treating failed work as zero.
+func auditAttemptHistory(q tracecatalog.QueryRecord, ids map[string]bool, sequences map[uint64]bool) error {
+	lastOutcome := tracecatalog.OutcomeNotExecuted
+	var previous uint64
+	for _, attempt := range q.Attempts {
+		if attempt.ID == "" || ids[attempt.ID] || attempt.Sequence == 0 || sequences[attempt.Sequence] || attempt.Sequence <= previous {
+			return errors.New("attempt identity/order is missing or duplicated")
+		}
+		ids[attempt.ID], sequences[attempt.Sequence], previous = true, true, attempt.Sequence
+		switch attempt.Outcome {
+		case tracecatalog.OutcomeSuccess, tracecatalog.OutcomeEmpty:
+			if attempt.SourceRevision == "" || !json.Valid(attempt.ExecutedParameters) || attempt.Error != nil {
+				return errors.New("successful attempt lacks source/parameters or carries a failure")
+			}
+		case tracecatalog.OutcomeFailure, tracecatalog.OutcomeCanceled, tracecatalog.OutcomeStale:
+			if attempt.Error == nil || attempt.Error.Code == "" || len(attempt.ExecutedParameters) > 0 && !json.Valid(attempt.ExecutedParameters) {
+				return errors.New("failed attempt lacks a recorded failure or has invalid parameters")
+			}
+		default:
+			return errors.New("unknown attempt outcome")
+		}
+		lastOutcome = attempt.Outcome
+	}
+	if q.Outcome != lastOutcome {
+		return errors.New("current query outcome differs from the latest actual attempt")
 	}
 	return nil
 }
@@ -353,7 +437,7 @@ func jsonEqual(a, b json.RawMessage) bool {
 }
 
 func sameAttempt(a, b tracecatalog.Attempt) bool {
-	if !jsonEqual(a.ExecutedParameters, b.ExecutedParameters) {
+	if (len(a.ExecutedParameters) != 0 || len(b.ExecutedParameters) != 0) && !jsonEqual(a.ExecutedParameters, b.ExecutedParameters) {
 		return false
 	}
 	// Indentation of an embedded RawMessage differs in the independently saved

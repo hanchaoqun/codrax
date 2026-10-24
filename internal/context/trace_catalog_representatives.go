@@ -15,7 +15,7 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Representative comparison — fixed query-plan selection, soft navigation priority only. Equal specifications do not establish common physical identity, clock, device or cause. Unselected or skipped members remain unassessed; empty, failure and pending are not interchangeable. Read actual query evidence for measurements.\n")
+	b.WriteString("Representative comparison — fixed query-plan selection, soft navigation priority only. Equal specifications do not establish common physical identity, clock, device or cause. Unselected or skipped describe selection, not whether a query ran; use each member's recorded outcome and attempt count. Do not extrapolate selected results to them; empty, failure and pending are not interchangeable. Read actual query evidence for measurements.\n")
 	header, _ := json.Marshal(map[string]any{"selection_id": s.SelectionID, "selection_scope": s.SelectionScope, "options": s.Options, "coverage": s.Coverage})
 	if b.Len()+len(header)+1024 > budget {
 		return ""

@@ -59,7 +59,7 @@ Preserve it separately. The helper's public-tool tests are not a substitute.
 | captures/session-c/capture.data | root original, second copy | 3 / 8 | 1 / 3 |
 | captures/session-d/capture.data | nested original, second copy | 1 / 3 | 0 / 0 |
 
-The expected initial population is eight exact query plans: four captures ×
+The required task population is eight exact query plans: four captures ×
 two thread selectors, with the same explicit window. Two same-specification
 groups each select two representatives: four selected, four not selected.
 Selection is a soft navigation priority, not a severity or statistical claim.
@@ -70,16 +70,19 @@ nothing about unselected inputs.
 
 Every selected representative must be queried through the normal preparation
 and native query path. A selected empty result is executed empty, not pending
-or proof the capture is healthy. Unselected members remain explicitly pending;
-neither directory coverage nor a chosen member proves their runtime behavior.
+or proof the capture is healthy. Members outside the selected four remain
+explicitly unselected, even when ordinary exploration actually queries them.
+Their execution state must come from their own recorded attempts: not executed,
+success, empty or failure are different states. Neither directory coverage nor
+a chosen member proves another member's runtime behavior.
 Root-original event at10.050 is outside this request. Duplicate frame depths,
 missing symbols and depth gaps remain source facts, not a fabricated complete
 call path. Resource events alone do not prove CPU time, leaks or stall causes.
 
 The real acceptance must separately inspect:
 
-1. Model-origin discovery/planning/selection before the four actual native
-   queries, complete page traversal if needed, and unchanged selected IDs
+1. Model-origin discovery/planning/selection before execution of the selected
+   task queries, complete page traversal if needed, and unchanged selected IDs
    across status refreshes. Tool availability or operator tests do not prove
    natural adoption.
 2. Original source identity/hash, actual query parameters and full payloads;
@@ -106,15 +109,22 @@ SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
 ```
 
 This checks unchanged source bytes and Git HEAD; all eight source/object/window
-plans; the paired two-group selection; exactly four selected successful/empty
-attempts with matching actual parameters and source revisions; four unexecuted
-members; and exact coverage totals. It writes
+plans; the paired two-group selection; four selected members whose latest actual
+attempts are successful/empty and complete, with matching parameters and source
+revisions; four unselected members with their true current execution states;
+and exact coverage totals. Genuine failure-then-success retries are retained;
+success-then-failure does not borrow the earlier success to pass. It writes
 `representatives_smoke_pass_human_pending` in `current-index-audit.json` only
 on success, exclusively. It does not authenticate serialized payload references
 or verify model prose. A serialized success never substitutes for raw execution
-and all-surface human audit. Extra queries or unresolved members are reported
-as not meeting this fixed evaluation's expected scope, not globally forbidden
-product actions.
+and all-surface human audit. Legitimate auxiliary queries are independently
+retained: queries excluded at selection and queries added afterward must be
+known, mutually disjoint, outside the core selection, and together account for
+every extra current record. Their complete attempt histories are preserved in
+the audit receipt. Extra exploration does not enlarge or replace the required
+8-member / 2-group / 4-selected / 4-unselected task matrix. A selection polluted
+to 16 members / 4 groups / 8 selected / 8 unselected still fails. These helper
+rules do not retroactively pass earlier failed natural evaluations.
 
 Development uses deterministic zero-model tests only:
 

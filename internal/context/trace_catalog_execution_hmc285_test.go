@@ -167,6 +167,57 @@ func TestHMC285PublicSelectionExecutionHandoff(t *testing.T) {
 	if current.SelectionID != selection.SelectionID || current.Coverage.SelectedOutcomes[tracecatalog.OutcomeSuccess] != 1 || current.Coverage.SelectedOutcomes[tracecatalog.OutcomeEmpty] != 1 || current.Coverage.Outcomes[tracecatalog.OutcomeEmpty] != 2 {
 		t.Fatalf("status/query reranked selection or promoted unselected outcome: %+v", current)
 	}
+	// Selection and execution are independent in the shared stage context too.
+	// Match each unselected row to its actual typed member, not a nearby count.
+	beforeDisplay, _ := json.Marshal(c.CurrentExecution())
+	for _, stage := range stages {
+		content := hmc259CatalogContext(t, bus, stage)
+		if strings.Contains(content, "Unselected or skipped members remain unassessed") ||
+			!strings.Contains(content, "Unselected or skipped describe selection, not whether a query ran") {
+			t.Fatalf("%s: teaching contradicts actual unselected execution", stage)
+		}
+		shown := map[string]bool{}
+		for _, line := range strings.Split(content, "\n") {
+			var row struct {
+				Member *struct {
+					QueryID         string               `json:"query_id"`
+					Path            string               `json:"path"`
+					SourceStatus    string               `json:"source_status"`
+					SelectionReason string               `json:"selection_reason"`
+					Outcome         tracecatalog.Outcome `json:"outcome"`
+					Attempts        int                  `json:"attempt_count"`
+				} `json:"unselected_member"`
+			}
+			if json.Unmarshal([]byte(line), &row) != nil || row.Member == nil {
+				continue
+			}
+			m := row.Member
+			for _, group := range current.Clusters {
+				for _, want := range group.Members {
+					if want.QueryID != m.QueryID {
+						continue
+					}
+					if want.Selected || shown[m.QueryID] || m.Path != want.Path || m.SourceStatus != want.SourceStatus || m.SelectionReason != want.SelectionReason || m.Outcome != want.Outcome || m.Attempts != want.Attempts {
+						t.Fatalf("%s: unselected row changed actual identity/state: %+v / %+v", stage, m, want)
+					}
+					shown[m.QueryID] = true
+					if m.QueryID == unselectedEmptyID && (m.Outcome != tracecatalog.OutcomeEmpty || m.Attempts != 1 || want.LatestAttempt == nil || want.LatestAttempt.PayloadRef == "" || want.LatestAttempt.SourceRevision == "") {
+						t.Fatal("real unselected empty query lost its source-bound attempt")
+					}
+				}
+			}
+			if !shown[m.QueryID] {
+				t.Fatalf("%s: foreign unselected member displayed: %s", stage, m.QueryID)
+			}
+		}
+		if len(shown) != 2 || !shown[unselectedEmptyID] {
+			t.Fatalf("%s: unselected executed and pending members were not both retained: %v", stage, shown)
+		}
+	}
+	afterDisplay, _ := json.Marshal(c.CurrentExecution())
+	if string(beforeDisplay) != string(afterDisplay) {
+		t.Fatal("stage display changed actual selection or execution")
+	}
 	// A later discover adds independently executable work without retroactively
 	// expanding the fixed selection or reclassifying earlier exclusions.
 	hmc285CatalogCall(t, bus, map[string]any{"action": "discover", "queries": []map[string]any{{"view": "resource_stack", "pid": 202, "time_start": 10, "time_end": 10.05}}})

@@ -20,7 +20,7 @@ func TestHMC249CatalogTeachingPlansBeforeSelectionWithoutMandatingRoute(t *testi
 		if plan < 0 || selection <= plan {
 			t.Fatal("representative teaching skipped required query-specification planning")
 		}
-		for _, want := range []string{"queries.items", "requested view", "task-supported object/window/filter", "without resetting attempts", "discovery never runs them", "Ordinary trace_query remains available", "representative_status", "Historical success does not replace a fresh query"} {
+		for _, want := range []string{"queries.items", "requested view", "task-supported object/window/filter", "does not reset attempts", "discovery never runs them", "Ordinary trace_query remains available", "representative_status", "Historical success does not replace a fresh query"} {
 			if !strings.Contains(paragraph, want) {
 				t.Errorf("missing plan/navigation boundary: %q", want)
 			}

@@ -6210,7 +6210,7 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, ag
 	// Explicit source-origin aggregate claims keep their existing compatibility
 	// check; this does not alter the broad source-lane retention helpers.
 	if types.NativeRuntimeAnswerSourceCitationFloorNotApplicable(ctx, nil) &&
-		traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx, aggregateFacts) {
+		traceQueryRuntimeObservationAggregateFactsHaveCompatibleExplicitOrigins(aggregateFacts) {
 		return fmt.Sprintf("native_runtime_source_citation_not_applicable:observations=%d", count), true
 	}
 	if ctx.AnalysisIR != nil {
@@ -6237,6 +6237,22 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext, ag
 		return "", false
 	}
 	return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
+}
+
+// Only the precise native-only citation-applicability branch uses this test.
+// A legacy or unclassified aggregate remains untrusted; it cannot create a
+// source-line count obligation through incidental source proof. Explicit
+// non-runtime origins still require their own existing grounding path.
+func traceQueryRuntimeObservationAggregateFactsHaveCompatibleExplicitOrigins(aggregateFacts []types.AnswerAggregateFact) bool {
+	for _, fact := range aggregateFacts {
+		for _, origin := range aggregateFactExplicitCompletionOrigins(fact) {
+			if origin == types.AnswerEvidenceOriginCurrentSource ||
+				(origin != types.AnswerEvidenceOriginRuntimeArtifact && types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func traceQueryRuntimeObservationBypassCompatibleWithAggregateFacts(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
