@@ -10,6 +10,8 @@ import "reflect"
 // The dispatch buffer is essential: a canceled ParseOutput can return before
 // writing TurnAArtifacts. The snapshot delta also covers a completed sibling.
 // Call only after the worker has stopped; the orchestrator serializes merges.
+// Committed same-run catalog navigation also survives, including actual failed
+// or empty attempts; it does not turn those records into successful evidence.
 func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []ToolResult {
 	if m == nil || fork == nil || m == fork {
 		return nil
@@ -21,10 +23,16 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 		candidates = append(candidates, cloneTraceBusinessSpanToolResults(results[clampMergeSliceBase(fork.exploreForkTurnABaseToolLen, len(results)):])...)
 	}
 	candidates = append(candidates, cloneTraceBusinessSpanToolResults(fork.dispatchToolResults)...)
+	traceCatalogs := cloneTraceCatalogs(fork.traceCatalogs)
+	traceSourceGeneration := fork.traceSourceReadGeneration
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A successful selection need not produce a measurement. Preserve its
+	// private generation/run identity, never reconstruct it from summary JSON.
+	hasCurrentCatalogs := traceSourceGeneration != nil && traceSourceGeneration == m.traceSourceReadGeneration && len(traceCatalogs) > 0
+	m.mergeTraceCatalogsLocked(traceSourceGeneration, traceCatalogs)
 	snapshot := cloneTurnAArtifactsPtr(m.turnAArtifacts)
 	if snapshot == nil {
 		snapshot = &TurnAArtifacts{}
@@ -48,6 +56,9 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 		m.registerTraceBusinessSpanRefsLocked(result)
 	}
 	if len(added) == 0 {
+		if hasCurrentCatalogs {
+			m.bumpAnswerSurfaceRevisionLocked()
+		}
 		return nil
 	}
 	var truncation *ToolResultTruncationSummary
