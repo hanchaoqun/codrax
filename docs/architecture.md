@@ -1548,6 +1548,8 @@ HMC254的受管交付专用上下文区仅投递受信接受目标和实际失�
 
 HMC §291增加可选`runtime_artifact_work_profile`：当前请求声明`representative`及正整数`per_specification_limit`，或`exhaustive`且预算省略/零；引文仅核当前逐字出处，多语言数字由模型分类，不要求引文含十进制数字。未给代表预算时不推定此profile；它不借用答案基数、代码实现选择或因果义务。类型、schema、单源教学、局部重试/严格解码、Set/Get/Fork复制同步，未新增答案义务或修补owner。超工具容量的原预算保留，不静默截断。
 
+HMC §292将目录页面、代表快照和完整保存索引统一到同一次detached publication union。新`saved_index`为内容寻址不可变原件，`saved_index_sha256`绑定完整字节，代表快照包含同一索引路径/哈希；`latest_index_alias`仅保兼容恢复导航，可随之后真实尝试更新，不是该代身份。同字节重存只读复用，冲突/取消不返回成功交付；多文件发布不宣称文件系统事务。合并发布不回灌执行fork，不从JSON恢复查询/来源/选择权限，后续真实重试和未选执行继续新增各自attempt且不改写旧交付。跨分支新见查询的导航调用仍须走普通源授权、准备和真实执行，不给当前fork不存在的快捷ref。
+
 显式`trace_catalog(discover,request_plan:{view:...})`在当前目录授权后，消费已接受工作声明、用户明确线程/进程及唯一共同窗，生成完整普通查询规格，再复用既有登记和同次规格选择。view必须显式，进程适用域共用普通查询谓词；缺字段、比较侧/多窗绑定歧义、已检测的不支持process/view组合或容量不足返回导航pending，不安装部分计划。最多16规格、代表每组最多5沿用现有工具容量，当前不自动分批超限任务。plain discover、显式queries及普通额外探索/失败重试/未选执行均不变。上下文在目录产生前呈现任务导航，但完成与名册仅由当前真实执行账提供；计划生成不执行查询，不改原生总体、端点、Trace因果投影或自动补齐，也不从历史JSON恢复权限。
 
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
@@ -1889,6 +1891,7 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 
 控制器调度的几项结构性机制：
 
+- **恢复预算与原子准入（HMC §292）**：只有通过宿主身份/显式恢复门的历史run，缺省批数上限才沿正常seed同一默认值补齐；已有正限（含1）保留。模型`workflow.max_batches`仅规划建议，不写持久执行上限。展示与准入共用`max(唯一非空批ID名册数, 历史已用下限)`，历史计数较高时单独披露，名册裁剪不退款。新批ID在reducer变更前检查，已有ID的合法重试/重规划不另占槽；typed拒绝不安装candidate、不切active或清旧handoff，不留下未执行verifying批。普通决策与累计审查补证共用准入；调度器只在原run记录诚实blocked，不削弱来源、只读登记或完成证明门。独立无预算reducer调用仍保原无上限兼容，不从模型提案生成限额。
 - **Action enum 按 mode 投影**：`EmitWriteWorkflowDecision.ParametersFor(ctx)` 经 `WorkflowActionsForMode` 投影 schema——ModePlan 下 `apply_plan` / `verify_batch` 在模型看到 schema 之前就被移除；emit 时 typed 拒绝（`workflow_action_not_in_mode` repair）与调度器 guard 是第二、三层,三层读同一动作集来源。
 - **Canonical attempt state**：controller prompt 的 batch 行经 `DeriveBatchAttemptState` 渲染单一 phase——`ready_to_plan` + 最近 post-apply verify attempt failed 推导为 `needs_replan` + typed cause,状态与事件（`last_event`）不再同时呈现两种解读。
 - **Active plan lineage invariant**：`ValidateWorkflowRunState` 把 `batch.PlanID` 解释为当前 active/latest plan。最新 active plan attempt 之前的 apply/verify attempts 是历史审计事件,可以引用旧 plan id；最新 active plan attempt 之后的 plan/apply/verify attempts 仍必须匹配当前 plan id。这样 replan 历史不会污染当前状态,但错谱系的当前执行仍会报警。

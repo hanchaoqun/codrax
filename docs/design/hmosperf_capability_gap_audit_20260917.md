@@ -10291,3 +10291,33 @@ B是自然父controller入口，不是完整CLI/自然源码创作；operator公
 先封276件v1原件，索引SHA`324d3ef0a5fd6f3d31ce1dde849c7341494e2c231d771ebb81b7733b67720046`；后继仅测试精确登记该owner、锁raw/copy.SourceQuote两参并加mode/预算变异self-red。既有身份authority/旧self-red不松，生产及实际CLI不变。v2冻结7356输入SHA`1a0980a41deb2b1a3c0ad8ab7cf1e53a1bcebef7ecc098f529c70a034056634f`，只有该测试差异，不回签v1全仓或自然FAIL。
 
 后继相关/race各11顶层/24子例PASS；完整tool包PID51655于UTC02:43:43.680788–02:55:49.355247，exit0，7575顶层/7364子例PASS、25顶层/12子例SKIP、零FAIL，日志SHA`6499b0e41a924663dede7397afa0e299a97f940366772b49dc6083aed653fb90`；输入前后不变，不是第二次全仓。另封16件共292件，v2索引SHA`a3aab5fa1c54aad7b8756b907bff722180ba99f8df5daafb8adb1ae37f16aeb9`，v1逐SHA复核不变。代码`adf6622033b9a8958057e6d04500edb75bd9075b`与文档分笔普通推送，两提交树/远端main/clean及原件终态见[批汇总](../../eval/parallel_selected_summary_hmc_artifact_work_registration_20261025.md)、[人工审计](../../eval/parallel_selected_summary_hmc_artifact_work_registration_20261025_manual_audit.md)。独立文档与测试迁移审查无阻断；完整能力新增0/共享子能力1组/54开放保持。
+
+## 292. 代表选择同代交付与恢复预算原子准入（2026-10-25）
+
+基线`27ea317080a7a32b52afcba0d2ecb83bcfdefe61`，独立复核79唯一＝25完整交付＋54开放、18类，31待实施/17部分/3待验收/2验收中/1持续不变。完整能力新增0，共享生产子能力2组，不把定向回归或B限定PASS代签11.2及全部写模式能力。
+
+### 292.1 同代交付及可执行导航
+
+§291索引/代表快照分别取合并分支与局部分支、旧索引路径被后续查询改写，已由公开RED证明。参考`closure/package.py`的一次manifest读取和`select.py`纯有界选择/保全部成员，本项目采用同一次detached publication union生成完整索引、选择快照及页面。`saved_index`内容寻址、SHA绑定完整字节；快照内含同代索引路径/哈希，旧`latest_index_alias`单列可变恢复导航。复用`immutablefile.Publish`保同字节物理代次，失败不返回成功，但多文件不是事务，可能留不可变孤件。
+
+独立审阅另复现合并页peer-only查询返回本fork不存在的ref。普通页及代表页共享编译：本地精确ID仍用原ref；跨分支完整计划通过当前目录准入、普通schema、对象/窗/view及保存计划与来源元数据的身份一致性后返回普通path查询；实际源代次/可读性仍由普通真实查询重新准入，执行后才登记本地attempt。目录准入不等于显式单文件全局读权限，未加RepoRoot外单文件硬门。发布union不安装回执行fork、不从JSON获得来源/选择/完成权限；合法失败重试、额外及未选查询保原。参考查询引擎的真实参数/原总体/预览分层，不改变原生取数与Trace投影/自动补齐。
+
+### 292.2 宿主预算、共享占用与先验候选
+
+恢复身份/授权准入后，缺省批数预算沿正常seed默认5，已有正限含1保留；模型`workflow.max_batches`仅计划估算，schema与实际语义同步。共享`max(唯一非空批ID名册数, 历史已用下限)`用于上下文和准入，重复/空ID不多扣、名册裁剪不退款，已有ID合法重试不占新槽。reducer在控制器所属任务ID确定后、新批变更前typed拒绝超限；scheduler恢复normalization之前原run，再诚实记录阻断，不清原handoff/切active/留未执行verifying批。累计审查补证同样先验候选、成功才合并。
+
+参考`closure/merge.py`先验证后写、`engine.py`按宿主CPU/内存约束worker并发预算及失败重试；后者不是本项目durable批数实现，不照搬成功缓存成当前证明。原source/风险/只读登记/完成合同门保留，无问答关键词硬门。公开负控核显式cap1在真实source verify后诚实阻断，无新阶段/悬空子批；历史超过上限仍可复用旧ID。旧proof身份用例只把实际已占用一批的0期待迁移为1，精确身份/证明元数据断言保持。
+
+### 292.3 两例并行，失败和未触发分账
+
+7364输入、24外部输入及实际CLI/test binary冻结，A/B实际exec UTC03:50:15.678241/.709494，首个真实模型请求重叠至少1.358秒。各一次，无第三模型或事后补状态工具。A标准CLI正常exit0，实际8计划/2组/4选4未选及4次查询（3success/1empty）符合原件；4文件是两个已有SQLite复制，不是新二进制/设备样本。只有discover(request_plan)及普通status，没有representative_status；初始不可变pair仍匹配不能代替终态三元组，离线助手不运行补造。正文a101统计组2→1、深度序列→调用箭头/上层，完整人工FAIL；正确原生表/边界不能抵消。
+
+B自然父controller5＋planner2＋新进程子controller2实际请求，机器及限定流程人工PASS。已有源码修复与历史测试由operator公开工具夹具准备，非完整CLI或自然源码创作。真实source验证、登记计划、恢复后新invocation及当前精确测试/合同见证成立；当前1断言/2命令，累计2报告的2结果/4命令不等于两个独立测试。中间尝试仍unverified/verification_proof_incomplete，后续依赖履行单独记完成；最终3批verified/3/5，不覆写旧失败。父/子各7报告原件/3verify refs不是14执行。
+
+五快照6个逻辑包内容稳定，child_memory active合并包ID经保存规范化不同，后4份持久ID/引用稳定；不能声称五份所有ID完全相同。source定位weak、apply_checkpoint_missing及探索预算展示1/0仍保原，限定只读登记通过不授完整源码/物化交付；显式耗尽自然分支未触发，只由定向/race另证。
+
+### 292.4 剩余债及验证发布
+
+本批剩余验收3组含于54：11.2代表终态同代收据自然覆盖；16.4/18.4计划规格组与原生统计组/深度关系及调查摘要冲突；18.5更宽交付/预算展示边界。下一高ROI先从当前执行账统一代表最终交付，再统一原生事实与自由解释的精确对象/组/关系，不重写正确统计器，不用文末免责声明掩盖正文。旧采样解释、IO失败、计算权限自然未触发继续保原；17.6新真实格式/工具/原生宿主材料齐即提级，05.2/05.3校准、14.1协议保前提，17.7 WAL零副作用未达，生产NO-GO，无接线。
+
+相关发布4包74顶层/120子例、预算4包21顶层/8子例、writeflow整包214顶层/154子例及各自race、标准make通过。所有公开RED和中间测试/审计构造失败保原，未以末次绿覆盖。唯一全仓PID91602，UTC03:50:10.836477–04:05:39.997329，exit0，97包PASS/12无测试/零FAIL，28319顶层/33022子例PASS、41顶层/14子例SKIP；日志SHA`4b71cf28145ebd0421e030c6b840156e8b51744776febfa49c6bc19f5816bce7`，7364输入前后相同。247原件已封，索引SHA`2eb7c66e9dae89f99bed7c17eba1231129c057c78787ddee30058de4f9b69630`；代码`a22fbce8ce0bc6f46abb6040ba661d10ce66d604`与5份文档分笔普通推送，终态远端/clean及两提交树核验见[批汇总](../../eval/parallel_selected_summary_hmc_snapshot_budget_registration_20261025.md)。[人工审计](../../eval/parallel_selected_summary_hmc_snapshot_budget_registration_20261025_manual_audit.md)区分A完整FAIL、目标终态入口NOT_TRIGGERED与B限定PASS，不回签§291原FAIL。
