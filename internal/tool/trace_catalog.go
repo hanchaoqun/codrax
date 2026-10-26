@@ -318,14 +318,18 @@ func traceCatalogSavePath(ctx *types.BusContext, c *tracecatalog.Catalog) (strin
 }
 
 func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int, live ...tracecatalog.ExecutionView) (string, error) {
-	return traceCatalogPageBound(s, ref, "", "", offset, nil, live...)
+	return traceCatalogPageBound(s, ref, offset, nil, nil, live...)
 }
 
 func traceCatalogPublicationPage(p tracecatalog.Publication, offset int, queryCall func(string) (any, error)) (string, error) {
-	return traceCatalogPageBound(p.Execution.Snapshot, p.IndexPath, p.IndexSHA256, p.LegacyPath, offset, queryCall, p.Execution)
+	fields, err := traceCatalogPublicationFields(p)
+	if err != nil {
+		return "", err
+	}
+	return traceCatalogPageBound(p.Execution.Snapshot, p.IndexPath, offset, queryCall, fields, p.Execution)
 }
 
-func traceCatalogPageBound(s tracecatalog.Snapshot, ref, sha, legacy string, offset int, queryCall func(string) (any, error), live ...tracecatalog.ExecutionView) (string, error) {
+func traceCatalogPageBound(s tracecatalog.Snapshot, ref string, offset int, queryCall func(string) (any, error), publicationFields map[string]any, live ...tracecatalog.ExecutionView) (string, error) {
 	const pageSize = 16
 	total := len(s.Artifacts) + len(s.Queries)
 	if offset > total {
@@ -356,8 +360,8 @@ func traceCatalogPageBound(s tracecatalog.Snapshot, ref, sha, legacy string, off
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
 		"candidate_count": len(s.Artifacts), "registered_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
 		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
-	if sha != "" {
-		page["saved_index_sha256"], page["latest_index_alias"] = sha, legacy
+	for key, value := range publicationFields {
+		page[key] = value
 	}
 	if len(live) == 1 {
 		page["current_execution"] = live[0].Coverage
@@ -366,6 +370,8 @@ func traceCatalogPageBound(s tracecatalog.Snapshot, ref, sha, legacy string, off
 		if selection := live[0].Selection; selection != nil {
 			page["selection_id"] = selection.SelectionID
 			page["selection_scope"] = selection.SelectionScope
+			page["representative_coverage"] = selection.Coverage
+			page["selection_delivery_notice"] = "When selection_snapshot is present, it and saved_index describe this same delivered generation. Selection membership is fixed; outcomes include current actual attempts. latest_index_alias can change after later calls and is not this generation's identity. representative_status_call is optional detailed roster pagination, not required to obtain this pair."
 			page["representative_status_call"] = map[string]any{"action": "representative_status", "catalog_id": s.ID}
 		}
 	}

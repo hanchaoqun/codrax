@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceCatalogRepresentativesTeaching = `For representative comparison, use discover with the explicit requested queries and representatives budget together: this registers those exact specifications and freezes selection only within that call's plans, without executing them. View is required; object/window/filter fields come from the task. Earlier exploration remains registered but outside that selection. Alternatively, after planning use {"action":"representatives","catalog_id":"<current id>"} to explicitly select from the entire current catalog. Pass returned query_calls unchanged to trace_query; representative_status refreshes the fixed selected/unselected roster. Discovery without representatives never selects. Groups are exact query specifications, not result similarity, shared physical identities or common causes. Unselected, source-skipped, outside-scope and unmatched work are not proven normal; success/empty/failure/pending remain separate.`
+const traceCatalogRepresentativesTeaching = `For representative comparison, use discover with the explicit requested queries and representatives budget together: this registers those exact specifications and freezes selection only within that call's plans, without executing them. View is required; object/window/filter fields come from the task. Earlier exploration remains registered but outside that selection. Alternatively, after planning use {"action":"representatives","catalog_id":"<current id>"} to explicitly select from the entire current catalog. Pass returned query_calls unchanged to trace_query. For an existing selection, status and representative_status both deliver the current same-generation saved_index and selection_snapshot with hashes; representative_status additionally pages the fixed selected/unselected roster. Neither status action selects or executes. Discovery without representatives never selects. Groups are exact query specifications, not result similarity, shared physical identities or common causes. Unselected, source-skipped, outside-scope and unmatched work are not proven normal; success/empty/failure/pending remain separate.`
 
 func traceCatalogRepresentativePage(ctx *types.BusContext, publication tracecatalog.Publication, offset int, queryCall func(string) (any, error)) (string, error) {
 	if publication.Execution.Selection == nil {
@@ -20,10 +20,11 @@ func traceCatalogRepresentativePage(ctx *types.BusContext, publication tracecata
 	}
 	// The index and selection were published together from the same detached
 	// live union. Do not reread the executing fork or overwrite identical files.
-	ref := publication.SelectionPath
-	if ref == "" || publication.SelectionSHA256 == "" {
-		return "", fmt.Errorf("representative navigation snapshot could not be persisted")
+	fields, err := traceCatalogPublicationFields(publication)
+	if err != nil {
+		return "", err
 	}
+	ref := publication.SelectionPath
 	var records []any
 	for _, g := range s.Clusters {
 		records = append(records, map[string]any{"record_kind": "query_specification_cluster", "cluster_id": g.ID, "specification": g.Specification, "coverage": g.Coverage, "budget_skipped": g.BudgetSkipped})
@@ -43,7 +44,10 @@ func traceCatalogRepresentativePage(ctx *types.BusContext, publication tracecata
 	if offset < 0 || offset > len(records) {
 		return "", fmt.Errorf("representative offset exceeds %d navigation records", len(records))
 	}
-	page := map[string]any{"catalog_id": s.CatalogID, "selection_id": s.SelectionID, "selection_scope": s.SelectionScope, "navigation_only": true, "options": s.Options, "coverage": s.Coverage, "discovery": s.Discovery, "saved_index": publication.IndexPath, "saved_index_sha256": publication.IndexSHA256, "latest_index_alias": publication.LegacyPath, "selection_snapshot": ref, "selection_snapshot_sha256": publication.SelectionSHA256, "offset": offset, "total_records": len(records), "guidance": "Selection membership is frozen; outcomes and original result references describe the same delivered generation as the content-bound saved_index. latest_index_alias may change after later calls and is not this generation's identity. Same specification across captures does not prove the same thread, device, clock or cause. These counts are query plans, not runtime events or completed artifacts. Do not extrapolate selected results to unselected members; even an empty result is only that actual query's observation. Prior queries excluded by explicit scope and plans registered after selection are listed separately; both remain executable through ordinary catalog status/query calls. Use actual payload evidence for values."}
+	page := map[string]any{"catalog_id": s.CatalogID, "navigation_only": true, "options": s.Options, "coverage": s.Coverage, "discovery": s.Discovery, "offset": offset, "total_records": len(records), "guidance": "Selection membership is frozen; outcomes and original result references describe the same delivered generation as the content-bound saved_index. latest_index_alias may change after later calls and is not this generation's identity. Same specification across captures does not prove the same thread, device, clock or cause. These counts are query plans, not runtime events or completed artifacts. Do not extrapolate selected results to unselected members; even an empty result is only that actual query's observation. Prior queries excluded by explicit scope and plans registered after selection are listed separately; both remain executable through ordinary catalog status/query calls. Use actual payload evidence for values."}
+	for key, value := range fields {
+		page[key] = value
+	}
 	shown := []any{}
 	calls := map[string]any{}
 	encode := func() ([]byte, error) {

@@ -9,6 +9,24 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// All public navigation shapes deliver identities from the same already-published
+// view. A normal status read must not require a second action to obtain the
+// selection paired with its index. This only exposes navigation, never installs
+// a selection, executes work, or reconstructs permissions from saved JSON.
+func traceCatalogPublicationFields(p tracecatalog.Publication) (map[string]any, error) {
+	fields := map[string]any{"saved_index": p.IndexPath, "saved_index_sha256": p.IndexSHA256, "latest_index_alias": p.LegacyPath}
+	if selection := p.Execution.Selection; selection != nil {
+		if p.SelectionPath == "" || p.SelectionSHA256 == "" {
+			return nil, fmt.Errorf("representative navigation snapshot could not be persisted")
+		}
+		fields["selection_id"] = selection.SelectionID
+		fields["selection_scope"] = selection.SelectionScope
+		fields["selection_snapshot"] = p.SelectionPath
+		fields["selection_snapshot_sha256"] = p.SelectionSHA256
+	}
+	return fields, nil
+}
+
 // A published union is navigation, not an installed executing fork. Keep live
 // local references unchanged; peer-only plans use the ordinary path/parameters
 // entry, which rechecks ordinary source admission and native query
