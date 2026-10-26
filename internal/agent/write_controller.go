@@ -263,9 +263,13 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- active_batch: %s\n", run.ActiveBatchID)
 	}
 	if run.Budget.MaxBatches > 0 || run.Budget.MaxExplorationRounds > 0 {
+		budget := types.WriteWorkflowBatchBudget(*run)
 		fmt.Fprintf(&b, "- budget: batches %d/%d, exploration rounds %d/%d per batch\n",
-			run.Budget.BatchesUsed, run.Budget.MaxBatches,
+			budget.Used, budget.Limit,
 			run.Budget.ExplorationRoundsUsed, run.Budget.MaxExplorationRounds)
+		if budget.RecordedUsed > budget.RosterBatches {
+			fmt.Fprintf(&b, "  - retained batch roster: %d; recorded consumption lower bound: %d (not refunded by roster pruning)\n", budget.RosterBatches, budget.RecordedUsed)
+		}
 	}
 	if len(run.Batches) > 0 {
 		b.WriteString("- batches:\n")

@@ -8,27 +8,37 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// BatchBudgetExceededError rejects a new durable batch before any run state
+// changes. Existing IDs remain usable at the ceiling; model plans do not own it.
+type BatchBudgetExceededError struct {
+	BatchID string
+	Used    int
+	Limit   int
+}
+
+func (e *BatchBudgetExceededError) Error() string {
+	return fmt.Sprintf("max batch budget reached: batch %q needs a new slot; consumed=%d limit=%d", e.BatchID, e.Used, e.Limit)
+}
+
 // ApplyWorkflowDecisionToRun applies one validated controller action to the
 // durable workflow run envelope. It is intentionally typed: routing switches on
 // decision.Action only; model-authored reason text is recorded for audit but
 // never interpreted.
 func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkflowDecision) (types.WriteWorkflowRun, error) {
+	original := run
 	decision = NormalizeWriteWorkflowDecision(decision)
 	if errs := ValidateWriteWorkflowDecision(decision); len(errs) > 0 {
 		return run, fmt.Errorf("invalid write workflow decision: %s", strings.Join(errs, "; "))
 	}
 	run = types.NormalizeWriteWorkflowRun(run)
 	if strings.TrimSpace(run.RunID) == "" {
-		return run, fmt.Errorf("workflow run_id is required")
+		return original, fmt.Errorf("workflow run_id is required")
 	}
 	if run.Goal == "" && decision.Workflow.Goal != "" {
 		run.Goal = decision.Workflow.Goal
 	}
 	if run.Status == "" {
 		run.Status = types.WriteWorkflowRunInProgress
-	}
-	if run.Budget.MaxBatches == 0 && decision.Workflow.MaxBatches > 0 {
-		run.Budget.MaxBatches = decision.Workflow.MaxBatches
 	}
 	// A controller-minted follow-up already carries the durable routing
 	// contract that authorized the batch. A later model decision may choose
@@ -45,14 +55,23 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 	}
 	decision.Batch = preserveControllerOwnedBatchPlan(run, decision.Batch)
 	decision.Batch = preserveExistingReplanBatchGoal(run, decision.Action, decision.Batch)
+	// Resolve the exact ID after controller-owned routing, using the same
+	// selectors as the mutation below. Proposals in PlannedBatches are not
+	// committed roster entries and never consume or confer execution capacity.
+	batchID := workflowDecisionBatchID(run, decision)
+	budget := types.WriteWorkflowBatchBudget(run)
+	if _, exists := workflowRunBatch(run, batchID); batchID != "" && !exists {
+		if budget.Limit > 0 && budget.Used >= budget.Limit {
+			return original, &BatchBudgetExceededError{BatchID: batchID, Used: budget.Used, Limit: budget.Limit}
+		}
+		budget.Used++
+	}
+	run.Budget.BatchesUsed = budget.Used
 
 	switch decision.Action {
 	case ActionExploreCode:
 		batchID, goal := batchIDAndGoalFromExploration(decision, run)
-		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchNeedsExploration)
-		if added {
-			run.Budget.BatchesUsed++
-		}
+		ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchNeedsExploration)
 		// A deterministic controller may mint a follow-up that requires one
 		// read-only exploration round before planning. Preserve that batch's
 		// purpose, exact paths, success criteria, and dependency edge on the same
@@ -66,10 +85,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
 	case ActionPlanBatch:
 		batchID, goal := batchIDAndGoalFromBatch(decision, run)
-		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
-		if added {
-			run.Budget.BatchesUsed++
-		}
+		ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
 		updateWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
 		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
@@ -92,10 +108,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
 	case ActionAppendBatch:
 		batchID, goal := batchIDAndGoalFromBatch(decision, run)
-		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
-		if added {
-			run.Budget.BatchesUsed++
-		}
+		ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
 		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		if decision.Batch != nil &&
 			decision.Batch.ExecutionMode == types.WriteWorkflowBatchExecutionVerifyOnly {
@@ -110,10 +123,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
 	case ActionSplitBatch:
 		batchID, goal := batchIDAndGoalFromBatch(decision, run)
-		added := ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
-		if added {
-			run.Budget.BatchesUsed++
-		}
+		ensureWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
 		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
@@ -129,7 +139,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		appendWorkflowProgress(&run, batchID, "controller", string(decision.Action), decision.ReasonCode, decision.Reason)
 	case ActionFinish:
 		if blocked := FinishBlockedReason(run, decision); blocked != "" {
-			return run, fmt.Errorf("finish rejected: %s", blocked)
+			return original, fmt.Errorf("finish rejected: %s", blocked)
 		}
 		if run.ActiveBatchID != "" {
 			updateWorkflowBatch(&run, run.ActiveBatchID, "", types.WriteWorkflowBatchComplete)
@@ -157,6 +167,23 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		}
 	}
 	return types.NormalizeWriteWorkflowRun(run), nil
+}
+
+func workflowDecisionBatchID(run types.WriteWorkflowRun, decision WriteWorkflowDecision) string {
+	switch decision.Action {
+	case ActionExploreCode:
+		id, _ := batchIDAndGoalFromExploration(decision, run)
+		return id
+	case ActionPlanBatch, ActionAppendBatch, ActionSplitBatch, ActionReplanBatch:
+		id, _ := batchIDAndGoalFromBatch(decision, run)
+		return id
+	case ActionApplyPlan, ActionVerifyBatch, ActionAskUser:
+		return activeOrNextBatchID(run)
+	case ActionFinish, ActionBlock:
+		return run.ActiveBatchID
+	default:
+		return ""
+	}
 }
 
 // preserveExistingReplanBatchGoal keeps the durable batch objective stable

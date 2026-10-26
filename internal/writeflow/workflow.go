@@ -274,7 +274,7 @@ func WriteWorkflowPlanSchema() json.RawMessage {
 				string(WorkflowComplete),
 			}),
 			"strategy":          stringProp("Short explanation of the rolling workflow strategy."),
-			"max_batches":       map[string]any{"type": "integer", "minimum": 0},
+			"max_batches":       map[string]any{"type": "integer", "minimum": 0, "description": "Optional planning estimate only; does not set or change the host-owned persisted execution budget. Read the current workflow budget before proposing a new batch."},
 			"completed_batches": stringArrayProp("IDs of batches already completed in this workflow."),
 			"next_batch":        batchPlanSchema(),
 			"planned_batches": map[string]any{

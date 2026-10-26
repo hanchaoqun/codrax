@@ -42,7 +42,7 @@ func TestApplyWorkflowDecisionToRunPendingProofCannotBeRenamed(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got.ActiveBatchID != before.ID || len(got.Batches) != 1 || got.Budget.BatchesUsed != run.Budget.BatchesUsed {
+				if got.ActiveBatchID != before.ID || len(got.Batches) != 1 || got.Budget.BatchesUsed != types.WriteWorkflowBatchBudget(run).Used {
 					t.Fatalf("renamed echo escaped pending proof authority: %+v", got)
 				}
 				actual := got.Batches[0]

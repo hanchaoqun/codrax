@@ -7452,6 +7452,11 @@ func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *te
 }
 
 func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t *testing.T) {
+	testCumulativePatchReviewFollowupCoversSourcePatch(t, 0)
+}
+
+func testCumulativePatchReviewFollowupCoversSourcePatch(t *testing.T, batchLimit int) {
+	t.Helper()
 	mainRoot := filepath.Join(t.TempDir(), "main")
 	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
 		t.Fatalf("mkdir main: %v", err)
@@ -7575,8 +7580,26 @@ func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t
 		}},
 	}
 
-	if !o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed"}) {
-		t.Fatalf("cumulative source patch should append a proof follow-up, run=%+v", run)
+	run.Budget.MaxBatches = batchLimit
+	if batchLimit > 0 {
+		beforeBatches, _ := json.Marshal(run.Batches)
+		beforeContext, _ := json.Marshal(mu.WriteContextPack())
+		beforeReport, _ := json.Marshal(report)
+		appended, err := o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed"})
+		var budgetErr *writeflow.BatchBudgetExceededError
+		afterBatches, _ := json.Marshal(run.Batches)
+		afterContext, _ := json.Marshal(mu.WriteContextPack())
+		afterReport, _ := json.Marshal(report)
+		if appended || !errors.As(err, &budgetErr) || budgetErr.Used != 1 || budgetErr.Limit != 1 || run.ActiveBatchID != "batch-1" || run.Status != types.WriteWorkflowRunBlocked || string(beforeBatches) != string(afterBatches) || string(beforeContext) != string(afterContext) || string(beforeReport) != string(afterReport) {
+			t.Fatalf("rejected cumulative follow-up published candidate state: appended=%t err=%v run=%+v", appended, err, run)
+		}
+		if len(run.ProgressLedger) != 1 || run.ProgressLedger[0].ReasonCode != "max_batches_reached" || len(run.Edges) != 0 || len(run.ContextPacks) != 0 {
+			t.Fatalf("rejected cumulative request was recorded as admitted: %+v", run)
+		}
+		return
+	}
+	if appended, err := o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed"}); !appended || err != nil {
+		t.Fatalf("cumulative source patch should append a proof follow-up, run=%+v err=%v", run, err)
 	}
 	if run.ActiveBatchID == "batch-1" || !strings.Contains(run.ActiveBatchID, "cumulative-review") {
 		t.Fatalf("active batch should move to cumulative review follow-up, got %+v", run)
@@ -7708,10 +7731,10 @@ func TestAppendCumulativePatchReviewFollowupSuppressesIdenticalMissingRunnerProb
 			},
 		}},
 	}
-	if o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
+	if appended, err := o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
 		Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed",
-	}) {
-		t.Fatalf("cumulative path appended an identical missing-runner proof batch: %+v", run)
+	}); appended || err != nil {
+		t.Fatalf("cumulative path appended an identical missing-runner proof batch: %+v err=%v", run, err)
 	}
 	if run.ActiveBatchID != "batch-1" {
 		t.Fatalf("cumulative suppression moved active batch: %+v", run)
@@ -7801,10 +7824,10 @@ func TestAppendCumulativePatchReviewFollowupSuppressesStableRustSourceStaticRepl
 		t.Fatalf("Rust cumulative review fixture did not produce proof obligations: review=%+v impact=%+v", cumulative.PatchReview, cumulative.ImpactAnalysis)
 	}
 
-	if o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
+	if appended, err := o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
 		Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed",
-	}) {
-		t.Fatalf("stable Rust source-static observation appended an identical cumulative verify batch: %+v", run)
+	}); appended || err != nil {
+		t.Fatalf("stable Rust source-static observation appended an identical cumulative verify batch: %+v err=%v", run, err)
 	}
 	if run.ActiveBatchID != "batch-1" {
 		t.Fatalf("stable static suppression moved the active batch: %+v", run)

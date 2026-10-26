@@ -268,15 +268,16 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 		out.Summary = "unknown trace_catalog action"
 		return out, nil
 	}
-	ref, err := saveTraceCatalog(ctx, c)
+	publication, err := publishTraceCatalog(ctx, c)
 	if err != nil {
 		out.Summary = "catalog retained in this run, but persistence failed: " + err.Error()
 		return out, nil
 	}
+	queryCall := traceCatalogPublicationQueryCall(ctx, c, publication.Execution.Snapshot)
 	if discoverSelection || p.Action == "representatives" || p.Action == "representative_status" {
-		out.Summary, err = traceCatalogRepresentativePage(ctx, c, ref, p.Offset)
+		out.Summary, err = traceCatalogRepresentativePage(ctx, publication, p.Offset, queryCall)
 	} else {
-		out.Summary, err = traceCatalogLivePage(c, ref, p.Offset)
+		out.Summary, err = traceCatalogPublicationPage(publication, p.Offset, queryCall)
 	}
 	if err != nil {
 		out.Summary = err.Error()
@@ -287,6 +288,22 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 }
 
 func saveTraceCatalog(ctx *types.BusContext, c *tracecatalog.Catalog) (string, error) {
+	path, err := traceCatalogSavePath(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	return path, c.Save(contextFromBus(ctx), path)
+}
+
+func publishTraceCatalog(ctx *types.BusContext, c *tracecatalog.Catalog) (tracecatalog.Publication, error) {
+	path, err := traceCatalogSavePath(ctx, c)
+	if err != nil {
+		return tracecatalog.Publication{}, err
+	}
+	return c.SavePublication(contextFromBus(ctx), path)
+}
+
+func traceCatalogSavePath(ctx *types.BusContext, c *tracecatalog.Catalog) (string, error) {
 	if strings.TrimSpace(ctxWorkDir(ctx)) == "" {
 		return "", fmt.Errorf("catalog persistence needs a run output directory")
 	}
@@ -297,10 +314,18 @@ func saveTraceCatalog(ctx *types.BusContext, c *tracecatalog.Catalog) (string, e
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", err
 	}
-	return path, c.Save(contextFromBus(ctx), path)
+	return path, nil
 }
 
 func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int, live ...tracecatalog.ExecutionView) (string, error) {
+	return traceCatalogPageBound(s, ref, "", "", offset, nil, live...)
+}
+
+func traceCatalogPublicationPage(p tracecatalog.Publication, offset int, queryCall func(string) (any, error)) (string, error) {
+	return traceCatalogPageBound(p.Execution.Snapshot, p.IndexPath, p.IndexSHA256, p.LegacyPath, offset, queryCall, p.Execution)
+}
+
+func traceCatalogPageBound(s tracecatalog.Snapshot, ref, sha, legacy string, offset int, queryCall func(string) (any, error), live ...tracecatalog.ExecutionView) (string, error) {
 	const pageSize = 16
 	total := len(s.Artifacts) + len(s.Queries)
 	if offset > total {
@@ -319,11 +344,21 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int, live ...t
 				records = append(records, traceCatalogRecord("current_query_plan", q))
 			}
 			queryCalls[q.ID] = map[string]any{"catalog_query_ref": map[string]string{"catalog_id": s.ID, "query_id": q.ID}}
+			if queryCall != nil {
+				call, err := queryCall(q.ID)
+				if err != nil {
+					return "", err
+				}
+				queryCalls[q.ID] = call
+			}
 		}
 	}
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
 		"candidate_count": len(s.Artifacts), "registered_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
 		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
+	if sha != "" {
+		page["saved_index_sha256"], page["latest_index_alias"] = sha, legacy
+	}
 	if len(live) == 1 {
 		page["current_execution"] = live[0].Coverage
 		page["coverage_boundary"] = tracecatalog.ExecutionCoverageBoundary

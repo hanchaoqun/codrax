@@ -333,6 +333,28 @@ type WriteWorkflowBudget struct {
 	ExplorationRoundsUsed int `json:"exploration_rounds_used,omitempty"`
 }
 
+// WriteWorkflowBatchBudgetView separates retained roster size from recorded
+// historical consumption. A pruned roster cannot refund an already-used slot.
+type WriteWorkflowBatchBudgetView struct {
+	RosterBatches int
+	RecordedUsed  int
+	Used          int
+	Limit         int
+}
+
+func WriteWorkflowBatchBudget(run WriteWorkflowRun) WriteWorkflowBatchBudgetView {
+	view := WriteWorkflowBatchBudgetView{RecordedUsed: max(0, run.Budget.BatchesUsed), Limit: max(0, run.Budget.MaxBatches)}
+	ids := make(map[string]struct{}, len(run.Batches))
+	for _, batch := range run.Batches {
+		if id := strings.TrimSpace(batch.ID); id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	view.RosterBatches = len(ids)
+	view.Used = max(view.RosterBatches, view.RecordedUsed)
+	return view
+}
+
 type WriteWorkflowProgress struct {
 	BatchID    string `json:"batch_id,omitempty"`
 	Stage      string `json:"stage,omitempty"`

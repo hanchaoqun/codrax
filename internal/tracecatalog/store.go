@@ -17,13 +17,26 @@ const MaxSnapshotBytes = 8 << 20
 
 // Save publishes a compact navigation snapshot via same-directory rename.
 // It never writes source files or embeds original query payloads. Callers own
-// the private output location and must merge live forks before saving it.
+// the private output location. Same-run prior publications are merged without
+// changing the executing fork; disk JSON never supplies current authority.
 func (c *Catalog) Save(ctx context.Context, path string) error {
+	_, err := c.savePublication(ctx, path, false)
+	return err
+}
+
+// SavePublication binds a detached current execution/selection view to one
+// immutable, content-addressed navigation index. The legacy path still follows
+// later saves for resume callers, but is not the delivered generation identity.
+func (c *Catalog) SavePublication(ctx context.Context, path string) (Publication, error) {
+	return c.savePublication(ctx, path, true)
+}
+
+func (c *Catalog) savePublication(ctx context.Context, path string, immutable bool) (Publication, error) {
 	if c == nil || c.run == nil {
-		return fmt.Errorf("nil catalog")
+		return Publication{}, fmt.Errorf("nil catalog")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return Publication{}, err
 	}
 	// Only same-run live publications participate in the union. Disk contents
 	// never restore membership, validators or the private declared-plan marker.
@@ -31,11 +44,11 @@ func (c *Catalog) Save(ctx context.Context, path string) error {
 	defer c.run.publication.Unlock()
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return Publication{}, err
 	}
 	dir, err := filepath.EvalSymlinks(filepath.Dir(abs))
 	if err != nil {
-		return err
+		return Publication{}, err
 	}
 	abs = filepath.Join(dir, filepath.Base(abs))
 	publication := c.Clone()
@@ -43,34 +56,70 @@ func (c *Catalog) Save(ctx context.Context, path string) error {
 	publication.deliveryView = true
 	if prior := c.run.published[abs]; prior != nil {
 		if err := publication.Merge(prior); err != nil {
-			return err
+			return Publication{}, err
 		}
 	} else if len(c.run.published) >= 8 {
-		return fmt.Errorf("catalog publication destination limit reached")
+		return Publication{}, fmt.Errorf("catalog publication destination limit reached")
 	}
-	snapshot := publication.Snapshot()
+	// Both members' latest attempts and their selection counts must come from
+	// this exact merged view, not the isolated caller after persistence returns.
+	execution := publication.CurrentExecution()
+	snapshot := execution.Snapshot
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		return err
+		return Publication{}, err
 	}
 	if len(data)+1 > MaxSnapshotBytes {
-		return fmt.Errorf("catalog snapshot exceeds %d bytes; original data retained in memory", MaxSnapshotBytes)
+		return Publication{}, fmt.Errorf("catalog snapshot exceeds %d bytes; original data retained in memory", MaxSnapshotBytes)
+	}
+	data = append(data, '\n')
+	result := Publication{Execution: execution, IndexPath: abs, LegacyPath: abs}
+	var selectionData []byte
+	if immutable {
+		result.IndexSHA256 = snapshotContentSHA(data)
+		result.IndexPath = filepath.Join(dir, snapshot.ID+"-"+result.IndexSHA256+".json")
+		if execution.Selection != nil {
+			selectionData, err = json.MarshalIndent(struct {
+				Kind        string `json:"kind"`
+				Index       string `json:"saved_index"`
+				IndexSHA256 string `json:"saved_index_sha256"`
+				RepresentativeSnapshot
+			}{"query_specification_representatives/v1", result.IndexPath, result.IndexSHA256, *execution.Selection}, "", "  ")
+			if err != nil {
+				return Publication{}, err
+			}
+			if len(selectionData) > MaxSnapshotBytes {
+				return Publication{}, fmt.Errorf("representative navigation snapshot exceeds 8 MiB; no page was published")
+			}
+			result.SelectionSHA256 = snapshotContentSHA(selectionData)
+			result.SelectionPath = filepath.Join(dir, "representatives-"+result.SelectionSHA256+".json")
+		}
 	}
 	for _, artifact := range snapshot.Artifacts {
-		if artifact.Path == abs {
-			return fmt.Errorf("catalog destination is a discovered source file")
+		if artifact.Path == abs || artifact.Path == result.IndexPath || artifact.Path == result.SelectionPath {
+			return Publication{}, fmt.Errorf("catalog destination is a discovered source file")
 		}
 	}
 	if info, err := os.Lstat(abs); err == nil {
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("catalog destination is not a regular file")
+			return Publication{}, fmt.Errorf("catalog destination is not a regular file")
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return Publication{}, err
+	}
+	if immutable {
+		if err := publishImmutableSnapshot(ctx, result.IndexPath, data); err != nil {
+			return Publication{}, err
+		}
+		if len(selectionData) > 0 {
+			if err := publishImmutableSnapshot(ctx, result.SelectionPath, selectionData); err != nil {
+				return Publication{}, err
+			}
+		}
 	}
 	temp, err := os.CreateTemp(dir, ".trace-catalog-*.tmp")
 	if err != nil {
-		return err
+		return Publication{}, err
 	}
 	name := temp.Name()
 	published := false
@@ -80,27 +129,27 @@ func (c *Catalog) Save(ctx context.Context, path string) error {
 			_ = os.Remove(name)
 		}
 	}()
-	if _, err := temp.Write(append(data, '\n')); err != nil {
-		return err
+	if _, err := temp.Write(data); err != nil {
+		return Publication{}, err
 	}
 	if err := temp.Sync(); err != nil {
-		return err
+		return Publication{}, err
 	}
 	if err := temp.Close(); err != nil {
-		return err
+		return Publication{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return Publication{}, err
 	}
 	if err := os.Rename(name, abs); err != nil {
-		return err
+		return Publication{}, err
 	}
 	published = true
 	if c.run.published == nil {
 		c.run.published = map[string]*Catalog{}
 	}
 	c.run.published[abs] = publication
-	return nil
+	return result, nil
 }
 
 // Load reads historical navigation only. Deliberately returns Snapshot, not a

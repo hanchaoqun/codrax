@@ -177,6 +177,10 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				return err
 			}
 		}
+		// Normalization may record a requested proof follow-up. Keep a detached
+		// pre-decision snapshot so rejected capacity cannot publish that request
+		// or an unstarted verifying batch as committed workflow state.
+		beforeDecision := types.CloneWriteWorkflowRun(run)
 		rawDecision := decision
 		decision = o.normalizeControllerTypedStateDecision(decision, &run)
 		if rawDecision.Action != decision.Action ||
@@ -220,10 +224,17 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 		}
 		before := run
-		run, err = writeflow.ApplyWorkflowDecisionToRun(run, decision)
+		nextRun, applyErr := writeflow.ApplyWorkflowDecisionToRun(run, decision)
+		err = applyErr
 		if err != nil {
+			var budgetErr *writeflow.BatchBudgetExceededError
+			if errors.As(err, &budgetErr) {
+				run = beforeDecision
+				o.blockWriteWorkflowBatchBudget(&run, budgetErr)
+			}
 			return err
 		}
+		run = nextRun
 		o.busCtx.Mutable.SetWriteWorkflowRun(&run)
 		// A batch switch invalidates the previous batch's verify-failure
 		// carrier: the new batch's planner must not open with another
@@ -285,13 +296,6 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionPlanBatch, writeflow.ActionAppendBatch, writeflow.ActionSplitBatch, writeflow.ActionReplanBatch:
-			if len(before.Batches) < len(run.Batches) && run.Budget.MaxBatches > 0 && len(run.Batches) > run.Budget.MaxBatches {
-				run.Status = types.WriteWorkflowRunBlocked
-				appendControllerProgress(&run, run.ActiveBatchID, "max_batches_reached", "controller attempted to append beyond max_batches")
-				o.persistWriteWorkflowRun(&run)
-				o.publishBlockedRunGuidance(&run, "max_batches_reached")
-				return fmt.Errorf("write workflow blocked: max batch budget reached")
-			}
 			if decision.Action == writeflow.ActionAppendBatch && activeWorkflowBatchVerifyOnly(&run) {
 				// The cumulative review batch was minted by deterministic
 				// controller code and reuses the already-applied plan. Do not
@@ -644,7 +648,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				continue
 			}
 			if o.advanceWorkflowAfterSuccessfulSliceObserve(&run, outcome) {
-				if o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome) {
+				appended, followupErr := o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome)
+				if followupErr != nil {
+					return followupErr
+				}
+				if appended {
 					o.mirrorActivePlanToImportFile(importedPlanMirror)
 					o.syncCurrentWriteContextPackToRun(&run)
 					o.persistWriteWorkflowRun(&run)
@@ -664,7 +672,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
 			}
-			if o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome) {
+			appended, followupErr := o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome)
+			if followupErr != nil {
+				return followupErr
+			}
+			if appended {
 				o.mirrorActivePlanToImportFile(importedPlanMirror)
 				o.syncCurrentWriteContextPackToRun(&run)
 				o.persistWriteWorkflowRun(&run)
@@ -757,6 +769,22 @@ type WriteWorkflowRunIdentityMatchedLoader interface {
 	FindActiveRunMatching(current types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error)
 }
 
+// Only an identity-admitted restored run receives the host's existing default.
+// A positive persisted ceiling remains authoritative, including a ceiling of 1.
+func adoptWriteWorkflowHostBudget(run *types.WriteWorkflowRun) {
+	if run.Budget.MaxBatches <= 0 {
+		run.Budget.MaxBatches = defaultWriteWorkflowMaxBatches
+	}
+	run.Budget.BatchesUsed = types.WriteWorkflowBatchBudget(*run).Used
+}
+
+func (o *Orchestrator) blockWriteWorkflowBatchBudget(run *types.WriteWorkflowRun, err *writeflow.BatchBudgetExceededError) {
+	run.Status = types.WriteWorkflowRunBlocked
+	appendControllerProgress(run, run.ActiveBatchID, "max_batches_reached", err.Error())
+	o.persistWriteWorkflowRun(run)
+	o.publishBlockedRunGuidance(run, "max_batches_reached")
+}
+
 func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return types.WriteWorkflowRun{}, nil
@@ -794,6 +822,7 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 				// Consume any stale one-shot token so it cannot linger as
 				// ambient authority; the caller persists the returned run.
 				clearWriteWorkflowResumeAuthorization(&normalized)
+				adoptWriteWorkflowHostBudget(&normalized)
 				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed", "resumed active workflow run from store")
 				o.sweepUnconsumedWriteWorkflowResumeAuthorizations(normalized.RunID)
@@ -807,6 +836,7 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 				// re-stamped, display goal refreshed) and the one-shot token
 				// is cleared; a later mismatching turn will be refused again.
 				clearWriteWorkflowResumeAuthorization(&normalized)
+				adoptWriteWorkflowHostBudget(&normalized)
 				restamped := current
 				normalized.Identity = &restamped
 				// Display goal and identity hash are decoupled (the hash rides
@@ -2861,33 +2891,33 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	return review
 }
 
-func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.WriteWorkflowRun, report *types.ChangeReport, outcome writeflow.VerifyAttemptOutcome) bool {
+func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.WriteWorkflowRun, report *types.ChangeReport, outcome writeflow.VerifyAttemptOutcome) (bool, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || report == nil {
-		return false
+		return false, nil
 	}
 	if outcome.Kind != writeflow.VerifyOutcomeReportPassed || !report.Passed {
-		return false
+		return false, nil
 	}
 	if !activeBatchCompletedWithNonFailedVerifierVerdict(run) {
-		return false
+		return false, nil
 	}
 	if workflowProgressReasonCount(run, "", "cumulative_actual_diff_review_followup_requested") > 0 {
-		return false
+		return false, nil
 	}
 	plan := o.buildCumulativePatchReviewPlan(run, report, nil)
 	if plan == nil || plan.PatchReview == nil || !changePlanTouchesNonTestCode(plan) {
-		return false
+		return false, nil
 	}
 	review := types.NormalizePatchReviewRecord(*plan.PatchReview)
 	if review.HardBlock {
 		_, _ = o.handlePatchReviewHardBlock(run, plan, review, "cumulative_actual_diff:"+patchReviewHardBlockReason(review))
-		return true
+		return true, nil
 	}
 	items := selectImpactRepairQueueItems(plan, report, 0)
 	items = filterPassedVerifyGraphTelemetryItems(run, run.ActiveBatchID, items, nativeTestFileRetryCandidates(o.busCtx.Mutable.ChangePlan(), report))
 	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	if len(items) == 0 {
-		return false
+		return false, nil
 	}
 	// The cumulative review plan has a synthetic ID. Use the active persisted
 	// plan for exact probe/report provenance; the helper independently requires
@@ -2895,7 +2925,7 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 	probeAuthorityPlan := o.busCtx.Mutable.ChangePlan()
 	if proofFollowupWouldRepeatStableUnavailableProbe(run, probeAuthorityPlan, report, items) {
 		appendStableUnavailableProofFollowupSuppressed(run, run.ActiveBatchID)
-		return false
+		return false, nil
 	}
 	if len(items) > 4 {
 		items = items[:4]
@@ -2905,34 +2935,40 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 		return tool.VerificationProbeRuntimeAvailable(language, probeAuthorityPlan.WorktreePath)
 	}) {
 		appendStableStaticProofFollowupSuppressed(run, run.ActiveBatchID)
-		return false
+		return false, nil
 	}
 	oldBatchID := strings.TrimSpace(run.ActiveBatchID)
-	appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_requested",
+	candidate := types.CloneWriteWorkflowRun(*run)
+	appendControllerProgress(&candidate, oldBatchID, "cumulative_actual_diff_review_followup_requested",
 		"typed cumulative actual-diff review found uncovered source proof after a non-failed verifier attempt")
 	if proofFollowupPurpose(batch.Purpose) {
-		appendControllerProgress(run, oldBatchID, "verification_proof_followup_requested",
+		appendControllerProgress(&candidate, oldBatchID, "verification_proof_followup_requested",
 			repairFollowupProgressMessage(batch.Purpose))
 	} else {
-		appendControllerProgress(run, oldBatchID, "impact_obligation_followup_requested",
+		appendControllerProgress(&candidate, oldBatchID, "impact_obligation_followup_requested",
 			repairFollowupProgressMessage(batch.Purpose))
 	}
 	pack := types.WriteContextPackFromChangePlan(plan).WithScope(batch.ID, "")
-	o.busCtx.Mutable.MergeWriteContextPack(pack)
-	next, err := writeflow.ApplyWorkflowDecisionToRun(*run, writeflow.WriteWorkflowDecision{
+	next, err := writeflow.ApplyWorkflowDecisionToRun(candidate, writeflow.WriteWorkflowDecision{
 		Action:     writeflow.ActionAppendBatch,
 		ReasonCode: "cumulative_actual_diff_review_followup",
 		Reason:     "typed cumulative actual-diff review found uncovered source proof",
 		Batch:      &batch,
 	})
 	if err != nil {
+		var budgetErr *writeflow.BatchBudgetExceededError
+		if errors.As(err, &budgetErr) {
+			o.blockWriteWorkflowBatchBudget(run, budgetErr)
+			return false, err
+		}
 		appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_failed", err.Error())
-		return false
+		return false, nil
 	}
 	*run = next
+	o.busCtx.Mutable.MergeWriteContextPack(pack)
 	o.busCtx.Mutable.SetWriteWorkflowRun(run)
 	o.syncCurrentWriteContextPackToRun(run)
-	return true
+	return true, nil
 }
 
 func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRun, report *types.ChangeReport, err error) *types.ChangePlan {
