@@ -1554,6 +1554,8 @@ HMC §293统一普通`status`与代表页的发布字段：已有本轮私有选
 
 显式`trace_catalog(discover,request_plan:{view:...})`在当前目录授权后，消费已接受工作声明、用户明确线程/进程及唯一共同窗，生成完整普通查询规格，再复用既有登记和同次规格选择。view必须显式，进程适用域共用普通查询谓词；缺字段、比较侧/多窗绑定歧义、已检测的不支持process/view组合或容量不足返回导航pending，不安装部分计划。最多16规格、代表每组最多5沿用现有工具容量，当前不自动分批超限任务。plain discover、显式queries及普通额外探索/失败重试/未选执行均不变。上下文在目录产生前呈现任务导航，但完成与名册仅由当前真实执行账提供；计划生成不执行查询，不改原生总体、端点、Trace因果投影或自动补齐，也不从历史JSON恢复权限。
 
+HMC §294将混形调用的失败说明改为结构化可选恢复导航。先复核当前目录授权及取消；仅discover/default与手写queries/representatives冲突、且既有typed compiler完整ready时提供`next_call`，保调用者显式root/recursive/view。候选不是等价改写：其目标/窗/预算来自已受理任务，不继承冲突手写filters或代表预算；若要保手写规格，可去掉request_plan继续原lane。其它动作、catalog/snapshot/export/offset坐标或缺字段/歧义/超容量不猜重试。失败仍无计划、选择、attempt或事实，候选实际执行时重新授权；JSON直接进入实际下轮工具消息，不能从旁路材料恢复权限。schema、工具说明与探索教学统一两入口，不叠加关键词门或禁止合法额外查询。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
