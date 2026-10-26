@@ -14481,7 +14481,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		}
 	}
 	if view.RuntimeTrace && view.CausalUnproven {
-		b.WriteString("- Runtime causal ceiling hint: no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded-window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the supplied evidence boundary instead of overriding it.\n")
+		b.WriteString("- Runtime causal probe boundary: at least one exploration result did not establish a causal mechanism within its own source and query scope. Keep that result's limitation local; it neither lowers nor strengthens another result's authority. The current selected evidence and its exact summary contract determine the conclusion ceiling. Background context alone never proves a cause.\n")
 	}
 	if view.RuntimeTrace && view.FrameFlowUnproven {
 		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: the typed frame view contains %d ordering edge(s), but those edges establish temporal order rather than a proven causal mechanism. %s\n",
@@ -14696,6 +14696,10 @@ type runtimeTraceGuidanceView struct {
 	// causal_conclusion=unproven. Precise trigger, soft effect: it only adds
 	// one composition directive; nothing blocks, retries, or rewrites.
 	CausalUnproven bool
+	// CurrentCausalCeiling is populated only when a session-ANY unproven
+	// probe needs scoping. It reuses the elected-observation-ID contract for
+	// advisory wording; it never changes that contract or the native rows.
+	CurrentCausalCeiling types.TraceCausalClaimCaliber
 	// FrameEvidenceStatus carries only the closed typed absent/unavailable
 	// caliber. It is prompt guidance; no answer-text check or mutation reads it.
 	FrameEvidenceStatus string
@@ -14812,6 +14816,15 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 	}
 	view.FrequencyLimitWitnesses = answerDocDedupFrequencyLimitWitnesses(view.FrequencyLimitWitnesses, 8)
 	view.FrameMeasurements = answerDocDedupRuntimeTraceFrameMeasurements(view.FrameMeasurements, 2)
+	// Use the same compiler/input limit as applyTraceCausalClaimContractForAgent,
+	// but only when a probe's unproven signal might otherwise lower the summary.
+	// Pure measurements and runs without that signal incur no extra compilation.
+	if view.CausalUnproven && ctx.AnalysisIR != nil && ctx.Mutable != nil {
+		contract := types.BuildTraceCausalClaimContract(types.ObservationLedgerInputFromAgentContext(ctx, types.ObservationPromptRecordLimit))
+		if contract.Active() {
+			view.CurrentCausalCeiling = contract.Ceiling
+		}
+	}
 	return view
 }
 

@@ -54,10 +54,10 @@ func answerDocCausalCeilingTestContext(withUnproven bool) *types.AgentContext {
 func TestAnswerDocumentEvaluatorRendersCausalCeilingHintOnUnprovenAuthority(t *testing.T) {
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(answerDocCausalCeilingTestContext(true), nil)
 	for _, want := range []string{
-		"Runtime causal ceiling hint",
-		"no frame/deadline or typed causal row proves",
-		"bounded-window facts and candidates",
-		"`导致丢帧`/`caused the dropped frame`",
+		"Runtime causal probe boundary",
+		"within its own source and query scope",
+		"neither lowers nor strengthens another result's authority",
+		"current selected evidence and its exact summary contract",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -70,7 +70,7 @@ func TestAnswerDocumentEvaluatorRendersCausalCeilingHintOnUnprovenAuthority(t *t
 
 func TestAnswerDocumentEvaluatorOmitsCausalCeilingHintWithoutUnprovenAuthority(t *testing.T) {
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(answerDocCausalCeilingTestContext(false), nil)
-	if strings.Contains(prompt, "Runtime causal ceiling hint") {
+	if strings.Contains(prompt, "Runtime causal probe boundary") {
 		t.Fatalf("hint must stay absent without the typed unproven authority:\n%s", prompt)
 	}
 }
@@ -157,7 +157,7 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 			t.Fatalf("typed trace guidance retained unrelated generic recipe %q:\n%s", forbidden, got)
 		}
 	}
-	if !strings.Contains(got, "Runtime causal ceiling hint") {
+	if !strings.Contains(got, "Runtime causal probe boundary") {
 		t.Fatalf("context dedupe removed exact causal ceiling:\n%s", got)
 	}
 }

@@ -62,7 +62,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	}
 	got := renderAnswerDocTraceDecisionHandoffSet(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
-		runtimeTraceGuidanceView{CausalUnproven: true, FrameEvidenceStatus: "absent"},
+		runtimeTraceGuidanceView{CausalUnproven: true, CurrentCausalCeiling: types.TraceCausalClaimBoundedWindow, FrameEvidenceStatus: "absent"},
 	)
 	for _, want := range []string{
 		"Model Owns The Conclusion",
@@ -80,7 +80,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"fully explained/composed by listed Axis B seats only when one exact typed additive carrier publishes that same subtotal",
 		"remaining on-chain occupancy as unpriced or unresolved instead of treating the arithmetic remainder as zero",
 		"Do not compute a residual by adding or subtracting overlapping rows unless a typed partition authorizes that arithmetic",
-		"Causal evidence boundary: the selected evidence does not prove a dropped-frame or frame-deadline cause",
+		"Causal evidence boundary: the selected evidence supports at most a bounded-window candidate",
 		"Frame evidence boundary: the selected evidence produced no frame or deadline observation bound to the target",
 		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"phase_semantics: `pre_wakeup_dependency`",

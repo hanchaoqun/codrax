@@ -13,7 +13,8 @@ import (
 func TestPerfTriagePromptKeepsLiteralMeasurementsAndDefersArithmetic(t *testing.T) {
 	prompt := perfTriageInlineMeasurementPrompt(t, "app-100 (100) [000] .... 1.000000: tracing_mark_write: B|100|OpenDocument\napp-100 (100) [000] .... 1.050000: tracing_mark_write: E|100\n")
 	for _, want := range []string{
-		"does NOT have permission to run counting tools",
+		"This stage has no data-reading or calculation tools",
+		"subject to the narrower quantity rules below",
 		"copy only source-explicit measurements",
 		"preserve their original value and unit",
 		"Do not calculate total duration, B/E differences, full counts, or threshold absence claims",

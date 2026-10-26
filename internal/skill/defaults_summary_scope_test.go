@@ -241,7 +241,9 @@ func TestSummaryScopeTeachingPreservesIndependentContracts(t *testing.T) {
 					}
 				case "causal_trace":
 					for _, want := range []string{
-						"When frame/deadline causality is proven, state the causal chain",
+						"strongest relationship permitted by typed causal authority",
+						"current selected evidence and its exact summary contract",
+						"only when the typed request makes frame attribution applicable",
 						"adjacent or background information is not promoted to an on-chain root cause",
 						"explicit capture/target/time-window scope",
 						"S alone proves no wait mechanism, and an absent IO marker does not prove non-IO waiting",

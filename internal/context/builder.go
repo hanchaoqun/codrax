@@ -346,10 +346,12 @@ const reasoningHygieneShell = "Whenever the answer is the result of a determinis
 // reasoningHygieneNoTool is the variant for stages whose allowlist
 // contains ONLY emit_* output channels — extract-skill and
 // answer-document-skill today. These stages never run a counting /
-// filtering tool of their own; everything quantitative they report
-// must come from upstream evidence. Telling them to "run a shell
+// filtering tool of their own; observations and arithmetic operands
+// must come from upstream evidence. Compatible arithmetic is a derived
+// value, not a new observation or a grant of population/causal authority.
+// Telling them to "run a shell
 // pipeline" would waste a tool-call turn on an unavailable name.
-const reasoningHygieneNoTool = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, filtering by exact criteria — the number you report must come directly from upstream evidence, not from your own re-counting of text you received. This stage consumes prior-stage tool results and does NOT have permission to run counting tools of its own, so if a specific number is not already present in the evidence above, omit the claim or mark it uncertain rather than producing one. Language models miscount and miscompute even on short lists."
+const reasoningHygieneNoTool = "Observed values and set membership must come from upstream evidence. This stage has no data-reading or calculation tools: never invent a tool result or imply that an unperformed query ran. Do not recover a whole population by recounting a preview, truncated rows or narrative text. Simple arithmetic on exact, published operands is allowed within their established source, subject, scope, units and denominator, subject to the narrower quantity rules below. Name the operands and retain those boundaries; identify the result as a derived calculation, not a new tool result. A numerical difference does not identify missing members, and arithmetic alone does not establish completeness, physical correspondence or causality. If the operands or their compatible scope are unavailable, omit the derived claim or state the gap instead of guessing."
 
 // reasoningHygieneReadOnly returns the variant for stages whose
 // allowlist includes read-only navigation tools (grep / repo_map /
@@ -373,7 +375,7 @@ func reasoningHygieneReadOnly(avail map[string]bool) string {
 // reasoningHygieneFor renders the "don't miscount, use a tool" meta-
 // rule adapted to the capability profile of the skill running this
 // dispatch. The underlying PRINCIPLE is invariant — language models
-// miscount, so any quantitative claim must come from a tool —
+// miscount, so observed values and sets must come from a tool —
 // but the concrete ADVICE changes with the allowlist: telling the
 // extractor to "run a shell pipeline through exec_command" is worse
 // than useless when extract-skill physically blocks exec_command.

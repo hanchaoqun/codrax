@@ -151,7 +151,9 @@ func TestRun2FixCTraceAnswerSkeleton(t *testing.T) {
 		// ① quantified conclusion first.
 		"① Open with ONE quantified conclusion",
 		"strongest relationship permitted by typed causal authority",
-		"`causal_conclusion=unproven` or `frame_evidence_status=absent`",
+		"current selected evidence and its exact summary contract",
+		"an earlier or unrelated probe's unproven status does not set the current conclusion ceiling",
+		"only when the typed request makes frame attribution applicable",
 		"selected-window bottleneck / strongest chain candidate",
 		"not permission to call it the proven dropped-frame cause",
 		"one or two short sentences, nothing in front of them",

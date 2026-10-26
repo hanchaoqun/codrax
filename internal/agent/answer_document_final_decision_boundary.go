@@ -174,8 +174,8 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString("- Principal Trace summary contract: emit one principal summary block and fill its causal-strength JSON control field with exactly one value allowed by the dispatch-local tool schema. Keep the visible lead/detail within the matching natural-language scope supplied in the reader handoff below, but never repeat the field name or its machine value in visible prose. This declaration does not choose the cause. No conclusion is inferred from prose or written for you.\n")
 		b.WriteString("- Trace JSON field scope: set `trace_causal_claim_caliber` exactly once on that principal summary and omit it from every section, table, diagram, list, decision, and caveat block. `candidate_role` is not a runtime entity type: omit it from thread, process, CPU, frame, and span rows unless the active typed answer-role contract explicitly requires one value present in the projected enum.\n")
 	}
-	if authority.CausalUnproven {
-		b.WriteString("- Causal evidence boundary: the selected evidence supports at most a bounded-window candidate or first validation direction; it does not prove a dropped-frame or frame-deadline cause.\n")
+	if authority.CausalUnproven && authority.CurrentCausalCeiling == types.TraceCausalClaimBoundedWindow {
+		b.WriteString("- Causal evidence boundary: the selected evidence supports at most a bounded-window candidate or first validation direction; do not promote it to a proven cause.\n")
 	}
 	if authority.FrameEvidenceStatus != "" {
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
@@ -195,7 +195,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
 	switch {
 	case hasActual && hasEliminable:
-		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule " + tracefence.OptimizationPotentialEN + ", and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
+		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule " + tracefence.OptimizationPotentialEN + ", and proven causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
 	case hasActual:
 		b.WriteString("- available_axes=`actual_occupancy`: identify the measured time concentration and a validation/optimization direction without inventing an existing-rule eliminable amount.\n")
 	case hasEliminable:
