@@ -1,17 +1,22 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/traceinput"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -143,19 +148,151 @@ func TestHMC283EventSourceSelectionPublicSurfaces(t *testing.T) {
 }
 
 func TestHMC283StatisticsSourceWindowUnchanged(t *testing.T) {
-	ctx, _ := hmc277MeasurementContext(t, "hmosperf_io_inflight", "window_stats", 1, 1.01)
+	ctx, path := hmc277MeasurementContext(t, "hmosperf_io_inflight", "window_stats", 1, 1.01)
+	sourceBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := ctx.Mutable.TurnAArtifacts().ToolResults
+	if len(results) != 1 || !results[0].Success {
+		t.Fatal("missing the single successful native query")
+	}
+	before, _ := json.Marshal(results)
+	causalBefore := hmc218CausalProjection(t, ctx)
+	var observation types.ObservationRecord
+	for _, row := range results[0].Observations {
+		if row.Predicate == "io_inflight" && strings.Contains(strings.Join(row.RichNotes, "\n"), "endpoint_family=block_rq dev=8,0 op=R") {
+			if observation.ID != "" {
+				t.Fatal("ambiguous native read population")
+			}
+			observation = row
+		}
+	}
+	start, end, known := types.TraceObservationContinuousQueryWindow(observation.SourceRef)
+	if observation.ID == "" || observation.Role != types.AnswerAggregateRoleSupportingCoverage ||
+		observation.SourceRef.Path != physicalPath || !known || start != 1 || end != 1.01 {
+		t.Fatalf("source-owned noncausal statistic window changed: %+v", observation)
+	}
+	payloadBefore, err := os.ReadFile(observation.SourceRef.PayloadRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var native tracequery.Result
+	if err := json.Unmarshal(payloadBefore, &native); err != nil || native.WindowStats == nil || native.WindowStats.IOInFlight == nil {
+		t.Fatalf("missing same-query native IO payload: %v", err)
+	}
+	stats := native.WindowStats.IOInFlight
+	if stats.GroupCount != 4 || stats.Window == nil || stats.Window.StartTs != start || stats.Window.EndTs != end ||
+		math.Abs((stats.Window.EndTs-stats.Window.StartTs)*1000-10) > 1e-9 {
+		t.Fatalf("native statistical population or 10 ms denominator changed: %+v", stats)
+	}
+	var group *tracequery.IOInFlightGroup
+	for i := range stats.Groups {
+		g := &stats.Groups[i]
+		if g.EndpointFamily == "block_rq" && g.Dev == "8,0" && g.Operation == "R" {
+			if group != nil {
+				t.Fatal("duplicate native read group")
+			}
+			group = g
+		}
+	}
+	if group == nil || group.AcceptedPairCount != 4 || group.IssueCount != 6 || len(group.Members) != 4 || group.Values == nil ||
+		group.Values.PeakRequests != 2 || math.Abs(group.Values.MeanRequests-1.4) > 1e-9 ||
+		math.Abs(group.Values.BusyMs-10) > 1e-9 || math.Abs(group.Values.RequestMs-14) > 1e-9 ||
+		math.Abs(group.Values.MeanRequests-group.Values.RequestMs/((end-start)*1000)) > 1e-9 {
+		t.Fatalf("native read counts, values or denominator changed: %+v", group)
+	}
+	// This producer has exact statistical coordinates but no private endpoint
+	// declaration. Do not borrow the request's half-open point-selection rule.
+	const wantWindow = "1–1.01 s (endpoint inclusion unavailable)"
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	seen := 0
-	for _, table := range types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices() {
+	views := map[types.RuntimeMeasurementView]bool{}
+	for _, table := range view.RuntimeMeasurementContract.Choices() {
 		if !strings.Contains(table.ObservationID, "#io_inflight:") {
 			continue
 		}
 		basis, ok := table.NativeSourceTitleBasis()
-		if !ok || basis.QueryWindow != "[1,1.01) s" {
+		if !ok || basis.QueryWindow != wantWindow || basis.QuerySelection != "" || basis.OriginalSource != physicalPath || basis.QuerySource != physicalPath {
 			t.Fatalf("statistics lost its effective denominator window: %+v", basis)
 		}
 		seen++
+		if table.ObservationID != observation.ID {
+			continue
+		}
+		views[table.View] = true
+		switch table.View {
+		case types.RuntimeMeasurementSummary:
+			if !reflect.DeepEqual(table.Rows, [][]string{{"2", "1.4", "10", "14", "4", "6"}}) {
+				t.Fatalf("native read summary changed: %v", table.Rows)
+			}
+		case types.RuntimeMeasurementMembers:
+			if len(table.Rows) != len(group.Members) {
+				t.Fatal("native read member population changed")
+			}
+			for i, member := range group.Members {
+				row := table.Rows[i]
+				if len(row) < 8 || member.WindowContributionMs == nil {
+					t.Fatalf("incomplete member witness: %v", row)
+				}
+				for column, want := range map[int]float64{4: member.ActualStartTs, 5: member.ActualEndTs, 7: *member.WindowContributionMs} {
+					got, err := strconv.ParseFloat(row[column], 64)
+					if err != nil || math.Abs(got-want) > 1e-9 {
+						t.Fatalf("native member endpoint/contribution changed: %v / %+v", row, member)
+					}
+				}
+			}
+		case types.RuntimeMeasurementTimeline:
+			if len(table.Rows) != len(group.Segments) {
+				t.Fatal("native timeline population changed")
+			}
+			for i, segment := range group.Segments {
+				row := table.Rows[i]
+				if len(row) != 3 {
+					t.Fatalf("unexpected timeline columns: %v", row)
+				}
+				for column, want := range []float64{segment.StartTs, segment.EndTs, float64(segment.Requests)} {
+					got, err := strconv.ParseFloat(row[column], 64)
+					if err != nil || math.Abs(got-want) > 1e-9 {
+						t.Fatalf("native timeline changed: %v / %+v", row, segment)
+					}
+				}
+			}
+		}
+		// Exercise the same public binding as HMC277; no copied values or new
+		// relationships enter any of the three native display surfaces.
+		for _, kind := range []types.AnswerBlockKind{types.BlockSummary, types.BlockTable, types.BlockDiagram} {
+			blocks := []types.AnswerBlock{{ID: "native", Kind: kind, RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}}}
+			if kind != types.BlockSummary {
+				blocks = append([]types.AnswerBlock{{ID: "lead", Kind: types.BlockSummary, Text: "Recorded IO statistics."}}, blocks...)
+			}
+			wire, _ := json.Marshal(map[string]any{"blocks": blocks})
+			result, err := (&tool.EmitAnswerDocument{}).Execute(types.ToolBusContext(ctx, types.AgentFinalizer), wire)
+			if err != nil || !result.Success {
+				t.Fatalf("public %s: %v %s", kind, err, result.Summary)
+			}
+			bound := ctx.Mutable.AnswerDocumentV2().Blocks[len(blocks)-1].RuntimeMeasurement
+			if bound == nil || !bound.IsBound() || !reflect.DeepEqual(bound.BoundTable.Rows, table.Rows) || !reflect.DeepEqual(bound.BoundTable.Notes, table.Notes) {
+				t.Fatal("display changed native values or boundaries")
+			}
+			visible := html.UnescapeString(render.RenderAnswerDocument(ctx.Mutable.AnswerDocumentV2(), "en"))
+			if !strings.Contains(visible, "actual query window: "+wantWindow) || strings.Contains(visible, "-->") || strings.Contains(visible, "->>") {
+				t.Fatalf("%s changed native scope or acquired a relation: %s", kind, visible)
+			}
+		}
 	}
-	if seen == 0 {
-		t.Fatal("missing native IO statistic control")
+	if seen == 0 || len(views) != 3 || !views[types.RuntimeMeasurementSummary] || !views[types.RuntimeMeasurementMembers] || !views[types.RuntimeMeasurementTimeline] {
+		t.Fatal("missing native IO statistic control views")
+	}
+	after, _ := json.Marshal(ctx.Mutable.TurnAArtifacts().ToolResults)
+	sourceAfter, sourceErr := os.ReadFile(path)
+	payloadAfter, payloadErr := os.ReadFile(observation.SourceRef.PayloadRef)
+	if !bytes.Equal(before, after) || !bytes.Equal(causalBefore, hmc218CausalProjection(t, ctx)) ||
+		sourceErr != nil || !bytes.Equal(sourceBefore, sourceAfter) || payloadErr != nil || !bytes.Equal(payloadBefore, payloadAfter) {
+		t.Fatal("presentation mutated original source, native payload, observations or causal projection")
 	}
 }

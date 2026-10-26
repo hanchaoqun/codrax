@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
@@ -189,6 +188,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 		// retained producer value, including its private coverage scope.
 		for j, publication := range r.publications[i] {
 			side.Publications[j].rawFacts = publication.rawFacts
+			side.Publications[j].queryWindowEnd = publication.queryWindowEnd
 			for k, table := range publication.Tables {
 				side.Publications[j].Tables[k] = table.Clone()
 			}
@@ -250,7 +250,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 					}
 					ruler := "连续窗口未知"
 					if known {
-						ruler = fmt.Sprintf("[%g,%g) 秒", start, end)
+						ruler = newRuntimeMeasurementSourceWindow(publication.Source, publication.queryWindowEnd).format("zh")
 					}
 					references = append(references, publication.ObservationID+" "+ruler)
 					sources = append(sources, publication.Source.Path+" @"+side.Generation)

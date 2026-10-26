@@ -153,8 +153,8 @@ func runtimeMeasurementAcquisitionSide(artifact tracecatalog.Artifact, sourceErr
 				available = available || state != "unavailable" && state != "empty"
 				empty = empty || state == "empty" || attempt.Outcome == tracecatalog.OutcomeEmpty
 				window := "查询连续窗口未知"
-				if start, end, known := TraceObservationContinuousQueryWindow(publication.Source); known {
-					window = fmt.Sprintf("[%g,%g) 秒", start, end)
+				if actual := newRuntimeMeasurementSourceWindow(publication.Source, publication.queryWindowEnd).format("zh"); actual != "" {
+					window = actual
 				}
 				references = append(references, publication.ObservationID+" "+window)
 			}

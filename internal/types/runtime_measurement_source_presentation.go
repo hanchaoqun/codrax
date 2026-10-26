@@ -8,13 +8,62 @@ import (
 
 const RuntimeMeasurementSourceTitleTeaching = "For a published source-owned native selector, omit title: the system supplies the source heading and exact original-source note on table, summary and edgeless fact diagram. Accepted user comparison roles and actual query-side roles are distinct; conflicting roles remain unspecified. Keep explanations in separate ordinary blocks. Other block titles are unchanged."
 
+// Endpoint semantics belong to the validated native producer, not the request
+// window, member envelope or display notes. Zero remains unknown for legacy
+// producers. This private display metadata never grants query/causal authority.
+type runtimeMeasurementQueryEnd uint8
+
+const (
+	runtimeMeasurementQueryEndUnknown runtimeMeasurementQueryEnd = iota
+	runtimeMeasurementQueryEndExcluded
+	runtimeMeasurementQueryEndIncluded
+)
+
+func runtimeMeasurementNativeQueryEnd(inclusive bool) runtimeMeasurementQueryEnd {
+	if inclusive {
+		return runtimeMeasurementQueryEndIncluded
+	}
+	return runtimeMeasurementQueryEndExcluded
+}
+
+type runtimeMeasurementSourceWindow struct {
+	start, end float64
+	known      bool
+	endBound   runtimeMeasurementQueryEnd
+}
+
+func newRuntimeMeasurementSourceWindow(source ObservationSourceRef, endBound runtimeMeasurementQueryEnd) runtimeMeasurementSourceWindow {
+	start, end, known := TraceObservationContinuousQueryWindow(source)
+	if !known {
+		return runtimeMeasurementSourceWindow{}
+	}
+	return runtimeMeasurementSourceWindow{start: start, end: end, known: true, endBound: endBound}
+}
+
+func (w runtimeMeasurementSourceWindow) format(language string) string {
+	if !w.known {
+		return ""
+	}
+	switch w.endBound {
+	case runtimeMeasurementQueryEndIncluded:
+		return fmt.Sprintf("[%g,%g] s", w.start, w.end)
+	case runtimeMeasurementQueryEndExcluded:
+		return fmt.Sprintf("[%g,%g) s", w.start, w.end)
+	default:
+		if strings.HasPrefix(strings.ToLower(language), "zh") {
+			return fmt.Sprintf("%g–%g s（端点包含性未知）", w.start, w.end)
+		}
+		return fmt.Sprintf("%g–%g s (endpoint inclusion unavailable)", w.start, w.end)
+	}
+}
+
 // All fields stay private and immutable after publication. The current source
 // witness is checked by the existing compiler before constructing this value;
 // the table digest protects that exact final display, not physical semantics.
 type runtimeMeasurementSourcePresentation struct {
 	original, queryPath, generation string
 	role, roleBasis                 string
-	window                          string
+	window                          runtimeMeasurementSourceWindow
 	selection                       string
 	digest                          string
 }
@@ -39,7 +88,7 @@ func (t RuntimeMeasurementTable) NativeSourceTitleBasis() (RuntimeMeasurementSou
 	p := t.nativeSourcePresentation
 	return RuntimeMeasurementSourceTitleBasis{
 		OriginalSource: p.original, QuerySource: p.queryPath, QuerySourceVersion: p.generation,
-		Role: p.role, RoleBasis: p.roleBasis, QueryWindow: p.window, QuerySelection: p.selection,
+		Role: p.role, RoleBasis: p.roleBasis, QueryWindow: p.window.format(""), QuerySelection: p.selection,
 	}, true
 }
 
@@ -60,9 +109,7 @@ func runtimeMeasurementQuerySourcePresentation(input ObservationLedgerInput, sou
 		original:  RuntimeArtifactComparisonLocalPath(original, input.RepoRoot),
 		queryPath: source.Path, generation: ref.identity.CacheToken(),
 	}
-	if start, end, known := TraceObservationContinuousQueryWindow(source); known {
-		p.window = fmt.Sprintf("[%g,%g) s", start, end)
-	}
+	p.window = newRuntimeMeasurementSourceWindow(source, runtimeMeasurementQueryEndUnknown)
 	if input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil {
 		comparison := input.RequestModel.RuntimeArtifactScopeProfile.Comparison
 		if comparison.Valid() {
@@ -95,6 +142,12 @@ func qualifyRuntimeMeasurementSourcePresentations(c *RuntimeMeasurementContract,
 		if p == nil {
 			continue
 		}
+		// The decoder has independently checked the producer's publication
+		// seal. Preserve its endpoint semantics after current-source binding,
+		// without changing the query coordinates or requested display scope.
+		cp := *p
+		cp.window = newRuntimeMeasurementSourceWindow(publication.Source, publication.queryWindowEnd)
+		p = &cp
 		key := publication.ObservationID
 		if old := sources[key]; old != nil && (old.original != p.original || old.queryPath != p.queryPath || old.generation != p.generation || old.window != p.window) {
 			conflicts[key] = true
@@ -121,7 +174,7 @@ func qualifyRuntimeMeasurementSourcePresentations(c *RuntimeMeasurementContract,
 			// Point lookup selectors are not continuous statistical windows.
 			// Use only the producer's executed scan, not the observed envelope
 			// or a request window whose half-open point projection is separate.
-			cp.window = ""
+			cp.window = runtimeMeasurementSourceWindow{}
 			cp.selection = runtimeEventQuerySelection(table.EventData.Coverage.ScanScope)
 		}
 		cp.role, cp.roleBasis = "", ""
@@ -217,11 +270,11 @@ func (t RuntimeMeasurementTable) NativeSourcePresentation(language string) (stri
 			note += "; query source version: " + p.generation
 		}
 	}
-	if p.window != "" {
+	if window := p.window.format(language); window != "" {
 		if zh {
-			note += "；实际查询窗：" + p.window
+			note += "；实际查询窗：" + window
 		} else {
-			note += "; actual query window: " + p.window
+			note += "; actual query window: " + window
 		}
 	}
 	if p.selection != "" {

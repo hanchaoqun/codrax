@@ -19,6 +19,7 @@ type RuntimeMeasurementPublication struct {
 	answerDisplayIdentity string
 	nativeFixedDisplay    bool
 	rawFacts              bool
+	queryWindowEnd        runtimeMeasurementQueryEnd
 	sourcePresentation    *runtimeMeasurementSourcePresentation
 }
 
@@ -101,6 +102,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 		if !uniqueMembers || !runtimeResourcePublicationValid(r) {
 			return RuntimeMeasurementPublication{}, false
 		}
+		p.queryWindowEnd = runtimeMeasurementNativeQueryEnd(r.runtimeResourcePublication.endInclusive)
 		for i := range p.Tables {
 			p.Tables[i].nativeResourceFactsDigest = runtimeSamplingDigest(p.Tables[i])
 		}
@@ -109,6 +111,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 		if !uniqueMembers || !runtimeSamplingPublicationValid(r) {
 			return RuntimeMeasurementPublication{}, false
 		}
+		p.queryWindowEnd = runtimeMeasurementNativeQueryEnd(r.runtimeSamplingPublication.endInclusive)
 		for i := range p.Tables {
 			p.Tables[i].nativeSamplingFactsDigest = runtimeSamplingDigest(p.Tables[i])
 		}
