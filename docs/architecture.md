@@ -1550,6 +1550,8 @@ HMC §291增加可选`runtime_artifact_work_profile`：当前请求声明`repres
 
 HMC §292将目录页面、代表快照和完整保存索引统一到同一次detached publication union。新`saved_index`为内容寻址不可变原件，`saved_index_sha256`绑定完整字节，代表快照包含同一索引路径/哈希；`latest_index_alias`仅保兼容恢复导航，可随之后真实尝试更新，不是该代身份。同字节重存只读复用，冲突/取消不返回成功交付；多文件发布不宣称文件系统事务。合并发布不回灌执行fork，不从JSON恢复查询/来源/选择权限，后续真实重试和未选执行继续新增各自attempt且不改写旧交付。跨分支新见查询的导航调用仍须走普通源授权、准备和真实执行，不给当前fork不存在的快捷ref。
 
+HMC §293统一普通`status`与代表页的发布字段：已有本轮私有选择时，两者都交同次`selection_snapshot`及其SHA和不可变`saved_index`；普通页保候选/查询分页、真实执行覆盖和query_calls，另交代表覆盖。`representative_status`仅增加详细代表/未选名册分页，不是拿同代材料的强制动作；两种status都不选样、不执行。无当前选择时不制造选择文件，历史恢复不授选择/成功权限，新增字段仍受原64KiB页面预算约束。
+
 显式`trace_catalog(discover,request_plan:{view:...})`在当前目录授权后，消费已接受工作声明、用户明确线程/进程及唯一共同窗，生成完整普通查询规格，再复用既有登记和同次规格选择。view必须显式，进程适用域共用普通查询谓词；缺字段、比较侧/多窗绑定歧义、已检测的不支持process/view组合或容量不足返回导航pending，不安装部分计划。最多16规格、代表每组最多5沿用现有工具容量，当前不自动分批超限任务。plain discover、显式queries及普通额外探索/失败重试/未选执行均不变。上下文在目录产生前呈现任务导航，但完成与名册仅由当前真实执行账提供；计划生成不执行查询，不改原生总体、端点、Trace因果投影或自动补齐，也不从历史JSON恢复权限。
 
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
