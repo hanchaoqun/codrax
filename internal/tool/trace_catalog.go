@@ -33,7 +33,7 @@ func (*TraceCatalog) Parameters() json.RawMessage {
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
 	"recursive":{"type":"boolean","description":"Default true. Symbolic links are not followed; skipped and incomplete traversal are disclosed."},
-	"request_plan":{"type":"object","additionalProperties":false,"properties":{"view":{"type":"string","description":"Explicit ordinary trace_query view chosen for the task. Never inferred from the work request, target, answer format or prior result. Omitted view leaves the request pending."}},"description":"Discover-only opt-in: compile the accepted artifact work request's user targets and single common time window into exact plans. Representative mode uses its per-specification budget; exhaustive mode registers all plans without selection. Mutually exclusive with queries and representatives. Missing/unsupported typed inputs leave state unchanged; this does not execute queries or grant source access."},
+	"request_plan":{"type":"object","additionalProperties":false,"properties":{"view":{"type":"string","description":"Explicit ordinary trace_query view chosen for the task. Never inferred from the work request, target, answer format or prior result. Omitted view leaves the request pending."}},"description":"Discover-only opt-in: compile the accepted artifact work request's user targets and single common time window into exact plans. Representative mode already uses its accepted per-specification budget: do not add representatives. Exhaustive mode registers all plans without selection. Mutually exclusive with queries and representatives. For additional filters or manual specifications use queries instead, retaining task targets/window. A rejected mixed call may offer a candidate next_call, not an equivalent automatic rewrite. Missing/unsupported typed inputs leave state unchanged; this does not execute queries or grant source access."},
 	"queries":{"type":"array","maxItems":16,"items":{"type":"object"},"description":"Optional expected trace_query calls for every candidate. Reuse that tool's argument contract, omit source/path. No execution or evidence is produced by planning."},
 	"catalog_id":{"type":"string","description":"Exact ID returned by discover or resume; required for status."},
 	"offset":{"type":"integer","minimum":0,"description":"Navigation page offset, default 0."}
@@ -65,8 +65,7 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	}
 	if p.RequestPlan != nil {
 		if (p.Action != "" && p.Action != "discover") || len(p.Queries) != 0 || p.Representatives != nil || p.Export != nil || p.CatalogID != "" || p.SnapshotPath != "" || p.Offset != 0 {
-			out.Summary = "request_plan requires discover with no queries, representatives, catalog_id, snapshot_path, export or nonzero offset"
-			return out, nil
+			return traceCatalogRequestPlanConflict(ctx, p, out), nil
 		}
 		// Missing task fields cannot turn an unauthorized traversal into a
 		// successful navigation response. The ordinary discovery check repeats
