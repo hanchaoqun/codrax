@@ -37,6 +37,13 @@ func traceCatalogPlanSchema(raw json.RawMessage) json.RawMessage {
 		}
 	}
 	properties := catalog["properties"].(map[string]any)
+	if request, ok := properties["request_plan"].(map[string]any); ok {
+		if fields, ok := request["properties"].(map[string]any); ok {
+			// Share the ordinary explicit view enum, without making omission
+			// default to a different view or hiding typed pending diagnostics.
+			fields["view"] = compact["view"]
+		}
+	}
 	plans := properties["queries"].(map[string]any)
 	plans["items"] = map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"view"}, "properties": compact,

@@ -191,6 +191,9 @@ type RequestModel struct {
 	// performed before full-artifact or explicit-window values may become
 	// deterministic routing authority.
 	RuntimeArtifactScopeProfile *RuntimeArtifactScopeProfile `json:"runtime_artifact_scope_profile,omitempty"`
+	// RuntimeArtifactWorkProfile preserves an explicit per-specification artifact
+	// work budget independently of answer cardinality and code-path selection.
+	RuntimeArtifactWorkProfile *RuntimeArtifactWorkProfile `json:"runtime_artifact_work_profile,omitempty"`
 
 	// RuntimeTargets is the analyzer/tool typed lane for runtime artifact
 	// targets such as trace process IDs, thread IDs, and thread labels. Unlike

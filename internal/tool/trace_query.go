@@ -419,9 +419,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 				Timestamp: time.Now(),
 			}, nil
 		}
-		switch view {
-		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements, tracequery.ViewPreferredFrameRate, tracequery.ViewTransactionHandoffs:
-		default:
+		if !traceQueryViewSupportsProcessScope(view) {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,

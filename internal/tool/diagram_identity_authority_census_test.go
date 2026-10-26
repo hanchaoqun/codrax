@@ -56,12 +56,16 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	// Numeric-query repair checks only where the quoted condition came from.
 	// It neither validates the value nor grants identity membership authority.
 	{"trace_query_event_selection_source.go", "traceQueryEventSelectionSourceRepair"}: true,
+	// Collection-work policy anchors only its source quote. Neither the mode
+	// nor the numeric per-group budget is matched against request text.
+	{"emit_analysis_artifact_work.go", "parseRuntimeArtifactWorkProfile"}: true,
 }
 
 // Keep this new non-diagram owner quote-only: replacing SourceQuote by Value
 // would silently turn provenance into a value/identity substring hard gate.
 var diagramIdentityCensusQuoteOnlyArguments = map[diagramIdentityCensusKey][2]string{
 	{"trace_query_event_selection_source.go", "traceQueryEventSelectionSourceRepair"}: {"rm.RawRequest", "strings.TrimSpace(filter.SourceQuote)"},
+	{"emit_analysis_artifact_work.go", "parseRuntimeArtifactWorkProfile"}:             {"raw", "copy.SourceQuote"},
 }
 
 var diagramIdentityCensusHardArms = map[string]bool{
@@ -237,6 +241,28 @@ func TestDiagramIdentityAuthorityCensus(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("quote-only owner acquired value/identity matching permission: %v", offenders)
+	}
+	// Registering the new planning owner does not grant mode/budget matching
+	// authority. Both precise substitutions must trip the same provenance gate.
+	const workOwner = "emit_analysis_artifact_work.go"
+	for _, nonQuote := range []string{"copy.Mode", "copy.PerSpecificationLimit"} {
+		mutated = map[string]string{workOwner: strings.Replace(files[workOwner],
+			"sourceQuotePresentInCurrentRequest(raw, copy.SourceQuote)",
+			"sourceQuotePresentInCurrentRequest(raw, "+nonQuote+")", 1)}
+		if mutated[workOwner] == files[workOwner] {
+			t.Fatal("work-policy self-red did not mutate the registered call")
+		}
+		offenders, _, err = diagramIdentityAuthorityCensus(mutated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found = false
+		for _, offender := range offenders {
+			found = found || strings.Contains(offender, "parseRuntimeArtifactWorkProfile uses a non-provenance argument")
+		}
+		if !found {
+			t.Fatalf("work-policy owner acquired %s matching permission: %v", nonQuote, offenders)
+		}
 	}
 	// The native participant bridge may reuse the accepted short identity, but
 	// it must not turn quote membership into an arbitrary substring match.

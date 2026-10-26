@@ -90,6 +90,7 @@ type emitAnalysisParams struct {
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
 	RuntimeArtifactScopeProfile  *emitRuntimeArtifactScopeProfileParam  `json:"runtime_artifact_scope_profile"`
+	RuntimeArtifactWorkProfile   *types.RuntimeArtifactWorkProfile      `json:"runtime_artifact_work_profile"`
 	RuntimeTargetProfile         *emitRuntimeTargetProfileParam         `json:"runtime_target_profile"`
 	RuntimeQuestionProfile       *emitRuntimeQuestionProfileParam       `json:"runtime_question_profile"`
 	HistorySelectionProfile      *emitHistorySelectionProfileParam      `json:"history_selection_profile"`
@@ -729,6 +730,7 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_artifact_value_lookup", "confidence"},
 			},
+			"runtime_artifact_work_profile": runtimeArtifactWorkProfileSchema(),
 			"runtime_artifact_scope_profile": map[string]any{
 				"type":        "object",
 				"description": "Required user-scope authority for runtime artifacts. " + skill.AnalysisRuntimeArtifactScopeTeaching,
@@ -1318,6 +1320,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"field_value_profile",
 		"artifact_value_profile",
 		"runtime_artifact_scope_profile",
+		"runtime_artifact_work_profile",
 		"runtime_target_profile",
 		"runtime_question_profile",
 		"history_selection_profile",
@@ -1858,6 +1861,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}
 	}
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
+	runtimeArtifactWorkProfile, runtimeArtifactWorkErr := parseRuntimeArtifactWorkProfile(raw, p.RuntimeArtifactWorkProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
 	runtimeThreadLookups, runtimeThreadLookupErr := parseRuntimeThreadLookups(raw, p.RuntimeThreadLookups)
 	// Request intent can precede discovery/preparation of a directory or path.
@@ -1894,6 +1898,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// remains below after all individual profiles are valid.
 	runtimeProfileErrors := trimNonEmptyStrings([]string{
 		runtimeArtifactScopeErr,
+		runtimeArtifactWorkErr,
 		runtimeTargetErr,
 		runtimeThreadLookupErr,
 		runtimeTargetProfileErr,
@@ -2378,6 +2383,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		FieldValueProfile:               fieldValueProfile,
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
 		RuntimeArtifactScopeProfile:     runtimeArtifactScopeProfile,
+		RuntimeArtifactWorkProfile:      runtimeArtifactWorkProfile,
 		RuntimeTargets:                  runtimeTargets,
 		RuntimeThreadLookups:            runtimeThreadLookups,
 		RuntimeTargetProfile:            runtimeTargetProfile,
@@ -7934,6 +7940,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.RuntimeQuestionProfile != nil {
 		fmt.Fprintf(&b, " runtime_question_profile=%s", rm.RuntimeQuestionProfile.Scope)
+	}
+	if rm.RuntimeArtifactWorkProfile != nil {
+		fmt.Fprintf(&b, " runtime_artifact_work=%s per_specification_limit=%d", rm.RuntimeArtifactWorkProfile.Mode, rm.RuntimeArtifactWorkProfile.PerSpecificationLimit)
 	}
 	if rm.HistorySelectionProfile != nil {
 		fmt.Fprintf(&b, " history_selection=%s/%s", rm.HistorySelectionProfile.Mode, rm.HistorySelectionProfile.ItemKind)

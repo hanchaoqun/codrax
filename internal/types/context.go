@@ -1473,6 +1473,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	if m.requestModel != nil {
 		cp := *m.requestModel
 		cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
+		cp.RuntimeArtifactWorkProfile = CloneRuntimeArtifactWorkProfile(m.requestModel.RuntimeArtifactWorkProfile)
 		cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
 		cp.SourceInventoryProfile = CloneSourceInventoryProfile(m.requestModel.SourceInventoryProfile)
 		out.requestModel = &cp
@@ -3180,6 +3181,7 @@ func (m *MutableState) RequestModel() *RequestModel {
 	cp := *m.requestModel
 	cp.RuntimeThreadLookups = append([]RuntimeThreadLookup(nil), m.requestModel.RuntimeThreadLookups...)
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
+	cp.RuntimeArtifactWorkProfile = CloneRuntimeArtifactWorkProfile(m.requestModel.RuntimeArtifactWorkProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
 	cp.SourceInventoryProfile = CloneSourceInventoryProfile(m.requestModel.SourceInventoryProfile)
 	return &cp
@@ -3198,6 +3200,7 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	cp := rm
 	cp.RuntimeThreadLookups = append([]RuntimeThreadLookup(nil), rm.RuntimeThreadLookups...)
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
+	cp.RuntimeArtifactWorkProfile = CloneRuntimeArtifactWorkProfile(rm.RuntimeArtifactWorkProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(rm.ToolDocumentationRequest)
 	cp.SourceInventoryProfile = CloneSourceInventoryProfile(rm.SourceInventoryProfile)
 	m.requestModel = &cp

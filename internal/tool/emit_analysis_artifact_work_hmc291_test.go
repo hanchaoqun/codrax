@@ -1,0 +1,155 @@
+package tool
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracecatalog"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func TestEmitAnalysisArtifactWorkBudgetHMC291(t *testing.T) {
+	for _, quote := range []string{"每类挑两份代表", "choose two representatives per group", "choose 2 representatives per group"} {
+		t.Run(quote, func(t *testing.T) {
+			request, payload := runtimeIntentPublicPayload(t)
+			request += " " + quote
+			payload["runtime_artifact_work_profile"] = map[string]any{"mode": "representative", "per_specification_limit": 2, "source_quote": quote}
+			data, _ := json.Marshal(payload)
+			ctx := &types.BusContext{Mutable: types.NewMutableState(request)}
+			result, err := (&EmitAnalysis{}).Execute(ctx, data)
+			if err != nil || !result.Success {
+				t.Fatalf("explicit work policy rejected: %+v %v", result, err)
+			}
+			rm := ctx.Mutable.RequestModel()
+			if rm.RuntimeArtifactWorkProfile == nil || !rm.RuntimeArtifactWorkProfile.Valid() || rm.RuntimeArtifactWorkProfile.PerSpecificationLimit != 2 || rm.RuntimeArtifactWorkProfile.SourceQuote != quote {
+				t.Fatalf("per-group policy not accepted: %+v", rm.RuntimeArtifactWorkProfile)
+			}
+			if rm.EnumerationBoundary != nil || emitAnalysisHasRuntimeArtifactCarrier(ctx) || len(ctx.Mutable.TraceCatalogs()) != 0 {
+				t.Fatal("work policy became answer cardinality, prepared input, or execution")
+			}
+			if len(rm.RuntimeTargets) != 2 || !rm.RuntimeQuestionProfile.BoundedFactSet() {
+				t.Fatal("work policy changed original target or answer universe")
+			}
+			rm.RuntimeArtifactWorkProfile.PerSpecificationLimit = 5
+			if ctx.Mutable.RequestModel().RuntimeArtifactWorkProfile.PerSpecificationLimit != 2 {
+				t.Fatal("retrieved profile aliases mutable state")
+			}
+		})
+	}
+}
+
+func TestEmitAnalysisArtifactWorkInvalidHMC291(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, quote string
+		budget            int
+	}{
+		{"unknown_mode", "random", "inspect each group", 2},
+		{"zero", "representative", "inspect each group", 0},
+		{"negative_budget", "representative", "inspect each group", -1},
+		{"exhaustive_budget", "exhaustive", "inspect each group", 2},
+		{"missing_quote", "representative", "", 2},
+		{"invented_quote", "representative", "from tool output", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request, payload := runtimeIntentPublicPayload(t)
+			payload["runtime_artifact_work_profile"] = map[string]any{"mode": tc.mode, "per_specification_limit": tc.budget, "source_quote": tc.quote}
+			data, _ := json.Marshal(payload)
+			ctx := &types.BusContext{Mutable: types.NewMutableState(request + " inspect each group")}
+			result, err := (&EmitAnalysis{}).Execute(ctx, data)
+			if err != nil || result.Success || ctx.Mutable.RequestModel() != nil || !strings.Contains(result.Summary, "runtime_artifact_work_profile") {
+				t.Fatalf("bad policy should be locally actionable and unaccepted: %+v %v", result, err)
+			}
+		})
+	}
+}
+
+func TestEmitAnalysisArtifactWorkOptionalAndCapacityHMC291(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		profile *types.RuntimeArtifactWorkProfile
+	}{
+		{"absent", nil},
+		{"exhaustive", &types.RuntimeArtifactWorkProfile{Mode: types.RuntimeArtifactWorkExhaustive, SourceQuote: "inspect each group"}},
+		{"over_tool_capacity_preserved", &types.RuntimeArtifactWorkProfile{Mode: types.RuntimeArtifactWorkRepresentative, PerSpecificationLimit: 6, SourceQuote: "six per group"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request, payload := runtimeIntentPublicPayload(t)
+			request += " inspect each group, six per group"
+			if tc.profile != nil {
+				payload["runtime_artifact_work_profile"] = tc.profile
+			}
+			data, _ := json.Marshal(payload)
+			ctx := &types.BusContext{Mutable: types.NewMutableState(request)}
+			result, err := (&EmitAnalysis{}).Execute(ctx, data)
+			if err != nil || !result.Success {
+				t.Fatalf("%+v %v", result, err)
+			}
+			got := ctx.Mutable.RequestModel().RuntimeArtifactWorkProfile
+			if tc.profile == nil {
+				if got != nil {
+					t.Fatal("raw words synthesized work policy")
+				}
+			} else if got == nil || *got != *tc.profile {
+				t.Fatalf("request budget capped or replaced: %+v", got)
+			}
+		})
+	}
+}
+
+func TestEmitAnalysisArtifactWorkSchemaTeachingHMC291(t *testing.T) {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(schema.Properties["runtime_artifact_work_profile"]), "per_specification_limit") {
+		t.Fatal("missing public schema")
+	}
+	for _, field := range schema.Required {
+		if field == "runtime_artifact_work_profile" {
+			t.Fatal("optional work adds universal mental load")
+		}
+	}
+}
+
+// The plan is generated by the new public request_plan input from the actual
+// accepted analyzer state. This is deterministic wiring, not a natural-model
+// routing claim, and no correct queries array is injected into the test.
+func TestEmitAnalysisArtifactWorkToNativeExecutionHMC291(t *testing.T) {
+	request, payload := runtimeIntentPublicPayload(t)
+	request += " 每类挑两份代表"
+	payload["runtime_artifact_work_profile"] = map[string]any{"mode": "representative", "per_specification_limit": 2, "source_quote": "每类挑两份代表"}
+	bus := scopedRepresentativesBus285(t)
+	bus.Mutable = types.NewMutableState(request)
+	data, _ := json.Marshal(payload)
+	accepted, err := (&EmitAnalysis{}).Execute(bus, data)
+	if err != nil || !accepted.Success {
+		t.Fatalf("analysis acceptance: %+v %v", accepted, err)
+	}
+	page := catalogCall285(t, bus, `{"request_plan":{"view":"resource_stack"}}`)
+	c := bus.Mutable.TraceCatalogs()[0]
+	s, selected := c.Representatives()
+	if !selected || s.Coverage.Members != 8 || s.Coverage.Clusters != 2 || s.Coverage.Selected != 4 || s.Coverage.BudgetNotSelected != 4 {
+		t.Fatalf("accepted task matrix lost: %+v", s)
+	}
+	var calls map[string]json.RawMessage
+	if err := json.Unmarshal(page["query_calls"], &calls); err != nil || len(calls) != 4 {
+		t.Fatalf("calls=%s: %v", page["query_calls"], err)
+	}
+	for _, call := range calls {
+		out, err := (&TraceQuery{}).Execute(bus, call)
+		if err != nil || !out.Success {
+			t.Fatalf("ordinary native execution: %+v %v", out, err)
+		}
+	}
+	after, _ := c.Representatives()
+	if after.SelectionID != s.SelectionID || after.Coverage.SelectedOutcomes[tracecatalog.OutcomeSuccess] != 4 || after.Coverage.Outcomes[tracecatalog.OutcomeNotExecuted] != 4 {
+		t.Fatalf("real outcomes mismatch: %+v", after)
+	}
+	if bus.Mutable.RequestModel().RuntimeArtifactWorkProfile.PerSpecificationLimit != 2 {
+		t.Fatal("native execution mutated task budget")
+	}
+}

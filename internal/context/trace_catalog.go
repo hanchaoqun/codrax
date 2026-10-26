@@ -16,6 +16,8 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString(formatTraceCatalogWorkRequest(ac))
+	catalogHeaderWritten := false
 	for _, c := range ac.Mutable.TraceCatalogs() {
 		if b.Len() >= (24<<10)-512 {
 			b.WriteString("Additional catalog navigation omitted by the 24 KiB context budget; use trace_catalog status for the current catalogs.\n")
@@ -23,9 +25,10 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		}
 		execution := c.CurrentExecution()
 		s := execution.Snapshot
-		if b.Len() == 0 {
+		if !catalogHeaderWritten {
 			b.WriteString("Capture/object query directory — navigation and last recorded execution status only. Window numbers are argument bounds; endpoint inclusion is unknown unless explicitly recorded, so use the actual query's boundary contract. Revalidate sources before reuse. It does not prove measurements, capture completeness, cross-capture clock alignment or causality. Use the actual query evidence for findings; do not count failed, stale or unexecuted work as zero.\n")
 			b.WriteString(tracecatalog.ExecutionCoverageBoundary + "\n")
+			catalogHeaderWritten = true
 		}
 		counts := map[string]int{}
 		for _, q := range s.Queries {
@@ -100,6 +103,26 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		}
 	}
 	return b.String()
+}
+
+// Accepted work is navigation intent, not a claim that any existing catalog
+// already covers this task. It stays visible before discovery, while the
+// existing current_execution/selection fields remain the sole status source.
+func formatTraceCatalogWorkRequest(ac *types.AgentContext) string {
+	rm := ac.Mutable.RequestModel()
+	if rm == nil && ac.AnalysisIR != nil {
+		rm = &ac.AnalysisIR.RequestModel
+	}
+	if rm == nil || !rm.RuntimeArtifactWorkProfile.Valid() {
+		return ""
+	}
+	work := rm.RuntimeArtifactWorkProfile
+	row, _ := json.Marshal(struct {
+		Mode                  types.RuntimeArtifactWorkMode `json:"mode"`
+		PerSpecificationLimit int                           `json:"per_specification_limit,omitempty"`
+	}{work.Mode, work.PerSpecificationLimit})
+	return "runtime_artifact_work_request=" + string(row) + "\n" +
+		"This is accepted task intent, not plans, selection, completed queries or answer size. To plan directory work, explicitly choose an ordinary query view and call trace_catalog discover with request_plan:{view:...} and an authorized root. It reuses accepted user targets and a single common window without guessing them; missing inputs remain pending. Do not mix request_plan with explicit queries or representatives. Execute returned query_calls through trace_query and inspect actual status; ordinary exploratory queries remain allowed.\n"
 }
 
 func formatTraceCatalogExecutionGroups(e tracecatalog.ExecutionView, budget int) string {

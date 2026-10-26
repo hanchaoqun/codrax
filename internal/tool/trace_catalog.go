@@ -23,7 +23,7 @@ type TraceCatalog struct {
 
 func (*TraceCatalog) Name() string { return "trace_catalog" }
 func (*TraceCatalog) Description() string {
-	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching + " " + traceCatalogExportTeaching
+	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For an accepted artifact work request, explicit request_plan.view reuses its typed targets, common window and per-specification budget; missing inputs remain pending. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence. " + traceCatalogResumeTeaching + " " + traceCatalogRepresentativesTeaching + " " + traceCatalogExportTeaching
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
 	return traceCatalogPlanSchema(json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{
@@ -33,6 +33,7 @@ func (*TraceCatalog) Parameters() json.RawMessage {
 	"snapshot_path":{"type":"string","description":"Resume only: exact currently authorized historical navigation JSON. This file grants no access to its members or parent directory."},
 	"root":{"type":"string","description":"Selected capture directory (default .), inside the active repository or a host-pinned path."},
 	"recursive":{"type":"boolean","description":"Default true. Symbolic links are not followed; skipped and incomplete traversal are disclosed."},
+	"request_plan":{"type":"object","additionalProperties":false,"properties":{"view":{"type":"string","description":"Explicit ordinary trace_query view chosen for the task. Never inferred from the work request, target, answer format or prior result. Omitted view leaves the request pending."}},"description":"Discover-only opt-in: compile the accepted artifact work request's user targets and single common time window into exact plans. Representative mode uses its per-specification budget; exhaustive mode registers all plans without selection. Mutually exclusive with queries and representatives. Missing/unsupported typed inputs leave state unchanged; this does not execute queries or grant source access."},
 	"queries":{"type":"array","maxItems":16,"items":{"type":"object"},"description":"Optional expected trace_query calls for every candidate. Reuse that tool's argument contract, omit source/path. No execution or evidence is produced by planning."},
 	"catalog_id":{"type":"string","description":"Exact ID returned by discover or resume; required for status."},
 	"offset":{"type":"integer","minimum":0,"description":"Navigation page offset, default 0."}
@@ -49,6 +50,7 @@ type traceCatalogParams struct {
 	SnapshotPath    string                              `json:"snapshot_path"`
 	Representatives *tracecatalog.RepresentativeOptions `json:"representatives"`
 	Export          *traceCatalogExportParams           `json:"export"`
+	RequestPlan     *traceCatalogRequestPlanParams      `json:"request_plan"`
 }
 
 func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (types.ToolResult, error) {
@@ -60,6 +62,52 @@ func (t *TraceCatalog) Execute(ctx *types.BusContext, raw json.RawMessage) (type
 	if ctx == nil || ctx.Mutable == nil {
 		out.Summary = "trace_catalog needs current run state"
 		return out, nil
+	}
+	if p.RequestPlan != nil {
+		if (p.Action != "" && p.Action != "discover") || len(p.Queries) != 0 || p.Representatives != nil || p.Export != nil || p.CatalogID != "" || p.SnapshotPath != "" || p.Offset != 0 {
+			out.Summary = "request_plan requires discover with no queries, representatives, catalog_id, snapshot_path, export or nonzero offset"
+			return out, nil
+		}
+		// Missing task fields cannot turn an unauthorized traversal into a
+		// successful navigation response. The ordinary discovery check repeats
+		// immediately before filesystem access after complete plan validation.
+		if _, err := traceCatalogAuthorizedRoot(ctx, p.Root); err != nil {
+			out.Summary, out.Repair = err.Error(), traceCatalogScopeRepair(err)
+			return out, nil
+		}
+		if err := contextFromBus(ctx).Err(); err != nil {
+			out.Summary = err.Error()
+			return out, nil
+		}
+		proposal, err := traceCatalogRequestPlan(ctx.Mutable.RequestModel(), p.RequestPlan.View)
+		if err != nil {
+			out.Summary = err.Error()
+			return out, nil
+		}
+		if proposal.Status != "ready" {
+			encoded, _ := json.Marshal(proposal)
+			out.Success, out.Summary = true, string(encoded)
+			return out, nil
+		}
+		for _, query := range proposal.Queries {
+			encoded, err := json.Marshal(query)
+			if err != nil {
+				out.Summary = err.Error()
+				return out, nil
+			}
+			p.Queries = append(p.Queries, encoded)
+		}
+		p.Representatives = proposal.Representatives
+		// Re-enter the existing public plan validation with the complete typed
+		// expansion, rather than creating a second catalog/selection executor.
+		p.RequestPlan = nil
+		raw, _ = json.Marshal(struct {
+			Action          string                              `json:"action,omitempty"`
+			Root            string                              `json:"root,omitempty"`
+			Recursive       *bool                               `json:"recursive,omitempty"`
+			Queries         []json.RawMessage                   `json:"queries"`
+			Representatives *tracecatalog.RepresentativeOptions `json:"representatives,omitempty"`
+		}{p.Action, p.Root, p.Recursive, p.Queries, p.Representatives})
 	}
 	if p.Export != nil || p.Action == "export" {
 		return traceCatalogExport(ctx, p, out)
