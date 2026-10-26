@@ -1609,14 +1609,18 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	repairDebtCheckpoint := renderToolHistoryRepairDebtCheckpoint(ctx, toolHistoryRepairDebtCheckpointRecordLimit)
 	navigationCheckpoint := renderToolHistoryNavigationCheckpoint(ctx)
 	anchorCheckpoint := renderToolHistoryAnchorCheckpoint(ctx)
+	currentNavigationCheckpoint := renderToolHistoryCurrentNavigationCheckpoint(ctx, toolHistoryCurrentNavigationMaxBytes)
 	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" &&
 		observationCheckpoint == "" && repairDebtCheckpoint == "" && navigationCheckpoint == "" &&
-		anchorCheckpoint == "" {
+		anchorCheckpoint == "" && currentNavigationCheckpoint == "" {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(toolHistoryPruneCheckpointPrefix)
 	b.WriteString("\nOlder raw tool-result messages may be elided after this point. This checkpoint replays already accepted structured state only; it is not new evidence and not system-written answer text. Continue from it incrementally instead of guessing from pruned raw output.\n")
+	// Reserve within the existing total cap, before potentially large evidence
+	// sections. Complete navigation JSON must not be cut by the final truncation.
+	b.WriteString(currentNavigationCheckpoint)
 	if len(citable) > 0 {
 		fmt.Fprintf(&b, "\nAccepted citable evidence: %d", len(citable))
 		if nonCitable > 0 {
@@ -1692,6 +1696,10 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 		if reason != "" {
 			fmt.Fprintf(&b, "- reason: %s\n", logging.Truncate(reason, 700))
 		}
+	}
+	if currentNavigationCheckpoint != "" && b.Len() > toolHistoryPruneCheckpointMaxBytes {
+		// logging.Truncate appends a byte-count suffix; leave room for it too.
+		return logging.Truncate(b.String(), toolHistoryPruneCheckpointMaxBytes-64)
 	}
 	return logging.Truncate(b.String(), toolHistoryPruneCheckpointMaxBytes)
 }
