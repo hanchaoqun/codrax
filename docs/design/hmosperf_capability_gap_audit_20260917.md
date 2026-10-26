@@ -10255,3 +10255,39 @@ A完整HTML5表与两棵安全系统文本投影树，B完整317行MD/HTML17表�
 后继v2唯一差异为HMC283测试：原期待迁移到中性未知，并强化同次IO窗口/10ms分母/4配对6发起/原在途值、成员/时序/三表面、原件/结果/因果投影不变。定向及race各2顶层/4子例PASS；完整agent包PID59332，UTC01:29:01.078229–01:35:43.779800，exit0，3574顶层/3693子例PASS、1归档回放材料未指定SKIP，日志SHA`b057d89ea067ccb9d6640c4928f17fda9c13e67deb7825ed139e9d57191234f5`。v2冻结7347输入，生产及实际CLI与v1相同；没有第二次全仓或模型重跑，不回签原FAIL。
 
 v2另封21件、逐SHA重验v1的240件，索引SHA`005c423e72b4565c3d20e0ad9ecd0fb04558097caed2afe76adece80b6bcf8f1`。代码`fd20f745f91537e6a73bc18730fd071031d8e215`已普通推送，文档分笔；最终两提交树7347输入/远端main/clean及261原件凭证见[批汇总](../../eval/parallel_selected_summary_hmc_window_endpoint_sampling_20261025.md)、[人工审计](../../eval/parallel_selected_summary_hmc_window_endpoint_sampling_20261025_manual_audit.md)。完整能力0新增、共享子能力1组、两组整答验收债归原54；独立文档审阅已收窄参考能力与完整栈措辞，无实质阻断。
+
+## 291. 代表工作预算、目标窗口到真实计划交接与只读登记轮换（2026-10-25）
+
+基线`f883098394d7d9aae8e468fc02433ddef9719d0c`，独立重核79唯一/0重复＝25完整交付＋54开放，18类及31待实施/17部分/3待验收/2验收中/1持续不变。完整能力本批新增0，共享生产子能力1组；两组本批完整验收欠项仍在既有父任务内，不用测试数或子文件数冲减54。
+
+### 291.1 参考意图与通用结构交接
+
+参考`core/batch/closure/select.py`消费已有manifest/cluster、稳定有界选择与完整成员保留；它不是自然语言计划器或本轮执行凭证。`core/query_engine.py`保真实参数/原总体/预览分层。本项目缺口位于选择器之前：每组代表预算不该借答案枚举数或源码实现选择profile，也不能用十进制字符硬门抹去中文“两份”。不改正确排名/统计器，只补独立typed工作声明及显式计划编译。
+
+新增可选`runtime_artifact_work_profile`含representative/exhaustive及每规格预算，同步schema/解析/局部修补/受理/教学/RequestModel复制；仅用当前原文逐字引文锚定来源，模式及整数按typed字段验证，不以问答关键词判意图或身份。代表预算>5仍保原值，工具返回pending；无预算代表意图暂不建profile，不能声称已覆盖。
+
+模型显式`request_plan.view`后，受理线程/进程目标、唯一共同显式窗与授权root生成完整普通queries，再复用原登记/代表选择/真实执行。缺窗/冲突/多窗比较/不支持process-view/超容量保持pending，不猜默认或发布前缀；普通discover不暗选样，工具探索cursor不升任务主体。process能力与原生查询共享精确枚举；4源×双线程公开链路从实际emit受理到8/2/4/4及4次普通取数，未选额外查询与原选择互不覆盖。原查询总体、Trace因果投影/自动补齐、链上根因资格及WAL均未改。
+
+### 291.2 双例并行，各一次，完整人工0/2
+
+7356输入及实际标准CLI冻结；A/B实际exec UTC02:26:59.441247/.441251，模型请求交叠21.341秒。A正常exit0且新入口自然采用，真实8计划/2规格组/4选4未选，所有8独立原生结果与四构造SQLite原件oracle一致（非四独立设备采集或新格式验收）。31次trace_query含memo复用，最终6success/2empty；所需半开窗/线程/原事件与物理帧正确。完整人工FAIL：正文错绑10.040事件的栈、无证“成对节奏”、a/c代表覆盖未选b/d画像，3事件/2统计组又说一致。18表MD/HTML逐cell同源但错误自由正文同时存在；二进制首行引文进入上下文并使输出含非法UTF-8。图未生成N/A，不签像素QA，根因合同未激活。
+
+A实际Finalizer有正确当前8记录/31尝试和原生明细，解释预览只投前2/7条却含错误选择画像及“101三条全是分配”；其余5条未投不算已投污染。不能证明模型唯一心理原因，但可确认两种冲突材料同场。原生统计器不欠这份正确事实。一次原代表离线助手以真实最后status三元组运行exit1，不刷新、不改题、不追加模型求绿。
+
+B是自然父controller入口，不是完整CLI/自然源码创作；operator公共夹具先有真实源码交付和历史测试。本次2请求、1次真实source验证PASS，登记planner/plan、恢复child、新登记执行及五快照往返均未触发。顶层30.36秒exit1；收据因等待A后收割而更晚，不能当B模型时长。当前1断言/2命令与旧operator执行分离；两份同字节ChangeReport为同一执行，实际typed final诚实blocked/缺合同见证。24项原件完整性核验PASS不是功能PASS，`fresh_process_restore=true`配置不证明恢复发生。完整FAIL保留18.5。
+
+### 291.3 新证共享缺口、下一ROI与权限边界
+
+1. **11.2/16.4/18.4：同代状态交付**。Catalog.Save在detached clone合并跨fork历史并写固定alias，随后selection仍取局部c；同次返回缺共同发布视图，alias又会被之后普通查询覆盖。快照12次/最终31次、7/8成员count不同；a101两边latest27却3→6，证明不只是status后重查。未保留该瞬间alias字节，不宣称逐字节还原。下一批从同一个合并视图生成不可变索引/选择对，再核自然最终交付；保合法重试、未选执行和分支合并，不因助手FAIL限制正常工作。
+2. **18.4/18.5：恢复预算/原子准入**。恢复run无Budget，普通verify模型workflow.max_batches=1被reducer采为硬上限；展示used0/1而准入数名册，系统normalize补证后先落新verifying批才判2>1，planner未开始。正常新run默认5/1，不能外推全部入口必败。应按可信预算来源和实际名册统一显示/准入，在提交前拒绝真实超限；保显式有限预算和来源/合同门，不为过例加上限或自动绑定断言。
+3. **16.4/18.4：同源成文与适用域**。原生事实已在场，调查解释不能重新授组/配对/调用关系；SQLite内容引用只证明容器可读，不能作资源数值主证据，非法字节应在共享材料/展示边界处理而非单题替换。未投递解释不算已送污染，完整原件与失败显示副本分离留存。
+
+旧采样解释越权、IO解释失败、计算权限新分支自然未触发继续留账；17.6新真实格式/可运行工具/原生宿主材料齐即提级，不重复包装已有SQLite冲交付。05.2/05.3校准与14.1协议保材料前提；17.7活跃WAL未满足零副作用，生产NO-GO，无接线。
+
+### 291.4 验证与分笔发布
+
+新字段/新入口缺失及process不支持组合的公开RED保留。最终相关4包590顶层/451子例PASS、1专用恢复子进程helper未启用SKIP；race2包6顶层/12子例PASS，工具/context相关及race、标准make通过。v1唯一全仓PID61891，UTC02:26:57.034980–02:42:22.936167，exit1：96包PASS/12无测试/1包FAIL，唯一失败是新引文来源校验owner未登记到结构普查；日志SHA`942361f7fbda26d2114a794f3dcc01513f72e7fcba7be747b8579723d5a17df7`，7356输入前后相同。
+
+先封276件v1原件，索引SHA`324d3ef0a5fd6f3d31ce1dde849c7341494e2c231d771ebb81b7733b67720046`；后继仅测试精确登记该owner、锁raw/copy.SourceQuote两参并加mode/预算变异self-red。既有身份authority/旧self-red不松，生产及实际CLI不变。v2冻结7356输入SHA`1a0980a41deb2b1a3c0ad8ab7cf1e53a1bcebef7ecc098f529c70a034056634f`，只有该测试差异，不回签v1全仓或自然FAIL。
+
+后继相关/race各11顶层/24子例PASS；完整tool包PID51655于UTC02:43:43.680788–02:55:49.355247，exit0，7575顶层/7364子例PASS、25顶层/12子例SKIP、零FAIL，日志SHA`6499b0e41a924663dede7397afa0e299a97f940366772b49dc6083aed653fb90`；输入前后不变，不是第二次全仓。另封16件共292件，v2索引SHA`a3aab5fa1c54aad7b8756b907bff722180ba99f8df5daafb8adb1ae37f16aeb9`，v1逐SHA复核不变。代码`adf6622033b9a8958057e6d04500edb75bd9075b`与文档分笔普通推送，两提交树/远端main/clean及原件终态见[批汇总](../../eval/parallel_selected_summary_hmc_artifact_work_registration_20261025.md)、[人工审计](../../eval/parallel_selected_summary_hmc_artifact_work_registration_20261025_manual_audit.md)。独立文档与测试迁移审查无阻断；完整能力新增0/共享子能力1组/54开放保持。
