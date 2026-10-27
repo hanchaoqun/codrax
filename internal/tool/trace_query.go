@@ -14438,7 +14438,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Summary:         episode.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyChainRelevance, episode.ChainRelevance},
-				{"root_cause_eligibility", episode.RootCauseEligibility},
+				{types.TraceNoteKeyIORootCauseEligibility, episode.RootCauseEligibility},
 				// SELF-ALL (§29.61.2): typed on-chain proof basis — a self-basis
 				// verdict must never read as a chain-window overlap claim.
 				{types.TraceNoteKeyOnChainBasis, episode.OnChainBasis},

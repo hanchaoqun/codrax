@@ -55,7 +55,16 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	seen := map[string]bool{}
 	for _, projection := range set.Projections {
 		applyProjectionMetadata(contract, projection)
+		principalWindowAuthoritative := types.TraceCausalProjectionPrincipalWindowAuthoritative(projection)
 		for _, node := range candidateNodes(projection) {
+			// A physical occurrence inside the principal window does not make
+			// its exploratory query board a principal-window cause. Share the
+			// rank-roster/value eligibility boundary; retain all original
+			// measurements and ledger IDs, and leave unknown/multi-board scope
+			// compatible when no independent principal-window authority exists.
+			if principalWindowAuthoritative && !types.TraceCausalProjectionNodeMatchesPrincipalWindow(node, projection.WindowStartTs, projection.WindowEndTs) {
+				continue
+			}
 			candidate, ok := compileCandidate(projection, node, registryHash, authority)
 			if !ok || seen[candidate.Decision.CandidateID] {
 				continue

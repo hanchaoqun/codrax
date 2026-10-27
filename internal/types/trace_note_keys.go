@@ -496,6 +496,10 @@ const (
 	TraceNoteKeyIOWakeupLine                   = "io_wakeup_line"
 )
 
+// TraceNoteKeyIORootCauseEligibility is the IO episode's display-only
+// eligibility label. No consumer parses this rich note as a causal credential.
+const TraceNoteKeyIORootCauseEligibility = "root_cause_eligibility"
+
 // IO pressure caliber family (CBZ-B2-IO-CALIBER, 2026-07-23). These notes
 // carry the exact aggregate constituents and the evidence-quality ceiling
 // into the system-authored projection. They are display/authority inputs:
@@ -2484,6 +2488,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"ambiguous_cohorts", "io", TraceNoteCarrierDisplayOnly},
 	{"pairing_suppressed", "io", TraceNoteCarrierDisplayOnly},
 	{"signal", "io", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIORootCauseEligibility, "io", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyIOPressureSignal, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureEvidenceQuality, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureScoreCaliber, "io_pressure_caliber", TraceNoteCarrierHardConsumer},

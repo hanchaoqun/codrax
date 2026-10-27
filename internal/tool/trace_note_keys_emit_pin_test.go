@@ -1289,6 +1289,10 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		LineStart:      1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
 	})
 	records := traceQueryTypedObservations(fixture, "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
+	// Exercise optional wait operands through the public producer, retaining
+	// each record's own physical source/query rather than borrowing the
+	// synthetic full.systrace fixture's coordinates or fabricating a note.
+	records = append(records, traceNoteKeysEmitMeasuredWaitFixtureHMC301(t)...)
 	// Exercise the new contract carrier through real SQLite preparation and
 	// public trace_query publication, not a hand-written note or exemption.
 	resourcePath, err := filepath.Abs("../../eval/fixtures/hmosperf_native_resource_stack/capture.data")

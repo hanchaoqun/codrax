@@ -576,6 +576,7 @@ var traceNoteKeyGoldenRows = []string{
 	"restricted_runnable|cpu_load|display_only",
 	"restriction_proof|cpu_load|display_only",
 	"ret|io|display_only",
+	"root_cause_eligibility|io|display_only",
 	"routing|thread_selection|soft_consumer",
 	"runnable|state|hard_consumer",
 	// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): the typed below-RT
