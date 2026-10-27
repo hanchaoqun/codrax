@@ -6843,6 +6843,9 @@ func answerDocRuntimeFactAuthorityRowWithOwnerScope(record types.ObservationReco
 			parts = append(parts, fmt.Sprintf("%s=`%s`", label, value))
 		}
 	}
+	if wait, ok := types.DecodeTraceWakeupMeasuredWait(record); ok {
+		parts = append(parts, types.TraceWakeupMeasuredWaitDisplay(wait))
+	}
 	if strings.EqualFold(predicate, "io_latency") {
 		appendNote("request_residence", types.TraceNoteKeyIORequestResidence)
 		appendNote("request_residence_caliber", types.TraceNoteKeyIORequestResidenceCaliber)

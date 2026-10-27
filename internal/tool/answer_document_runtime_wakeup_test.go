@@ -134,7 +134,17 @@ func TestRuntimeWakeupAuthorityNegativeMatrix(t *testing.T) {
 					case "changed_event":
 						r.Span.StartTs += .0001
 					case "duplicate_carrier":
-						r.RichNotes = append(r.RichNotes, r.RichNotes[len(r.RichNotes)-1])
+						found := false
+						for _, note := range r.RichNotes {
+							if strings.HasPrefix(note, traceWakeupEventNote) {
+								r.RichNotes = append(r.RichNotes, note)
+								found = true
+								break
+							}
+						}
+						if !found {
+							t.Fatal("fixture missing exact event carrier")
+						}
 					case "conflicting_event":
 						copyR := *r
 						copyR.ID += ":conflict"

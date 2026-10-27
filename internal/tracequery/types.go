@@ -6228,21 +6228,22 @@ type WakeupEdge struct {
 	// scheduling delay from sched_wakeup to the later switch-in. The legacy
 	// JSON key is retained for wire compatibility; LatencyCaliber makes the
 	// phase boundary explicit for every consumer.
-	LatencyMs                   float64 `json:"latency_ms,omitempty"`
-	LatencyCaliber              string  `json:"latency_caliber,omitempty"`
-	WakerPriority               int     `json:"waker_priority,omitempty"`
-	WakerPriorityClass          string  `json:"waker_priority_class,omitempty"`
-	WakerPrioritySource         string  `json:"waker_priority_source,omitempty"`
-	WakerPriorityArtifactSource string  `json:"waker_priority_artifact_source,omitempty"`
-	WakeePriority               int     `json:"wakee_priority,omitempty"`
-	WakeePriorityClass          string  `json:"wakee_priority_class,omitempty"`
-	WakeePrioritySource         string  `json:"wakee_priority_source,omitempty"`
-	WakeePriorityArtifactSource string  `json:"wakee_priority_artifact_source,omitempty"`
-	WakeePriorityAuthority      string  `json:"wakee_priority_authority,omitempty"`
-	PriorityRelation            string  `json:"priority_relation,omitempty"`
-	PriorityRelationCaliber     string  `json:"priority_relation_caliber,omitempty"`
-	PriorityInversionCandidate  bool    `json:"priority_inversion_candidate,omitempty"`
-	EvidenceLine                int     `json:"evidence_line,omitempty"`
+	LatencyMs                   float64                        `json:"latency_ms,omitempty"`
+	LatencyCaliber              string                         `json:"latency_caliber,omitempty"`
+	MeasuredWait                *types.TraceWakeupMeasuredWait `json:"measured_wait,omitempty"`
+	WakerPriority               int                            `json:"waker_priority,omitempty"`
+	WakerPriorityClass          string                         `json:"waker_priority_class,omitempty"`
+	WakerPrioritySource         string                         `json:"waker_priority_source,omitempty"`
+	WakerPriorityArtifactSource string                         `json:"waker_priority_artifact_source,omitempty"`
+	WakeePriority               int                            `json:"wakee_priority,omitempty"`
+	WakeePriorityClass          string                         `json:"wakee_priority_class,omitempty"`
+	WakeePrioritySource         string                         `json:"wakee_priority_source,omitempty"`
+	WakeePriorityArtifactSource string                         `json:"wakee_priority_artifact_source,omitempty"`
+	WakeePriorityAuthority      string                         `json:"wakee_priority_authority,omitempty"`
+	PriorityRelation            string                         `json:"priority_relation,omitempty"`
+	PriorityRelationCaliber     string                         `json:"priority_relation_caliber,omitempty"`
+	PriorityInversionCandidate  bool                           `json:"priority_inversion_candidate,omitempty"`
+	EvidenceLine                int                            `json:"evidence_line,omitempty"`
 	// Branch mirrors the owning branch ordinal of the edge's From/To nodes
 	// (they share one branch by construction — edges never cross branches).
 	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).

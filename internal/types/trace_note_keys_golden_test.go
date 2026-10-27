@@ -798,6 +798,7 @@ var traceNoteKeyGoldenRows = []string{
 	"wakeup_edge_census_target_wakee|chain_path|soft_consumer",
 	"wakeup_event_instance|chain_path|soft_consumer",
 	"wakeup_latency_caliber|chain_path|soft_consumer",
+	"wakeup_measured_wait|chain_path|display_only",
 	"wakeup_ts|chain_path|hard_consumer",
 	"weight_unit|perf|display_only",
 	"window|anchor_window|anchor_window",

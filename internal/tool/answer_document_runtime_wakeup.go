@@ -30,6 +30,20 @@ func decodeRuntimeWakeupEvent(r types.ObservationRecord) (traceWakeupEvent, bool
 	return types.DecodeRuntimeWakeupEvent(r)
 }
 
+func traceQueryWakeupMeasuredWaitNotes(ref types.ObservationSourceRef, edge tracequery.WakeupEdge) []string {
+	if !edge.MeasuredWait.Valid() {
+		return nil
+	}
+	p := types.TraceWakeupMeasuredWaitPublication{Path: ref.Path, QueryScopeID: ref.QueryScopeID, PayloadRef: ref.PayloadRef,
+		Wakee: types.RuntimeWakeupThread(edge.Wakee), WakeupLine: edge.WakeupLine, Wait: *edge.MeasuredWait,
+		QueryStartTs: ref.QueryWindowStartTs, QueryEndTs: ref.QueryWindowEndTs}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return nil
+	}
+	return []string{types.TraceNoteKeyWakeupMeasuredWait + "=" + string(b)}
+}
+
 type wakeupDiagramRelationProvider struct{ request *types.RequestModel }
 
 func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger) []RuntimeDiagramRelation {

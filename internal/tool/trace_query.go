@@ -5142,7 +5142,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if edge.PriorityRelationCaliber != "" {
 				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (%s latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t [%s]\n",
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (%s latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t [%s]%s\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine,
 				types.TraceWakeupPreWaitDisplay(traceThreadLabel(edge.Wakee), fmt.Sprintf("%.3f", edge.LatencyMs)),
 				sanitizeForBanner(edge.LatencyCaliber),
@@ -5151,7 +5151,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				priorityProof,
 				sanitizeForBanner(traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)),
 				traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber),
-				types.RuntimeWakeupProcessDisplay(types.RuntimeWakeupThread(edge.Waker), types.RuntimeWakeupThread(edge.Wakee)))
+				types.RuntimeWakeupProcessDisplay(types.RuntimeWakeupThread(edge.Waker), types.RuntimeWakeupThread(edge.Wakee)), traceQueryWakeupMeasuredWaitSuffix(edge))
 		}
 		// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
 		// WINDOW-TOTAL raw wakeup counts on the query-time face too
@@ -10189,7 +10189,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Value:       traceQueryObservationMSValue(edge.LatencyMs),
 				Unit:        "ms",
 				Summary:     traceQueryWakeupEdgeSummary(edge),
-				RichNotes:   append(traceQueryTypedWakeupEdgeRichNotes(edge, edgePath), traceQueryWakeupEventNote(ref, edge)),
+				RichNotes:   append(append(traceQueryTypedWakeupEdgeRichNotes(edge, edgePath), traceQueryWakeupEventNote(ref, edge)), traceQueryWakeupMeasuredWaitNotes(ref, edge)...),
 				SupportRefs: traceQueryObservationSupportRefs(ref, edge.WakeupLine, edge.WakeupLine),
 				ObservedAt:  at,
 				Confidence:  0.82,
@@ -13101,6 +13101,9 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	if edge.LatencyMs > 0 {
 		parts = append(parts, types.TraceWakeupPreWaitDisplay(traceThreadLabel(edge.Wakee), fmt.Sprintf("%.3f", edge.LatencyMs)), "latency_caliber="+edge.LatencyCaliber)
 	}
+	if display := types.TraceWakeupMeasuredWaitDisplay(edge.MeasuredWait); display != "" {
+		parts = append(parts, display)
+	}
 	if edge.WakerCPUKnown {
 		parts = append(parts, fmt.Sprintf("waker_cpu=%d", edge.WakerCPU))
 	}
@@ -13141,6 +13144,13 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 		parts = append(parts, "priority_inversion_candidate=true")
 	}
 	return strings.Join(parts, " ")
+}
+
+func traceQueryWakeupMeasuredWaitSuffix(edge tracequery.WakeupEdge) string {
+	if display := types.TraceWakeupMeasuredWaitDisplay(edge.MeasuredWait); display != "" {
+		return " [" + display + "]"
+	}
+	return ""
 }
 
 func traceQueryWakeupEdgeCPUProof(edge tracequery.WakeupEdge) string {

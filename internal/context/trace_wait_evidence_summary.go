@@ -434,6 +434,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	}
 	type wakeupEdge struct {
 		waker, wakee, ts, latency, latencyCaliber string
+		measuredWait                              string
 		processDisplay                            string
 		wakerCPU, wakeeTargetCPU, cpuRelation     string
 		tsValue                                   float64
@@ -533,6 +534,9 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 				targetCPUPlacementDegraded: wakeupTargetCPUIntegrity.AffectsWakeupRecord(record),
 			}
 			edge.tsValue, _ = strconv.ParseFloat(ts, 64)
+			if wait, ok := types.DecodeTraceWakeupMeasuredWait(record); ok {
+				edge.measuredWait = types.TraceWakeupMeasuredWaitDisplay(wait)
+			}
 			edges = append(edges, edge)
 			continue
 		}
@@ -1162,6 +1166,9 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			}
 			if edge.processDisplay != "" {
 				line += " [" + edge.processDisplay + "]"
+			}
+			if edge.measuredWait != "" {
+				line += " [" + edge.measuredWait + "]"
 			}
 			if edge.wakerCPU != "" || (!edge.targetCPUPlacementDegraded && (edge.wakeeTargetCPU != "" || edge.cpuRelation != "")) {
 				var topology []string

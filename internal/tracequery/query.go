@@ -25918,6 +25918,7 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 		WakeupLine:                  wakeup.Line,
 		LatencyMs:                   (wakeup.Ts - seg.StartTs) * 1000,
 		LatencyCaliber:              WakeupEdgeLatencyCaliberSleepStartToSchedWakeup,
+		MeasuredWait:                wakeupMeasuredWait(seg, wakeup.Ts),
 		WakerPriority:               wakerPrio,
 		WakerPriorityClass:          classifyTracePriority(q.TraceFlavor, wakerPrio),
 		WakerPrioritySource:         string(verdict.Subject.Caliber),
@@ -25933,6 +25934,19 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 		EvidenceLine:                wakeup.Line,
 	})
 	return true
+}
+
+func wakeupMeasuredWait(seg Interval, wakeupTs float64) *types.TraceWakeupMeasuredWait {
+	w := &types.TraceWakeupMeasuredWait{StartTs: seg.StartTs, EndTs: wakeupTs,
+		SegmentState: string(seg.State), SegmentEndTs: seg.EndTs, StartLine: seg.StartLine}
+	if seg.ActualEndTs > seg.ActualStartTs && seg.StartLine > 0 {
+		start := seg.ActualStartTs
+		w.ActualStartTs = &start
+	}
+	if !w.Valid() {
+		return nil
+	}
+	return w
 }
 
 func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch, segOrdinal int, budget *chainExpansionBudget) string {
