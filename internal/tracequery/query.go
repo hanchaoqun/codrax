@@ -1482,6 +1482,9 @@ func normalizeQuery(idx *Index, q Query) Query {
 		q.normalizationCaveats = append(q.normalizationCaveats, fmt.Sprintf("trace_query_resource_clamped=true; parameter=max_chain_nodes requested=%d effective=%d view_capacity=wakeup_chain", requestedChainNodes, q.MaxChainNodes))
 	}
 	if q.MinDurationMs <= 0 {
+		if q.View == "perf_timeline" {
+			q.perfTimelineDefaultBucket = true
+		}
 		q.MinDurationMs = 1
 	}
 	if q.Limit <= 0 {
@@ -5324,14 +5327,8 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		res.Caveats = append(res.Caveats, "perf_thread_selector_ambiguous=true; comm-only perf timeline matched multiple TIDs or generations and was omitted rather than merged")
 		return res
 	}
-	if count == 0 {
-		res.Caveats = append(res.Caveats, "no perf_sample events matched the selected window or filters")
-		return res
-	}
-	bucketSec := q.MinDurationMs / 1000
-	if bucketSec <= 0 {
-		bucketSec = 0.001
-	}
+	res.RequestedBucketMs, res.BucketWidthSource = perfTimelineRequestedBucket(q)
+	bucketSec := res.RequestedBucketMs / 1000
 	if start < end {
 		maxBuckets := 200.0
 		if buckets := (end - start) / bucketSec; buckets > maxBuckets {
@@ -5342,6 +5339,22 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		bucketSec = 0.001
 	}
 	res.BucketMs = bucketSec * 1000
+	if res.BucketMs > res.RequestedBucketMs {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("perf_timeline_bucket_width_adjusted=true; source=%s requested_bucket_ms=%g effective_bucket_ms=%g max_buckets=200; query population and window are unchanged", res.BucketWidthSource, res.RequestedBucketMs, res.BucketMs))
+	}
+	if count == 0 {
+		res.Caveats = append(res.Caveats, "no perf_sample events matched the selected window or filters")
+		return res
+	}
+	lastBucket := 0
+	if start < end {
+		lastBucket = min(199, max(0, int(math.Ceil((end-start)/bucketSec))-1))
+		// Reconstruct the public grid coordinate: a rounded quotient must
+		// not invent a zero-width bucket starting at (or beyond) the end.
+		for lastBucket > 0 && start+float64(lastBucket)*bucketSec >= end {
+			lastBucket--
+		}
+	}
 	buckets := map[int]*perfTimelineBucketAcc{}
 	for ordinal, ev := range idx.Events {
 		if q.runCancel.tick() {
@@ -5359,14 +5372,30 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if ev.Ts > start && bucketSec > 0 {
 			idxBucket = int((ev.Ts - start) / bucketSec)
 		}
+		idxBucket = min(lastBucket, max(0, idxBucket))
+		// Division can round a point on a represented grid boundary into
+		// the preceding bucket. Compare the exact reconstructed coordinates,
+		// not an epsilon: the immediately preceding float must stay there.
+		for idxBucket < lastBucket && ev.Ts >= start+float64(idxBucket+1)*bucketSec {
+			idxBucket++
+		}
+		for idxBucket > 0 && ev.Ts < start+float64(idxBucket)*bucketSec {
+			idxBucket--
+		}
 		acc := buckets[idxBucket]
 		if acc == nil {
 			bStart := start + float64(idxBucket)*bucketSec
 			acc = &perfTimelineBucketAcc{
-				bucket:  PerfTimelineBucket{StartTs: bStart, EndTs: bStart + bucketSec},
+				bucket:  PerfTimelineBucket{StartTs: bStart, EndTs: start + float64(idxBucket+1)*bucketSec},
 				cohorts: map[perfCohortKey]*perfTimelineCohortAcc{},
 			}
 			buckets[idxBucket] = acc
+		}
+		// Direct builders can derive the observed end without normalizeQuery.
+		// Disclose that admitted endpoint too, but not the synthetic +1ms
+		// extent for a lone point, nor an explicit half-open query endpoint.
+		if !queryBoundedTimeEnd(q) && ev.Ts == end {
+			acc.bucket.EndInclusive = true
 		}
 		pf := ev.PerfFields
 		if pf == nil {
@@ -5435,6 +5464,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if acc.bucket.EndTs > end && end > start {
 			acc.bucket.EndTs = end
 		}
+		acc.bucket.EndInclusive = acc.bucket.EndInclusive || q.timeEndBackfilled && acc.bucket.EndTs == q.TimeEnd
 		res.Buckets = append(res.Buckets, acc.bucket)
 	}
 	for _, bucket := range res.Buckets {
@@ -5451,6 +5481,20 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		}
 	}
 	return res
+}
+
+// The formal width wins; the old interval knob remains a compatible fallback
+// only for this view. Width resolution never changes sample admission.
+func perfTimelineRequestedBucket(q Query) (float64, string) {
+	if q.BucketMs > 0 && !math.IsInf(q.BucketMs, 0) && !math.IsNaN(q.BucketMs) {
+		return q.BucketMs, "bucket_ms"
+	}
+	if q.MinDurationMs > 0 && !math.IsInf(q.MinDurationMs, 0) && !math.IsNaN(q.MinDurationMs) {
+		if !q.perfTimelineDefaultBucket || q.MinDurationMs != 1 {
+			return q.MinDurationMs, "min_duration_ms"
+		}
+	}
+	return 1, "default"
 }
 
 // perfTimelineAdmits is the ONE admission predicate for perf timeline
@@ -5496,6 +5540,7 @@ func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float6
 
 func perfTimelineWindowForPopulation(idx *Index, q Query, ledger *perfIdentityLedger, population *perfSamplePopulation) (float64, float64, int, map[int]bool, bool) {
 	start, end := q.TimeStart, q.TimeEnd
+	startKnown := start != 0 || queryResultWindowStartSet(q)
 	count := 0
 	contributorPIDs := map[int]bool{}
 	selector, identityAddressed := perfTimelineThreadSelector(q)
@@ -5520,8 +5565,9 @@ func perfTimelineWindowForPopulation(idx *Index, q Query, ledger *perfIdentityLe
 		if identityOK && identity.TID > 0 {
 			contributorPIDs[identity.TID] = true
 		}
-		if start == 0 || ev.Ts < start {
+		if !startKnown || ev.Ts < start {
 			start = ev.Ts
+			startKnown = true
 		}
 		if end == 0 || ev.Ts > end {
 			end = ev.Ts
@@ -27560,6 +27606,9 @@ func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
 		for _, cohort := range cohorts {
 			roster := perfThreadIdentityRoster(bucket.ThreadIdentities, bucket.ThreadIdentityCount, 4)
 			summary := fmt.Sprintf("perf timeline %.6f..%.6f event=%s weight_unit=%s weight_status=%s samples=%d", bucket.StartTs, bucket.EndTs, cohort.Event, cohort.WeightUnit, cohort.WeightStatus, cohort.SampleCount)
+			if timeline.BucketWidthSource != "" {
+				summary += fmt.Sprintf(" bucket_width_source=%s requested_bucket_ms=%g effective_bucket_ms=%g bucket_end_inclusive=%t", timeline.BucketWidthSource, timeline.RequestedBucketMs, timeline.BucketMs, bucket.EndInclusive)
+			}
 			summary += perfCohortScopeSummary(cohort.Scope)
 			if cohort.Scope != nil {
 				roster = ""

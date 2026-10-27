@@ -1,0 +1,9 @@
+ID="trace_binary_sample_timeline"
+NAME="Original binary CPU samples — requested time buckets"
+QUESTION="请按20ms分段查看这份采集中486489.4到486489.6秒poll_report线程（tid1609）的采样分布，并列出主要热点。"
+: "${CODRAX_SAMPLE_ONLY_INPUT:?set CODRAX_SAMPLE_ONLY_INPUT to the pinned complete test_brbe.data original; run the offline oracle first}"
+HTRACE_FILE="$CODRAX_SAMPLE_ONLY_INPUT"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="OnDataEvent_"

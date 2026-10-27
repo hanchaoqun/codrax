@@ -1154,15 +1154,20 @@ type Query struct {
 	// BucketMs is the time-bucket width in milliseconds. window_sweep uses
 	// ClampWindowSweepBucketMs (default 100, allowed 50..500); the independent
 	// window_stats.io_activity and scheduler_concurrency faces default to 100 and clamp positive inputs
-	// to 1..60000. Each face discloses its effective width; other views ignore it.
-	BucketMs              float64
-	CoreTopology          string
-	TraceFlavor           TraceFlavor
-	TraceFlavorHint       TraceFlavor
-	TraceFlavorHintSource string
-	TracePlatform         TracePlatform
-	TracePlatformHint     TracePlatform
-	TracePlatformSource   string
+	// to 1..60000. perf_timeline prefers a positive finite BucketMs over the
+	// legacy MinDurationMs width (default 1), coarsening to at most 200 buckets.
+	// Each face discloses its effective width; other views ignore it.
+	BucketMs float64
+	// Diagnostic provenance only: normalizeQuery's legacy default must not
+	// become a claim that the caller explicitly supplied min_duration_ms.
+	perfTimelineDefaultBucket bool
+	CoreTopology              string
+	TraceFlavor               TraceFlavor
+	TraceFlavorHint           TraceFlavor
+	TraceFlavorHintSource     string
+	TracePlatform             TracePlatform
+	TracePlatformHint         TracePlatform
+	TracePlatformSource       string
 	// normalizationCaveats records deterministic resource clamps applied by
 	// normalizeQuery. It is unexported plumbing copied by value into every
 	// nested view so both the top-level Result and direct builder faces can
@@ -2013,15 +2018,20 @@ type PerfThreadSummary struct {
 }
 
 type PerfTimelineResult struct {
-	Window   TimeWindow           `json:"window"`
-	BucketMs float64              `json:"bucket_ms,omitempty"`
-	Buckets  []PerfTimelineBucket `json:"buckets,omitempty"`
-	Caveats  []string             `json:"caveats,omitempty"`
+	Window TimeWindow `json:"window"`
+	// RequestedBucketMs is the resolved width before the capacity bound,
+	// not necessarily an explicit user input; BucketWidthSource identifies it.
+	RequestedBucketMs float64              `json:"requested_bucket_ms,omitempty"`
+	BucketWidthSource string               `json:"bucket_width_source,omitempty"`
+	BucketMs          float64              `json:"bucket_ms,omitempty"`
+	Buckets           []PerfTimelineBucket `json:"buckets,omitempty"`
+	Caveats           []string             `json:"caveats,omitempty"`
 }
 
 type PerfTimelineBucket struct {
 	StartTs                          float64              `json:"start_ts,omitempty"`
 	EndTs                            float64              `json:"end_ts,omitempty"`
+	EndInclusive                     bool                 `json:"end_inclusive,omitempty"`
 	SampleCount                      int                  `json:"sample_count,omitempty"`
 	Period                           int64                `json:"period,omitempty"`
 	TopSymbol                        string               `json:"top_symbol,omitempty"`
