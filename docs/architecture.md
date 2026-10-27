@@ -1570,6 +1570,10 @@ HMC §300在候选分支公开隔离上述睡眠回归：原生结果和ledger�
 
 同批将`wakeup_measured_wait`按实际typed decoder登记为soft_consumer；独立锁定嵌套DTO，精确删除唯一新增字段可恢复旧外层schema hash，非整体重签。通用渲染仅为该可选DTO复用既有formatter和行裁切，保合法0秒起点、unknown、裁切与容差尾界；无效/缺失只省新增展示，不撤原边，不改变反射器全局零值规则。未直接修改运行时方法、根因资格规则或提示词；但全仓实际暴露保留行到下游候选的组合回归：混宽/精确窗原4项旁路变5/6，不能声称根因集合已被完整保护。统一发射夹具对新soft_consumer覆盖也未齐，原断言不放宽。旧失败封存不倒签；新源码快照位于仓外，封存Go源码加非编译后缀，防止`./...`与独立结构扫描发现影子代码。§300仅候选保存，未进main；模型图身份修补冲突与正文时点误述另留审计，定向绿不自动取得交付资格。
 
+HMC §301候选把量测保真与主窗口根因资格分开：真实公共反例中，同一threadpool IO段分别由精确窗和两个宽窗量测，三份原生行都应保留；不能因物理段落在主窗内就把三个查询榜单都当作主窗根因。候选编译复用现有`TraceCausalProjectionPrincipalWindowAuthoritative`及`TraceCausalProjectionNodeMatchesPrincipalWindow`，与rank roster和修向算术使用同一准入。只有独立目标状态账户或已选唤醒路径确证主窗口时，明确异窗榜单才不进入该主窗候选合同；没有此主权、未知窗、仅展示量尺或合法同窗多board保持兼容，原rank donor窗口优先级及2µs表示容差不变。原projection、RankedSeats、MeasurementOrigins和全部ledger引用保留，不按线程名、等值时长、候选条数或问答关键词去重，也不改CandidateID。原四项公开合同、双源同名、逆查询次序与HMC232闭合睡眠断言不放宽。
+
+同批严格字段普查改用真实公共TraceQuery补发射可选等待载体，原membership/census断言保留。新夹具还暴露已存在但未登记的IO `root_cause_eligibility` note：按实际无人解析的展示用途登记为`display_only`，生产字节仅换同值常量；`wakeup_measured_wait`继续是`soft_consumer`。缺失/非法/错来源的可选等待字段仅撤新增展示，未知实际起点不补零，不撤原唤醒事件。该批没有改投影折叠、统计、预算、提示词或自动补齐；旧图主体重复、正文误述和采样解释债仍须各自验收，候选测试通过不自动取得main交付资格。执行与人工结果以§301批汇总为准。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
