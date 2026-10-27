@@ -106,13 +106,18 @@ func TestTraceCausalCoverageDoesNotSumRepeatedFrameViewEdgeCounts(t *testing.T) 
 		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_flow", 3)},
 	}}
 	got := runtimeTraceCoverageAuthority(input)
-	if got.frameFlowEdgeCount != 3 {
-		t.Fatalf("repeated per-view frame census was summed: edges=%d, want most complete view=3", got.frameFlowEdgeCount)
+	if len(got.frameScopes) != 4 {
+		t.Fatalf("independent query censuses were lost: %+v", got.frameScopes)
+	}
+	for i, want := range []int{1, 1, 3, 3} {
+		if got.frameScopes[i].Authority.FrameFlowEdgeCount != want || len(got.frameScopes[i].SelectedProjections) != 0 {
+			t.Fatalf("unbound result borrowed count or selected scope: %+v", got.frameScopes[i])
+		}
 	}
 	block := runtimeTraceCausalProjectionCoverageBlock(input, "zh")
 	if block == nil || !strings.Contains(block.Text, "已找到 3 条按时间先后相邻的 span 边") ||
 		strings.Contains(block.Text, "已找到 8 条") {
-		t.Fatalf("coverage block must publish the most complete single-view census:\n%+v", block)
+		t.Fatalf("coverage block must retain independent query-local censuses without summing:\n%+v", block)
 	}
 }
 
@@ -164,6 +169,7 @@ func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySe
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			TypedCausalRowCount: 1,
 			View:                "frame_root_cause_bundle",
 			FrameEvidenceStatus: "absent",
 			CausalConclusion:    "unproven",
@@ -175,17 +181,30 @@ func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySe
 	}
 	for _, want := range []string{
 		"帧级因果尚未证明",
-		"唤醒/阻塞链只支持所选窗口内的链上候选与估算优化潜力",
-		"无链上凭证的调度、IO、频率观察仍只能作为邻近或背景",
-		"不证明具体丢帧因果",
+		"source/window unbound; query-local only",
+		"这是该次查询的局部边界",
+		"不能覆盖其他来源/窗口的帧证据",
+		"不能证明具体丢帧因果",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("typed chain/frame boundary missing %q:\n%s", want, block.Text)
 		}
 	}
 	if strings.Contains(block.Text, "未找到可绑定到目标的帧或截止期证据，且没有可用的链上因果观测") ||
-		strings.Contains(block.Text, "调度、IO、频率观察只能描述窗口背景") {
+		strings.Contains(block.Text, "调度、IO、频率观察只能描述窗口背景") ||
+		strings.Contains(block.Text, "唤醒/阻塞链只支持所选窗口内") {
 		t.Fatalf("typed chain rows were demoted by the no-chain wording:\n%s", block.Text)
+	}
+	// These result-level counts and the whole-projection boolean alone do not
+	// bind an elected observation ID. Without an exact current contract the
+	// generic unproven boundary must remain; this is not a real current-chain
+	// contract and must not be described as a remaining failure of that case.
+	input.ToolResults[0].TraceEvidenceAuthority.TypedCausalRowCount = 0
+	input.ToolResults = append(input.ToolResults, types.ToolResult{ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "frame_root_cause_bundle", FrameEvidenceStatus: "present", TypedCausalRowCount: 1, CausalConclusion: "bounded_by_typed_rows"}})
+	generic := runtimeTraceCausalProjectionCoverageBlockForProjection(input, "zh", true, true)
+	if generic == nil || !strings.Contains(generic.Text, "因果证据尚不足：已发布的唤醒/阻塞链只支持所选窗口内") {
+		t.Fatalf("generic unproven boundary was widened away: %+v", generic)
 	}
 
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{

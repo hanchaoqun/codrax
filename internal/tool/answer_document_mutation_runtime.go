@@ -4342,7 +4342,7 @@ func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.Observat
 		reasons = nil
 	}
 	authority := runtimeTraceCoverageAuthority(input)
-	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete &&
+	if len(reasons) == 0 && !authority.causalUnproven && !authority.frameBoundary && !authority.enumerationIncomplete &&
 		!runtimeTraceCoverageHasLifecycle(authority) && len(authority.targetIdentities) == 0 {
 		return nil
 	}
@@ -4513,12 +4513,9 @@ func runtimeTraceProjRawNodeEvidenceIDs(projection types.TraceCausalProjection, 
 }
 
 type runtimeTraceCoverageAuthorityBoundary struct {
+	frameScopes           []types.TraceFrameEvidenceScope
+	frameBoundary         bool
 	causalUnproven        bool
-	frameUnproven         bool
-	frameEvidenceStatus   string
-	frameFlowUnproven     bool
-	frameFlowEdgeCount    int
-	frameFlowRelation     string
 	enumerationIncomplete bool
 	compactedViews        []string
 	enumerationBoundaries []types.ToolEnumerationBoundary
@@ -4555,42 +4552,43 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	out.enumerationBoundaries = append([]types.ToolEnumerationBoundary(nil), enumeration.Boundaries...)
 	out.enumerationScopes = enumeration.ScopedBoundaries
 	frameQuestion := types.FrameCausalityQualifierApplicable(input.RequestModel)
+	hasFrameResult := false
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
 		if toolName == "trace_query" && result.TraceEvidenceAuthority != nil {
 			authority := result.TraceEvidenceAuthority
+			if authority.FrameEvidenceStatus != "" || authority.FrameItemCount > 0 || authority.FrameFlowCausalConclusion != "" {
+				hasFrameResult = true
+			}
 			// QUALGATE-1 复核收编: a frame-origin "unproven" verdict is out of
 			// scope on a non-frame question — it must not become the generic
 			// "no on-chain observation" sentence beneath a published on-chain crown.
-			if authority.CausalConclusion == "unproven" && (frameQuestion || !types.TraceAuthorityCausalUnprovenIsFrameOrigin(authority)) {
+			if authority.CausalConclusion == "unproven" && !types.TraceAuthorityCausalUnprovenIsFrameOrigin(authority) {
 				out.causalUnproven = true
-			}
-			if authority.FrameEvidenceStatus == "absent" || authority.FrameEvidenceStatus == "unavailable" {
-				out.frameUnproven = true
-				if out.frameEvidenceStatus == "" || authority.FrameEvidenceStatus == "unavailable" {
-					out.frameEvidenceStatus = authority.FrameEvidenceStatus
-				}
-			}
-			if authority.FrameFlowCausalConclusion == tracequery.FrameFlowCausalityUnproven {
-				out.frameFlowUnproven = true
-				// Each authority belongs to one trace_query result/view. The
-				// same frame roster is commonly queried through both
-				// frame_timeline and frame_flow, sometimes once with a target
-				// filter and once without. Summing those per-view counts makes
-				// repeated reads look like additional edges. Publish the most
-				// complete single-view census instead. A combined/auto query
-				// that intentionally aggregates child views already carries
-				// its aggregate count in one authority record, so max also
-				// preserves that typed result.
-				if authority.FrameFlowEdgeCount > out.frameFlowEdgeCount {
-					out.frameFlowEdgeCount = authority.FrameFlowEdgeCount
-				}
-				out.frameFlowRelation = firstNonEmpty(out.frameFlowRelation, authority.FrameFlowRelationAuthority)
 			}
 			out.lifecycleBoundaries = runtimeTraceMergeLifecycleBoundaries(out.lifecycleBoundaries, authority.LifecycleBoundaries)
 		}
 	}
 	ledger := types.CompileObservationLedger(input)
+	if frameQuestion && hasFrameResult {
+		out.frameScopes = types.BuildTraceFrameEvidenceScopes(input, types.CompileTraceCausalProjectionSet(ledger))
+		for _, scope := range out.frameScopes {
+			a := scope.Authority
+			if a.FrameEvidenceStatus == "absent" || a.FrameEvidenceStatus == "unavailable" || a.FrameFlowCausalConclusion == "unproven" {
+				out.frameBoundary = true
+			}
+		}
+		// An earlier zero-row/temporal frame probe can also carry the generic
+		// unproven flag. Match the Finalizer's existing exact elected-ID
+		// contract before making that a report-wide limitation. Local probe
+		// statuses and edge censuses above remain visible and unchanged.
+		if out.causalUnproven {
+			contract := types.BuildTraceCausalClaimContract(input)
+			if contract.Active() && (contract.Ceiling == types.TraceCausalClaimTypedChain || contract.Ceiling == types.TraceCausalClaimTypedFrame) {
+				out.causalUnproven = false
+			}
+		}
+	}
 	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(input, ledger)
 	out.targetIdentities = runtimeTraceCoverageTargetIdentities(ledger.Records)
 	out.targetStates = runtimeTraceCoverageTargetStates(
@@ -4632,15 +4630,6 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	if len(out.lifecycleBoundaries) > runtimeTraceCoverageLifecycleBoundaryLimit {
 		out.lifecycleOmitted = len(out.lifecycleBoundaries) - runtimeTraceCoverageLifecycleBoundaryLimit
 		out.lifecycleBoundaries = out.lifecycleBoundaries[:runtimeTraceCoverageLifecycleBoundaryLimit]
-	}
-	// QUALGATE-1 (§40.30 V-QUAL-1 plan A): the frame-level sentences of the
-	// coverage boundary follow the same typed request gate as the crown
-	// headline and the sidecar — a non-frame question keeps the generic
-	// causal-ceiling sentence and never speaks about frame causality.
-	if !types.FrameCausalityQualifierApplicable(input.RequestModel) {
-		out.frameUnproven = false
-		out.frameFlowUnproven = false
-		out.frameEvidenceStatus = ""
 	}
 	return out
 }
@@ -5052,32 +5041,44 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 				runtimeTraceSleepIOMarkerBoundary(false), tracequery.TargetSelfStateRankingBoundaryText(false)))
 		}
 	}
+	frameEmitted := 0
+	for _, scope := range authority.frameScopes {
+		a := scope.Authority
+		if a.FrameFlowCausalConclusion != tracequery.FrameFlowCausalityUnproven && a.FrameEvidenceStatus != "absent" && a.FrameEvidenceStatus != "unavailable" {
+			continue
+		}
+		if frameEmitted >= 8 {
+			if zh {
+				parts = append(parts, "其余逐查询帧边界在此预览省略；不据此合并总体状态")
+			} else {
+				parts = append(parts, "Additional query-local frame boundaries omitted from this preview; no combined verdict is implied")
+			}
+			break
+		}
+		frameEmitted++
+		prefix := scope.Locator() + ": "
+		if a.FrameFlowCausalConclusion == tracequery.FrameFlowCausalityUnproven {
+			if zh {
+				parts = append(parts, prefix+fmt.Sprintf("帧关系证据尚不足：该次查询已找到 %d 条%s；这些边只表示完整 span 按时间排序后的相邻关系，没有异步 cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果流", a.FrameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(a.FrameFlowRelationAuthority, true)))
+			} else {
+				parts = append(parts, prefix+fmt.Sprintf("Frame-flow causality is not yet proven: %d %s were found in this query. They only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier", a.FrameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(a.FrameFlowRelationAuthority, false)))
+			}
+		}
+		if a.FrameEvidenceStatus == "absent" || a.FrameEvidenceStatus == "unavailable" {
+			status := runtimeTraceFrameEvidenceReaderLabel(a.FrameEvidenceStatus, zh)
+			if zh {
+				parts = append(parts, prefix+"帧级因果尚未证明："+status+"；这是该次查询的局部边界，不能覆盖其他来源/窗口的帧证据，不能证明具体丢帧因果")
+			} else {
+				parts = append(parts, prefix+"Frame-level causality is not yet proven: "+status+". This query-local boundary does not replace frame evidence from another source/window; published wakeup/blocking chains retain their own evidence")
+			}
+		}
+	}
 	if authority.causalUnproven {
 		if zh {
-			if authority.frameFlowUnproven {
-				parts = append(parts, fmt.Sprintf("帧关系证据尚不足：已找到 %d 条%s；这些边只表示完整 span 按时间排序后的相邻关系，没有异步 cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果流",
-					authority.frameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(authority.frameFlowRelation, true)))
-			} else if authority.frameUnproven {
-				status := runtimeTraceFrameEvidenceReaderLabel(authority.frameEvidenceStatus, true)
-				if typedChainRowsPresent {
-					parts = append(parts, "帧级因果尚未证明："+status+"；已发布的唤醒/阻塞链只支持所选窗口内的链上候选与"+tracefence.OptimizationPotentialZH+"，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
-				} else {
-					parts = append(parts, "帧级因果尚未证明："+status+"，且没有可用的链上因果观测；调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
-				}
-			} else if typedChainRowsPresent {
+			if typedChainRowsPresent {
 				parts = append(parts, "因果证据尚不足：已发布的唤醒/阻塞链只支持所选窗口内的链上候选与"+tracefence.OptimizationPotentialZH+"；未被链上凭证覆盖的机理不能升级为确定根因")
 			} else {
 				parts = append(parts, "因果证据尚不足：当前没有可用的链上因果观测，背景观察不能升级为确定根因")
-			}
-		} else if authority.frameFlowUnproven {
-			parts = append(parts, fmt.Sprintf("Frame-flow causality is not yet proven: %d %s were found. They only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier",
-				authority.frameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(authority.frameFlowRelation, false)))
-		} else if authority.frameUnproven {
-			status := runtimeTraceFrameEvidenceReaderLabel(authority.frameEvidenceStatus, false)
-			if typedChainRowsPresent {
-				parts = append(parts, "Frame-level causality is not yet proven: "+status+". Published wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts, not a specific frame-drop cause; scheduler, IO, and frequency observations without an on-chain credential remain adjacent or background context")
-			} else {
-				parts = append(parts, "Frame-level causality is not yet proven: "+status+", and no usable on-chain causal observation was produced. Scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
 			}
 		} else if typedChainRowsPresent {
 			parts = append(parts, "Causal evidence is insufficient: published wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts; mechanisms without an on-chain credential cannot be promoted to a definite root cause")

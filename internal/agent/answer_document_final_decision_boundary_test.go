@@ -529,6 +529,15 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		}},
 	}}})
 
+	// The selected-frame boundary requires the same producer-owned query
+	// locator on all rows, not an unbound artifact label from a past probe.
+	artifacts := ctx.Mutable.TurnAArtifacts()
+	for i := range artifacts.ToolResults[0].Observations {
+		ref := &artifacts.ToolResults[0].Observations[i].SourceRef
+		ref.Path, ref.QueryScopeID = "customer.systrace", "selected-frame-query"
+		ref.QueryWindowKnown, ref.QueryWindowStartTs, ref.QueryWindowEndTs = true, 10, 10.020
+	}
+	ctx.Mutable.SetTurnAArtifacts(*artifacts)
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)",

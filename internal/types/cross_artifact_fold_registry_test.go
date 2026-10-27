@@ -12,6 +12,9 @@ package types_test
 // or pointer, bare or package-qualified) and whose result is not a bare bool
 // gate — that is not registered, so the next fold surface cannot silently
 // lose the key the way the tracefinding contract did.
+// Exact query-local views and row-free consensus consumers are classified
+// separately below. They do not merge artifact rows; no return-type-wide or
+// name-only exemption is allowed, and their source/binding shape is pinned.
 //
 // The reflect check is a SHAPE tie only; the behavioural witnesses that the
 // key is actually stamped and propagated live beside each producer
@@ -97,7 +100,7 @@ func TestCrossArtifactFoldProducersAreRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, producer := range found {
-		if !registered[producer.name] {
+		if !registered[producer.name] && !crossArtifactExactScopedConsumer(producer) {
 			t.Errorf("%s: %s folds a TraceCausalProjectionSet but is not in crossArtifactFoldRegistry — register it with a row type that carries ArtifactLabel (§40.26 ③)", producer.pos, producer.name)
 		}
 	}
@@ -126,6 +129,7 @@ func (s *TraceCausalProjectionSet) PointerReceiver() []row   { return nil }
 func Gate(set TraceCausalProjectionSet) bool                 { return false }
 func (s TraceCausalProjectionSet) GateMethod() bool          { return false }
 func Unrelated(x int) []row                                  { return nil }
+func UnregisteredString(set TraceCausalProjectionSet) string { return "" }
 `
 	if err := os.WriteFile(filepath.Join(dir, "scratch.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -138,7 +142,7 @@ func Unrelated(x int) []row                                  { return nil }
 	for _, producer := range found {
 		got[producer.name] = true
 	}
-	for _, want := range []string{"ByValue", "ByPointer", "Qualified", "QualifiedPtr", "Parenthesized", "Second", "ValueReceiver", "PointerReceiver"} {
+	for _, want := range []string{"ByValue", "ByPointer", "Qualified", "QualifiedPtr", "Parenthesized", "Second", "ValueReceiver", "PointerReceiver", "UnregisteredString"} {
 		if !got[want] {
 			t.Errorf("census misses producer shape %s (an evasion): %v", want, found)
 		}
@@ -153,6 +157,154 @@ func Unrelated(x int) []row                                  { return nil }
 type crossArtifactFoldProducer struct {
 	name string
 	pos  string
+	file string
+	decl *ast.FuncDecl
+}
+
+// These two consumers retain the native query's full source key instead of
+// publishing a cross-artifact row fold. Only their exact current production
+// declarations qualify; adding another scalar or a similarly named function
+// still requires review by the ordinary census.
+func crossArtifactExactScopedConsumer(p crossArtifactFoldProducer) bool {
+	if filepath.ToSlash(filepath.Clean(p.file)) != "trace_frame_evidence_scope.go" || p.decl == nil || p.decl.Recv != nil {
+		return false
+	}
+	var params []string
+	var result string
+	switch p.name {
+	case "BuildTraceFrameEvidenceScopes":
+		params, result = []string{"ObservationLedgerInput", "TraceCausalProjectionSet"}, "[]TraceFrameEvidenceScope"
+	case "TraceFrameCommonSelectedStatus":
+		params, result = []string{"[]TraceFrameEvidenceScope", "TraceCausalProjectionSet"}, "string"
+	default:
+		return false
+	}
+	typeName := func(expr ast.Expr) string {
+		if id, ok := expr.(*ast.Ident); ok {
+			return id.Name
+		}
+		if a, ok := expr.(*ast.ArrayType); ok && a.Len == nil {
+			if id, ok := a.Elt.(*ast.Ident); ok {
+				return "[]" + id.Name
+			}
+		}
+		return ""
+	}
+	fn := p.decl.Type
+	if fn.Params == nil || fn.Results == nil || len(fn.Results.List) != 1 || len(fn.Results.List[0].Names) > 1 || typeName(fn.Results.List[0].Type) != result {
+		return false
+	}
+	var actual []string
+	for _, field := range fn.Params.List {
+		n := len(field.Names)
+		if n == 0 {
+			n = 1
+		}
+		for i := 0; i < n; i++ {
+			actual = append(actual, typeName(field.Type))
+		}
+	}
+	return reflect.DeepEqual(actual, params)
+}
+
+func TestCrossArtifactScopedConsumersKeepExactShape(t *testing.T) {
+	// Compile-time function ties: this classification cannot drift away from
+	// the actual public signatures while only a scratch fixture stays green.
+	var _ func(types.ObservationLedgerInput, types.TraceCausalProjectionSet) []types.TraceFrameEvidenceScope = types.BuildTraceFrameEvidenceScopes
+	var _ func([]types.TraceFrameEvidenceScope, types.TraceCausalProjectionSet) string = types.TraceFrameCommonSelectedStatus
+	row := reflect.TypeOf(types.TraceFrameEvidenceScope{})
+	for name, want := range map[string]reflect.Type{
+		"Source": reflect.TypeOf(types.ObservationSourceRef{}), "SourceKnown": reflect.TypeOf(false),
+		"ResultIndex": reflect.TypeOf(0), "SelectedProjections": reflect.TypeOf([]int{}),
+		"Authority": reflect.TypeOf(types.TraceEvidenceAuthority{}),
+	} {
+		field, ok := row.FieldByName(name)
+		if !ok || field.Type != want {
+			t.Errorf("query-local scope lost exact %s carrier: %+v", name, field)
+		}
+	}
+}
+
+func TestCrossArtifactScopedConsumerClassificationIsExact(t *testing.T) {
+	for _, declaration := range []string{
+		"func BuildTraceFrameEvidenceScopes(input ObservationLedgerInput, set TraceCausalProjectionSet) []TraceFrameEvidenceScope { return nil }",
+		"func TraceFrameCommonSelectedStatus(scopes []TraceFrameEvidenceScope, set TraceCausalProjectionSet) string { return \"\" }",
+	} {
+		for _, mode := range []string{"exact", "other_file", "other_name", "row_return", "wrong_input", "receiver"} {
+			t.Run(strings.Split(declaration, "(")[0]+"/"+mode, func(t *testing.T) {
+				src, path := declaration, "trace_frame_evidence_scope.go"
+				switch mode {
+				case "other_file":
+					path = "../analysis/tracefinding/trace_frame_evidence_scope.go"
+				case "other_name":
+					src = strings.Replace(src, "func ", "func Other", 1)
+				case "row_return":
+					if strings.Contains(src, ") string") {
+						src = strings.Replace(src, ") string", ") []row", 1)
+					} else {
+						src = strings.Replace(src, ") []TraceFrameEvidenceScope", ") []row", 1)
+					}
+				case "wrong_input":
+					src = strings.Replace(src, "set TraceCausalProjectionSet", "set *TraceCausalProjectionSet", 1)
+				case "receiver":
+					src = strings.Replace(src, "func ", "func (s TraceCausalProjectionSet) ", 1)
+				}
+				f, err := parser.ParseFile(token.NewFileSet(), path, "package scratch\n"+src, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fn := f.Decls[0].(*ast.FuncDecl)
+				p := crossArtifactFoldProducer{name: fn.Name.Name, file: path, decl: fn}
+				if got := crossArtifactExactScopedConsumer(p); got != (mode == "exact") {
+					t.Fatalf("classification=%v for %s", got, src)
+				}
+			})
+		}
+	}
+}
+
+func TestCrossArtifactScopedConsumersPreserveQueryIdentity(t *testing.T) {
+	input := types.ObservationLedgerInput{}
+	for i, id := range []string{"history", "a", "b"} {
+		source := types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/" + id + ".trace",
+			ArtifactID: "artifact-" + id, QueryScopeID: "query-" + id,
+			QueryWindowKnown: true, QueryWindowStartTs: float64(i), QueryWindowEndTs: float64(i) + .02,
+			QueryTargetPID: 100 + i, QueryTargetThread: "thread-" + id,
+		}
+		input.ToolResults = append(input.ToolResults, types.ToolResult{
+			ToolName: "trace_query", Success: true,
+			Observations:           []types.ObservationRecord{{ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, SourceRef: source}},
+			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{FrameEvidenceStatus: "present", FrameItemCount: i + 1},
+		})
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{
+		{PrimaryRootCause: &types.TraceCausalProjectionNode{EvidenceID: "a"}},
+		{PrimaryRootCause: &types.TraceCausalProjectionNode{EvidenceID: "b"}},
+	}}
+	scopes := types.BuildTraceFrameEvidenceScopes(input, set)
+	if len(scopes) != 3 {
+		t.Fatalf("query-local history lost: %+v", scopes)
+	}
+	for _, scope := range scopes {
+		if scope.ResultIndex < 0 || scope.ResultIndex >= len(input.ToolResults) {
+			t.Fatalf("invalid original result: %+v", scope)
+		}
+		original := input.ToolResults[scope.ResultIndex]
+		if !scope.SourceKnown || !reflect.DeepEqual(scope.Source, original.Observations[0].SourceRef) || !reflect.DeepEqual(scope.Authority, *original.TraceEvidenceAuthority) {
+			t.Fatalf("source/query/window/target/authority changed: %+v", scope)
+		}
+		if scope.ResultIndex == 0 && len(scope.SelectedProjections) != 0 || scope.ResultIndex > 0 && !reflect.DeepEqual(scope.SelectedProjections, []int{scope.ResultIndex - 1}) {
+			t.Fatalf("selection borrowed another query: %+v", scope)
+		}
+	}
+	if types.TraceFrameCommonSelectedStatus(scopes, set) != "present" {
+		t.Fatal("agreeing current scopes lost")
+	}
+	scopes[0].Authority.FrameEvidenceStatus = "absent"
+	if types.TraceFrameCommonSelectedStatus(scopes, set) != "" || types.TraceFrameCommonSelectedStatus(scopes[1:], set) != "" || types.TraceFrameCommonSelectedStatus(scopes, types.TraceCausalProjectionSet{}) != "" {
+		t.Fatal("mixed, missing, or empty selection became a shared verdict")
+	}
 }
 
 // crossArtifactFoldCensus walks the production .go files under dirs and
@@ -176,7 +328,7 @@ func crossArtifactFoldCensus(dirs []string) ([]crossArtifactFoldProducer, error)
 				if !ok || !crossArtifactFoldTakesProjectionSet(fn) || crossArtifactFoldIsBoolGate(fn) {
 					continue
 				}
-				found = append(found, crossArtifactFoldProducer{name: fn.Name.Name, pos: fset.Position(fn.Pos()).String()})
+				found = append(found, crossArtifactFoldProducer{name: fn.Name.Name, pos: fset.Position(fn.Pos()).String(), file: path, decl: fn})
 			}
 			return nil
 		})

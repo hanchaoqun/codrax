@@ -85,7 +85,9 @@ func TestTraceProjectionReadsAuthorityFromSystemSupplementResults(t *testing.T) 
 	if coverage == nil ||
 		!strings.Contains(coverage.Text, "Frame-level causality is not yet proven") ||
 		!strings.Contains(coverage.Text, "target-bound frame evidence is unavailable under the current evidence boundary") ||
-		!strings.Contains(coverage.Text, "do not prove a specific frame-drop cause") {
+		!strings.Contains(coverage.Text, "source/window unbound; query-local only") ||
+		!strings.Contains(coverage.Text, "This query-local boundary does not replace frame evidence from another source/window") ||
+		!strings.Contains(coverage.Text, "published wakeup/blocking chains retain their own evidence") {
 		t.Fatalf("system-supplement authority did not reach EN production block: %+v", coverage)
 	}
 }

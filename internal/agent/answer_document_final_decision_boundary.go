@@ -180,7 +180,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	if authority.FrameEvidenceStatus != "" {
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
-	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
+	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus, authority.FrameScopes))
 	b.WriteString(renderTraceFinalTimeRoleAuthority(set))
 	b.WriteString(renderTraceFinalBlockedReasonStateRelation(set, ledger))
 	b.WriteString(renderTraceFinalRuntimeEnumerationAuthority(ctx))
@@ -207,7 +207,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(ledger.Records)))
 	b.WriteString("- compact_unknowns: evidence_absence_implication=`unknown_not_false`; target_direct_blocking_not_established_does_not_prove_no_external_blocking=`true`; cross_direction_physical_relation=`unresolved_unless_an_exact_pair_row_says_otherwise`; absent_overlap_record_proves_independence=`false`; cause_decomposition_status=`not_closed_by_state_partition_or_ranked_seat_roster`; exhaustive_cause_wording=`requires_one_exact_typed_additive_cause_partition`. An unestablished typed mechanism is unknown, not physically absent; missing relation evidence authorizes neither `independent` nor `no overlap`; a target state partition closes only what state the target experienced, not why it experienced it.\n")
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
-	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
+	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus, authority.FrameScopes))
 	lang := extractAnswerDocLang(ctx)
 	b.WriteString(renderTraceFinalPrincipalRankPopulation(set, lang))
 	var causalClaimContract *types.TraceCausalClaimContract
@@ -1699,9 +1699,13 @@ func renderTraceFinalTimeRoleAuthority(set types.TraceCausalProjectionSet) strin
 // pre-triage navigation rows from silently widening a typed selected window.
 // A producer-owned typed relation may still bind evidence across windows; the
 // prompt does not inspect or reject model prose.
-func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet, frameEvidenceStatus string) string {
+func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet, frameEvidenceStatus string, scopes ...[]types.TraceFrameEvidenceScope) string {
 	var b strings.Builder
 	for index, projection := range set.Projections {
+		status := frameEvidenceStatus
+		if len(scopes) > 0 {
+			status = types.TraceFrameSelectedStatus(scopes[0], index)
+		}
 		if !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 			continue
 		}
@@ -1714,7 +1718,7 @@ func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet,
 		if scope := projection.WindowScope.Format("en"); scope != "" {
 			fmt.Fprintf(&b, "  - query_scope: %s.\n", scope)
 		}
-		if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
+		if status == "absent" || status == "unavailable" {
 			b.WriteString("  No target-bound frame boundary, completion, or deadline is provided; do not turn an unbound preview marker into this selected window's frame boundary or cadence explanation.\n")
 		}
 	}
@@ -1871,9 +1875,12 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet, 
 // and frame status. It does not scan or rewrite prose and it does not choose a
 // root cause; its job is to prevent a long evidence appendix from obscuring
 // the already-established semantic ceiling.
-func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvidenceStatus string) string {
+func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvidenceStatus string, scopes ...[]types.TraceFrameEvidenceScope) string {
 	if len(set.Projections) == 0 {
 		return ""
+	}
+	if len(scopes) > 0 {
+		frameEvidenceStatus = types.TraceFrameCommonSelectedStatus(scopes[0], set)
 	}
 	var b strings.Builder
 	b.WriteString("- final_synthesis_scope: principal_root_cause_population=`typed_on_chain_only`; adjacent_and_background_role=`supporting_context_and_additional_investigation_only`; actual_occupancy_and_existing_rule_eliminable=`separate_decision_axes`.\n")
