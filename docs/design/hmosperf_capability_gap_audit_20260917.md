@@ -10551,3 +10551,39 @@ B无附件预注入，普通命名capture.gz自然进入共享准备及6次成�
 分代不可变原件及两笔普通提交推送，以[批汇总](../../eval/parallel_selected_summary_hmc_frame_scope_registration_20261026.md)与[人工审计](../../eval/parallel_selected_summary_hmc_frame_scope_registration_20261026_manual_audit.md)的实际收据为准，不用后置文档倒签失败或未触发。
 
 代码/测试`9c3568da90588df29fe7f82fed45c04ffc185f17`已普通推送，5份文档另笔。两代索引保280文件，按真实源路径＋SHA为181独立原件版本（99个/tmp别名重复不算新证据）；原168件未变。最终publication-v3逐输入/提交树/远端/洁净核验，并保原full和freeze两个FAIL，后继定向PASS另栏。
+
+## 300. 闭合睡眠实例投影、结构分类与归档隔离（2026-10-27）
+
+### 300.1 对账与公开根因
+
+候选基线`dd9bf170ac9dd1dd9649b5e3a69e356b2df0df41`；main保`788588e365d40a48b30827ffd8db08dae4e2ae9d`。79唯一＝25完整交付＋54开放、18类，17部分/31待实施/3待验收/2验收中/1持续不变。先闭环§299实际全仓失败，不重复销09.4/11.3/08.4，不把窄测试绿色当父能力完成。
+
+未改原`TestHMC232SleepInstanceActualBusinessFixture`断言即复现RED。4次真实TraceQuery（100/200线程×wakeup_chain/root_cause_rank）和合并ledger均有闭合`[1.009010,1.040010)`31ms、精确wake行12和未闭合尾段；旧投影等值/主体/区间重叠去重将闭合实例吞进`[1.001,1.045)`宽域31ms。新增可选展示字段改变payload哈希与ID排序，暴露既有身份判据不充分，并非原生统计或唤醒配对改变。初修的后继R2又将宽域/闭合/尾段加成67.5ms，第二个实际失败保原后才修共享汇总边界，不靠排序绕开。
+
+### 300.2 泛化修复、结构登记与参考取舍
+
+共享测量域函数只读取已验证、源绑定的原生方法、目标、窗口/行过滤和正面已知的来源/时钟矛盾。它是现有折叠的负向反证，不用PartitionID、显示文本、整个DTO序列化或缺失字段发新权限。通用去重同key可保多个冲突生存者；R1/V4复用同一反证。R2及最终展示trunk先保原complete-state-cover证明，再检查实际重叠的成员是否测量域冲突，冲突组保独立事实而非猜SUM/union。展示absorb保存全部真实贡献者，三成员准入对全部既有成员核对，未知不能桥接两个已知冲突域。原IO精确身份、语义状态证明、合法不重叠/相接汇总和legacy准入不放宽；原生查询、排序选因、因果资格与自动补齐不改。
+
+参考`wakeup_chain_index.py:1–220`与`sleep_ops.py:292–339,530–614,945–980`按线程实例、状态段与精确端点处理；借鉴的是“实例/量尺/来源一起保留”，不是最近事件或文本相似性权限。`llm_contract.py:112–146`逐真实member/field回查并承认数值0；本仓仅对精确等待DTO复用原formatter，不移植全局容差/零值放开。`io_ops.py:1–190`的请求驻留仍不是设备驻留，不以新睡眠保真修复给IO解释授权。
+
+结构轨将真实typed decoder消费的`wakeup_measured_wait`登记为soft_consumer，保原扫描和因果边界；外层pin要求精确删除唯一新增字段即恢复旧hash，嵌套六字段另锁定。公共TraceQuery→tracediag零起点先RED后GREEN：selected起点0不会被反射省掉，actual未知/裁切/容差尾分别说明，原行帽不扩，无效可选展示不撤原边。
+
+归档轨核旧209件封存逐SHA不变，将18份快照（13个.go、0tracked）恢复性移动至`/private/tmp/codrax-hmc300-isolated-hmc299-snapshots-v1`，保意图/映射/receipt。新快照在仓外，封存源码使用非Go后缀，避免`./...`与独立源码扫描同时受污染；没有测试豁免、没有删除历史失败，也不回签§299全仓。
+
+### 300.3 验证纪律与自然验收
+
+projection相关/race各231顶层/210子例PASS；展示相关/race各36/155PASS；完整tracediag174/81、结构race18/7，Trace等保护3包297/64、只读登记正反控5/2和标准构建通过。逆发布顺序与附加展示/opaque ID变更不改变同一物理睡眠集合；原尾段不能借先前wake。中间候选FAIL保原，另外两次新增fixture/断言预期错误单列，不冒称全部为产品RED。
+
+冻结7419仓库＋27外部＋21快照，SHA`be705d5eb564b0518ec766446976d694ecd2de2cfd15a6d716bec496b13ba94a`。源码/测试/注释/helper全员停写；恰好两例各一次，真实模型请求交叠4.737秒。A原OpenDocument合成ftrace业务题、B原真实controller/planner与独立恢复child有限登记harness，模型真实调用不等于fixture来自实机；B不冒充完整CLI或自然源码创作。两进程exit0、两例机器PASS、完整人工1/2；原件见[批汇总](../../eval/parallel_selected_summary_hmc_business_wait_registration_20261027.md)与[人工审计](../../eval/parallel_selected_summary_hmc_business_wait_registration_20261027_manual_audit.md)。
+
+A的31/44ms闭合睡眠、35ms请求驻留、两条wake与业务/整窗状态分区正确；等待载体进入实际Finalizer并被复用。未见PID200的wakeup_chain/root_cause_rank，不能签宽/闭合impact共存折叠自然覆盖。原emit只有3英文主体且有精确wake anchors；后续修补补中文角色边界，复用既有节点并加业务label的尝试被拒，再新增中文node_id才通过。最终图6主体、中文3孤立，附未证关系边界；这是实际交接冲突，不断言renderer自发注入。正文把业务结束1.0445等同wake1.045、5.5ms差写5ms、全窗idle用于排除局部竞争；原生事实正确不能抵消完整FAIL，不增加问答关键词门。
+
+B有限PASS：父5/规划器2/子2共9真实请求，完整读2行源/4行测试后登记changes=[]与真实assertion_ref，子恢复另行新invocation验证；当前1断言/2命令和累计2报告/2结果/4命令分开。3批预算3/5，旧unverified attempt保原，由后继精确证明依赖闭合；父子各7原件/3验证引用/2final链接SHA一致，五快照6逻辑pack内容相同、持久化ID规范化后稳定。source localization weak/apply_checkpoint_missing和未进入的自然负向不代签。
+
+唯一全仓发现两项新未闭环：宽/精确查询组合的`TestSelfRunningScopePublicNativeWindows`10子例在发布前候选绑定即由原4条变5/6，exact-only两例通过；以及新soft_consumer未被统一原生发射夹具覆盖。前者不是文案pin，量测保留与物理根因候选资格需分层；只读代码链为projection保行→RankedSeats→candidate compiler→按CandidateID绑定，实际日志未dump具体新增候选，故不伪称已证是哪一条或唯一挂点。后者不以豁免key修复。冻结后不改测试/代码、不二次全仓，终态数与SHA见批汇总。
+
+### 300.4 状态与下一ROI
+
+完整能力新增0/累计25，共享修复2组（跨域投影实例保真、结构/零起点展示）＋归档流程修复；未获main交付资格，54开放不减。本批剩余4组验收缺陷：宽窗根因候选集合、统一发射覆盖、图主体身份修补、正文时点/量尺/机制解释；修复组合的自然未触发另记，不计成新稳定任务。下一ROI首先保原4条根因合同公开dump查询/物理实例/board身份，保新睡眠实例不丢而不让保留量测重复取得候选席位；其次补真实producer覆盖；再公开复现图既有lane/业务角色/可见label的结构交接，不以名称相似性或放宽断言修复。旧采样、IO、栈关系、代表及权限自然覆盖继续原项，不重写正确统计器或无限追单题。17.6缺新真实格式/工具/原生宿主材料，已有同采集包装或有限正向验收不代签；17.7活跃WAL未满足零副作用，生产NO-GO。
+
+唯一全仓UTC07:57:46.469349–08:12:42.007692 exit1，96包PASS/1FAIL/12无测试，28366顶层/33246子例PASS，2顶层/10子例FAIL，41顶层/14子例SKIP；251431行均JSON，无重复终态/未结束，日志SHA `839c60687b3ba0dc5dfdb78bfa1e9a11db80bc6ffeb57cf4e85fd841806889d3`。三运行receipt冻结前后均true；原源码/测试/执行helper未改，另两份新只读审计提取/HTML脚本不参与执行，单独封存不伪称原冻结输入。232原件索引SHA `0a2ab17ece5c9fa22044ad57756a3c393244b6900b5b0c7601fd57bb9b41e9ad`；候选代码 `816139ef4c147e5817b485d9791d11a4f4ad3a15` 与5文档分两笔，最终远端/提交树/clean收据见批汇总，不进main、不回签原FAIL。
