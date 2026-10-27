@@ -738,6 +738,14 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
 	switch t {
+	case reflect.TypeOf(types.TraceWakeupMeasuredWait{}):
+		// Preserve required zero and unknown actual boundaries using the same
+		// typed display as the answer surfaces, without changing event identity.
+		wait := v.Interface().(types.TraceWakeupMeasuredWait)
+		if text := types.TraceWakeupMeasuredWaitDisplay(&wait); text != "" {
+			emit(fmt.Sprintf("- %s: %s", path, clampToken(text)))
+		}
+		return
 	case reflect.TypeOf(tracequery.IOActivityStats{}), reflect.TypeOf(tracequery.IOActivityCoverage{}), reflect.TypeOf(tracequery.IOActivityWindow{}),
 		reflect.TypeOf(tracequery.IOActivityGroup{}), reflect.TypeOf(tracequery.IOActivityDirection{}), reflect.TypeOf(tracequery.IOActivityValues{}),
 		reflect.TypeOf(tracequery.IOActivitySizeBucket{}), reflect.TypeOf(tracequery.IOActivityRates{}), reflect.TypeOf(tracequery.IOActivityReadWriteRatio{}), reflect.TypeOf(tracequery.IOActivityBucket{}):

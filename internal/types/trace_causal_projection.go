@@ -5888,7 +5888,7 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 		}
 		namedBoardBases[traceCausalProjectionDedupeBaseKey(node)] = true
 	}
-	seen := make(map[string]int, len(nodes))
+	seen := make(map[string][]int, len(nodes))
 	out := make([]TraceCausalProjectionNode, 0, len(nodes))
 	for _, node := range nodes {
 		baseKey := traceCausalProjectionDedupeBaseKey(node)
@@ -5910,7 +5910,14 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 			rankBoard = "unnamed"
 		}
 		key := baseKey + "\x00" + rankBoard
-		if at, dup := seen[key]; dup {
+		at := -1
+		for _, candidate := range seen[key] {
+			if !TraceCausalProjectionMeasurementDomainsConflict(out[candidate].MeasurementOrigins, node.MeasurementOrigins) {
+				at = candidate
+				break
+			}
+		}
+		if at >= 0 {
 			// LEDGER-MERGE-1 (§40.29.1 残留 → §40.33, 2026-09-02): a second
 			// query result republishing the SAME seat (same role/subject/
 			// predicate/object/support refs/board — e.g. the model's
@@ -5924,7 +5931,7 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 			traceCausalProjectionAbsorbDedupeTwinEvidence(&out[at], node)
 			continue
 		}
-		seen[key] = len(out)
+		seen[key] = append(seen[key], len(out))
 		out = append(out, node)
 	}
 	return out

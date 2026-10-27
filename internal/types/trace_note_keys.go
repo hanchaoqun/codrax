@@ -2248,7 +2248,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWakeupTs, "chain_path", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWakeupLatencyCaliber, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupEventInstance, "chain_path", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyWakeupMeasuredWait, "chain_path", TraceNoteCarrierDisplayOnly},
+	// Typed display validation reads exact source/query/event operands; this
+	// soft consumer does not participate in causal projection compilation.
+	{TraceNoteKeyWakeupMeasuredWait, "chain_path", TraceNoteCarrierSoftConsumer},
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census notes — the model evidence feed (internal/context wait-object

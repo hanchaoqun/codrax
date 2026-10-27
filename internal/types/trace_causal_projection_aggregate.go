@@ -348,7 +348,8 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 			var ref *survivorRef
 			for _, candidate := range survivors[key] {
 				prior := &(*buckets[candidate.bucket])[candidate.index]
-				if TraceSchedulerMeasurementRestrictionsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) {
+				if TraceSchedulerMeasurementRestrictionsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) ||
+					TraceCausalProjectionMeasurementDomainsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) {
 					continue
 				}
 				ref = candidate
@@ -1104,7 +1105,8 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 	// Different positively bound native event-line filters are different
 	// measurement populations. Equality/near-value and envelope overlap cannot
 	// erase that contradiction; absence leaves every existing rule intact.
-	if TraceSchedulerMeasurementRestrictionsConflict(a.MeasurementOrigins, b.MeasurementOrigins) {
+	if TraceSchedulerMeasurementRestrictionsConflict(a.MeasurementOrigins, b.MeasurementOrigins) ||
+		TraceCausalProjectionMeasurementDomainsConflict(a.MeasurementOrigins, b.MeasurementOrigins) {
 		return false
 	}
 	if traceCausalProjectionCanonicalNode(a.EvidenceID) != "" &&
@@ -1672,6 +1674,13 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 	dropped := map[int]bool{}
 	for _, key := range order {
 		g := groups[key]
+		members := make([]TraceCausalProjectionNode, 0, len(g.members))
+		for _, idx := range g.members {
+			members = append(members, nodes[idx])
+		}
+		if TraceCausalProjectionOccurrenceDomainsConflict(members) {
+			continue
+		}
 		if len(g.members) < traceCausalProjectionSameKindAggregateMin {
 			// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane
 			// same-window mirror PAIR merges below the ≥3 economy threshold —

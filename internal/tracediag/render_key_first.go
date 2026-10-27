@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // detailRenderPolicy is deliberately an exact type+Go-field registry.  A
@@ -1460,8 +1461,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// consumers from mistaking it for post-wakeup runnable scheduling delay.
 	// One per-edge scalar disclosure only: no bulk/dup/skip/rank/value lane or
 	// priority override.
-	reflect.TypeOf(tracequery.ChainNode{}):  "4860488d816c9a4ce6a24e7f2d9b3c2bdf998314dfdf80087ced1835673b0ede",
-	reflect.TypeOf(tracequery.WakeupEdge{}): "b94e0887e581b5d0bd3bd5bde3d7d29ac3cc92fbf07dab6601a71246c25daca8",
+	reflect.TypeOf(tracequery.ChainNode{}): "4860488d816c9a4ce6a24e7f2d9b3c2bdf998314dfdf80087ced1835673b0ede",
+	// MeasuredWait is one optional per-edge display object. Its shared typed
+	// formatter keeps selected/actual/state boundaries together, including
+	// zero, and suppresses invalid optional data without hiding the edge.
+	// One bounded detail line; no priority, bulk, duplicate or causal lane.
+	// Pin the nested operands separately: the edge hash sees only their type.
+	reflect.TypeOf(tracequery.WakeupEdge{}):         "3d47f406cf4dd3af9a0e53d66dbb921334bd1921c1b76dfdb2e2afde488aa707",
+	reflect.TypeOf(types.TraceWakeupMeasuredWait{}): "ec19790f6859a8497bcfd995ace81d932e77f68635951df49be5f6b4d84e3026",
 	// WAKE-CENSUS-D 2A (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13) schema
 	// review: WakeupEdgeCensusPair now pinned in its own right (the ChainResult
 	// hash sees only the slice's type name, so pair-level field growth was

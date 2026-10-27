@@ -3251,7 +3251,8 @@ func runtimeTraceProjTrunkFoldSameStateOccurrences(main types.TraceCausalProject
 	members := []types.TraceCausalProjectionNode{main}
 	kept := make([]types.TraceCausalProjectionNode, 0, len(extra))
 	for _, node := range extra {
-		if runtimeTraceProjTrunkSameStateOccurrencePair(main, node) {
+		if runtimeTraceProjTrunkSameStateOccurrencePair(main, node) &&
+			!types.TraceCausalProjectionOccurrenceDomainsConflict(append(members, node)) {
 			members = append(members, node)
 			continue
 		}
@@ -8481,6 +8482,10 @@ func runtimeTraceProjSameAdjacentMeasurement(a, b types.TraceCausalProjectionNod
 	if same, handled := types.TraceCausalProjectionIOPublicationMatch(a, b); handled {
 		return same
 	}
+	if types.TraceSchedulerMeasurementRestrictionsConflict(a.MeasurementOrigins, b.MeasurementOrigins) ||
+		types.TraceCausalProjectionMeasurementDomainsConflict(a.MeasurementOrigins, b.MeasurementOrigins) {
+		return false
+	}
 	if runtimeTraceCausalProjectionCanonicalNode(a.Subject) != runtimeTraceCausalProjectionCanonicalNode(b.Subject) ||
 		runtimeTraceCausalProjectionCanonicalNode(a.Object) != runtimeTraceCausalProjectionCanonicalNode(b.Object) ||
 		runtimeTraceCausalProjectionCanonicalNode(a.TypeToken) != runtimeTraceCausalProjectionCanonicalNode(b.TypeToken) {
@@ -8528,6 +8533,7 @@ func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool
 // was dead code — the fold identity requires equal canonical subjects.
 func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjectionNode, dup types.TraceCausalProjectionNode) {
 	original := *survivor
+	survivor.MeasurementOrigins = types.ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, dup.MeasurementOrigins)
 	// Near lane only (PTV6-B mirror; the types-layer absorb's rule verbatim):
 	// when the two publications' values differ — inside the ≤3% band, or the
 	// identity would not have matched — the fold keeps the LARGEST boundary
