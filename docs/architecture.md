@@ -1584,6 +1584,12 @@ HMC §303候选为调查解释单元增加可选`native_refs`，引用当轮已�
 
 §303仅保存候选，未获main准入：正式PCAP CLI在共享准备后仍被Orchestrator的旧文本准入以NUL拒绝，局部加载器/工具测试没有跨越该门；全仓另暴露透明转发新增依赖的严格类型检查失败、专用view缺指标合同。后续须以受信材料的查询域分派准入并补实际输出的metric/epoch时钟描述，不能将全部binary免检或借用调度指标。业务Trace正式正文的窗口/31ms表述改善，但新非空native_refs未触发；图精确lane与业务角色绑定/修补失败后安全隔离，不能据数字正确宣称完整交付。原失败与冻结边界见§303批汇总。
 
+HMC §304候选将物理准备选择的读取域保留在`TraceMaterial`私有字段：零值仍为Trace文本/束，经典PCAP头验证后才签packet域。共享`ValidateQueryMaterial`在前后校验完整材料代次、精确预览，并对持有的包文件重新验证实体头；完整包记录、partial/空捕获及实际查询成功仍由原生工具决定。附加Run、typed命名准入和Coordinator复用一致，不用扩展名/正文决定豁免；packet不选Trace sibling universe，自身源代次仍完整绑定。旧Trace完整束与文本门、取消、陈旧失败保留，JSON不能恢复该凭证。
+
+包结果使用`tracequery.Result.packet_inventory`的独立`tracewire.PacketInventoryResult`，原始代际凭证只留在`pcapinput`，删除无必要的跨包透明转发。独立指标目录指向实际持久化字段，分别描述文件大小、捕获长度、原始长度、完整计数、有限成员和原生epoch时钟，不填Trace时间/线程或event_count来通过结构检查。空捕获没有时间字段，坏尾只能保有效前缀且不签完整观察。
+
+图的软展示仍以物理事件覆盖数优先；同覆盖时优先已发表线程/进程身份更完整的整组查询，再用原稳定顺序打破平局。评分只影响提示抽样，不改变完整凭证池、精确实例硬门、关系或根因资格，不逐端点借字段，不把未知进程与同名/TID已知进程合并。依据是参考仓`wakeup_chain_index.py`保留`from_itid`的实例身份设计，而非靠图标签猜主体。孤立主体原子修补和自由文字解释仍按独立验收结果留账。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
