@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
-	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 )
 
 // SetAttachedHitrace replaces the sticky trace preview. A new plain-text
@@ -34,8 +34,5 @@ func (o *Orchestrator) validateAttachedTraceInputs(ctx context.Context) error {
 	if o.attachedTraceMaterial == nil {
 		return nil
 	}
-	if err := o.attachedTraceMaterial.Validate(ctx, o.attachedHitrace); err != nil {
-		return err
-	}
-	return tracequery.ValidateTraceInputPath(ctx, o.attachedTraceMaterial.QueryPath())
+	return traceinput.ValidateQueryMaterial(ctx, o.attachedTraceMaterial, o.attachedHitrace)
 }

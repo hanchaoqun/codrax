@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const (
@@ -20,73 +21,15 @@ const (
 	PacketPrefixBytes = 4096
 )
 
-type Header struct {
-	ByteOrder    string `json:"byte_order"`
-	Resolution   string `json:"timestamp_resolution"`
-	Snaplen      uint32 `json:"snaplen_bytes"`
-	LinkType     uint16 `json:"link_type"`
-	LinkTypeWord uint32 `json:"link_type_word"`
-}
+type Header = tracewire.PacketHeader
+type Timestamp = tracewire.PacketTimestamp
+type Packet = tracewire.PacketRecord
+type Count = tracewire.PacketCount
+type Failure = tracewire.PacketFailure
 
-type Timestamp struct {
-	Seconds  uint32 `json:"seconds"`
-	Fraction uint32 `json:"fraction"`
-	Decimal  string `json:"epoch_seconds"`
-}
-
-type Packet struct {
-	Ordinal              uint64    `json:"ordinal"`
-	FileOffset           int64     `json:"file_offset"`
-	Timestamp            Timestamp `json:"timestamp"`
-	CapturedBytes        uint32    `json:"captured_bytes"`
-	OriginalBytes        uint32    `json:"original_bytes"`
-	Truncated            bool      `json:"capture_truncated"`
-	DecoderPrefixLimited bool      `json:"decoder_prefix_limited"`
-	InterfaceIndex       *uint32   `json:"interface_index,omitempty"`
-	PacketType           *uint16   `json:"packet_type,omitempty"`
-	Direction            string    `json:"direction"`
-	LinkProtocol         *uint16   `json:"link_protocol,omitempty"`
-	IPProtocol           *uint8    `json:"ip_protocol,omitempty"`
-	Protocol             string    `json:"protocol"`
-	DecodeStatus         string    `json:"decode_status"`
-	SourceAddress        string    `json:"source_address,omitempty"`
-	DestinationAddress   string    `json:"destination_address,omitempty"`
-	SourcePort           *uint16   `json:"source_port,omitempty"`
-	DestinationPort      *uint16   `json:"destination_port,omitempty"`
-	Fragmented           bool      `json:"fragmented"`
-}
-
-type Count struct {
-	Label string `json:"label"`
-	Count uint64 `json:"count"`
-}
-type Failure struct {
-	Code   string `json:"code"`
-	Offset int64  `json:"file_offset"`
-}
 type Result struct {
-	sourceIdentity    filegeneration.Identity
-	View              string     `json:"view"`
-	SourcePath        string     `json:"source_path"`
-	Status            string     `json:"status"`
-	TimeDomain        string     `json:"time_domain"`
-	Header            Header     `json:"header"`
-	SourceBytes       int64      `json:"source_bytes"`
-	PacketCount       uint64     `json:"packet_count"`
-	OmittedPackets    uint64     `json:"omitted_packets"`
-	CapturedBytes     uint64     `json:"captured_bytes"`
-	OriginalBytes     uint64     `json:"original_bytes"`
-	TruncatedPackets  uint64     `json:"truncated_packets"`
-	FirstTimestamp    *Timestamp `json:"first_record_timestamp,omitempty"`
-	LastTimestamp     *Timestamp `json:"last_record_timestamp,omitempty"`
-	MinTimestamp      *Timestamp `json:"min_timestamp,omitempty"`
-	MaxTimestamp      *Timestamp `json:"max_timestamp,omitempty"`
-	OutOfOrderPackets uint64     `json:"out_of_order_packets"`
-	Protocols         []Count    `json:"protocols"`
-	DecodeStatuses    []Count    `json:"decode_statuses"`
-	Directions        []Count    `json:"directions"`
-	Members           []Packet   `json:"members"`
-	Failure           *Failure   `json:"failure,omitempty"`
+	tracewire.PacketInventoryResult
+	sourceIdentity filegeneration.Identity
 }
 
 // SourceVersionToken belongs to the descriptor actually scanned, not a later
@@ -191,7 +134,7 @@ func Stream(ctx context.Context, path string, limit int) (out Result, err error)
 	if h.Resolution == "nanosecond" {
 		precision, scale = 9, 1000000000
 	}
-	out = Result{sourceIdentity: identity, View: "packet_inventory", SourcePath: path, Status: "complete", TimeDomain: "pcap_epoch_seconds", Header: h, SourceBytes: identity.Size(), Members: []Packet{}}
+	out = Result{sourceIdentity: identity, PacketInventoryResult: tracewire.PacketInventoryResult{View: "packet_inventory", SourcePath: path, Status: "complete", TimeDomain: "pcap_epoch_seconds", Header: h, SourceBytes: identity.Size(), Members: []Packet{}}}
 	protocols, statuses, directions := map[string]uint64{}, map[string]uint64{}, map[string]uint64{}
 	var prefix [PacketPrefixBytes]byte
 	var record [16]byte

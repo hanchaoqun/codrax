@@ -251,9 +251,12 @@ func (c *Coordinator) prepareOne(ctx context.Context, path, canonical, member st
 	// unpublished output. Plain text can select a provenance-bound sibling
 	// bundle; checking only the original text generation would miss that input.
 	query := pending.material.QueryPath()
-	version, err := tracequery.CaptureTraceSourceVersionContext(ctx, query)
-	if err != nil {
-		return nil, err
+	var version tracequery.TraceSourceVersion
+	if pending.material.QueryDomain() == attachment.TraceQueryDomainTrace {
+		version, err = tracequery.CaptureTraceSourceVersionContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := validatePreparationAlias(ctx, path, canonical); err != nil {
 		return nil, err
@@ -284,8 +287,12 @@ func (entry *coordinatedMaterial) validate(ctx context.Context) (*attachment.Tra
 	if err := material.Validate(ctx, material.Preview()); err != nil {
 		return nil, err
 	}
-	if err := entry.version.ValidateContext(ctx, material.QueryPath()); err != nil {
-		return nil, err
+	// Packet receipts already bind the entire physical source. They must not
+	// select a Trace sibling universe based on a filename or directory.
+	if material.QueryDomain() == attachment.TraceQueryDomainTrace {
+		if err := entry.version.ValidateContext(ctx, material.QueryPath()); err != nil {
+			return nil, err
+		}
 	}
 	return material, nil
 }

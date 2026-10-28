@@ -15,6 +15,23 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m(ViewPacketInventory, "Classic PCAP packet-record census and native epoch-clock observations.", []CapabilityOutput{
+			o("packet_inventory", "packet_count truncated_packets out_of_order_packets", "count", "entire scanned file record population when status=complete; partial is only a valid-record prefix, not a completed census"),
+			o("packet_inventory", "omitted_packets", "count", "member-preview omissions only; limit never changes the scanned aggregate population"),
+			o("packet_inventory", "source_bytes captured_bytes original_bytes", "bytes", "separate file size, captured frame-byte sum and source-reported original frame-byte sum; never add these quantities or treat them as application bytes"),
+			o("packet_inventory.header", "snaplen_bytes", "bytes", "capture header maximum retained packet length; not a measured packet size or bandwidth"),
+			o("packet_inventory.header", "link_type link_type_word", "identifier", "decoded link type and original header word; neither is a scheduler or hardware identity"),
+			o("packet_inventory.first_record_timestamp", "epoch_seconds", "epoch seconds", "exact native timestamp of first file record; absent for an empty capture"),
+			o("packet_inventory.last_record_timestamp", "epoch_seconds", "epoch seconds", "exact native timestamp of last file record, which may precede earlier records; not a query endpoint"),
+			o("packet_inventory.min_timestamp", "epoch_seconds", "epoch seconds", "earliest observed native record time across the scanned population, not a requested query window"),
+			o("packet_inventory.max_timestamp", "epoch_seconds", "epoch seconds", "latest observed native record time across the scanned population, not capture duration or response latency"),
+			o("packet_inventory.protocols", "count", "count", "complete population per decoded protocol when status=complete; unknown remains an explicit class"),
+			o("packet_inventory.decode_statuses", "count", "count", "same packet population grouped independently by decoding status; do not add across classification dimensions"),
+			o("packet_inventory.directions", "count", "count", "same packet population grouped independently by explicit Linux cooked packet type or unknown direction"),
+			o("packet_inventory.members", "ordinal", "identifier", "bounded source-record preview; ordinal plus file offset identifies a record, not a thread or flow"),
+			o("packet_inventory.members", "file_offset captured_bytes original_bytes", "bytes", "source-record byte coordinate and independent frame lengths; preview values do not replace complete aggregate counts"),
+			o("packet_inventory.members.timestamp", "epoch_seconds", "epoch seconds", "exact decimal native timestamp; resolution is declared by packet_inventory.header.timestamp_resolution, no Trace-clock alignment implied"),
+		}, r("", nil, "", "Classic PCAP 2.4 with supported magic and a stable read-only source generation. status=complete requires scanning all record framing; absent timestamps stay unknown for zero records. Only source/path and member-preview limit are accepted; no time, thread, process or line filtering."), PacketInventoryTeaching),
 		m(ViewPerfSamplingTree, "Sampled prefix populations and original cohort weights.", []CapabilityOutput{
 			o("perf_sampling_tree.cohorts", "sample_count total_weight stack_weight unavailable_weight", "cohort.weight_unit", "entire selected cohort, including missing or unavailable stacks; independent source/generation/event/unit denominators"),
 			o("perf_sampling_tree.cohorts.nodes", "inclusive_weight self_weight percent", "cohort.weight_unit/percent", "sampled prefix and last-recorded-frame weight; percent divides original cohort total, never window milliseconds"),

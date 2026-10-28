@@ -65,14 +65,14 @@ func (t *TraceQuery) packetInventory(ctx *types.BusContext, p traceQueryParams, 
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
 	path = filepath.Clean(physical)
-	result, err := tracequery.StreamPacketInventory(contextFromBus(ctx), path, p.Limit.Int())
+	result, err := pcapinput.Stream(contextFromBus(ctx), path, p.Limit.Int())
 	if err != nil {
 		if traceQueryIsCancellation(err) {
 			return traceQueryCancellationResult(p.View, path, err), nil
 		}
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet capture query failed; no complete inventory was published: " + err.Error(), Timestamp: time.Now()}, nil
 	}
-	payload, err := json.Marshal(result)
+	payload, err := json.Marshal(tracequery.Result{View: tracequery.ViewPacketInventory, SourcePath: path, PacketInventory: &result.PacketInventoryResult})
 	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}

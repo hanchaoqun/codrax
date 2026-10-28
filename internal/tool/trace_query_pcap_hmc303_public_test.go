@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
-	"github.com/hanchaoqun/codrax/internal/pcapinput"
 	"github.com/hanchaoqun/codrax/internal/traceinput"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -130,11 +130,12 @@ func TestHMC303PacketInventoryPartialIsNotEmptySuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var p pcapinput.Result
-	if err := json.Unmarshal(data, &p); err != nil {
+	var payload tracequery.Result
+	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if p.Status != "partial" || p.PacketCount != 2 || p.Failure == nil {
+	p := payload.PacketInventory
+	if p == nil || p.Status != "partial" || p.PacketCount != 2 || p.Failure == nil {
 		t.Fatalf("partial raw evidence lost: %s", data)
 	}
 }
@@ -159,9 +160,13 @@ func TestHMC303PacketInventoryRealCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var p pcapinput.Result
-	if err := json.Unmarshal(data, &p); err != nil {
+	var payload tracequery.Result
+	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
+	}
+	p := payload.PacketInventory
+	if p == nil {
+		t.Fatal("missing dedicated packet inventory", string(data))
 	}
 	if p.PacketCount != 6101 || p.OmittedPackets != 6089 || p.SourceBytes != 3499182 || p.CapturedBytes != 3401542 || p.OriginalBytes != 3401542 || p.FirstTimestamp.Decimal != "1789020987.035118" || p.LastTimestamp.Decimal != "1789021016.416211" || p.Header.LinkType != 276 || p.TruncatedPackets != 0 {
 		t.Fatalf("real counts/clock disagree with independent oracle: %+v", p)
@@ -206,15 +211,12 @@ func TestHMC303PacketInventoryPublicRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		PacketCount    int               `json:"packet_count"`
-		OmittedPackets int               `json:"omitted_packets"`
-		Members        []json.RawMessage `json:"members"`
-	}
+	var payload tracequery.Result
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.PacketCount != 2 || payload.OmittedPackets != 1 || len(payload.Members) != 1 {
+	p := payload.PacketInventory
+	if p == nil || p.PacketCount != 2 || p.OmittedPackets != 1 || len(p.Members) != 1 {
 		t.Fatalf("preview replaced complete population: %s", data)
 	}
 	publication, ok := types.DecodeRuntimeMeasurementPublication(o)

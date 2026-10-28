@@ -26,7 +26,35 @@ type TraceMaterial struct {
 	archiveMember            string
 	explicitArchiveSelection bool
 	queryArtifacts           map[string]bool
+	queryDomain              TraceQueryDomain
 }
+
+// TraceQueryDomain identifies the reader selected by physical preparation,
+// not the user's filename, requested interpretation, or a model JSON field.
+// The zero value preserves existing text/bundle receipts.
+type TraceQueryDomain uint8
+
+const (
+	TraceQueryDomainTrace TraceQueryDomain = iota
+	TraceQueryDomainPacketCapture
+)
+
+// BindTraceMaterialForQueryDomain is for preparers that have validated a
+// non-Trace physical header. Consumers must still validate the receipt and
+// the selected reader's format. This does not assert a completed native query.
+func BindTraceMaterialForQueryDomain(sourcePath, queryPath, preview string, bindings map[string]filegeneration.Identity, domain TraceQueryDomain) (*TraceMaterial, error) {
+	if domain != TraceQueryDomainTrace && domain != TraceQueryDomainPacketCapture {
+		return nil, fmt.Errorf("unsupported prepared query domain")
+	}
+	m, err := BindTraceMaterial(sourcePath, queryPath, preview, bindings)
+	if err != nil {
+		return nil, err
+	}
+	m.queryDomain = domain
+	return m, nil
+}
+
+func (m *TraceMaterial) QueryDomain() TraceQueryDomain { return m.queryDomain }
 
 // BindTraceMaterial consumes the generations captured by the input preparer.
 // Capture must precede its reads/conversion; recapturing after a source change

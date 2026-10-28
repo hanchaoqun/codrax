@@ -79,7 +79,7 @@ type InputFormatCapability struct {
 func TraceCapabilities(view string, detail bool) (CapabilityCatalog, error) {
 	catalog := CapabilityCatalog{
 		Version: 1, StaticOnly: true, Evidence: false, CaptureAvailability: "not_evaluated",
-		QueryTimeUnit: "seconds", QueryTimeAxis: "time_start/time_end and normalized event timestamps use artifact-local trace seconds. Native jank start_ts_ns/end_ts_ns remain nanoseconds on that same axis; conversion is a unit conversion, not a new clock alignment. Other metric units are declared separately; cross-source alignment requires its own receipt.",
+		QueryTimeUnit: "seconds", QueryTimeAxis: "For Trace views, time_start/time_end and normalized event timestamps use artifact-local trace seconds. Native jank start_ts_ns/end_ts_ns remain nanoseconds on that same axis; conversion is a unit conversion, not a new clock alignment. packet_inventory has no time filters and preserves exact native PCAP epoch seconds in its dedicated packet_inventory result, never Trace-local seconds. Other metric units are declared separately; cross-source alignment requires its own receipt.",
 		MissingDataPolicy: "No measurements are produced by this catalog. Inspect actual query coverage and optional fields; missing, unsupported, canceled or unmeasured is not measured zero. Static support proves neither capture contents nor causality.",
 		DescriptorScope:   "Metric outputs are representative existing Result carriers across views, not a replacement result schema or a promise that every path appears in the selected view. Metric references describe related measurement contracts; components are conditional composition choices. Input-format references describe intake routes, not the event families present in a capture.",
 	}

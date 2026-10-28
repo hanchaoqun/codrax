@@ -345,18 +345,37 @@ func runtimeDiagramRowsHaveObservedThreadLanes(rows []RuntimeDiagramRelation) bo
 	return false
 }
 
-// Prefer a coherent query with broad event coverage, then fill uncovered rows
+// Prefer a coherent query with broad event coverage, then complete published
+// endpoint identities among equally broad queries, and fill uncovered rows
 // from other queries. This prevents repeated lookups exhausting a small prompt
 // or repair budget. The complete authority pool is deliberately untouched: a
 // sampling key is not a claim of cross-query identity or a causal permission.
 func runtimeDiagramPresentationRows(rows []RuntimeDiagramRelation) []RuntimeDiagramRelation {
-	coverage := map[string]map[string]bool{}
+	coverage := map[string]map[string]int{}
 	for _, row := range rows {
 		if row.presentationKey != "" && row.presentationQuery != "" {
 			if coverage[row.presentationQuery] == nil {
-				coverage[row.presentationQuery] = map[string]bool{}
+				coverage[row.presentationQuery] = map[string]int{}
 			}
-			coverage[row.presentationQuery][row.presentationKey] = true
+			// Rank whole query carriers, never enrich or merge their fields.
+			// Unknown TGID remains unknown when no more complete producer row
+			// exists. Repeated credentials cannot inflate the quality score.
+			known := 0
+			if row.threadEndpoints != nil {
+				if row.threadEndpoints.from.TGID > 0 {
+					known++
+				}
+				if row.threadEndpoints.to.TGID > 0 {
+					known++
+				}
+			}
+			coverage[row.presentationQuery][row.presentationKey] = max(known, coverage[row.presentationQuery][row.presentationKey])
+		}
+	}
+	quality := map[string]int{}
+	for query, events := range coverage {
+		for _, known := range events {
+			quality[query] += known
 		}
 	}
 	chosen := map[string]int{}
@@ -366,7 +385,9 @@ func runtimeDiagramPresentationRows(rows []RuntimeDiagramRelation) []RuntimeDiag
 		}
 		prior, exists := chosen[row.presentationKey]
 		if !exists || len(coverage[row.presentationQuery]) > len(coverage[rows[prior].presentationQuery]) ||
-			(len(coverage[row.presentationQuery]) == len(coverage[rows[prior].presentationQuery]) && row.presentationQuery < rows[prior].presentationQuery) {
+			(len(coverage[row.presentationQuery]) == len(coverage[rows[prior].presentationQuery]) &&
+				(quality[row.presentationQuery] > quality[rows[prior].presentationQuery] ||
+					(quality[row.presentationQuery] == quality[rows[prior].presentationQuery] && row.presentationQuery < rows[prior].presentationQuery))) {
 			chosen[row.presentationKey] = i
 		}
 	}

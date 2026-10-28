@@ -1,5 +1,5 @@
 // Package traceinput prepares complete physical trace attachments at product
-// boundaries. Parsers continue to accept only query-ready text or bundles.
+// boundaries. Preparation preserves each native reader's physical query domain.
 package traceinput
 
 import (
@@ -141,7 +141,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		if len(preview) > opts.PreviewBytes {
 			return nil, &Error{Code: "packet_capture_preview_budget", Path: source, Err: fmt.Errorf("preview budget cannot retain the complete source and packet query navigation")}
 		}
-		return bind(ctx, source, source, preview, bindings, false)
+		return attachment.BindTraceMaterialForQueryDomain(source, source, preview, bindings, attachment.TraceQueryDomainPacketCapture)
 	}
 	if !binary {
 		preview, complete, err := previewFromHeld(ctx, source, source, held, original, opts.PreviewBytes, "")

@@ -1228,6 +1228,8 @@ type ViewCancellation struct {
 }
 
 type Result struct {
+	PacketInventory *tracewire.PacketInventoryResult `json:"packet_inventory,omitempty"`
+
 	filteredPerfPopulation      *perfFilteredPopulationWitness
 	PerfSamplingTree            *PerfSamplingTreeResult `json:"perf_sampling_tree,omitempty"`
 	View                        string                  `json:"view"`

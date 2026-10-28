@@ -12,6 +12,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -165,10 +166,17 @@ func prepareAndAdmitNamedTracePath(ctx context.Context, bus *types.BusContext, p
 			return fmt.Errorf("preparation returned no complete material")
 		}
 		path = material.QueryPath()
+		preparedMaterial, preparedPreview = material, material.Preview()
 		namedPrepared = true
 	}
-	if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
-		return err
+	if preparedMaterial != nil {
+		if err := traceinput.ValidateQueryMaterial(ctx, preparedMaterial, preparedPreview); err != nil {
+			return err
+		}
+	} else {
+		if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
+			return err
+		}
 	}
 	// The complete-query admission read must remain in the same original,
 	// derived-output and bundle-member generation as preparation itself.
