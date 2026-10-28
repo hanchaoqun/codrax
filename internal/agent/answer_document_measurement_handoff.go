@@ -29,13 +29,25 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
 	publication.prepareSamplingTableIdentities(ctx)
 	previewKeys := runtimeMeasurementPreviewIdentities(ctx, choices, publication)
-	previewCounts := runtimeMeasurementDistinctPreviewRows(choices, previewKeys)
+	contentWitnesses := runtimeMeasurementContentWitnesses(ctx, choices, previewKeys)
+	budgetKeys := append([]string(nil), previewKeys...)
+	contentShared := false
+	for i, witness := range contentWitnesses {
+		if witness.key != "" {
+			budgetKeys[i] = witness.key
+			contentShared = true
+		}
+	}
+	previewCounts := runtimeMeasurementDistinctPreviewRows(choices, budgetKeys)
 	var b strings.Builder
 	if ctx.AnalysisIR != nil && len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) > 0 {
 		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
 	}
 	b.WriteString(renderAcceptedNativeAnswerDisplay(ctx, view))
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
+	if contentShared {
+		b.WriteString("- Content dictionary: native_measurement_content stores one exact display preview and complete producer notes via note_refs to native_measurement_note. Each content_ref uses only those displayed rows and source_row_indices; it does not make a partial preview complete. query_receipt resolves that selector's own full native source/query coordinates; its source_title and population metadata stay independent. Equal display bytes never merge queries, denominators, permissions, causal relations or completion. Select the original observation_id/view, not a dictionary ID.\n")
+	}
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
 		fmt.Fprintf(&b, "- Complete native record tables can carry requested member-set display dimensions %v. Bind only the indices actually answered with block-level requested_dimension_indices beside runtime_measurement. One table can carry several dimensions (for example the event roster and its per-row identities); do not retype rows. For an automatically shown table, add an exact model selector with those indices; it replaces the duplicate default display. This is display ownership only, not source-code, causal or investigation-completion evidence.\n", indices)
 	}
@@ -99,6 +111,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	measurementNotes := runtimeMeasurementNoteNavigation{}
 	samplingPreviews := map[string]samplingTablePreview{}
 	measurementPreviews := map[string]runtimeMeasurementPublishedPreview{}
+	contentDictionary := runtimeMeasurementContentDictionary{}
 	sourcePresentations := runtimeMeasurementSourceNavigation{}
 	previewRows := 0
 	for i, table := range choices {
@@ -161,6 +174,21 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 				scopeRefs = append(scopeRefs, ref)
 			}
 			fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; field_catalog=%s; retained_rows=%d; scope_refs=%s%s\n", table.ObservationID, table.View, table.Label, catalog, len(table.Rows), strings.Join(scopeRefs, ","), sourceTitle)
+			continue
+		}
+		if witness := contentWitnesses[i]; witness.key != "" {
+			var dimensions string
+			candidate := types.AnswerBlock{Kind: types.BlockTable, RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}, RequestedDimensionIndices: view.RuntimeMeasurementContract.NativeDisplayDimensionChoices()}
+			if indices, valid := types.BoundNativeDisplayDimensions(candidate, view.RuntimeMeasurementContract); valid {
+				dimensions = fmt.Sprintf("  eligible requested_dimension_indices=%v (choose only dimensions this table answers).\n", indices)
+			}
+			shown, rows, newRows := contentDictionary.write(&b, witness, table, count, sourceTitle, dimensions, measurementNotes, publication)
+			previewRows += newRows
+			if shown && rows > 0 {
+				previewed[table.ObservationID] = true
+			} else if !wasPreviewed {
+				delete(previewed, table.ObservationID)
+			}
 			continue
 		}
 		key := previewKeys[i]
