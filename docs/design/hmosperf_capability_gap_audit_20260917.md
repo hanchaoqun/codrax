@@ -10659,3 +10659,40 @@ A此次调查`interpretation_units/0/text`和aggregate member note已将50ms业�
 能力轨不只重复旧题：只读核参考实采PCAP，3,499,182B，SHA `099ddab49c3c957b5e311d11e8f9ba2e2d7a380f0910bd8becf27a394fbac91a`，linktype276/6101包，首末包epoch微秒1789020987035118/1789021016416211。仅包框架检查，不能签协议解码、捕获无丢包或Trace同钟。06.1只读流式原始包接入可提升为下一能力候选；参考parser读迭代器却全量存list，extender再全量建rows并DROP原DB表，以及文件名推offset均不适合照搬。按包源身份/序号/offset/时钟/捕获长度/完整性建有界派生产物，跨源校准仍依赖05.2，不改原父项退出标准。17.6新真实格式/工具/原生宿主到位仍提级，同源包装不算新能力；17.7活跃WAL继续生产NO-GO。
 
 原件封存、候选代码与五文档分笔普通提交推送及最终远端/clean核验见[批汇总](../../eval/parallel_selected_summary_hmc_business_identity_registration_20261027.md)。本批不进main，不倒签原FAIL/NOT_TRIGGERED，54开放保持。
+
+## 303. 解释引用范围绑定与真实PCAP只读接入（2026-10-28，候选验收失败）
+
+基线`960a14d31786875d1304292c4d7255bab7317426`，候选分支`codex/hmc299-wait-interval-candidate`，main保`788588e365d40a48b30827ffd8db08dae4e2ae9d`。79唯一稳定项＝25已交付＋54开放、18类；06.1诚实由待实施改部分实施，当前19部分/29待实施/3待验收/2验收中/1持续。完整能力新增0，候选子能力2组，不计main交付。
+
+### 303.1 精确引用与查询身份，不能代签解释
+
+§302的正确业务50ms/运行5ms、查询52ms/运行7ms与31ms实测已在实际上下文；本批不能虚构“原生数字缺失”。共享缺口是解释单元只有自由support_refs，没有可验证原生成员坐标。新增可选native_refs，指向当轮已选observation/view的原始零基行；完整表/Notes/来源/查询代次私有封印在Finalizer重绑，JSON不能恢复。动态schema只发布有界完整分支（末测32对7822B），引用/解释/限制/状态共用原900/1800预算，不增加原生展示预算。
+
+合法引用仅证明地址当前，不证明自由文字、算术、根因或任意图注；旧解释兼容且继续不授信。公开RED是旧schema不接受新合同的接缝RED，不冒称已经复现并消除全部50/52或31ms误述；负控保留错误文字仍属advisory的真实边界。原Trace投影、原四根因、闭合睡眠实例与自动补齐不改，无问答关键词门。
+
+### 303.2 PCAP参考意图与最小候选
+
+PCAP参考`core/extensions/tcpdump_parser.py`和`tcpdump_extender.py`意图是把网络包变成可统一查询的事实；但迭代器后的全量列表、二次全量rows、DROP输入DB表及文件名offset不适用于本仓。新入口限定经典PCAP的有界只读记录，保每包身份、精确epoch记录时钟、caplen/original_len、未知链路/协议与截断状态，不承诺捕获完整或Trace校时。真实材料为参考仓`tests/fixtures/video_douyin_hcodec/tcpdump_cap_061627.pcap`；协议字段另核[libpcap文件头](https://raw.githubusercontent.com/the-tcpdump-group/libpcap/master/pcap/pcap.h)与[Linux cooked header](https://raw.githubusercontent.com/the-tcpdump-group/libpcap/master/pcap/sll.h)，不抄实现。05.2跨源校准、06.2协议会话、17.6新宿主材料及17.7 WAL零副作用条件不放宽。
+
+候选按held只读descriptor保真实源代次，发布前复验；固定4KiB解码前缀、最多64成员，不累积全量包。全文件计数与预览分开，重复字节保ordinal/offset；捕获截断与本解析器前缀预算分别披露，未知端口/方向/时间不猜。经典PCAP大小端、微秒/纳秒与空/坏尾/取消边界有公开回归；PCAPNG明确不支持。summary/members/distribution复用私有原生事实通路，不授Trace窗/线程/流会话/因果身份。稀疏1GiB压力测试只证本解析前缀有界，不代表完整CLI内存上界。
+
+真实3,499,182B原件SHA `099ddab49c3c957b5e311d11e8f9ba2e2d7a380f0910bd8becf27a394fbac91a`，独立Ruby遍历与系统tcpdump交叉核对6101包、TCP4336/UDP1627/ICMP138、观察跨度29.381093秒、捕获/原长各3,401,542B。不是同一parser自证；tcpdump首包UDP payload28B与记录帧76B量尺不同。定向查询一致，不代签正式CLI。
+
+### 303.3 冻结、两例真实评测与全仓
+
+末版引用相关3包51顶层/216子例及race7/15，PCAP最终race6包47/274，根侧Trace保护4包230/365均PASS；探索期夹具错误、canonical原件凭证不一致等失败原样保留，不当成最终绿或假RED。标准构建一次成功；冻结7434仓库＋63外部＋30仓外快照后停写源码/测试/注释/helper，旧901封存与18快照不变。冻结SHA `f18f0aaf99ddfcc9992b9f300d5a5ff8ef68d9e7bed456bb1a4db898ee05eebc`。
+
+两例各一次并行，实际可唯一配对请求A19/B1，另1个A歧义响应不猜配；至少5.103秒真实请求重叠。机器及完整人工均0/2，外层runner exit0不表示答案PASS。A原OpenDocument构造ftrace题：正文/表正确分开50/52ms、主线程5/7ms运行、worker业务8ms与31ms睡眠/35ms请求驻留；新非空native_refs却NOT_TRIGGERED，接受的7单元均空引用，不能把改善归功该分支。图跨原生worker lane绑定两次冲突、三个业务角色缺未证边界；补丁删边后未声明Storage孤立主体处置，最终图隔离，degraded FAIL。正文另说原四席缺#3，与实际上下文冲突，继续留账；箭头原顺序正确，不误记成倒序。
+
+B真实PCAP正常--htrace入口：准备和分类正确，Orchestrator随后无条件走文本ValidateTraceInputPath，以NUL拒绝；0查询/0Finalizer/无最终答案，不是零包或模型没调工具。局部加载测试手工创建Bus绕过Run门，确有覆盖缺口。命名材料另有同类静态风险，但本题未触发。源字节未变不等于整个CLI无日志/缓存副作用，WAL仍NO-GO。
+
+唯一全仓UTC07:32:59.404725–07:44:21.069454 exit1：96包PASS/2FAIL/12无测试，28393顶层/33357子例PASS、2顶层FAIL、42顶层/14子例SKIP；251982行均JSON，无重复终态或未结束。日志SHA `950a5a20f017c24127532ffb231dbaaff10a636fb2bee5bc805411b50ba8007b`。TestEventSideTablePromotionBan因透明转发新依赖pcapinput.Result未进入严格typecheck覆盖而FAIL；TestTraceCapabilitiesPublicCompleteDiscovery因packet_inventory缺metric_refs而FAIL。前者不等于字段提升实错，后者不能靠挪用Trace指标或豁免断言修。冻结后未补改、未二次全仓或追第三例；不进main。
+
+### 303.4 剩余验收与ROI
+
+1. 06.1最高ROI：受信准备材料携查询域到真实Orchestrator准入，附件/命名入口一致，不按后缀或自由文字免检；保坏源、只读、代次、清单与Trace原门。补跨Run公开回归。
+2. 同能力内补专用输出/指标/时钟合同：去掉透明转发；包事实wire与私有held identity分开，真实数量/长度/epoch/成员字段可被现有反射检验，目录不再把PCAP解释成Trace秒。两全仓失败保原断言。以上是下批方案，当前未实现。
+3. 缺陷轨先公开复现图业务角色与原生lane/事件实例精确绑定、孤立节点原子修补；未知TGID与已知TGID不能凭同TID/名称合并。原生行引用仍只证明地址，不能以授信文字掩盖原四席误述；新非空引用自然覆盖继续NOT_TRIGGERED。
+4. 旧采样、IO、代表选择及权限覆盖继续原稳定项；轮换真实已有材料而非无限追同题。05.2校准、06.2会话、17.6新格式/宿主材料和17.7零副作用退出门不变。
+
+完整审计、原始失败封存与分笔候选发布见[批汇总](../../eval/parallel_selected_summary_hmc_business_pcap_20261028.md)和[人工审计](../../eval/parallel_selected_summary_hmc_business_pcap_20261028_manual_audit.md)。不回签旧FAIL/NOT_TRIGGERED，54开放保持。
