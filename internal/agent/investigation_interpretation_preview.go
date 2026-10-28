@@ -18,6 +18,10 @@ type investigationInterpretationPreview struct {
 // The legacy paragraph lane is explicitly incomplete when anything is omitted;
 // paragraph boundaries are not a claim that semantic limitations are complete.
 func previewInvestigationInterpretation(h *types.InvestigationNativeFactHandoff, budget int, sanitize func(string) string) investigationInterpretationPreview {
+	return previewInvestigationInterpretationWithNativeReferences(h, budget, sanitize, false)
+}
+
+func previewInvestigationInterpretationWithNativeReferences(h *types.InvestigationNativeFactHandoff, budget int, sanitize func(string) string, nativeReferencesCurrent bool) investigationInterpretationPreview {
 	var out investigationInterpretationPreview
 	if h == nil || h.InterpretationRole == types.InvestigationNativeRestatement {
 		return out
@@ -36,6 +40,13 @@ func previewInvestigationInterpretation(h *types.InvestigationNativeFactHandoff,
 		for i, unit := range h.InterpretationUnits {
 			raw, _ := json.Marshal(unit)
 			part := fmt.Sprintf("- unit[%d]: %s\n\n", i, raw)
+			if len(unit.NativeRefs) > 0 {
+				status := "unverified_address"
+				if nativeReferencesCurrent {
+					status = "current_exact_rows"
+				}
+				part += "  native_reference_status=" + status + "; references only the original table rows and that selector's source/query/notes. Address validation does not validate text, arithmetic, causality or diagram notes, and does not certify row publication.\n\n"
+			}
 			parts = append(parts, part)
 			unchanged := unchangedContent(unit.Text)
 			for _, fields := range [][]string{unit.Boundaries, unit.SupportRefs} {

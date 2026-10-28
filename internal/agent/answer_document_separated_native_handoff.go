@@ -110,6 +110,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 	}
 	// Eligibility and rendering use the same immutable handoff snapshot.
 	projection.independentUnits = h.InterpretationRole == types.InvestigationIndependentAnalysis && len(h.InterpretationUnits) > 0
+	nativeReferencesCurrent := false
 	// Only the private current completion credential plus fresh source binding
 	// can own the current narrative. Restored JSON and stale references retain
 	// their conservative advisory/legacy path, independent of display budgets.
@@ -117,6 +118,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 		if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil {
 			if selected, ok := types.BindInvestigationNativeFactHandoff(h, view.RuntimeMeasurementContract); ok {
 				projection.ownsCurrentNarrative = true
+				nativeReferencesCurrent = types.InvestigationNativeRowReferencesCurrent(h, view.RuntimeMeasurementContract)
 				projection.selectedViews = len(selected)
 				for _, r := range selected {
 					if p != nil && p.measurementViews[nativeFactHandoffViewKey(*r.BoundTable)] {
@@ -139,7 +141,7 @@ func answerDocSeparatedNativeFactHandoff(ctx *types.AgentContext, p *answerDocNa
 		// does not enlarge the total narrative budget or independent note slots.
 		budget += 900
 	}
-	preview := previewInvestigationInterpretation(h, budget, sanitizePriorDraftForSummary)
+	preview := previewInvestigationInterpretationWithNativeReferences(h, budget, sanitizePriorDraftForSummary, nativeReferencesCurrent)
 	projection.sanitized = preview.sanitized
 	projection.interpretationBytes = preview.totalBytes
 	projection.publishedInterpretationBytes = preview.publishedBytes

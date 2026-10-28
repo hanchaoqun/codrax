@@ -38,6 +38,7 @@ func projectExplorerNativeFactHandoffSchema(ctx *types.AgentContext, schemas []l
 		items["enum"], _ = json.Marshal(choices)
 		selections["items"], _ = json.Marshal(items)
 		fields["runtime_measurements"], _ = json.Marshal(selections)
+		projectExplorerNativeRowReferenceSchema(ctx, fields, choices)
 		if len(displayChoices) == 0 {
 			delete(fields, "answer_display")
 		} else {

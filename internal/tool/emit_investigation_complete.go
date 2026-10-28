@@ -92,6 +92,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		measurementTeachingJSON, _ := json.Marshal(types.RuntimeMeasurementMemberSetTeaching)
 		interpretationTeachingJSON, _ := json.Marshal(types.NativeFactInterpretationRoleTeaching)
 		unitTeachingJSON, _ := json.Marshal(types.InvestigationInterpretationUnitsTeaching)
+		nativeRowTeachingJSON, _ := json.Marshal(types.InvestigationNativeRowReferenceTeaching)
 		emitInvestigationCompleteParametersCached = json.RawMessage(strings.NewReplacer(
 			"__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts),
 			"__AGG_FACTS_CAP_TEACHING__", string(capTeachingJSON[1:len(capTeachingJSON)-1]),
@@ -100,6 +101,9 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"__INTERPRETATION_ROLE_TEACHING__", string(interpretationTeachingJSON[1:len(interpretationTeachingJSON)-1]),
 			"__INTERPRETATION_UNITS_TEACHING__", string(unitTeachingJSON[1:len(unitTeachingJSON)-1]),
 			"__INTERPRETATION_UNITS_CAP__", strconv.Itoa(types.MaxInvestigationInterpretationUnits),
+			"__NATIVE_ROW_REFS_TEACHING__", string(nativeRowTeachingJSON[1:len(nativeRowTeachingJSON)-1]),
+			"__NATIVE_ROW_REFS_CAP__", strconv.Itoa(types.MaxInvestigationNativeRowReferences),
+			"__NATIVE_ROW_INDICES_CAP__", strconv.Itoa(types.MaxInvestigationNativeRowIndices),
 		).Replace(`{
 		"type": "object",
 		"properties": {
@@ -110,7 +114,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					"runtime_measurements":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
 					"answer_display":{"type":"array","maxItems":16,"description":"Optional explicit final-display subset of runtime_measurements, only for requested native facts. The system rebinds and displays all retained rows and notes; inspected views are not automatically selected. No completeness, requested-dimension, source-code or causal authority is added.","items":{"type":"object","properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]}},"required":["observation_id","view"],"additionalProperties":false}},
 					"interpretation":{"type":"string","description":"Legacy independent interpretation and missing-evidence boundaries, without copying selected native numbers. Omit when non-empty interpretation_units carries the analysis; an empty string explicitly means no independent interpretation. A supplied value must be a string, not null."},
-					"interpretation_units":{"type":"array","maxItems":__INTERPRETATION_UNITS_CAP__,"description":"__INTERPRETATION_UNITS_TEACHING__","items":{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string","minLength":1},"boundaries":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"support_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}}},"required":["text"]}},
+					"interpretation_units":{"type":"array","maxItems":__INTERPRETATION_UNITS_CAP__,"description":"__INTERPRETATION_UNITS_TEACHING__","items":{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string","minLength":1},"boundaries":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"support_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}},"native_refs":{"type":"array","maxItems":__NATIVE_ROW_REFS_CAP__,"description":"__NATIVE_ROW_REFS_TEACHING__","items":{"type":"object","additionalProperties":false,"properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["summary","members","distribution","timeline"]},"row_indices":{"type":"array","minItems":1,"maxItems":__NATIVE_ROW_INDICES_CAP__,"uniqueItems":true,"items":{"type":"integer","minimum":0}}},"required":["observation_id","view","row_indices"]}}},"required":["text"]}},
 					"interpretation_role":{"type":"string","enum":["independent_analysis","native_fact_restatement"],"description":"__INTERPRETATION_ROLE_TEACHING__"}
 				},"required":["runtime_measurements"],"anyOf":[{"required":["interpretation"]},{"required":["interpretation_units"],"properties":{"interpretation_units":{"minItems":1}}}]
 			},

@@ -287,6 +287,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_SEARCH_PATTERN_LIMIT__", strconv.Itoa(tracequery.EventSearchPatternLimit))
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
+	schema = traceQueryPacketInventorySchema(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
 	return traceQueryCatalogReferenceSchema(traceQueryPerfSamplingTreeSchema(traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))))))
 }
@@ -360,6 +361,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	explicitCallParams := p
 	if err := tracequery.ValidateViewName(p.View); err != nil {
 		return traceQueryUnknownViewRejection(p.View, err), nil
+	}
+	if reject := traceQueryPacketInventoryInput(params, p); reject != nil {
+		return *reject, nil
 	}
 	if reject := traceQueryMeasurementsInput(p); reject != nil {
 		return *reject, nil
@@ -458,7 +462,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// happening to collide).
 	explicitTargetParams := p
 	var targetCaveat string
-	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
+	if tracequery.CanonicalViewName(p.View) != tracequery.ViewPacketInventory {
+		p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
+	}
 	if reject := traceQueryRequiredTargetInputRepair(p); reject != nil {
 		return *reject, nil
 	}
@@ -491,6 +497,18 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 	}
 	runCtx := contextFromBus(ctx)
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewPacketInventory {
+		// Retain this executed selector in the existing prepared-source receipt,
+		// without minting a scheduler-window replay or interval-navigation lane.
+		intervalNavigationParams = params
+		if err := traceCatalogBindQuery(ctx, catalogTickets, p, path, material); err != nil {
+			return traceQueryPreparedMaterialFailure(path, p.View, err), nil
+		}
+		return t.packetInventory(ctx, p, path)
+	}
+	if traceQuerySourceIsPCAP(path) {
+		return traceQueryPacketSelectionRepair("This source is a packet capture. Retry with view=packet_inventory, source/path and optional limit only; scheduler Trace views and coordinates do not apply."), nil
+	}
 	if err := tracequery.ValidateTraceInputPath(runCtx, path); err != nil {
 		// Preserve the established cancellation contract: a warm canceled call
 		// may return a typed, whole-face partial and a cold call mints the precise

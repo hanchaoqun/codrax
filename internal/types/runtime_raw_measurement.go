@@ -11,7 +11,7 @@ const RuntimeRawFactDisplayTeaching = "Published raw measurements and acquisitio
 type runtimeRawMeasurementWitness struct{ digest, projection string }
 
 func rawMeasurementPredicate(predicate string) bool {
-	return predicate == "measurements_observation" || predicate == "process_measurements_observation" || predicate == "unpositioned_measurements_observation"
+	return predicate == "measurements_observation" || predicate == "process_measurements_observation" || predicate == "unpositioned_measurements_observation" || predicate == "packet_inventory_observation"
 }
 
 // PublishRuntimeRawMeasurement is called by the native raw-record producers

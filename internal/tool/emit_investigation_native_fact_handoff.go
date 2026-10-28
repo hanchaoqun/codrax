@@ -64,6 +64,9 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 	if _, ok := types.BindInvestigationNativeFactHandoff(h, view.RuntimeMeasurementContract); !ok {
 		return fail(nativeFactHandoffSelectionViolations(h, view.RuntimeMeasurementContract)...)
 	}
+	if !types.SealInvestigationNativeRowReferences(h, view.RuntimeMeasurementContract) {
+		return fail(nativeFactHandoffViolation{"native_fact_handoff.interpretation_units.native_refs", "not_current_selected_native_row_address"})
+	}
 	if len(h.AnswerDisplay) > 0 && contextFromBus(ctx).Err() != nil || !types.SealInvestigationNativeAnswerDisplay(h, nativeAnswerDisplayRequest(ctx), view.RuntimeMeasurementContract) {
 		return fail(nativeFactHandoffViolation{"native_fact_handoff.answer_display", "not_current_requested_selected_view"})
 	}

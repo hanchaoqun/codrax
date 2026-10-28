@@ -122,6 +122,7 @@ func TraceCapabilities(view string, detail bool) (CapabilityCatalog, error) {
 			}
 		}
 		catalog.InputFormats = []InputFormatCapability{
+			{"pcap", "direct_read_only", "Classic PCAP 2.4, either endian, microsecond or nanosecond record timestamps; packet_inventory streams the original file and validates record framing.", "Only packet_inventory is supported. PCAPNG is not supported. Unknown link types retain record length/time with explicit unknown decoding. No Trace-clock, PID, thread, causal or capture-completeness inference is supplied."},
 			{"trace_text", "direct", "Parser-recognized ftrace/systrace/atrace/hitrace text; required semantic fields must parse.", "An extension or raw visibility row does not grant scheduler, duration or causal capability."},
 			{"perf_trace_text", "direct", "Typed perf_sample text with event/weight unit and source provenance.", "Samples do not supply missing scheduler transitions; unaligned clocks cannot be joined."},
 			{"tracebundle", "manifest", "Resolvable material paths with source identity and conversion/clock receipts.", "A manifest is not trace content; each referenced material keeps its own coverage and capability."},

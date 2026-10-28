@@ -26,6 +26,7 @@ type InvestigationNativeFactHandoff struct {
 	InterpretationRole    InvestigationInterpretationRole   `json:"interpretation_role,omitempty"`
 	InterpretationUnits   []InvestigationInterpretationUnit `json:"interpretation_units,omitempty"`
 	answerDisplayBindings map[string]string
+	nativeRowBindings     map[string]string
 }
 
 func (h *InvestigationNativeFactHandoff) Clone() *InvestigationNativeFactHandoff {
@@ -38,6 +39,12 @@ func (h *InvestigationNativeFactHandoff) Clone() *InvestigationNativeFactHandoff
 		out.answerDisplayBindings = make(map[string]string, len(h.answerDisplayBindings))
 		for key, value := range h.answerDisplayBindings {
 			out.answerDisplayBindings[key] = value
+		}
+	}
+	if h.nativeRowBindings != nil {
+		out.nativeRowBindings = make(map[string]string, len(h.nativeRowBindings))
+		for key, value := range h.nativeRowBindings {
+			out.nativeRowBindings[key] = value
 		}
 	}
 	return out

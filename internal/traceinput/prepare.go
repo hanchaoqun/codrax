@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
+	"github.com/hanchaoqun/codrax/internal/pcapinput"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -130,6 +131,17 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	bindings := map[string]filegeneration.Identity{source: original}
 	if opts.streamReceiptPath != "" {
 		bindings[opts.streamReceiptPath] = opts.streamReceiptID
+	}
+	if pcapinput.HasMagic(probe) {
+		h, err := pcapinput.ParseHeader(probe)
+		if err != nil {
+			return nil, &Error{Code: "packet_capture_header_invalid", Path: source, Err: err}
+		}
+		preview := fmt.Sprintf("# codrax-source: %s\nClassic PCAP 2.4 packet capture; link_type=%d, timestamp_resolution=%s. The original binary remains the query material. Use trace_query source=attached_trace view=packet_inventory (optional limit) for complete packet counts and bounded records. PCAP timestamps are epoch seconds, not scheduler Trace seconds; no clock alignment is established. Preparation validates the global header only; packet-record validation and counts require the native query.\n", source, h.LinkType, h.Resolution)
+		if len(preview) > opts.PreviewBytes {
+			return nil, &Error{Code: "packet_capture_preview_budget", Path: source, Err: fmt.Errorf("preview budget cannot retain the complete source and packet query navigation")}
+		}
+		return bind(ctx, source, source, preview, bindings, false)
 	}
 	if !binary {
 		preview, complete, err := previewFromHeld(ctx, source, source, held, original, opts.PreviewBytes, "")
