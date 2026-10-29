@@ -1596,6 +1596,12 @@ HMC §305候选补共享结果的精确结构演进见证：只逆转唯一、�
 
 代表时间窗表只提供已发表发生记录的定位包络，不另作成员值可加性裁决；小计服从已有明确成员和量尺，不能扩展到其它成员/方向或把聚合量当单窗时长。公开查询→发射→修补回归保留原生两成员2ms合法小计及完整ledger/查询/权限，不扫描或改写模型正文。§305唯一全仓仍FAIL：新增生产tracewire导入违反原诊断边界，且上述候选说明丢了B1688所保的包络重叠/不可直接求和限定；下一批须保两者而非放宽断言。旧8项结构失败本轮PASS，不掩盖这两个新接缝。两例机器2/2，人工仅只读登记限定负向PASS、PCAP完整正文FAIL，候选不进main；详见[批汇总](../eval/parallel_selected_summary_hmc_registration_pcap_metadata_20261028.md)。
 
+HMC §306候选先闭环§305的两处接缝：诊断渲染从`tracequery.Result`的精确字段路径取得已审查包DTO，不新增生产导入、不按包名/类型名或递归形状自动授权未来类型；定位说明同时保“重叠包络时长不可相加”和“明确成员、同量尺的合法小计”。旧导入边界/B1688原断言在唯一全仓通过，历史失败原件不改签。
+
+新增`packet_flows`只表示同一物理来源代次内的双向端点组合，身份包含链路、接口已知性/值、VLAN栈、IP版本、协议及规范端点；A/B不是客户端/服务端，组合不证明连接/会话/请求。共享PCAP扫描每包只读4KiB解码前缀，聚合上限4096组与展示上限64组分离；先聚合再按captured帧字节排序。分片、未知端点及不支持协议逐原因留存，超组预算/坏尾保partial、全局组数未知，不签完整或全局Top N。captured/original帧字节、方向和epoch观察范围独立保真；不继承Trace窗口/线程过滤或因果权限。原生summary/members/distribution复用同一有界受信发表，不重抄长内部ID。`Result.PacketFlows`经唯一精确逆变换恢复§305完整结构哈希，旧字段类型/顺序/tag不放宽。
+
+§306仍不具main准入：唯一全仓97包PASS/1FAIL/12无测试。双视图长导航增加138B，使既有640B附件预览在真实长路径下由621B增至759B，准备硬失败；不得靠增预算、截来源或放宽断言闭环。另一已证适用域缺口是目录可枚举packet视图，但`tracediag collect`仍走文本索引/`tracequery.Run`，只有工具入口有PCAP分派；渲染测试不能代签执行入口。两例普通CLI机器PASS、完整人工均FAIL，原生PCAP方向表和Trace局部图有限通过。真实Trace还暴露`SchedulerLatencyItem`混带片段区间与全窗CPU busy/idle等量测，后续须按来源窗分层，不只修37.5ms单例。原生事实、调查摘要与自由成文解释仍独立验收；无关键词门，Trace投影/自动补齐、WAL生产NO-GO保持。详见[§306批汇总](../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。

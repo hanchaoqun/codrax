@@ -10768,3 +10768,42 @@ B普通PCAP三次真实成功查询（2 attached＋1 path，同limit20），同�
 4. WAL零副作用未满足继续生产NO-GO。54开放及未触发权限/代表范围不减，原始失败、人工报告、分笔候选发布以[批汇总](../../eval/parallel_selected_summary_hmc_registration_pcap_metadata_20261028.md)和[逐面审计](../../eval/parallel_selected_summary_hmc_registration_pcap_metadata_20261028_manual_audit.md)为准；只封存/推候选，不进main。
 
 UTC 2026-10-29 01:37:19.884909共257件原始材料封存，索引SHA `7bfb62da5ea9442353e63417eb13eb8a3c589be6b4c0a37896ddc140d72ffd40`；含两独立审计、实际INIT/原参数/原生payload、PCAP、验证原件/links、全部原失败及源码。旧1435封存/18快照、7451＋59＋26冻结输入复核不变。候选代码`84639db132d757f84d712e6c55ca0050a17b0efb`与五文档紧邻分笔提交，最终普通推送与远端同代证明见批汇总publication收据，失败不回签。
+
+## 306. 原边界闭环与双向端点统计（2026-10-29，候选验收未通过）
+
+基线`de71141b172f15224eaa4f9a15871d0ae325962a`，仍在`codex/hmc299-wait-interval-candidate`，main保持`788588e365d40a48b30827ffd8db08dae4e2ae9d`。逐ID复核79唯一＝25已交付＋54开放、18类，19部分/29待实施/3待验收/2验收中/1持续。完整能力新增0、main新增0；候选子能力3组，不能凭局部事实或候选推送减父项。
+
+### 306.1 两条工作轨与参考设计
+
+缺陷轨闭环§305两类实际全仓失败：渲染通过Result精确字段路径绑定已审查DTO，不新增生产导入、不扩白名单或按名/递归形状放行；定位说明恢复重叠包络时长不可相加，同时保同成员/同量尺的合法2ms小计。旧导入边界、B1688 zh/en及裸区间原断言在本批唯一全仓全部PASS，旧失败原件不改签。
+
+能力轨为06.1新增`packet_flows`完整聚合到同源原生表：一次held-generation扫描，来源代次＋link/interface已知性/值＋VLAN栈＋IP版本/协议＋规范端点作为身份；A/B方向不等于incoming/outgoing或client/server，port0、mapped IPv6、未知接口各自保真。4KiB前缀、4096组内存与64组展示分开，完整聚合再按captured帧字节排序；超限/坏尾保partial与未知全局组数，不签完整/Top N。分片、未知端点、不支持解码保排除原因，完整空源与未执行/失败不混。captured/original帧字节及epoch观察范围不升为载荷、会话/响应时长、Trace时间或因果权限。
+
+共享准备/工具精确packet分派及参数域、来源前后复验、raw发表、summary/members/distribution、DTO渲染和结构演进都有相关正反回归。新增PacketFlows只作精确逆变换，恢复§305旧完整哈希，旧类型/顺序/tag不放宽。参考`network_pcap_ops.py`/`tcpdump_parser.py`用端点组合组织网络事实，保其可追溯排查意图，但不复制有向四元组忽略观察域、DNS-ID单键、SYN→SYNACK冒充握手或全量list；本仓沿已有来源代次/原生权限有界实现。会话06.2、校时05.2仍独立，WAL生产NO-GO不变。
+
+### 306.2 验证、冻结与真实双例
+
+冻结前pcapinput/tracewire完整及race各2包54顶层/122子例PASS，含独立真实503组oracle；tracediag完整/race及公共查询、原B1688、新小计、最坏64组发表容量PASS。相关tool/tracequery/types/traceinput/skill完整5包14106顶层/13517子例PASS、27/14 SKIP。仍漏了outputdump准备消费者，不能将“相关完整5包”写成全仓绿。标准CLI一次构建，冻结7461仓库＋66外部＋31仓外快照，SHA`336c66fc84c0f272ee120fadce72bf37f1743db9574dcf57db21751a2650c743`；之后源码/测试/注释/helper停写，未第三例/二次全仓。凭证内容未读/hash/复制，旧1692封存/18快照保持。
+
+恰好两例普通CLI各一次、15步，共同barrier；实际请求可唯一配对A15/B24，1歧义不猜配，至少56.206秒真实重叠。机器2/2，完整人工0/2。
+
+A原业务Trace：31ms完成闭合等待/35ms请求驻留、50ms业务/52ms查询、合法2ms小计、三唯一线程图lane与两原生唤醒、TID80/TGID2、原生状态表及2312B原件/2408B预览有限PASS。正文仍强化主线程同步等完整业务工作、倒置44/31ms包含关系、两处后台W写读错配；业务角色未证边界仍正确保留。最后runtime_work_relation补丁因facet_ids/claim_uses错套item未staged，force-stop保上次草稿，不能把提交意图计完成。原生权限到场但accepted investigation强同步叙述仍重传，留共享交接债，不扫正文关键词硬门。
+
+B真实PCAP：9次查询8成功/1limit拒绝，修正后真重试；8payload=4flows(limit40/1/15/20)+4inventory。独立字节oracle6101记录、5963归组/138ICMP不归、503组、两类帧字节各3401542B、精确epoch/4倒序；40唯一组76次出现与最终80行1040格逐项一致。原件/查询3499182B、预览680B准确，有限原生取数/表PASS。正文仍把组合升连接、12组方向反转、13/15近尾及8最早/4后半比较错误、15摘要与40表错绑。早期非空native_refs受理不等于较新闭合后最终INIT继承；最后facet补丁未受理，保留前次答案。8来源组128行预算未丢组，完整表能取到；10表重复摘要/长版本噪音留16.5。无图/像素QA不称覆盖。
+
+### 306.3 已证系统缺口与唯一全仓
+
+**调度量尺范围（P1，16.4/08.1/18.4）**：A的1ms SchedulerLatencyItem携带sameCPU busy7/idle45、otherCPU idle37.5，实际是52ms查询窗总量；query.go从stats.CPU取值后挂在每个segment，HighPriorityRunningMs/SystemOrKernelRunningMs也整窗，另有真实segment *_OverlapMs/competitors。正文遂说“同一时段37.5ms空闲”并倾向绑核。这是共享字段来源窗不清，不仅模型随机误述；下一批分开整窗背景与片段凭证，保原总体/已证重叠，不仅针对37.5改文。旧优先级保护不删：本例worker120→main53实际higher_priority_waker，IRQ未知，未证漏掉低优先级席位；只以缺锁否定反转的解释继续留账。
+
+唯一全仓UTC02:14:15.495551–02:25:31.734298，exit1，97包PASS/1FAIL/12无测试，28444顶层/33410子例PASS、1顶层/1子例FAIL、43/14 SKIP；252389全JSON行，无重复终态/未结束，SHA`ad5c080ff1213f676b6bc834f429c1f1de9bd30af97c3fbd9c533217fc79cb84`。前后冻结输入一致。FAIL为outputdump原`TestHMC305PreparedAttachmentSeparatesOriginalQueryAndPreview/packet`：640B预算，同一141B路径基线导航621B、本批759B，固定教学增138B导致超119B，准备返回packet_capture_preview_budget、后续元数据未执行。当前固定开销618B，不是极端路径噪声；不改预算/截路径/放宽断言，下一批最小必需envelope与可选整单元教学分层。
+
+**目录执行适用域（01.2/06.1/16.4）**：共享目录包含packet双view，tracediag脚本名校验接纳，但V1默认文本索引→indexed Run未分派，V2更早即Trace文本来源锁；工具入口才有真实PCAP处理。现有渲染测试是StreamFlows→Result→renderStepBody，不覆盖collect。文本源＋packet view可能invalid Result但err=nil被计成功仅静态推断，本批未新跑，不伪称公开复现。补共享精确可枚举/各入口可执行/参数域，保原总目录pin和依赖边界，未实现路径先诚实拒绝；真正V1/V2包源执行另验。
+
+### 306.4 下一ROI、交付与留账
+
+1. 先闭环新准备预算回归及所有反向消费者；并行修共享片段/整窗量尺交接，保合法计算、原查询总体、Trace因果投影/自动补齐及闭合睡眠实例。
+2. 能力轨补目录入口适用域/实际PCAP路径，完成材料充足的有限能力；06.2/05.2不提前签。轮换只读登记原终态、sample-only/代表选择，17.6真实格式/宿主材料齐后提级。
+3. 已给充足正确事实的自由解释失败保持原16.4/16.5/18.4，不据一次结果宣称模型随机，也不让同题无限占槽；旧IO、采样、栈关系、角色/权限未触发继续原账。WAL零副作用未达不接生产。
+4. 原始失败/两独立审计/实际INIT/参数/payload/全部输出表面原字节封存，候选代码与五文档紧邻分笔提交并普通推送；仍不进main、不减54。完整封存与发布收据见[批汇总](../../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029.md)，逐面证据见[人工审计](../../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029_manual_audit.md)。
+
+UTC2026-10-29 02:34:25.524707，328件原件封存，索引SHA`973347949f45a9fcd03af9827afda88f6b31ce183fd20d75cb51d1669b44502d`；旧1692件/18快照及本批7461＋66＋31冻结输入复验不变。候选代码`d4ca25e4e35c93f89df31f3b97ae974d2d278a15`（25文件）与五文档分笔，实际推送/远端/clean/两提交同冻结字节证明见批汇总publication收据。失败和未触发不因发布销账。
