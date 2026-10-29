@@ -137,6 +137,8 @@ const (
 // ViewCapacity is one row of the per-view capacity table.
 type ViewCapacity struct {
 	View string
+	// Execution is an explicit adapter declaration, separate from result budgets.
+	Execution ViewExecutionMode
 	// DefaultLimit is the effective row cap when the caller passes limit<=0
 	// (normalizeQuery's shared default, then MaxLimit clamps on top).
 	DefaultLimit int
@@ -203,25 +205,28 @@ type ViewCompaction struct {
 }
 
 var viewCapacityTable = map[string]ViewCapacity{
-	ViewPacketFlows:         {View: ViewPacketFlows, DefaultLimit: 32, MaxLimit: 64, Dimension: CompactionDimensionEvents},
-	ViewPacketInventory:     {View: ViewPacketInventory, DefaultLimit: 32, MaxLimit: 64, Dimension: CompactionDimensionEvents},
-	ViewPerfSamplingTree:    {View: ViewPerfSamplingTree, DefaultLimit: 64, MaxLimit: 256, Dimension: CompactionDimensionEvents},
-	ViewTransactionHandoffs: {View: ViewTransactionHandoffs, DefaultLimit: sharedDefaultResultLimit, MaxLimit: TransactionHandoffsLimit, Dimension: CompactionDimensionEvents},
-	ViewProcessMeasurements: {View: ViewProcessMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: ProcessMeasurementsLimit, Dimension: CompactionDimensionIntervals},
-	ViewMeasurements:        {View: ViewMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: MeasurementsLimit, Dimension: CompactionDimensionIntervals},
-	ViewPreferredFrameRate:  {View: ViewPreferredFrameRate, DefaultLimit: sharedDefaultResultLimit, MaxLimit: PreferredFrameRateSeriesLimit, Dimension: CompactionDimensionIntervals},
-	ViewRenderingCandidates: {View: ViewRenderingCandidates, DefaultLimit: sharedDefaultResultLimit, MaxLimit: RenderingCandidatesLimit, Dimension: CompactionDimensionCandidates, HeavyView: true, FallbackView: FallbackViewEventSearch, FallbackEventTypes: []string{string(EventTraceMark)}},
-	ViewResourceStack:       {View: ViewResourceStack, DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40, Dimension: CompactionDimensionEvents},
+	ViewPacketFlows:         {View: ViewPacketFlows, Execution: ExecutionStreamingPacket, DefaultLimit: 32, MaxLimit: 64, Dimension: CompactionDimensionEvents},
+	ViewPacketInventory:     {View: ViewPacketInventory, Execution: ExecutionStreamingPacket, DefaultLimit: 32, MaxLimit: 64, Dimension: CompactionDimensionEvents},
+	ViewPerfSamplingTree:    {View: ViewPerfSamplingTree, Execution: ExecutionIndexedTrace, DefaultLimit: 64, MaxLimit: 256, Dimension: CompactionDimensionEvents},
+	ViewTransactionHandoffs: {View: ViewTransactionHandoffs, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: TransactionHandoffsLimit, Dimension: CompactionDimensionEvents},
+	ViewProcessMeasurements: {View: ViewProcessMeasurements, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: ProcessMeasurementsLimit, Dimension: CompactionDimensionIntervals},
+	ViewMeasurements:        {View: ViewMeasurements, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: MeasurementsLimit, Dimension: CompactionDimensionIntervals},
+	ViewPreferredFrameRate:  {View: ViewPreferredFrameRate, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: PreferredFrameRateSeriesLimit, Dimension: CompactionDimensionIntervals},
+	ViewRenderingCandidates: {View: ViewRenderingCandidates, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: RenderingCandidatesLimit, Dimension: CompactionDimensionCandidates, HeavyView: true, FallbackView: FallbackViewEventSearch, FallbackEventTypes: []string{string(EventTraceMark)}},
+	ViewResourceStack:       {View: ViewResourceStack, Execution: ExecutionIndexedTrace, DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40, Dimension: CompactionDimensionEvents},
 	ViewCPUStateFrequency: {
-		View: ViewCPUStateFrequency, DefaultLimit: sharedDefaultResultLimit,
+		Execution: ExecutionIndexedTrace,
+		View:      ViewCPUStateFrequency, DefaultLimit: sharedDefaultResultLimit,
 		Dimension: CompactionDimensionIntervals,
 	},
 	"process_profile": {
-		View: "process_profile", DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40,
+		Execution: ExecutionIndexedTrace,
+		View:      "process_profile", DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40,
 		HeavyView: true, FallbackView: FallbackViewEventSearch,
 		FallbackEventTypes: []string{string(EventSchedSwitch)},
 	},
 	"event_search": {
+		Execution:    ExecutionIndexedTrace,
 		View:         "event_search",
 		DefaultLimit: sharedDefaultResultLimit,
 		Dimension:    CompactionDimensionEvents,
@@ -234,11 +239,13 @@ var viewCapacityTable = map[string]ViewCapacity{
 	// refinement and steer the model back into window splitting — the exact
 	// loop this view exists to break).
 	ViewWindowSweep: {
+		Execution:    ExecutionStreamingTrace,
 		View:         ViewWindowSweep,
 		DefaultLimit: WindowSweepDefaultTopK,
 		Dimension:    CompactionDimensionBuckets,
 	},
 	"span_window": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "span_window",
 		DefaultLimit:       sharedDefaultResultLimit,
 		FloorLimit:         spanWindowFloorLimit,
@@ -248,6 +255,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"thread_timeline": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "thread_timeline",
 		HeavyView:          true,
 		RelationScoped:     true,
@@ -255,6 +263,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"window_stats": {
+		Execution:                      ExecutionIndexedTrace,
 		View:                           "window_stats",
 		HeavyView:                      true,
 		FallbackView:                   FallbackViewEventSearch,
@@ -265,18 +274,21 @@ var viewCapacityTable = map[string]ViewCapacity{
 		AdvisorySemanticTraceMarkSpans: traceMarkSemanticSpanCap,
 	},
 	"perf_stats": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "perf_stats",
 		HeavyView:          true,
 		FallbackView:       FallbackViewEventSearch,
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"perf_timeline": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "perf_timeline",
 		HeavyView:          true,
 		FallbackView:       FallbackViewEventSearch,
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"trace_perf_bundle": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "trace_perf_bundle",
 		HeavyView:          true,
 		Composite:          true,
@@ -284,6 +296,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"scheduler_latency_stats": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "scheduler_latency_stats",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -293,6 +306,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"ipc_graph": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "ipc_graph",
 		DefaultLimit:       sharedDefaultResultLimit,
 		Dimension:          CompactionDimensionEdges,
@@ -301,6 +315,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"wakeup_chain": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "wakeup_chain",
 		HeavyView:          true,
 		RelationScoped:     true,
@@ -311,6 +326,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		MaxChainNodes:      wakeupChainDefaultMaxChainNodes,
 	},
 	"root_cause_rank": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "root_cause_rank",
 		DefaultLimit:       12,
 		MaxLimit:           12,
@@ -320,6 +336,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"frame_root_cause_bundle": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "frame_root_cause_bundle",
 		HeavyView:          true,
 		Composite:          true,
@@ -327,6 +344,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"critical_blocking_calls": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "critical_blocking_calls",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -336,6 +354,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"interaction_stats": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "interaction_stats",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -345,6 +364,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"frame_window": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "frame_window",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -354,6 +374,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"render_pipeline": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "render_pipeline",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -363,6 +384,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"frame_timeline": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "frame_timeline",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -372,6 +394,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"frame_flow": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "frame_flow",
 		DefaultLimit:       20,
 		MaxLimit:           20,
@@ -381,6 +404,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"recipe": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "recipe",
 		HeavyView:          true,
 		Composite:          true,
@@ -388,6 +412,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"evidence_pack": {
+		Execution:          ExecutionIndexedTrace,
 		View:               "evidence_pack",
 		HeavyView:          true,
 		Composite:          true,

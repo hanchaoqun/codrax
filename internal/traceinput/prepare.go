@@ -146,9 +146,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		if err != nil {
 			return nil, &Error{Code: "packet_capture_header_invalid", Path: source, Err: err}
 		}
-		preview := fmt.Sprintf("# codrax-source: %s\nClassic PCAP 2.4 packet capture; link_type=%d, timestamp_resolution=%s. The original binary remains the query material. Use trace_query source=attached_trace view=packet_inventory (optional limit) for complete packet counts and bounded records, or view=packet_flows for TCP/UDP bidirectional endpoint groups and directional frame counts/bytes. Endpoint groups do not prove sessions. PCAP timestamps are epoch seconds, not scheduler Trace seconds; no clock alignment is established. Preparation validates the global header only; packet-record validation and counts require the native query.\n", source, h.LinkType, h.Resolution)
-		if len(preview) > opts.PreviewBytes {
-			return nil, &Error{Code: "packet_capture_preview_budget", Path: source, Err: fmt.Errorf("preview budget cannot retain the complete source and packet query navigation")}
+		preview, err := packetPreparationPreview(source, original.Size(), h, opts.PreviewBytes)
+		if err != nil {
+			return nil, &Error{Code: "packet_capture_preview_budget", Path: source, Err: err}
 		}
 		return attachment.BindTraceMaterialForQueryDomain(source, source, preview, bindings, attachment.TraceQueryDomainPacketCapture)
 	}
@@ -407,6 +407,36 @@ func bind(ctx context.Context, source, query, preview string, bindings map[strin
 		return nil, err
 	}
 	return bindQueryArtifacts(ctx, material)
+}
+
+// Preparation facts and executable navigation are indivisible. Repeated tool
+// teaching is optional: adding guidance must not enlarge the minimum envelope
+// or turn an otherwise usable source into an input-admission failure.
+func packetPreparationPreview(source string, sourceBytes int64, h pcapinput.Header, limit int) (string, error) {
+	required := fmt.Sprintf("# codrax-source: %s\nClassic PCAP 2.4; source_bytes=%d; link_type=%d; timestamp_resolution=%s.\nQuery material: original binary. Preparation: global header validated; packet records not queried.\nClock: native epoch seconds; no Trace-clock alignment.\nQuery (optional limit):\ntrace_query {\"source\":\"attached_trace\",\"view\":\"packet_inventory\"}\ntrace_query {\"source\":\"attached_trace\",\"view\":\"packet_flows\"}\n", source, sourceBytes, h.LinkType, h.Resolution)
+	optional := []string{
+		"Inventory: complete record counts with bounded record preview; endpoint groups: TCP/UDP directional frame counts/bytes, not sessions.\n",
+		"Queries validate packet records; malformed tails remain partial. Preview limits do not bound the scanned population.\n",
+		"No scheduler time, line or thread filters apply. Captured/original frame bytes are separate quantities, not payload or bandwidth.\n",
+	}
+	return preparationPreviewWithTeaching(required, optional, limit)
+}
+
+// Keep an ordered prefix of whole teaching units. Never split source labels,
+// query JSON, UTF-8, or a sentence merely to fill the remaining byte budget.
+func preparationPreviewWithTeaching(required string, optional []string, limit int) (string, error) {
+	if len(required) > limit {
+		return "", fmt.Errorf("preview budget cannot retain complete source, preparation facts and query navigation: required_bytes=%d available_bytes=%d", len(required), limit)
+	}
+	var preview strings.Builder
+	preview.WriteString(required)
+	for _, unit := range optional {
+		if len(unit) > limit-preview.Len() {
+			break
+		}
+		preview.WriteString(unit)
+	}
+	return preview.String(), nil
 }
 
 func previewFromHeld(ctx context.Context, path, query string, held *os.File, id filegeneration.Identity, limit int, receiptPath string) (string, bool, error) {

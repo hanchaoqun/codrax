@@ -95,7 +95,7 @@ func (c *cpuStateFrequencyCollector) observe(ev Event) bool {
 // prefix proves carry-in and lane order. StreamScan owns cancellation and
 // held-file/path generation checks. Composite identities are not merged.
 func StreamCPUStateFrequency(ctx context.Context, path string, q Query) (Result, error) {
-	if err := ValidateViewName(q.View); err != nil {
+	if err := ValidateTraceViewInput(q.View); err != nil {
 		return Result{}, err
 	}
 	if ctx == nil {

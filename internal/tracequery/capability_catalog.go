@@ -3,7 +3,8 @@ package tracequery
 import "fmt"
 
 // CapabilityCatalog describes code capabilities, never the contents of a
-// capture. None of these descriptors participate in query admission or rank.
+// capture. Execution metadata mirrors the shared adapter admission contract;
+// measurement descriptions neither grant capture availability nor affect rank.
 type CapabilityCatalog struct {
 	Version             int                     `json:"version"`
 	StaticOnly          bool                    `json:"static_only"`
@@ -19,6 +20,7 @@ type CapabilityCatalog struct {
 }
 
 type ViewCapability struct {
+	Execution             ViewExecutionCapability    `json:"execution"`
 	View                  string                     `json:"view"`
 	Summary               string                     `json:"summary"`
 	Objects               []string                   `json:"objects"`
@@ -84,6 +86,9 @@ func TraceCapabilities(view string, detail bool) (CapabilityCatalog, error) {
 		DescriptorScope:   "Metric outputs are representative existing Result carriers across views, not a replacement result schema or a promise that every path appears in the selected view. Metric references describe related measurement contracts; components are conditional composition choices. Input-format references describe intake routes, not the event families present in a capture.",
 	}
 	views := capabilityViewDescriptors()
+	for i := range views {
+		views[i].Execution = ViewExecutionFor(views[i].View)
+	}
 	metrics := capabilityMetricDescriptors()
 	selectedMetrics := map[string]bool{}
 	byView := map[string]ViewCapability{}

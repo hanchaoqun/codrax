@@ -132,16 +132,13 @@ func traceMarkActionFilterInvalidResult(idx *Index, q Query, validationErr error
 }
 
 func Run(idx *Index, q Query) Result {
-	if err := ValidateViewName(q.View); err != nil {
+	if err := ValidateViewExecution(q.View, ExecutionEntryIndexedRun); err != nil {
 		return queryViewInvalidResult(idx, q, err)
 	}
 	var namesErr error
 	q.EventNames, namesErr = NormalizeEventSearchNames(q.View, q.EventNames)
 	if namesErr != nil {
 		return queryViewInvalidResult(idx, q, namesErr)
-	}
-	if CanonicalViewName(q.View) == ViewWindowSweep {
-		return queryViewInvalidResult(idx, q, fmt.Errorf("view %q is streaming-only; use StreamWindowSweep", ViewWindowSweep))
 	}
 	explicitTimeStart := queryExplicitTimeStart(q)
 	explicitTimeEnd := queryExplicitTimeEnd(q)
@@ -6816,6 +6813,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		item := SchedulerLatencyItem{
 			MeasurementSources:             types.TraceSchedulerMeasurementSourcesFromDomain(segment.measurementDomain),
+			ContextScope:                   schedulerContextScope(q, segment, cpu, cpuID),
 			Thread:                         segment.thread,
 			StartTs:                        segment.startTs,
 			EndTs:                          segment.endTs,
@@ -6869,8 +6867,9 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 				item.Summary, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount)
 		}
 		if item.OtherCPUIdleMs > 0 {
-			item.Summary = fmt.Sprintf("%s other_cpu_idle=%.3fms", item.Summary, item.OtherCPUIdleMs)
+			item.Summary = fmt.Sprintf("%s query_window_other_cpu_idle=%.3fcpu_ms", item.Summary, item.OtherCPUIdleMs)
 		}
+		item.Summary += " " + SchedulerContextScopeSummary(item.ContextScope)
 		res.Items = append(res.Items, item)
 	}
 	for _, segment := range stats.runnableSegments {
@@ -6934,10 +6933,55 @@ func cloneSchedulerLatencyItemsForAccounting(in []SchedulerLatencyItem) []Schedu
 	for i := range in {
 		out[i] = in[i]
 		out[i].MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in[i].MeasurementSources)
+		out[i].ContextScope = cloneSchedulerContextScope(in[i].ContextScope)
 		out[i].SameCPUTopRunning = append([]ThreadDuration(nil), in[i].SameCPUTopRunning...)
 		out[i].sameCPURunningSegments = append([]ThreadDuration(nil), in[i].sameCPURunningSegments...)
 	}
 	return out
+}
+
+func schedulerContextScope(q Query, segment runnableWaitSegment, cpu CPUStats, cpuID int) *SchedulerContextScope {
+	window := queryResultTimeWindow(q)
+	status, reason := cpu.BusyIdleStatus, cpu.BusyIdleReason
+	if cpuID < 0 {
+		status, reason = CPUBusyIdleStatusUnavailable, "wait_cpu_not_proven"
+	} else if status == "" {
+		status, reason = CPUBusyIdleStatusUnavailable, "no_cpu_busy_idle_account"
+	}
+	return &SchedulerContextScope{
+		QueryWindow: window, QueryWindowKnown: window.StartDetermined() && window.EndTs > window.StartTs,
+		QueryLineStart: q.LineStart, QueryLineEnd: q.LineEnd,
+		WaitInterval:         TimeWindow{StartTs: segment.startTs, EndTs: segment.endTs, StartSet: true},
+		WaitIntervalBoundary: "start_inclusive_end_exclusive",
+		QueryWindowFields:    []string{"same_cpu_busy_ms", "same_cpu_idle_ms", "other_cpu_idle_ms", "high_priority_running_ms", "system_or_kernel_running_ms"},
+		WaitIntervalFields:   []string{"duration_ms", "high_priority_running_overlap_ms", "system_or_kernel_running_overlap_ms", "system_or_kernel_competitor_count", "same_cpu_top_running"},
+		OtherCPUIdleUnit:     "cpu_ms", CPUBusyIdleStatus: status, CPUBusyIdleReason: reason,
+	}
+}
+
+func cloneSchedulerContextScope(scope *SchedulerContextScope) *SchedulerContextScope {
+	if scope == nil {
+		return nil
+	}
+	copy := *scope
+	copy.QueryWindowFields = append([]string(nil), scope.QueryWindowFields...)
+	copy.WaitIntervalFields = append([]string(nil), scope.WaitIntervalFields...)
+	return &copy
+}
+
+// SchedulerContextScopeSummary is shared by native and tool handoffs. An
+// absent old payload remains unknown; no window is inferred from its wait.
+func SchedulerContextScopeSummary(scope *SchedulerContextScope) string {
+	if scope == nil {
+		return "query_window=unknown; totals=background_not_wait_interval"
+	}
+	window := "unknown"
+	if scope.QueryWindowKnown {
+		window = fmt.Sprintf("%.6f..%.6f", scope.QueryWindow.StartTs, scope.QueryWindow.EndTs)
+	}
+	return fmt.Sprintf("query_window=%s query_lines=%d-%d wait_interval=[%.6f,%.6f) query_cpu_busy_idle_status=%s query_cpu_busy_idle_reason=%s; totals=background_not_wait_interval other_cpu_idle_unit=%s overlap_scope=wait_interval",
+		window, scope.QueryLineStart, scope.QueryLineEnd, scope.WaitInterval.StartTs, scope.WaitInterval.EndTs,
+		scope.CPUBusyIdleStatus, scope.CPUBusyIdleReason, scope.OtherCPUIdleUnit)
 }
 
 func meanFloat64(in []float64) float64 {
@@ -7974,6 +8018,7 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 	var out []RunnableContextSummary
 	for _, item := range items {
 		ctx := RunnableContextSummary{
+			ContextScope:                   cloneSchedulerContextScope(item.ContextScope),
 			Thread:                         item.Thread,
 			RunnableWaitMs:                 item.DurationMs,
 			CPU:                            item.CPU,
@@ -7993,6 +8038,9 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 			sameCPURunningSegments:         append([]ThreadDuration(nil), item.sameCPURunningSegments...),
 			LineStart:                      item.StartLine,
 			LineEnd:                        item.EndLine,
+		}
+		if ctx.ContextScope != nil && len(ctx.ContextScope.WaitIntervalFields) > 0 {
+			ctx.ContextScope.WaitIntervalFields[0] = "runnable_wait_ms"
 		}
 		if proc, ok := processLoadForThread(item.Thread, processes); ok {
 			copy := proc
@@ -8036,6 +8084,7 @@ func capRunnableContextDisplay(in []RunnableContextSummary, max int) []RunnableC
 	for i := 0; i < length; i++ {
 		out[i] = in[i]
 		out[i].SameCPUTopRunning = copyThreadDurationDisplayRoster(in[i].SameCPUTopRunning, 8)
+		out[i].ContextScope = cloneSchedulerContextScope(in[i].ContextScope)
 		out[i].sameCPURunningSegments = nil
 		if in[i].CPUConstraint != nil {
 			constraint := *in[i].CPUConstraint
@@ -8118,14 +8167,16 @@ func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
 			return "cpu_affinity_or_cpuset_context", 0.78
 		}
 	}
-	// R5g (§7.30.2): the high-priority pressure term reads only the running
-	// time that overlapped this thread's wait — window-total high-priority
-	// running is background and must not create a competition verdict.
-	if ctx.HighPriorityRunningOverlapMs > 0 || ctx.SameCPUBusyMs > ctx.SameCPUIdleMs {
+	// Only observed displacement during this wait can support local pressure.
+	// Query-window busy/idle (including summed other-CPU idle) is background;
+	// neither its magnitude nor an idle CPU elsewhere proves local placement.
+	if ctx.HighPriorityRunningOverlapMs > 0 || ctx.SystemOrKernelRunningOverlapMs > 0 {
 		return "cpu_pressure", 0.76
 	}
-	if ctx.OtherCPUIdleMs > 0 {
-		return "other_cpu_idle_check_affinity_or_wakeup", 0.66
+	for _, competitor := range ctx.SameCPUTopRunning {
+		if competitor.DurationMs > 0 {
+			return "cpu_pressure", 0.76
+		}
 	}
 	return "insufficient_signal", 0.50
 }
@@ -8143,9 +8194,10 @@ func renderRunnableContextSummary(ctx RunnableContextSummary) string {
 	if ctx.Frequency > 0 {
 		parts = append(parts, fmt.Sprintf("freq=%dkHz", ctx.Frequency))
 	}
-	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_overlap=%.3fms high_prio_running_window=%.3fms system_or_kernel_running_window=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d",
+	parts = append(parts, fmt.Sprintf("query_window_same_cpu_busy=%.3fms query_window_same_cpu_idle=%.3fms query_window_other_cpu_idle=%.3fcpu_ms high_prio_overlap=%.3fms query_window_high_prio_running=%.3fms query_window_system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d",
 		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningOverlapMs, ctx.HighPriorityRunningMs,
 		ctx.SystemOrKernelRunningMs, ctx.SystemOrKernelRunningOverlapMs, ctx.SystemOrKernelCompetitorCount))
+	parts = append(parts, SchedulerContextScopeSummary(ctx.ContextScope))
 	if len(ctx.SameCPUTopRunning) > 0 {
 		parts = append(parts, fmt.Sprintf("same_cpu_top_running=%s overlap=%.3fms", threadLabel(ctx.SameCPUTopRunning[0].Thread), ctx.SameCPUTopRunning[0].DurationMs))
 	}

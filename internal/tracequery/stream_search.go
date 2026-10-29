@@ -25,7 +25,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	if err := ValidateViewName(q.View); err != nil {
+	if err := ValidateTraceViewInput(q.View); err != nil {
 		return Result{}, fmt.Errorf("stream_event_search: %w", err)
 	}
 	var namesErr error
@@ -536,7 +536,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	if err := ValidateViewName(q.View); err != nil {
+	if err := ValidateTraceViewInput(q.View); err != nil {
 		return Result{}, fmt.Errorf("stream_state_cluster: %w", err)
 	}
 	path = strings.TrimSpace(path)

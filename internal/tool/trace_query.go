@@ -359,7 +359,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// Keep model-owned coordinates separate from request defaults and instance
 	// navigation. Derived bounds must not seed the model-call supplement lane.
 	explicitCallParams := p
-	if err := tracequery.ValidateViewName(p.View); err != nil {
+	if err := tracequery.ValidateViewExecution(p.View, tracequery.ExecutionEntryNativeTool); err != nil {
 		return traceQueryUnknownViewRejection(p.View, err), nil
 	}
 	if reject := traceQueryPacketInventoryInput(params, p); reject != nil {
@@ -5404,8 +5404,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "- count=%d mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms\n",
 			result.SchedulerLatency.Count, result.SchedulerLatency.MeanMs, result.SchedulerLatency.P50Ms, result.SchedulerLatency.P95Ms, result.SchedulerLatency.P99Ms, result.SchedulerLatency.MaxMs)
 		for _, item := range result.SchedulerLatency.Items {
-			fmt.Fprintf(&b, "- runnable_wait %s %.6f..%.6f duration=%.3fms cpu=%s cpu_continuity=%s core_class=%s freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s prio=%d/%s same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d lines=%d-%d — %s\n",
-				traceThreadLabel(item.Thread), item.StartTs, item.EndTs, item.DurationMs, traceCPUOrUnknown(item.CPU), sanitizeForBanner(item.CPUContinuity), sanitizeForBanner(item.CoreClass), item.Frequency, item.WeightedFrequency, item.ObservedMaxFrequency, traceFrequencySampleDetail(item.FrequencySample), item.Priority, item.PriorityClass, item.SameCPUBusyMs, item.SameCPUIdleMs, item.OtherCPUIdleMs, item.HighPriorityRunningMs, item.HighPriorityRunningOverlapMs, item.SystemOrKernelRunningMs, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount, item.StartLine, item.EndLine, item.Summary)
+			fmt.Fprintf(&b, "- runnable_wait %s %.6f..%.6f duration=%.3fms cpu=%s cpu_continuity=%s core_class=%s freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s prio=%d/%s query_window_same_cpu_busy=%.3fms query_window_same_cpu_idle=%.3fms query_window_other_cpu_idle=%.3fcpu_ms query_window_high_prio_running=%.3fms high_prio_overlap=%.3fms query_window_system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d lines=%d-%d — %s\n",
+				traceThreadLabel(item.Thread), item.StartTs, item.EndTs, item.DurationMs, traceCPUOrUnknown(item.CPU), sanitizeForBanner(item.CPUContinuity), sanitizeForBanner(item.CoreClass), item.Frequency, item.WeightedFrequency, item.ObservedMaxFrequency, traceFrequencySampleDetail(item.FrequencySample), item.Priority, item.PriorityClass, item.SameCPUBusyMs, item.SameCPUIdleMs, item.OtherCPUIdleMs, item.HighPriorityRunningMs, item.HighPriorityRunningOverlapMs, item.SystemOrKernelRunningMs, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount, item.StartLine, item.EndLine, traceQuerySchedulerContextDetail(item.ContextScope, item.Summary))
 		}
 		for _, caveat := range result.SchedulerLatency.Caveats {
 			fmt.Fprintf(&b, "- scheduler_latency_caveat=%s\n", caveat)
@@ -7383,7 +7383,7 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 	if item.TopBackgroundProcess != nil {
 		process = fmt.Sprintf("%s/%.3fms", traceThreadLabel(item.TopBackgroundProcess.Process), item.TopBackgroundProcess.RunningMs+item.TopBackgroundProcess.RunnableWaitMs)
 	}
-	fmt.Fprintf(b, "- runnable_context thread=%s runnable=%.3fms cpu=%s core_class=%s freq=%dkHz same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d top_background_threads=%s top_background_process=%s constraint=%s verdict=%s confidence=%.2f lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- runnable_context thread=%s runnable=%.3fms cpu=%s core_class=%s freq=%dkHz query_window_same_cpu_busy=%.3fms query_window_same_cpu_idle=%.3fms query_window_other_cpu_idle=%.3fcpu_ms query_window_high_prio_running=%.3fms high_prio_overlap=%.3fms query_window_system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d top_background_threads=%s top_background_process=%s constraint=%s verdict=%s confidence=%.2f lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		item.RunnableWaitMs,
 		traceCPUOrUnknown(item.CPU),
@@ -7404,7 +7404,7 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 		item.Confidence,
 		item.LineStart,
 		item.LineEnd,
-		sanitizeForBanner(item.Summary),
+		traceQuerySchedulerContextDetail(item.ContextScope, item.Summary),
 	)
 }
 
@@ -15774,12 +15774,12 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedInt64(item.Frequency)},
-		{"same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
-		{"same_cpu_idle", traceQueryObservationMSValue(item.SameCPUIdleMs)},
-		{"other_cpu_idle", traceQueryObservationMSValue(item.OtherCPUIdleMs)},
-		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
+		{"query_window_same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
+		{"query_window_same_cpu_idle", traceQueryObservationMSValue(item.SameCPUIdleMs)},
+		{"query_window_other_cpu_idle", fmt.Sprintf("%.3fcpu_ms", item.OtherCPUIdleMs)},
+		{"query_window_high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"high_prio_overlap", traceQueryObservationMSValue(item.HighPriorityRunningOverlapMs)},
-		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
+		{"query_window_system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
 		{"system_or_kernel_overlap", traceQueryObservationMSValue(item.SystemOrKernelRunningOverlapMs)},
 		{"system_or_kernel_competitors", traceQueryTypedCount(item.SystemOrKernelCompetitorCount)},
 		{"top_background_threads", traceQueryRunnableContextBackgroundThreads(item.TopBackgroundThreads)},
@@ -15791,10 +15791,31 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
 		}
 	}
-	if summary := strings.TrimSpace(item.Summary); summary != "" {
-		parts = append(parts, "detail="+sanitizeForBanner(summary))
-	}
+	parts = append(parts, "detail="+traceQuerySchedulerContextDetail(item.ContextScope, item.Summary))
 	return strings.Join(parts, " ")
+}
+
+func traceQuerySchedulerContextDetail(scope *tracequery.SchedulerContextScope, legacySummary string) string {
+	detail := tracequery.SchedulerContextScopeSummary(scope)
+	if scope == nil && strings.TrimSpace(legacySummary) != "" {
+		detail += "; " + legacySummary
+	}
+	return sanitizeForBanner(detail)
+}
+
+// Existing rich-note keys are display-only and keep their registered identity.
+// Bind each background value to its query scope even if a consumer omits the
+// companion summary; no old numeric value becomes a local wait measurement.
+func traceQuerySchedulerBackgroundValue(value float64, cpuTime bool, scope *tracequery.SchedulerContextScope) string {
+	unit := "ms"
+	if cpuTime {
+		unit = "cpu_ms"
+	}
+	window := "unknown"
+	if scope != nil && scope.QueryWindowKnown {
+		window = fmt.Sprintf("%.6f..%.6f", scope.QueryWindow.StartTs, scope.QueryWindow.EndTs)
+	}
+	return fmt.Sprintf("%.3f%s (query-window background %s; not wait-interval)", value, unit, window)
 }
 
 func traceQueryTypedRunnableContextNotes(item tracequery.RunnableContextSummary) []string {
@@ -15805,12 +15826,12 @@ func traceQueryTypedRunnableContextNotes(item tracequery.RunnableContextSummary)
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},
-		{"same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
-		{"same_cpu_idle", traceQueryObservationMSValue(item.SameCPUIdleMs)},
-		{"other_cpu_idle", traceQueryObservationMSValue(item.OtherCPUIdleMs)},
-		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
+		{"same_cpu_busy", traceQuerySchedulerBackgroundValue(item.SameCPUBusyMs, false, item.ContextScope)},
+		{"same_cpu_idle", traceQuerySchedulerBackgroundValue(item.SameCPUIdleMs, false, item.ContextScope)},
+		{"other_cpu_idle", traceQuerySchedulerBackgroundValue(item.OtherCPUIdleMs, true, item.ContextScope)},
+		{"high_prio_running", traceQuerySchedulerBackgroundValue(item.HighPriorityRunningMs, false, item.ContextScope)},
 		{"high_prio_overlap", traceQueryObservationMSValue(item.HighPriorityRunningOverlapMs)},
-		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
+		{"system_or_kernel_running", traceQuerySchedulerBackgroundValue(item.SystemOrKernelRunningMs, false, item.ContextScope)},
 		{"system_or_kernel_overlap", traceQueryObservationMSValue(item.SystemOrKernelRunningOverlapMs)},
 		{"system_or_kernel_competitors", traceQueryTypedCount(item.SystemOrKernelCompetitorCount)},
 		{"top_background_threads", traceQueryRunnableContextBackgroundThreads(item.TopBackgroundThreads)},

@@ -2089,13 +2089,14 @@ type SchedulerLatencyItem struct {
 	// competitor evidence and not a claim of whole-query completeness.
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 
-	Thread        ThreadRef `json:"thread"`
-	StartTs       float64   `json:"start_ts,omitempty"`
-	EndTs         float64   `json:"end_ts,omitempty"`
-	DurationMs    float64   `json:"duration_ms,omitempty"`
-	CPU           int       `json:"cpu"`
-	CPUContinuity string    `json:"cpu_continuity,omitempty"`
-	CoreClass     string    `json:"core_class,omitempty"`
+	Thread        ThreadRef              `json:"thread"`
+	ContextScope  *SchedulerContextScope `json:"context_scope,omitempty"`
+	StartTs       float64                `json:"start_ts,omitempty"`
+	EndTs         float64                `json:"end_ts,omitempty"`
+	DurationMs    float64                `json:"duration_ms,omitempty"`
+	CPU           int                    `json:"cpu"`
+	CPUContinuity string                 `json:"cpu_continuity,omitempty"`
+	CoreClass     string                 `json:"core_class,omitempty"`
 	// Frequency is the legacy single cpu_frequency sample at the wait start,
 	// kept for context only. Low-frequency judgements use WeightedFrequency /
 	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
@@ -2115,10 +2116,13 @@ type SchedulerLatencyItem struct {
 	// FrequencySample is FrequencySampleNearestFallback when no cpu_frequency
 	// sample fell inside the interval, i.e. WeightedFrequency rests on the
 	// nearest sample(s) (preceding preferred, following as last resort).
-	FrequencySample string  `json:"frequency_sample,omitempty"`
-	SameCPUBusyMs   float64 `json:"same_cpu_busy_ms,omitempty"`
-	SameCPUIdleMs   float64 `json:"same_cpu_idle_ms,omitempty"`
-	OtherCPUIdleMs  float64 `json:"other_cpu_idle_ms,omitempty"`
+	FrequencySample string `json:"frequency_sample,omitempty"`
+	// These three legacy scalars retain the original query-window CPU
+	// account, not this wait's StartTs/EndTs. ContextScope publishes the two
+	// distinct ranges; other-CPU idle is a CPU-time sum, not wall time.
+	SameCPUBusyMs  float64 `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs  float64 `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs float64 `json:"other_cpu_idle_ms,omitempty"`
 	// HighPriorityRunningMs is the full-window high-priority running total on
 	// this CPU — background pressure with no overlap check (§7.30.2 R5g).
 	// Competition claims must use HighPriorityRunningOverlapMs.
@@ -2147,6 +2151,23 @@ type SchedulerLatencyItem struct {
 	// thread-aggregated public view.
 	sameCPURunningSegments []ThreadDuration
 	Summary                string `json:"summary,omitempty"`
+}
+
+// SchedulerContextScope separates unchanged query-background scalars from
+// the exact runnable interval and its measured competitor overlaps. It does
+// not create a local CPU-idle measurement or a placement/affinity proof.
+type SchedulerContextScope struct {
+	QueryWindow          TimeWindow `json:"query_window"`
+	QueryWindowKnown     bool       `json:"query_window_known"`
+	QueryLineStart       int        `json:"query_line_start,omitempty"`
+	QueryLineEnd         int        `json:"query_line_end,omitempty"`
+	WaitInterval         TimeWindow `json:"wait_interval"`
+	WaitIntervalBoundary string     `json:"wait_interval_boundary"`
+	QueryWindowFields    []string   `json:"query_window_fields"`
+	WaitIntervalFields   []string   `json:"wait_interval_fields"`
+	OtherCPUIdleUnit     string     `json:"other_cpu_idle_unit"`
+	CPUBusyIdleStatus    string     `json:"cpu_busy_idle_status"`
+	CPUBusyIdleReason    string     `json:"cpu_busy_idle_reason,omitempty"`
 }
 
 // FrequencySampleNearestFallback marks a frequency judgement whose weighted
@@ -2637,16 +2658,17 @@ type ProcessCPULoadSummary struct {
 }
 
 type RunnableContextSummary struct {
-	Thread         ThreadRef `json:"thread"`
-	RunnableWaitMs float64   `json:"runnable_wait_ms,omitempty"`
-	CPU            int       `json:"cpu"`
-	CoreClass      string    `json:"core_class,omitempty"`
-	Frequency      int64     `json:"frequency,omitempty"`
-	Priority       int       `json:"priority,omitempty"`
-	PriorityClass  string    `json:"priority_class,omitempty"`
-	SameCPUBusyMs  float64   `json:"same_cpu_busy_ms,omitempty"`
-	SameCPUIdleMs  float64   `json:"same_cpu_idle_ms,omitempty"`
-	OtherCPUIdleMs float64   `json:"other_cpu_idle_ms,omitempty"`
+	ContextScope   *SchedulerContextScope `json:"context_scope,omitempty"`
+	Thread         ThreadRef              `json:"thread"`
+	RunnableWaitMs float64                `json:"runnable_wait_ms,omitempty"`
+	CPU            int                    `json:"cpu"`
+	CoreClass      string                 `json:"core_class,omitempty"`
+	Frequency      int64                  `json:"frequency,omitempty"`
+	Priority       int                    `json:"priority,omitempty"`
+	PriorityClass  string                 `json:"priority_class,omitempty"`
+	SameCPUBusyMs  float64                `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs  float64                `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs float64                `json:"other_cpu_idle_ms,omitempty"`
 	// HighPriorityRunningMs is the full-window background figure (§7.30.2
 	// R5g); the cpu_pressure verdict reads HighPriorityRunningOverlapMs.
 	HighPriorityRunningMs float64 `json:"high_priority_running_ms,omitempty"`

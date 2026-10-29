@@ -28,6 +28,7 @@ func TestB1638B3DerivedSourceSchemaReview(t *testing.T) {
 		t.Run(tc.typ.Name(), func(t *testing.T) {
 			current, schema := detailSchemaFingerprint(tc.typ)
 			t.Logf("owner=%s hash=%s schema=%s", tc.typ.Name(), current, schema)
+			schema = schedulerSchemaBeforeContextScope(t, tc.typ, schema)
 			var prior []string
 			count := 0
 			for _, field := range strings.Split(schema, ";") {

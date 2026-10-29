@@ -516,6 +516,11 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 	if !viewSupported(step.View) {
 		return fmt.Errorf("%s (%s): unknown view %q; supported: %s", at, step.Label, step.View, strings.Join(allSupportedViews(), ", "))
 	}
+	if step.View != "format_census" {
+		if err := tracequery.ValidateViewExecution(step.View, tracequery.ExecutionEntryTraceDiag); err != nil {
+			return fmt.Errorf("%s (%s): %w", at, step.Label, err)
+		}
+	}
 	step.PIDFrom = strings.TrimSpace(step.PIDFrom)
 	if step.PIDFrom != "" {
 		if step.PIDFrom != "tid" {
