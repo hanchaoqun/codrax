@@ -1636,9 +1636,15 @@ HMC §312候选把独立查询发布身份与原生事实的展示复用身份�
 
 共享预算和显式selector映射复用现有RuntimeMeasurementDisplayKey；完整原生表只显示一次，独立引用保留。显式模型简表或diagram不能代替完整原生表，不按手写表格文本做模糊去重。公开8查询、显式2selector路径及窄race通过；自然例仅见至少两个selector→一表，不扩签CPU/所有组合。
 
-**该候选尚未交付：** 唯一全仓旧量测域隔离针失败。直接json.Marshal(TimelineResult)把provenance-only MeasurementDomain也纳入native指纹，使原合同仅允许MeasurementSources变化时ObservationRecord发生额外变化。private字段不入JSON不等于可以违反元数据隔离；四个其它view的JSON往返丢private timeline不能证明活体路径安全。下一批应在producer值拷贝的显示等价输入里精确分离该元数据，同时保完整原生字段、原JSON/MeasurementSources及所有源/范围/权限绑定；不得放宽旧断言、从JSON恢复凭证或删任意ID字段。
+**§312当时未过验收（隔离回归已由下文§313修复）：** 唯一全仓旧量测域隔离针失败。直接json.Marshal(TimelineResult)把provenance-only MeasurementDomain也纳入native指纹，使原合同仅允许MeasurementSources变化时ObservationRecord发生额外变化。private字段不入JSON不等于可以违反元数据隔离；四个其它view的JSON往返丢private timeline不能证明活体路径安全。当时的后续方案是在producer值拷贝的显示等价输入里精确分离该元数据，同时保完整原生字段、原JSON/MeasurementSources及所有源/范围/权限绑定；不得放宽旧断言、从JSON恢复凭证或删任意ID字段。
 
-两例真实执行、完整人工均失败；原生表的局部正向不替代全答案和11.2完整代表合同。系统附加线程合计6/41.5ms已在前批存在，另需公开定位来源/量尺；当前未证明其上游累加算法。代表选择普通status的同代三元组可作审计输入，不要求特定动作名，但event_search计划不能由后续resource_stack extra改签。冻结后未修代码或重跑，证据与下一ROI见[§312批汇总](../eval/parallel_selected_summary_hmc_display_representative_20261029.md)。main与WAL生产禁用边界不变。
+§312两例真实执行、完整人工均失败；原生表的局部正向不替代全答案和11.2完整代表合同。系统附加线程合计6/41.5ms已在前批存在，§312当时尚未定位其上游来源/量尺，具体诊断更新见下文§313。代表选择普通status的同代三元组可作审计输入，不要求特定动作名，但event_search计划不能由后续resource_stack extra改签。该批冻结后未修代码或重跑，当时证据与队列见[§312批汇总](../eval/parallel_selected_summary_hmc_display_representative_20261029.md)。main与WAL生产禁用边界不变。
+
+HMC §313修复上述§312量测域隔离回归：只在producer值拷贝的显示事实哈希输入中分离`MeasurementDomain`，原生JSON与`MeasurementSources`照旧保完整来源元数据，不改变原对象、其它事实字段/精度/私有见证或当前源/窗口约束。旧B1638断言原样RED→GREEN，新增五活体view多元数据正例与真实事实负控，唯一冻结全仓通过；不再以JSON往返丢私有字段的绿色叶子代签活体覆盖。
+
+同批定位原始段合计量尺：`summarizeWakeupCausalImpact`所给6/41.5ms是所选原始状态段的正确总量，不是业务/查询裁剪后的某状态总量。`ActualWindow`是这些原始段的定位包络，不必证明连续执行。共享树/摘要仅在该范围已发布且有限、非负、递增时说明原始段总和/范围/可能混状态；不新增数字字段、不逆算范围、不修改累加器、原值或合法小计。缺失/非法范围维持旧兼容文案，这个窄片不宣称已完成所有未知范围教学。自然恢复稿已命中新说明，整体图/正文仍FAIL。
+
+§313代表规格审计确认当前schema已有view枚举，模型显式选了event_search；没有证据证明编译器丢弃已受理resource_stack。原查询总体、右端规则、选择身份与独立额外查询不可互相代签，普通status的同代index/snapshot可审计但不保证语义规格正确。已有错误runtime binding与只改可见声明的局部修补之间出现可复现候选，下一批应查fresh lease/失败基准/绑定动作，不放宽当前身份验证或猜长ID。事实已足的正文跨源/窗口/关系误述留账；参见[§313批汇总](../eval/parallel_selected_summary_hmc_display_spec_representative_20261029.md)。完整能力新增0、候选子能力2组，53开放不变，main及WAL生产边界不变。
 
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
