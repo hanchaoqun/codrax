@@ -462,7 +462,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// happening to collide).
 	explicitTargetParams := p
 	var targetCaveat string
-	if tracequery.CanonicalViewName(p.View) != tracequery.ViewPacketInventory {
+	if !tracequery.IsPacketView(p.View) {
 		p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
 	}
 	if reject := traceQueryRequiredTargetInputRepair(p); reject != nil {
@@ -497,17 +497,20 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 	}
 	runCtx := contextFromBus(ctx)
-	if tracequery.CanonicalViewName(p.View) == tracequery.ViewPacketInventory {
+	if tracequery.IsPacketView(p.View) {
 		// Retain this executed selector in the existing prepared-source receipt,
 		// without minting a scheduler-window replay or interval-navigation lane.
 		intervalNavigationParams = params
 		if err := traceCatalogBindQuery(ctx, catalogTickets, p, path, material); err != nil {
 			return traceQueryPreparedMaterialFailure(path, p.View, err), nil
 		}
+		if tracequery.CanonicalViewName(p.View) == tracequery.ViewPacketFlows {
+			return t.packetFlows(ctx, p, path)
+		}
 		return t.packetInventory(ctx, p, path)
 	}
 	if traceQuerySourceIsPCAP(path) {
-		return traceQueryPacketSelectionRepair("This source is a packet capture. Retry with view=packet_inventory, source/path and optional limit only; scheduler Trace views and coordinates do not apply."), nil
+		return traceQueryPacketSelectionRepair("This source is a packet capture. Retry with view=packet_inventory for packet records or view=packet_flows for bidirectional endpoint groups, source/path and optional limit only; scheduler Trace views and coordinates do not apply."), nil
 	}
 	if err := tracequery.ValidateTraceInputPath(runCtx, path); err != nil {
 		// Preserve the established cancellation contract: a warm canceled call

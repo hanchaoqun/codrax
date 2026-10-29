@@ -26,14 +26,14 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	if predicate == TraceEventSearchInventoryPredicate || predicate == RuntimeSamplingMeasurementPredicate || predicate == RuntimeResourceMeasurementPredicate || predicate == "packet_inventory_observation" {
+	if predicate == TraceEventSearchInventoryPredicate || predicate == RuntimeSamplingMeasurementPredicate || predicate == RuntimeResourceMeasurementPredicate || predicate == "packet_inventory_observation" || predicate == "packet_flows_observation" {
 		return true
 	}
 	return predicate == TraceBusinessSpanPredicate || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
-	if predicate == "packet_inventory_observation" {
+	if predicate == "packet_inventory_observation" || predicate == "packet_flows_observation" {
 		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
 	}
 	if predicate == RuntimeResourceMeasurementPredicate {

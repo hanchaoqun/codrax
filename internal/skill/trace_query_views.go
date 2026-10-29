@@ -33,6 +33,7 @@ type TraceQueryViewTeaching struct {
 // order. Every view the tool accepts has exactly one row here.
 func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 	return []TraceQueryViewTeaching{
+		{View: tracequery.ViewPacketFlows, Params: "`source`/`path` and optional `limit`; no Trace time, line or thread filters", When: tracequery.PacketFlowsTeaching},
 		{View: tracequery.ViewPacketInventory, Params: "`source`/`path` and optional `limit`; no Trace time, line or thread filters", When: tracequery.PacketInventoryTeaching},
 		{View: "perf_sampling_tree", Params: "`time_start`/`time_end`, optional `pid`/`thread`; `sampling_depth`/`sampling_root`/`limit` control display only", When: tracequery.PerfSamplingTreeTeaching},
 		{View: tracequery.ViewMeasurements, Params: "`time_start`/`time_end`, optional `line_start`/`line_end` and `limit`; no owner selector", When: tracequery.MeasurementsTeaching},

@@ -19,6 +19,7 @@ const packetInventorySchemaAddition = "PacketInventory|*tracewire.PacketInventor
 // hash every prior field, type, tag and declaration position unchanged.
 func resultSchemaBeforePacketInventory(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforePacketFlows(t, schema)
 	previous, err := stripPacketInventorySchemaAddition(schema)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +45,9 @@ func stripPacketInventorySchemaAddition(schema string) (string, error) {
 
 func TestHMC305PacketInventoryResultSchemaAddsOnlyReviewedOptionalField(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.Result{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, schema := detailSchemaFingerprint(typ)
+	beforeFlows := sha256.Sum256([]byte(resultSchemaBeforePacketFlows(t, schema)))
+	current := hex.EncodeToString(beforeFlows[:])
 	const currentFullResult = "068194140d8edb5f26727356721b8640eeb1f2a1cd2a2743f1b3ccedb194cd20"
 	if current != currentFullResult {
 		t.Fatalf("packet Result schema drift: got=%s want=%s\nschema=%s", current, currentFullResult, schema)

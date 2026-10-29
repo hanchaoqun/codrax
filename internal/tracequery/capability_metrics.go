@@ -15,6 +15,20 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m(ViewPacketFlows, "Observed TCP/UDP endpoint groups and directional recorded frame accounting.", []CapabilityOutput{
+			o("packet_flows", "packet_count grouped_packets ungrouped_packets truncated_packets out_of_order_packets", "count", "complete scanned record population only when status=complete; grouped and ungrouped partition records, not connections"),
+			o("packet_flows", "flow_count tracked_flow_count omitted_tracked_flows group_limit", "count", "flow_count is present only for complete group coverage; tracked groups and preview omissions do not replace an unknown total; independent group memory cap is 4096"),
+			o("packet_flows", "source_bytes captured_bytes original_bytes", "bytes", "independent file size, captured and source-reported original frame-byte sums; not payload or application bytes"),
+			o("packet_flows.min_timestamp", "epoch_seconds", "epoch seconds", "earliest observed native record time, not a query start"),
+			o("packet_flows.max_timestamp", "epoch_seconds", "epoch seconds", "latest observed native record time, not connection duration or a query end"),
+			o("packet_flows.members", "id link_type interface_index ip_version ip_protocol protocol vlans endpoint_a endpoint_b", "identity", "bounded full-record aggregate groups; physical source generation and observation domain are part of identity; absent interface is unknown, not zero"),
+			o("packet_flows.members.stats", "packets truncated_packets decoder_prefix_limited_packets", "count", "complete record population of this group, distinct capture truncation and decoder-prefix limits"),
+			o("packet_flows.members.stats", "captured_bytes original_bytes", "bytes", "separate frame-byte sums for this complete group; displayed groups are not a full roster when omitted_tracked_flows is positive"),
+			o("packet_flows.members.a_to_b", "packets captured_bytes original_bytes min_timestamp max_timestamp", "count/bytes/epoch seconds", "only canonical endpoint A-to-B records; zero count has unknown times; not client-to-server or Linux incoming/outgoing"),
+			o("packet_flows.members.b_to_a", "packets captured_bytes original_bytes min_timestamp max_timestamp", "count/bytes/epoch seconds", "only canonical endpoint B-to-A records; absence of observations does not prove network absence"),
+			o("packet_flows.members.same_endpoint", "packets captured_bytes original_bytes min_timestamp max_timestamp", "count/bytes/epoch seconds", "records with identical endpoints; never guessed into one reverse direction"),
+			o("packet_flows.ungrouped", "reason stats", "classification", "disjoint reason accounting for records without a supported complete endpoint identity; never a synthetic unknown flow"),
+		}, r("", nil, "", "Classic PCAP 2.4, stable read-only generation and complete framing; only source/path and preview limit accepted. Group memory budget and malformed tails return partial and no complete native receipt. Explicit source/epoch/interface/VLAN/IP/protocol/endpoint identity prevents cross-domain merging."), PacketFlowsTeaching),
 		m(ViewPacketInventory, "Classic PCAP packet-record census and native epoch-clock observations.", []CapabilityOutput{
 			o("packet_inventory", "packet_count truncated_packets out_of_order_packets", "count", "entire scanned file record population when status=complete; partial is only a valid-record prefix, not a completed census"),
 			o("packet_inventory", "omitted_packets", "count", "member-preview omissions only; limit never changes the scanned aggregate population"),

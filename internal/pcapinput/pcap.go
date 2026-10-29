@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sort"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
@@ -93,6 +94,12 @@ func ParseHeader(b []byte) (Header, error) {
 // checked file offsets; it never controls an allocation. The held descriptor
 // and original path generation must remain identical throughout the scan.
 func Stream(ctx context.Context, path string, limit int) (out Result, err error) {
+	return stream(ctx, path, limit, nil)
+}
+
+// The visitor consumes the same validated record and bounded decode as the
+// inventory. It cannot reopen the source or retain packet payloads.
+func stream(ctx context.Context, path string, limit int, visit func(Packet, packetDomain) error) (out Result, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -176,7 +183,7 @@ func Stream(ctx context.Context, path string, limit int) (out Result, err error)
 		}
 		p := Packet{Ordinal: out.PacketCount + 1, FileOffset: offset, Timestamp: Timestamp{Seconds: sec, Fraction: frac, Decimal: fmt.Sprintf("%d.%0*d", sec, precision, frac)}, CapturedBytes: caplen, OriginalBytes: wirelen, Truncated: caplen < wirelen, Direction: "unknown", Protocol: "unknown", DecodeStatus: "unknown_link_type"}
 		p.DecoderPrefixLimited = int64(caplen) > n
-		decodePacket(&p, h.LinkType, prefix[:n])
+		domain := decodePacket(&p, h.LinkType, prefix[:n])
 		if out.FirstTimestamp == nil {
 			ts := p.Timestamp
 			out.FirstTimestamp, out.MinTimestamp, out.MaxTimestamp = &ts, &ts, &ts
@@ -206,6 +213,11 @@ func Stream(ctx context.Context, path string, limit int) (out Result, err error)
 		protocols[p.Protocol]++
 		statuses[p.DecodeStatus]++
 		directions[p.Direction]++
+		if visit != nil {
+			if err := visit(p, domain); err != nil {
+				return out, err
+			}
+		}
 		if len(out.Members) < limit {
 			out.Members = append(out.Members, p)
 		}
@@ -249,7 +261,19 @@ func packetType(p *Packet, value uint16) {
 	}
 }
 
-func decodePacket(p *Packet, link uint16, b []byte) {
+// packetDomain is deliberately absent from the legacy record DTO. It keeps
+// link/IP identity that display-oriented packet fields must not reconstruct.
+type packetDomain struct {
+	link      uint16
+	vlans     [8]tracewire.PacketFlowVLAN
+	vlanCount uint8
+	ipVersion uint8
+	source    netip.Addr
+	target    netip.Addr
+}
+
+func decodePacket(p *Packet, link uint16, b []byte) (domain packetDomain) {
+	domain.link = link
 	offset, protocol := 0, uint16(0)
 	p.DecodeStatus = "truncated_link_header"
 	switch link {
@@ -301,19 +325,32 @@ func decodePacket(p *Packet, link uint16, b []byte) {
 		if len(b)-offset < 4 {
 			return
 		}
+		domain.vlans[tags] = tracewire.PacketFlowVLAN{TPID: protocol, ID: binary.BigEndian.Uint16(b[offset:offset+2]) & 0xfff}
+		domain.vlanCount++
 		protocol, offset = binary.BigEndian.Uint16(b[offset+2:offset+4]), offset+4
 	}
 	p.LinkProtocol = &protocol
 	switch protocol {
 	case 0x800:
 		decodeIPv4(p, b[offset:])
+		if p.SourceAddress != "" {
+			domain.ipVersion = 4
+			domain.source = netip.AddrFrom4([4]byte(b[offset+12 : offset+16]))
+			domain.target = netip.AddrFrom4([4]byte(b[offset+16 : offset+20]))
+		}
 	case 0x86dd:
 		decodeIPv6(p, b[offset:])
+		if p.SourceAddress != "" {
+			domain.ipVersion = 6
+			domain.source = netip.AddrFrom16([16]byte(b[offset+8 : offset+24]))
+			domain.target = netip.AddrFrom16([16]byte(b[offset+24 : offset+40]))
+		}
 	case 0x806:
 		p.Protocol, p.DecodeStatus = "ARP", "network_protocol_only"
 	default:
 		p.Protocol, p.DecodeStatus = fmt.Sprintf("ethertype_0x%04x", protocol), "unknown_network_protocol"
 	}
+	return
 }
 
 func setIPProtocol(p *Packet, protocol byte) {

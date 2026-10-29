@@ -1228,6 +1228,7 @@ type ViewCancellation struct {
 }
 
 type Result struct {
+	PacketFlows     *tracewire.PacketFlowsResult     `json:"packet_flows,omitempty"`
 	PacketInventory *tracewire.PacketInventoryResult `json:"packet_inventory,omitempty"`
 
 	filteredPerfPopulation      *perfFilteredPopulationWitness

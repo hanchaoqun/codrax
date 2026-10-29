@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
-	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -547,7 +546,8 @@ func minInt(a, b int) int {
 
 func renderResultMeta(res *tracequery.Result, emit func(string)) {
 	parts := []string{"result:", "view=" + res.View}
-	if res.View == tracequery.ViewPacketInventory && res.PacketInventory != nil {
+	if (res.View == tracequery.ViewPacketInventory && res.PacketInventory != nil) ||
+		(res.View == tracequery.ViewPacketFlows && res.PacketFlows != nil) {
 		// The dedicated native face carries packet counts and epoch coordinates.
 		// Unpopulated Trace line/event counters are not measured packet zeros.
 		emit(strings.Join(parts, " "))
@@ -742,16 +742,79 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 	walkStructDetailWithPolicy(v, path, emit, depth, nil)
 }
 
+// Bind this closed DTO family through the already admitted query result, not
+// another dependency or a package/name heuristic. Only these reviewed field
+// paths confer exact rendering; unrelated future children do not inherit it.
+var packetInventoryExactDetailTypes = func() map[reflect.Type]bool {
+	root := reflect.TypeOf(tracequery.Result{}.PacketInventory).Elem()
+	admitted := map[reflect.Type]bool{root: true}
+	for _, path := range []struct {
+		field string
+		kind  reflect.Kind
+	}{
+		{"Header", reflect.Struct},
+		{"FirstTimestamp", reflect.Pointer},
+		{"Members", reflect.Slice},
+		{"Protocols", reflect.Slice},
+		{"Failure", reflect.Pointer},
+	} {
+		field, ok := root.FieldByName(path.field)
+		if !ok || field.Type.Kind() != path.kind {
+			continue
+		}
+		typ := field.Type
+		if path.kind == reflect.Pointer || path.kind == reflect.Slice {
+			typ = typ.Elem()
+		}
+		if typ.Kind() == reflect.Struct {
+			admitted[typ] = true
+		}
+	}
+	return admitted
+}()
+
+// Packet flow aggregation adds its own six reviewed DTOs. Shared packet
+// header/clock/count/failure types retain the existing inventory binding.
+// Traverse only these explicit field paths, never a transitive type closure.
+var packetFlowsExactDetailTypes = func() map[reflect.Type]bool {
+	root := reflect.TypeOf(tracequery.Result{}.PacketFlows).Elem()
+	admitted := map[reflect.Type]bool{root: true}
+	for _, path := range [][]string{
+		{"Members"}, {"Ungrouped"}, {"Members", "Stats"},
+		{"Members", "EndpointA"}, {"Members", "VLANs"},
+	} {
+		typ, valid := root, true
+		for _, name := range path {
+			field, ok := typ.FieldByName(name)
+			if !ok {
+				valid = false
+				break
+			}
+			typ = field.Type
+			if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice {
+				typ = typ.Elem()
+			}
+			if typ.Kind() != reflect.Struct {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			admitted[typ] = true
+		}
+	}
+	return admitted
+}()
+
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
-	switch t {
-	case reflect.TypeOf(tracewire.PacketInventoryResult{}), reflect.TypeOf(tracewire.PacketHeader{}),
-		reflect.TypeOf(tracewire.PacketTimestamp{}), reflect.TypeOf(tracewire.PacketRecord{}),
-		reflect.TypeOf(tracewire.PacketCount{}), reflect.TypeOf(tracewire.PacketFailure{}):
+	if packetInventoryExactDetailTypes[t] || packetFlowsExactDetailTypes[t] {
 		// Packet DTO presence is native evidence: required zero/false survives,
 		// optional nil stays unknown, and exact epoch strings are never aligned.
 		renderExactNativeDTO(v, path, emit, depth, policy)
 		return
+	}
+	switch t {
 	case reflect.TypeOf(types.TraceWakeupMeasuredWait{}):
 		// Preserve required zero and unknown actual boundaries using the same
 		// typed display as the answer surfaces, without changing event identity.

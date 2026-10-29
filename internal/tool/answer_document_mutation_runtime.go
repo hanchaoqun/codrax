@@ -2774,9 +2774,9 @@ func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 			seat += " / " + cause
 		}
 		window := fmt.Sprintf("%.6f..%.6f", node.StartTs, node.EndTs)
-		caliber := "此范围为已发布发生记录的起止包络，不证明持续占用或仅发生一次。本表不决定项目数值能否相加；小计以已发布的明确成员和量尺为准，不扩展到其它成员或修复方向。项目数值按完整查询窗聚合，不能把它当作此单窗时长。"
+		caliber := "此范围为已发布发生记录的起止包络，不证明持续占用或仅发生一次。不同项目的定位包络可能重叠，其包络时长不可相加。本表不决定项目数值能否相加；小计以已发布的明确成员和量尺为准，不扩展到其它成员或修复方向。项目数值按完整查询窗聚合，不能把它当作此单窗时长。"
 		if !zh {
-			caliber = "This is the start/end envelope of published occurrence records, not proof of continuous occupancy or a single occurrence. This table does not decide whether item values are additive; a published subtotal applies only to its explicit members and measurement basis, not other members or repair directions. The item's value aggregates over the full query window and is not this single-window duration."
+			caliber = "This is the start/end envelope of published occurrence records; it does not establish continuous occupancy or a single occurrence. Locator envelopes may overlap; their envelope durations must not be summed. This table does not decide whether item values are additive; a published subtotal applies only to its explicit members and measurement basis, not other members or repair directions. The item's value aggregates over the full query window and is not this single-window duration."
 		}
 		items = append(items, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("%s_rep_%d", idPrefix, i+1),

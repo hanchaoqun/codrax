@@ -18,7 +18,7 @@ import (
 )
 
 func traceQueryPacketInventorySchema(schema string) string {
-	teaching, _ := json.Marshal(tracequery.PacketInventoryTeaching)
+	teaching, _ := json.Marshal(tracequery.PacketInventoryTeaching + " " + tracequery.PacketFlowsTeaching)
 	return strings.Replace(schema, "The deterministic trace view to compute.", "The deterministic trace view to compute. "+string(teaching[1:len(teaching)-1]), 1)
 }
 
@@ -27,7 +27,7 @@ func traceQueryPacketSelectionRepair(hint string) types.ToolResult {
 }
 
 func traceQueryPacketInventoryInput(raw json.RawMessage, p traceQueryParams) *types.ToolResult {
-	if tracequery.CanonicalViewName(p.View) != tracequery.ViewPacketInventory {
+	if !tracequery.IsPacketView(p.View) {
 		return nil
 	}
 	var keys map[string]json.RawMessage
@@ -42,7 +42,7 @@ func traceQueryPacketInventoryInput(raw json.RawMessage, p traceQueryParams) *ty
 	}
 	sort.Strings(unsupported)
 	if len(unsupported) > 0 || p.Limit.Int() < 0 || p.Limit.Int() > pcapinput.MaxLimit {
-		r := traceQueryPacketSelectionRepair(fmt.Sprintf("packet_inventory accepts source/path and limit=1..%d (omitted/0 uses %d) only; unsupported explicit fields: %v. Remove them and retry this same source. PCAP epoch time must not be filtered using Trace seconds.", pcapinput.MaxLimit, pcapinput.DefaultLimit, unsupported))
+		r := traceQueryPacketSelectionRepair(fmt.Sprintf("%s accepts source/path and limit=1..%d (omitted/0 uses %d) only; unsupported explicit fields: %v. Remove them and retry this same source. PCAP epoch time must not be filtered using Trace seconds.", tracequery.CanonicalViewName(p.View), pcapinput.MaxLimit, pcapinput.DefaultLimit, unsupported))
 		return &r
 	}
 	return nil
