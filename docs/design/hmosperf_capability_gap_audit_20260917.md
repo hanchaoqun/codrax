@@ -10807,3 +10807,35 @@ B真实PCAP：9次查询8成功/1limit拒绝，修正后真重试；8payload=4fl
 4. 原始失败/两独立审计/实际INIT/参数/payload/全部输出表面原字节封存，候选代码与五文档紧邻分笔提交并普通推送；仍不进main、不减54。完整封存与发布收据见[批汇总](../../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029.md)，逐面证据见[人工审计](../../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029_manual_audit.md)。
 
 UTC2026-10-29 02:34:25.524707，328件原件封存，索引SHA`973347949f45a9fcd03af9827afda88f6b31ce183fd20d75cb51d1669b44502d`；旧1692件/18快照及本批7461＋66＋31冻结输入复验不变。候选代码`d4ca25e4e35c93f89df31f3b97ae974d2d278a15`（25文件）与五文档分笔，实际推送/远端/clean/两提交同冻结字节证明见批汇总publication收据。失败和未触发不因发布销账。
+
+## 307. 准备预算、执行适用域与调度范围同源交接（2026-10-29，候选验收未通过）
+
+基线`5942324675935c4b3bcb76c698dac8304fb91a48`，候选仍为`codex/hmc299-wait-interval-candidate`，main保持`788588e365d40a48b30827ffd8db08dae4e2ae9d`。根代理与独立代理逐稳定ID复核79唯一＝25已交付＋54开放、18类，无重复；19部分/29待实施/3待验收/2验收中/1持续。完整能力新增0，候选子能力3组，不据修复或机器PASS关闭父项。
+
+### 307.1 公开反例与泛化修复
+
+1. **准备预算（01.3/06.1/18.4）**：§306原640B消费者断言不改，公开RED后修为不可分必需包络＋有序整单元可选教学。来源、原件大小、头验证/未查询、原生epoch与两条合法JSON导航优先；真实放不下仍typed拒绝并给required/available字节。不截路径/JSON/UTF-8，不增预算。完整traceinput/outputdump/attachment及race各196顶层/185子例PASS，原有1顶层/2子例SKIP。
+2. **执行入口（01.2/06.1/16.4）**：32个容量行显式声明执行类别，目录与三入口复用同一精确合同。packet仅有trace_query适配，tracediag v1/v2及indexed Run在读源前拒绝；未声明/未来类别无默认权。独立复核另公开复现四个流式恢复入口静默把packet改成Trace操作，现先按源域校验，保已知Trace重视图的轻查询恢复、别名与预算。只关闭错误准入/静默变义，不签PCAP诊断脚本实际执行；所有原view集合和数值容量不变。
+3. **片段/全窗量尺（08.1/16.4/18.4）**：原五种查询窗标量及JSON键值保真，新增可选ContextScope分别载查询窗/行、半开等待区间、两组字段归属、忙闲可用性和其它CPU空闲cpu_ms。局部压力仅用真实等待重叠或已有精确约束；不能从全窗busy/idle/其它CPU idle铸局部竞争或绑核判断。原生摘要与既有display-only notes带范围，旧无scope为unknown，clone隔离。精确结构逆变换只撤新增字段，历史hash/旧断言不放宽，无新note解析器或文本硬门。
+
+参考`query_engine.py`显式preprocess执行分派而非以目录名称推定能力；`context_index.py`以完整原件路径导航，不让预览替代原件；`thread_sched_ops.py`先裁切目标区间再统计。参考网络预处理保window_filter，但目标零命中后回退全部的行为不移植。采纳来源、执行、范围分离的意图，不照搬全量list、错时钟回退或字段关键词门。Trace投影、闭合31ms睡眠、原四根因、合法2ms小计、优先级重叠及自动补齐保留，WAL生产仍NO-GO。
+
+### 307.2 反向消费者与测试前提审计
+
+冻结前完整types/tracefence/agent/context四包7575顶层/7790子例PASS、1顶层SKIP；tracequery/tracediag/tool三包10498顶层/9746子例PASS、26顶层/12子例SKIP，零FAIL。新增schema/工具/race通过；原640B、导入边界及旧关系合同不放宽。
+
+新增成文穿透测试首版要求完整业务上下文的所有背景行都展示，实际145行全过来源过滤、目标排名80，32行预算合法省略。此FAIL属于新测试前提过强，不计生产修复；原日志保留。负控确认原payload字节及来源不变，单次公开PID100查询自然选中背景行，中英真实BuildInitialInstruction保五种全窗范围注释。后续两次负控又将512字符摘要误当无损原件，已按原JSON与独立注释验收并保失败。普通/race各2顶层2子例PASS；未扩大prompt或强塞背景。
+
+唯一CLI与orchestrator测试二进制构建后冻结7470仓库＋66外部＋31仓外快照，SHA`21f420a295ffe50987e598c287914913f060c20a19a6e2426c49cc2f65a0168c`。冻结后源码/测试/注释/helper停写；正式全仓一次，两例各一次并行，无第三例。旧2020封存文件含179历史快照身份，不另重复相加；原18个污染迁移身份继续核验缺席。凭证内容未读/hash/复制。
+
+### 307.3 真实双例、全仓与下一ROI
+
+唯一全仓UTC03:51:14.584561–04:02:44.517647，exit0：98包PASS/12无测试，28469顶层/33547子例PASS，43顶层/14子例SKIP、零FAIL。253970全JSON行，无重复终态/未结束，SHA`97a8dacebb9cd27e1ac2b9aad46f7316bc1f56729426dd29938d4b2e26247c86`；包括原640B失败消费者和新增成文穿透测试，冻结输入前后不变。
+
+两例各一次，机器2/2 PASS；人工A完整FAIL/B限定负向PASS，已证实际模型请求重叠6.017秒。原始失败封存和分笔候选推送以[批汇总](../../eval/parallel_selected_summary_hmc_scheduler_registration_20261029.md)与[逐面审计](../../eval/parallel_selected_summary_hmc_scheduler_registration_20261029_manual_audit.md)为准。A保原OpenDocument问题与既有人工编写ftrace，不加入期望数值或防护条款；新调度范围交接自然触发，但正文端点/比例错误、根因身份重复与所求图修补失败仍在。B保原缺来源终态负向合同，是真实planner＋操作员公共来源构造＋脚本controller＋独立进程公共run_tests，不冒称自然controller/fullCLI；新proof verified不覆盖总体unverified/missing_terminal_verify_verdict。
+
+正式A新增高影响已证接缝（16.4/16.5/18.4）：pid=100与thread=app-main两种选择的原生解析目标、同源代次、请求身份、完整rank board及闭合行10/12相同，成文前却各有candidate，系统投影E5/E6双列31ms、总席64ms。不是只凭等值认重复。只读源码定位到IO publication key含原始QueryTargetPID/Thread，而投影将该发布key直接复用为物理IO去重身份；原4项宽窗/异源保护始终只用pid，未覆盖同源selector别名。下一缺陷轨须分离独立查询发布/量尺身份与受信解析目标＋物理闭合实例身份，保每次查询原件、异源/异窗/独立RQ/BIO及未知凭证边界；本批冻结后未追加反例或修复，不放宽原断言。
+
+下一ROI双轨为上述共享身份接缝与06.1真正PCAP脚本执行，再处理对象×窗口×量尺×权限自由解释；无需重新改正确统计器或强制所有背景进32行。08.3仅在新共享修复有覆盖时轮换原完整合同，否则轮换只读登记/sample-only，避免无限追同题。17.6只在真实新格式/外部工具/原生宿主材料到位时提级；包装旧材料、stub、交叉编译不代签。旧采样/IO/栈关系/代表选择及权限未触发继续原账，失败不销账，WAL零副作用未满足不接生产。
+
+288件原始证据已封存，索引SHA`177528cd39a6647aa4b99e2f98acadb9f49fe6ffdf4fff8d31c6eefd2d42104d`；旧2020件及冻结输入不变。候选代码`9f750f8f0d9b1fe7e33c2ed8eeaaacceb7f9f4a4`（20文件）与五文档相邻分笔，最终普通推送、远端/clean/两提交同冻结字节与main不变见批汇总publication收据。完整能力新增0，54开放不减；冻结后未修A新发现，不以全仓绿替代完整人工验收。

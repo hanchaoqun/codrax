@@ -1602,6 +1602,14 @@ HMC §306候选先闭环§305的两处接缝：诊断渲染从`tracequery.Result
 
 §306仍不具main准入：唯一全仓97包PASS/1FAIL/12无测试。双视图长导航增加138B，使既有640B附件预览在真实长路径下由621B增至759B，准备硬失败；不得靠增预算、截来源或放宽断言闭环。另一已证适用域缺口是目录可枚举packet视图，但`tracediag collect`仍走文本索引/`tracequery.Run`，只有工具入口有PCAP分派；渲染测试不能代签执行入口。两例普通CLI机器PASS、完整人工均FAIL，原生PCAP方向表和Trace局部图有限通过。真实Trace还暴露`SchedulerLatencyItem`混带片段区间与全窗CPU busy/idle等量测，后续须按来源窗分层，不只修37.5ms单例。原生事实、调查摘要与自由成文解释仍独立验收；无关键词门，Trace投影/自动补齐、WAL生产NO-GO保持。详见[§306批汇总](../eval/parallel_selected_summary_hmc_business_pcap_flow_20261029.md)。
 
+HMC §307候选将共享准备预览拆成不可分的必需包络和按优先级整单元加入的可选教学。完整来源、原件大小、仅验证头/尚未查询的状态、原生时钟与两条合法JSON导航必须同时容纳；预算不足仍以typed错误拒绝，不截路径/JSON/UTF-8、不增加640B既有预算。重复教学增长不能再阻断本来可用的材料；PCAP完整计数、坏尾与查询完成仍须真实原生执行。
+
+共享32个view的容量表显式登记`indexed_trace`、`streaming_trace`或`streaming_packet`执行类别，目录教学和`trace_query`、`tracediag`、indexed Run准入从同一合同派生；新增未声明/未来类别没有默认权限。目录可枚举不等于任意入口都实现：packet当前只有原生工具入口，诊断脚本在读源前明确拒绝，不能落入文本索引后把无结果记成功。四个Trace流式恢复入口也先核源域，保已知Trace重视图→轻查询恢复，不把packet选择静默改成Trace查询。真正PCAP脚本适配仍为06.1开放项，不以拒绝边界冒充完整接入。
+
+`SchedulerLatencyItem`与`RunnableContextSummary`新增可选`ContextScope`，显式保查询窗/行范围、半开等待段、两组字段归属、CPU忙闲可用性及其它CPU空闲的`cpu_ms`单位。原五种整窗标量、JSON键和值不变；局部压力只能消费该等待的真实竞争重叠或原有精确约束，整窗忙闲/其它CPU空闲不再单独铸局部压力或亲和性推断。原生摘要与既有display-only notes分别携带范围，旧无scope载荷保持unknown，克隆不共享可变slice；没有新增文本消费者或关键词门。精确结构逆变换保全部历史哈希，Trace投影、闭合睡眠、优先级重叠及自动补齐不变。
+
+有界成文不是原件替代：完整业务上下文145行中背景记录排名80，被32行预算合法省略；原JSON与查询身份仍保留。单次精确目标公开查询自然入选后，五种背景量尺范围能进入中英真实成文提示。不能把前者误计为事实丢失，也不能以摘要512/180字符上限要求原始JSON损坏；是否回答正确仍按实际自然评测独立验收。§307冻结、全仓、限定只读负向轮换及未触发范围见[批汇总](../eval/parallel_selected_summary_hmc_scheduler_registration_20261029.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
