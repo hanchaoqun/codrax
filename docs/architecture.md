@@ -1628,6 +1628,10 @@ HMC §310候选恢复read_file的旧可读预览合同：文件IO成功、完整
 
 PCAP报告复用原完整DTO与原预算：分类/未归组先行，记录或流成员的全部字段路径组成不可分物理行，转义内嵌换行；不增加64条原生预览或450行上限。已有步骤终态行分别登记原生预览、实际写出的完整成员和省略量，计数来自写入位置而非扫描文本，v2不新增预算外行。查询complete/partial与展示省略不混，原件字节、帧字节、epoch、端点方向不升格为会话/业务/Trace因果。固定双例、唯一全仓及候选验收结果以[§310批汇总](../eval/parallel_selected_summary_hmc_business_registration_pcap_budget_20261029.md)为准；旧失败不回签，WAL生产NO-GO。
 
+HMC §311候选统一完整图提交与局部修补的可见身份投影：`diagramParticipantEndpointExplicitlyDisplaysIdentity`复用既有`diagramEvidenceLabelSymbol`／`DiagramPrimaryVisibleIdentity`，允许精确业务首行后保完整原生线程次行；原整标签及代码身份兼容路径不变。不匹配近似前缀、推测限定或藏在次行的业务名，也不扫描问答关键词。该判断只证明显示身份；当前修补引用、同块指纹、唯一声明、精确端点/关系及未证业务映射仍由原独立校验负责，不能靠标签铸造线程对应或关系。局部改标签不动原节点ID、notes、边、锚点及其它块，最终仍经过完整发射校验。
+
+公开工具回归由真实分析/原生查询产生拒绝，再由测试helper按生产类型构造当前修补凭证；它不是实际模型重试循环。自然入口、完整答案及08.3在途统计有限合同由本批原双例独立验收，见[§311批汇总](../eval/parallel_selected_summary_hmc_business_io_identity_20261029.md)。不把原生统计或正确表格代签自由解释，不修改IO扫描算法、Trace因果投影或自动补齐；WAL生产NO-GO保持。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
