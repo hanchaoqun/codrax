@@ -1616,6 +1616,12 @@ HMC §308候选分开IO查询发表身份与根因投影身份：前者保留每
 
 §308终态为唯一全仓零FAIL、固定两例机器PASS/完整人工FAIL，候选不进main。真实静态脚本仅签已发表字段和完整统计，流报告实际29整组＋1局部，不把原生64预览成员冒充最终全部显示；不同查询摘要的预览数量与本文显示量还需分离。新发现的共享成文接缝为`no_sched_data`统一变成缺唤醒status，以及自由派生的错member时间在Known Facts与原生正确时间并列；两者保原始失败进入下一批，不用词面硬门消除合法计算/已证关系。图修补重复主体和PID/name自然未触发独立留账，详见[§308批汇总](../eval/parallel_selected_summary_hmc_business_pcap_script_20261029.md)与[人工审计](../eval/parallel_selected_summary_hmc_business_pcap_script_20261029_manual_audit.md)。
 
+HMC §309候选把缺测说明按已有生产类型和证据域交接：`missing_wakeup`只限制某睡眠实例的匹配唤醒；`trace_gap/no_sched_data`只说明对齐范围没有调度区间；`no_eligible_wait`说明无区间达到该查询最小时长。缺测对齐范围未发布则保持未知，查询坐标只作导航；未知类型不回退成缺唤醒，独立已证完成身份/唤醒/量测不撤销。此为display-only交接，不改查询/排名/因果权限，按完整真实来源凭证去重，不按同名等值推身份。实际A成文已命中并保31ms闭合睡眠、35ms请求驻留及2ms合法小计，但图主体覆盖校验要求的未证边界仍与已证箭头冲突，完整人工FAIL。
+
+同批read_file候选在最终banner/gutter字节预算之后计算完整可见行，不用blob包装坐标给原件分页；原件可读、原件引用保存、runtime身份和真实总行数独立保留。零完整行目前返回typed预算失败、无源码完成权，合法其它行/结构化取值仍可继续。**这不是已验收的最终兼容方案**：唯一全仓旧`DispatchRepositoryReadVersionPublicPreview/one_truncated_line`要求成功预览且非完成的coverage，本候选失败/无coverage破坏该合同。下批须在不授未见字节权限的前提下分开可读性、展示完整性与版本读取完成，不能放宽旧断言。本批冻结后不改、候选不进main。
+
+§309两例机器PASS/完整人工FAIL；B完整采样事实已进入真实INIT，但正文仍误把簇间隔当持续活动，并以局部事件预览截断否定完整聚合。调查错误单元未实际转交者不得指认为本轮终稿来源。原生已完成、预览可见、自由解释和因果资格各自成账，保合法计算。冻结/唯一全仓失败、独立审计及候选收据见[§309批汇总](../eval/parallel_selected_summary_hmc_business_sample_only_20261029.md)；06.1后续按原有限合同收口整组报告预算，不追加会话/跨源校时或自然选脚本退出门，WAL生产NO-GO。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
