@@ -25,11 +25,16 @@ func traceCatalogRepresentativePage(ctx *types.BusContext, publication tracecata
 		return "", err
 	}
 	ref := publication.SelectionPath
+	navigation := publication.Execution.RepresentativeNavigation()
 	var records []any
 	for _, g := range s.Clusters {
 		records = append(records, map[string]any{"record_kind": "query_specification_cluster", "cluster_id": g.ID, "specification": g.Specification, "coverage": g.Coverage, "budget_skipped": g.BudgetSkipped})
 		for _, m := range g.Members {
-			records = append(records, map[string]any{"record_kind": "cluster_member", "cluster_id": g.ID, "member": m})
+			n, ok := navigation[m.QueryID]
+			if !ok {
+				return "", fmt.Errorf("representative member %s does not match the published execution generation", m.QueryID)
+			}
+			records = append(records, map[string]any{"record_kind": "cluster_member", "cluster_id": g.ID, "member": m, "specification": n.Specification, "query_origin": n.Origin, "attempt_outcomes": n.AttemptOutcomes})
 		}
 	}
 	for _, a := range s.Unmatched {

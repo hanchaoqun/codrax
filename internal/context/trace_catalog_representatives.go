@@ -10,12 +10,15 @@ import (
 
 // This comparison is navigation/status, never measured values. Keep each
 // source-local member and its exact original result references separate.
-func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, budget int) string {
-	if budget < 1024 {
+func formatTraceCatalogRepresentatives(execution tracecatalog.ExecutionView, budget int) string {
+	if budget < 1024 || execution.Selection == nil {
 		return ""
 	}
+	s := *execution.Selection
+	navigation := execution.RepresentativeNavigation()
 	var b strings.Builder
 	b.WriteString("Representative comparison — fixed query-plan selection, soft navigation priority only. Equal specifications do not establish common physical identity, clock, device or cause. Unselected or skipped describe selection, not whether a query ran; use each member's recorded outcome and attempt count. Do not extrapolate selected results to them; empty, failure and pending are not interchangeable. Read actual query evidence for measurements.\n")
+	b.WriteString("attempt_outcomes counts all attempts of that exact query, not failed retries; attempt_count alone does not say when success first occurred. Full ordered history remains in the saved index.\n")
 	header, _ := json.Marshal(map[string]any{"selection_id": s.SelectionID, "selection_scope": s.SelectionScope, "options": s.Options, "coverage": s.Coverage})
 	if b.Len()+len(header)+1024 > budget {
 		return ""
@@ -38,7 +41,11 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 			if !m.Selected {
 				continue
 			}
-			rowData := map[string]any{"cluster_id": g.ID, "selected_member": m}
+			n, ok := navigation[m.QueryID]
+			if !ok {
+				continue
+			}
+			rowData := map[string]any{"cluster_id": g.ID, "selected_member": m, "specification": n.Specification, "query_origin": n.Origin, "attempt_outcomes": n.AttemptOutcomes}
 			if m.SourceStatus != "stale" && m.SourceStatus != "unavailable" {
 				rowData["query_call"] = tracecatalog.QueryCall{Reference: tracecatalog.QueryReference{CatalogID: s.CatalogID, QueryID: m.QueryID}}
 			}
@@ -60,7 +67,11 @@ func formatTraceCatalogRepresentatives(s tracecatalog.RepresentativeSnapshot, bu
 				continue
 			}
 			unselected++
-			row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "unselected_member": map[string]any{"query_id": m.QueryID, "path": m.Path, "source_status": m.SourceStatus, "selection_reason": m.SelectionReason, "outcome": m.Outcome, "attempt_count": m.Attempts}})
+			n, ok := navigation[m.QueryID]
+			if !ok {
+				continue
+			}
+			row, _ := json.Marshal(map[string]any{"cluster_id": g.ID, "unselected_member": m, "specification": n.Specification, "query_origin": n.Origin, "attempt_outcomes": n.AttemptOutcomes})
 			if unselectedShown >= 16 || b.Len()+len(row)+1024 > budget {
 				continue
 			}

@@ -846,6 +846,9 @@ func applyModelAuthoredDiagramAtomicEditsWithNativeParticipants(
 			if strings.TrimSpace(edit.ParticipantRef) != "" || strings.TrimSpace(edit.NodeID) != "" {
 				return fmt.Errorf("diagram_participant_edits[%d] orphan disposition must omit participant_ref and node_id", i)
 			}
+			if edit.NativeParticipant != "" {
+				return fmt.Errorf("diagram_participant_edits[%d] orphan disposition must omit native_participant", i)
+			}
 			orphanParticipantEdits = append(orphanParticipantEdits, edit)
 			orphanParticipantIndices = append(orphanParticipantIndices, i)
 		default:
@@ -1072,6 +1075,18 @@ func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
 		return fmt.Errorf("ensure_visible requires a non-empty model-authored visible_label of at most 512 bytes")
 	}
 	nodeID := strings.TrimSpace(edit.NodeID)
+	reselectIndex := -1
+	if edit.NativeParticipant != "" {
+		if len(runtimeRows) != 1 {
+			return fmt.Errorf("native_participant requires current native thread choices")
+		}
+		index, eligible := runtimeNativeParticipantReselectionNodes(base, runtimeRows[0])[nodeID]
+		_, current := runtimeNativeParticipantLanes(runtimeRows[0])[edit.NativeParticipant]
+		if !eligible || !current || index >= len(block.Diagram.RuntimeParticipantsV1) || block.Diagram.RuntimeParticipantsV1[index] != base.Diagram.RuntimeParticipantsV1[index] {
+			return fmt.Errorf("native_participant may explicitly reselect only one unique existing unavailable selector using a current native thread choice")
+		}
+		reselectIndex = index
+	}
 	body, ok := mermaidcompat.AddRemovableNodeDeclaration(block.Diagram.Body, nodeID, visibleLabel)
 	if !ok {
 		// Explicit model-selected relabeling changes only the declaration.
@@ -1090,6 +1105,9 @@ func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
 		return fmt.Errorf("the model-authored node_id/visible_label does not visibly carry the exact required participant identity")
 	}
 	block.Diagram.Body = body
+	if reselectIndex >= 0 {
+		block.Diagram.RuntimeParticipantsV1[reselectIndex].NativeParticipant = edit.NativeParticipant
+	}
 	return nil
 }
 

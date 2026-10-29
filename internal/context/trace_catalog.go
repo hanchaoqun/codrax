@@ -64,7 +64,7 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 			if len(selection.NewQueryIDs)+len(selection.ExcludedQueryIDs) > 0 {
 				reserve = min(8<<10, remaining/3)
 			}
-			if section := formatTraceCatalogRepresentatives(selection, remaining-reserve); section != "" {
+			if section := formatTraceCatalogRepresentatives(execution, remaining-reserve); section != "" {
 				b.WriteString(section)
 			} else {
 				fmt.Fprintf(&b, "Representative comparison omitted by context budget; use trace_catalog with action=representative_status and catalog_id=%q.\n", s.ID)

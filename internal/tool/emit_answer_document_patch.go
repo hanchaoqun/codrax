@@ -348,7 +348,9 @@ func (t *EmitAnswerDocumentPatch) parametersForContext(
 	excludedTargets := localLeaseAtomicTargetBlockIDs(lease, prev)
 	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, excludedTargets)
 	raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, excludedTargets)
-	return projectAnswerDocumentSequencePlacements(narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view), prev, lease)
+	raw = narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
+	raw = projectNativeParticipantReselectionSchema(raw, prev, lease, runtimeDiagramRelationsForContext(scopeBus))
+	return projectAnswerDocumentSequencePlacements(raw, prev, lease)
 }
 
 // projectAnswerDocumentPatchModelBlockOrder publishes only the exact immutable
@@ -2419,12 +2421,13 @@ type emitAnswerDiagramRelationScopeEdit struct {
 }
 
 type emitAnswerDiagramParticipantEdit struct {
-	BlockID        string `json:"block_id"`
-	ParticipantID  string `json:"participant_id"`
-	ParticipantRef string `json:"participant_ref"`
-	NodeID         string `json:"node_id"`
-	Action         string `json:"action"`
-	VisibleLabel   string `json:"visible_label,omitempty"`
+	BlockID           string `json:"block_id"`
+	ParticipantID     string `json:"participant_id"`
+	ParticipantRef    string `json:"participant_ref"`
+	NodeID            string `json:"node_id"`
+	Action            string `json:"action"`
+	VisibleLabel      string `json:"visible_label,omitempty"`
+	NativeParticipant string `json:"native_participant,omitempty"`
 }
 
 // localDiagramLeaseWholeBlockMutationViolation guards the execution path as
