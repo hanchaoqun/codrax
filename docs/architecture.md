@@ -1632,6 +1632,14 @@ HMC §311候选统一完整图提交与局部修补的可见身份投影：`diag
 
 公开工具回归由真实分析/原生查询产生拒绝，再由测试helper按生产类型构造当前修补凭证；它不是实际模型重试循环。自然入口、完整答案及08.3在途统计有限合同由本批原双例独立验收，见[§311批汇总](../eval/parallel_selected_summary_hmc_business_io_identity_20261029.md)。不把原生统计或正确表格代签自由解释，不修改IO扫描算法、Trace因果投影或自动补齐；WAL生产NO-GO保持。
 
+HMC §312候选把独立查询发布身份与原生事实的展示复用身份分开。thread_timeline/CPU频率producer对保留的完整原生结果及完整投影签仅内存凭证，三个不可变私有字符串绑定native/projection/record；后置只允许既有source/clock装饰，不重签改过的事实。当前原件代次/原路径/线程/时间窗和端点/行范围/clock/表字段及注释继续精确绑定；只从比较键排除独立query/observation/payload定位符，原记录与原件不删不合并。JSON、memo、取消或换代不获得此权限，显示相同不等于全集完整、任务完成或链上因果。
+
+共享预算和显式selector映射复用现有RuntimeMeasurementDisplayKey；完整原生表只显示一次，独立引用保留。显式模型简表或diagram不能代替完整原生表，不按手写表格文本做模糊去重。公开8查询、显式2selector路径及窄race通过；自然例仅见至少两个selector→一表，不扩签CPU/所有组合。
+
+**该候选尚未交付：** 唯一全仓旧量测域隔离针失败。直接json.Marshal(TimelineResult)把provenance-only MeasurementDomain也纳入native指纹，使原合同仅允许MeasurementSources变化时ObservationRecord发生额外变化。private字段不入JSON不等于可以违反元数据隔离；四个其它view的JSON往返丢private timeline不能证明活体路径安全。下一批应在producer值拷贝的显示等价输入里精确分离该元数据，同时保完整原生字段、原JSON/MeasurementSources及所有源/范围/权限绑定；不得放宽旧断言、从JSON恢复凭证或删任意ID字段。
+
+两例真实执行、完整人工均失败；原生表的局部正向不替代全答案和11.2完整代表合同。系统附加线程合计6/41.5ms已在前批存在，另需公开定位来源/量尺；当前未证明其上游累加算法。代表选择普通status的同代三元组可作审计输入，不要求特定动作名，但event_search计划不能由后续resource_stack extra改签。冻结后未修代码或重跑，证据与下一ROI见[§312批汇总](../eval/parallel_selected_summary_hmc_display_representative_20261029.md)。main与WAL生产禁用边界不变。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
