@@ -20209,21 +20209,13 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			inherited += runtimeTraceProjInheritedWindowBaseSuffix(node, zh)
 			add("承自注", "inherited note", inherited)
 		}
-		// DIAG A2 (§28.11-3(b) D-10, 2026-07-09): the two-caliber actual
-		// disclosure — the row's ⚠实际 face carries the STATE-SEGMENT actual
-		// while the raw record's actual_total is the THREAD-LEVEL total; when
-		// the producer stamped the typed divergence note (>10% apart), this
-		// line states BOTH sources so the two faces stop reading as a
-		// contradiction. Gate = the typed enum note + both values present
-		// (fail-safe: a missing half renders nothing); neither value is
-		// judged or edited (不猜哪个对).
+		// DIAG A2: keep both original values behind the typed divergence
+		// disclosure. HMC313 names the selected original-state total and its
+		// own extent when published; no outer-window or same-state inference.
+		// A missing half still renders nothing; neither value is edited.
 		if node.ActualCaliberNote == types.TraceActualCaliberStateSegmentVsThreadTotal &&
 			node.ActualImpactMS > 0 && node.ActualTotalMS > 0 {
-			caliber := fmt.Sprintf("状态段 %.3fms/线程合计 %.3fms(两口径,来源不同)", node.ActualImpactMS, node.ActualTotalMS)
-			if !zh {
-				caliber = fmt.Sprintf("state segment %.3fms / thread-level total %.3fms (two calibers, different sources)", node.ActualImpactMS, node.ActualTotalMS)
-			}
-			add("实际口径", "actual calibers", caliber)
+			add("实际口径", "actual calibers", runtimeTraceProjActualCaliberText(node, zh))
 		}
 		// XERR1-FIX 件1/件3 (§29.104.3/.4) + XERR1-EXT 裁定⑤ (§29.104.17): the
 		// blocking_span value-basis disclosure + the budget-sanity ⚠ line on

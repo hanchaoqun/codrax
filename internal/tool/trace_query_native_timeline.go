@@ -28,7 +28,12 @@ func traceQueryNativeTimelineObservations(result tracequery.Result, ref types.Ob
 	if timeline := result.NativeTargetTimeline(); timeline != nil {
 		if table, ok := traceQueryNativeThreadTimelineTable(*timeline, ref, start, end); ok {
 			record := traceQueryNativeTimelineRecord(TraceThreadTimelinePredicate, traceThreadLabel(timeline.Thread), table, ref, scope, at, result)
-			native, err := json.Marshal(timeline)
+			// MeasurementDomain is provenance, not an additional native fact.
+			// Strip only that field from a value copy: the original JSON/source
+			// receipts and every other native field retain their full precision.
+			facts := *timeline
+			facts.MeasurementDomain = nil
+			native, err := json.Marshal(facts)
 			if err == nil {
 				record = types.PublishRuntimeMeasurementFactIdentity(record, native)
 			}
