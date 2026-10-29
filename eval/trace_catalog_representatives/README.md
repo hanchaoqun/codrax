@@ -95,7 +95,9 @@ The real acceptance must separately inspect:
 
 Use the exact `saved_index`, `selection_snapshot`, and
 `selection_snapshot_sha256` returned together by the final successful
-`trace_catalog(action=representative_status)` result. The selection snapshot is
+`trace_catalog` result for `status` or `representative_status`. Both actions
+publish the same-generation pair when this run has a selection; a particular
+action name is not an additional acceptance requirement. The selection snapshot is
 separate from the ordinary catalog; it is navigation-only and cannot restore
 execution authority. Do not choose files by timestamp or manufacture a mirror.
 

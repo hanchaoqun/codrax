@@ -233,6 +233,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					qualifyRuntimeRawFactPublication(&p, original != "" && result.TraceViewCancellation == nil)
 					qualifyRuntimeMeasurementFactIdentity(&p, original, result.TraceQueryWindowReplay)
 					qualifyRuntimeBusinessMeasurementIdentity(&p, r, original, result.TraceQueryWindowReplay)
+					if result.TraceViewCancellation == nil {
+						qualifyRuntimeMeasurementEquivalentFact(&p, r, original, result.TraceQueryWindowReplay)
+					}
 					boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
 					if boundOriginal == original {
 						p.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, p.Source, original, replay)

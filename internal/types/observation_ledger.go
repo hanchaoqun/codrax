@@ -225,6 +225,7 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
 	runtimeRawMeasurementPublication *runtimeRawMeasurementWitness
+	runtimeMeasurementFactIdentity   *runtimeMeasurementFactWitness
 
 	// aggregateKind is compiler-owned display provenance, not execution proof.
 	// It cannot be supplied by tool/model JSON or origin/provenance strings.

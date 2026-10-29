@@ -27,12 +27,25 @@ func traceQueryNativeTimelineObservations(result tracequery.Result, ref types.Ob
 	var out []types.ObservationRecord
 	if timeline := result.NativeTargetTimeline(); timeline != nil {
 		if table, ok := traceQueryNativeThreadTimelineTable(*timeline, ref, start, end); ok {
-			out = append(out, traceQueryNativeTimelineRecord(TraceThreadTimelinePredicate, traceThreadLabel(timeline.Thread), table, ref, scope, at, result))
+			record := traceQueryNativeTimelineRecord(TraceThreadTimelinePredicate, traceThreadLabel(timeline.Thread), table, ref, scope, at, result)
+			native, err := json.Marshal(timeline)
+			if err == nil {
+				record = types.PublishRuntimeMeasurementFactIdentity(record, native)
+			}
+			out = append(out, record)
 		}
 	}
 	if stats := result.WindowStats; stats != nil {
 		if table, ok := traceQueryNativeCPUFrequencyTable(*stats, start, end); ok {
-			out = append(out, traceQueryNativeTimelineRecord(TraceCPUFrequencyTimelinePredicate, "CPU frequency", table, ref, scope, at, result))
+			record := traceQueryNativeTimelineRecord(TraceCPUFrequencyTimelinePredicate, "CPU frequency", table, ref, scope, at, result)
+			native, err := json.Marshal(struct {
+				Window tracequery.TimeWindow
+				CPU    []tracequery.CPUStats
+			}{stats.Window, stats.CPU})
+			if err == nil {
+				record = types.PublishRuntimeMeasurementFactIdentity(record, native)
+			}
+			out = append(out, record)
 		}
 	}
 	return out

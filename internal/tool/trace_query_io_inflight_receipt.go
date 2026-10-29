@@ -129,5 +129,6 @@ func traceQueryFinalizeMeasurementSources(result *types.ToolResult) {
 			}
 		}
 		*r = types.FinalizeRuntimeRawMeasurement(*r)
+		*r = types.FinalizeRuntimeMeasurementFactIdentity(*r)
 	}
 }

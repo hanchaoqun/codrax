@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -80,7 +82,7 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 		}
 		for _, table := range selected[key] {
 			if reflect.DeepEqual(table.Columns, receipt.BoundTable.Columns) && reflect.DeepEqual(table.Rows, receipt.BoundTable.Rows) &&
-				(!plannedKeys[exact] || reflect.DeepEqual(table, *receipt.BoundTable)) {
+				(!plannedKeys[exact] || runtimeMeasurementDisplayTablesEqual(table, *receipt.BoundTable)) {
 				covered = true
 				break
 			}
@@ -108,4 +110,15 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 			Text:                fmt.Sprintf("已选择的原生事实视图中有 %d 项当前无法重新核对来源或查询范围；未用旧摘要或预览值补填。", unavailable),
 			SystemGeneratedKind: types.AnswerSystemGeneratedNativeFacts})
 	}
+}
+
+// Called only within the same current producer-qualified display key. Keep
+// every public table field exact; remove just the independent query selector.
+// Private source/fact credentials were already checked by receipt binding and
+// key qualification, and are never transferred between the two selectors.
+func runtimeMeasurementDisplayTablesEqual(a, b types.RuntimeMeasurementTable) bool {
+	a.ObservationID, b.ObservationID = "", ""
+	left, leftErr := json.Marshal(a)
+	right, rightErr := json.Marshal(b)
+	return leftErr == nil && rightErr == nil && bytes.Equal(left, right)
 }
