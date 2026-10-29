@@ -10911,3 +10911,49 @@ B真实准备12000记录、原窗1393/2455、目标164/259、两个热点82/85�
 完整能力轨按06.1原有限合同收口。独立源码/测试/历史实采矩阵证实经典PCAP流式、接口/包序、IPv4/6、方向/流身份、坏尾/重复/partial/有界内存及时钟隔离已有候选实现；真实材料仅SLL2/IPv4，合成边界如实声明。已证最后共享报告缺口为29整组＋第30组截半、未归组138的原因/45268B/时间明细被大列表挤出。下一步紧凑分类优先、整成员提交、原生预览量与最终显示量分开，复用已有独立oracle及一次有界公共CLI，不抬预算或增加会话/PCAPNG/自然脚本选择/完整校准退出门。05.2原依赖保留但完整映射独立验，06.2会话不冒签；只读登记原终态轮换，17.6有真实新格式/工具/宿主材料再提级。
 
 UTC07:31:10.613625封存296件，索引SHA`22b49880fba69b042d2075774076b51e2842c030500cfd819c1fc2a7cee64e46`；旧2694件及冻结输入不变。候选代码`b5bdc7ee2e5520f0f436057513db22560aa0ad04`六文件与五文档相邻分笔普通推送，两提交同冻结字节、远端/clean/main不变以批汇总及publication收据为准。仅候选发布，不签全仓或完整人工；54开放保持，WAL零副作用未满足继续生产NO-GO。
+
+## 310. 读取预览兼容、图覆盖适用域与PCAP整组交付（2026-10-29）
+
+### 310.1 稳定计数、双轨及参考实现
+
+初始从3249f2243888f066d79d5a96ce7e831ea66ad04c干净候选继续；根与独立代理复核79唯一＝25已交付＋54开放。06.1原有限合同的最后共享显示缺口本批闭环，代码/文档普通推送成立后 **26已交付＋53开放，完整候选新增1、子能力3组、main新增0**。子片与父能力包含关系不重复加数。剩余18类均有开放项，状态18部分／29待实施／3待验收／2验收中／1持续；只有06.1改变状态，旧失败不倒签。
+
+双轨：06.1完整功能收口与16.4/16.5/18.4已证读取/图交接缺口。参考实际核读core/preprocess/context_index.py、core/preprocess/network_pcap_ops.py及图精确合同core/llm_contract.py：导航不是已读/完成、摘要与有界明细分开、时钟关系显式、成员/字段精确校验。本项目落到类型化可见行权限、块局部原生关系展示凭证及整成员预算；不照搬全量list、异常空结果、输入库重写或名字推身份。§309的core/context_index.py为历史路径笔误，正确位置在preprocess下，不改旧封存原件。
+
+### 310.2 公开反例与泛化实现
+
+读取：保原DispatchRepositoryReadVersionPublicPreview旧断言，真实可读文件恢复Success=true。0完整可见行时ReadCoverage保Path/RawRef/TotalLines及0/0，但不铸行1、observations、版本、完成或下一行；原件保存失败与可读独立。真实ReadFile贯穿extractor、CompileObservationLedger与EmitInvestigationComplete；仓外Go overlay精确旧实现证明隐藏RawRef曾被恢复成合法成员并错误闭合typed完整性义务。修后只认正坐标，合法known-empty为文件级0计数，已有RepoRoot贯通绝对/相对来源。原旧断言不降，HMC309新测试仅纠正不兼容的成功标志/载体预期，继续无权限断言。
+
+图：当前块可见且精确端点有私有原生凭证的已证关系，生成仅供展示的快照receipt；绑定块ID、图体、锚、边界、请求域和selectors，clone保留，JSON/变图/兄弟块旧锚无权。业务角色对应未证与两原生唤醒边已证分别说明，不新增因果权限。公共EmitAnalysis→TraceQuery→EmitAnswerDocument→render的旧冲突RED→GREEN；full Emit多行身份正例通过，但真实atomic修补还存在另一路径差异，见310.4，不冒已完整闭环。
+
+PCAP：每条原生记录/流组的全部原路径和值合成不可分物理行，CRLF转义，分类/未归组紧凑摘要先于成员；DTO、原生64条预览、每步450行帽和完整统计不变。实际报告计数按外层真正发射行，原生预览、实际显示和省略分开；利用原状态行不增加v2总预算。微小预算优先保失败/partial，真实零与未知不混；单位/epoch/方向不授载荷、会话、设备耗时或Trace因果。
+
+Trace因果投影、自动补齐、原4根因合同、31ms闭合睡眠/35ms请求驻留/2ms合法小计/47ms背景和L1原调度循环不改。旧源码/图保护断言保留，不扫描用户或输出原文作关键词硬门。
+
+### 310.3 冻结、全仓与完整PCAP合同
+
+唯一标准CLI与测试二进制构建后冻结7494仓库＋132外部＋36仓外快照；源码/测试/注释/helper停写。唯一全仓08:26:42.306839–08:38:14.318040：98包PASS／12无测试，28514顶层／33670子例PASS，43/14 SKIP，零FAIL/未终止/重复终态；SHA8ea1f3a980094d46be5cd1a97d833d8dd09da346f2c76b90e71bf0e9aa9da613。旧读取预览回归恢复。读取相关race四包、图相关及race四包、tracediag整包208/166、统一相关六包通过。
+
+扩大四包race只有3PASS／1FAIL：原TestNextInfoParseAllocRatchet delta8>5，tracequery默认10分钟包超时；未完成不计PASS。普通全仓同断言PASS不抵消race失败；本批未改该解析路径，但没有基线隔离证据，不宣称既有/环境波动。留18.4，未抬阈值、未求绿重跑；若随后证实直接影响06.1应重开。临时fixture/编译、Ruby tally helper不兼容等原FAIL也封存，区分过程前提失误与产品RED。
+
+唯一零模型真实出货v1脚本公共CLI，3499182B classic-PCAP/SLL2/IPv4原件同字节副本，报告173行149051B，SHA17f4a2e3e69bc69d0ad7ff88854f9eb1c4edf226727da594a196ebeed6158695。记录79/79、流73/73实际行，各64完整成员；分类7/7、未归组1/1。6101记录、503组、5963归组＋138未归组、45268B未归组帧字节及4次逆序正确。原29完整＋第30局部的欠项闭合；独立原字节oracle核1111路径／6167检查零差异，逐成员人工PASS，64预览不替代503总体。
+
+原合同矩阵涵盖流式入口、包序/接口/方向、IPv4/6、流身份、失败/partial/真零、大输入有界内存、重复物理记录与时钟隔离；既有公开合成与真实有限范围分别披露。05.2完整校准、06.2会话、PCAPNG、新设备IPv6或自然选脚本不追加为06.1退出门。候选独立交付成立，旧自然PCAP正文FAIL仍在，不能用技术脚本通过签模型解释。
+
+### 310.4 恰好两例的逐面裁定
+
+A原自然业务题机器PASS／完整人工FAIL，275秒；13trace_query、9不同原生JSON、3实际INIT。实际主查询51ms，业务50ms，附件52ms。31/35ms、两不重叠1ms小计、背景47ms、两已证唤醒和storage无调度区间边界保住；原4rank与3物理候选均存在、无IO重复。新角色未证/两原生边已证说明自然PASS。
+
+但模型按INIT03:341教学提交的业务首行＋完整线程次行被真实atomic ensure_visible拒绝，最后pure-role才通过，结构图丢技术身份。真实08a9ed46参数／6ca4ace9结果是下批公开RED；full Emit用DiagramPrimaryVisibleIdentity首行，atomic前置只用全label/代码候选，路径不一致。最终还有文本内图与结构图两份不同标签、runnable/上CPU点未入图；不是单图6lane或语法错误。独立审计完整原件保留，不以full Emit公开绿测试代签patch自然入口。
+
+原生32768B、64sectors及单位转换已经进入INIT，正文仍写64字节并推设备服务时间。原4排名/3候选、完整运行/业务交集和打点后范围也混写；这是已到场事实的成文越权，不重写正确解析器。调查错误44/50=86.27%预览到场但最终未照抄；不能声称七个解释单元全部到场。四次拒绝含JSON形状错误，高上下文179047/200000约90%不是已证超预算或唯一原因。HTML只审源码/表图语义，A read_file=0，零行自然分支未触发。
+
+B原缺来源终态只读登记机器PASS／限定负向人工PASS：真实planner两请求、scripted controller、独立恢复进程公共RunTests，不是full CLI/natural controller。当前1assertion／2commands／1verify，历史1/2保留；source1apply、0verify、无completion，proof verified而总体unverified/missing_terminal_verify_verdict。父/子两索引各4原件／1attempt／1实际link、字节SHA及真final报告的report_id/artifactpath同代，HEAD/源码/测试只读。辅助参数索引=[]却原日志有2read_file＋1emit_change_plan，采集缺口另留，不能记零调用。materialization unavailable及其它未触发不扩签。
+
+A22/B2配对请求，实际重叠4.495秒，另歧义响应排除。恰好两例各一次，无第三例/模型回放；PCAP静态CLI独立零模型。三独立审计及机器/人工原件见[综合审计](../../eval/parallel_selected_summary_hmc_business_registration_pcap_budget_20261029_manual_audit.md)，实际过程/计数/发布见[批汇总](../../eval/parallel_selected_summary_hmc_business_registration_pcap_budget_20261029.md)。
+
+### 310.5 留账与下一ROI
+
+剩余验收按4共享原因组留旧ID：16.4/16.5/18.2图atomic与双表面、16.4/18.2成文单位/量尺/集合、18.4采集参数索引、18.4分配race/超时；另超长行自然NOT_TRIGGERED。先公开复现真实多行patch并统一全稿/局部修补精确身份，不放宽角色/关系门；成文错误有证据就留档，不无限追单题。完整能力槽轮换11.2代表选择、08.3 IO在途或17.6具有新格式/工具/宿主真实材料的二进制；已完成PCAP不重复施工，只读登记继续负向轮换。
+
+旧采样/IO/栈关系/代表/权限未触发不销账，WAL未零副作用仍生产NO-GO。main保持788588e365d40a48b30827ffd8db08dae4e2ae9d，A人工失败所以整批不进main。旧11组2990件封存及252快照源身份（18历史污染身份为子集）保持原字节、原污染路径隔离；本批351件封存，索引b5fc868cb059cc524b934edf75dc6a13acc552dd49df8fc7f1b99150efaadfc7。候选代码2af92e11714e6b28af54a93ec466034da96171df与五文档相邻分笔，普通推送/clean/两提交同冻结字节以批汇总publication收据为准，provider内容未读/哈希/复制。
