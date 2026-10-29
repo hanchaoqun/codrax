@@ -1318,6 +1318,13 @@ func diagramParticipantEndpointExplicitlyDisplaysIdentity(
 		if diagramParticipantSurfaceListContainsExact(surfaces, label) {
 			return true
 		}
+		// Share the full-document boundary's exact primary display projection.
+		// A later line may retain native thread metadata without erasing a
+		// business identity on the first line. This proves visible presence
+		// only; typed endpoint and relation authority remain separate checks.
+		if diagramParticipantSurfaceListContainsExact(surfaces, diagramEvidenceLabelSymbol(label)) {
+			return true
+		}
 		for _, candidate := range diagramEvidenceLabelIdentityCandidates(label) {
 			if diagramParticipantSurfaceListContainsExact(surfaces, candidate) {
 				return true
