@@ -98,6 +98,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	}
 	if traceDecisionHasEvidenceBoundary(set) {
 		b.WriteString("- evidence_boundary_semantics: `missing_wakeup` means the selected trace/query window contains no matching `sched_wakeup` row for a measured sleep interval. Preserve the interval as a target-state symptom and a chain-drill coverage boundary; it does not prove that a physical wakeup was absent, does not identify a blocker, and owns no positive causal/eliminable amount. Window boundaries, event coverage/loss, or an unrepresented wake source remain possible until separately typed evidence resolves them.\n")
+		b.WriteString("- A `trace_gap` has its own typed criterion: `no_sched_data` means no scheduler intervals in the producer's aligned scope; `no_eligible_wait` means scheduler intervals exist but none meets that query's minimum-duration floor. Neither means missing wakeup/completion events or unknown thread identity. An unspecified gap stays unspecified. A gap limits only its named evidence domain and scope: retain independently proved completion identities, wakeup edges, and measurements; it neither revokes them nor proves a blocker. Source query coordinates are navigation, not the missing aligned-scope bounds.\n")
 	}
 	if traceDecisionHasAccountOrRoleRelations(set) {
 		b.WriteString("- typed_relation_semantics: consume each row's exact relation fields before comparing values. A `row_state_breakdown` describes only that observation's own state accounting; it does not establish containment, overlap, or identity with another row. `physical_overlap` rows share measured wall clock and are not additive. `resource_completion_closure` connects a completion path to an anchored wait but does not make the completion thread a resource holder. `sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner; holder language requires a separate typed holder relation.\n")
@@ -129,15 +130,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 			b.WriteString("  - Reader meaning: an edge `A -> B` proves the recorded wakeup/dependency relation carried by that path. By itself it does not prove that B synchronously blocked waiting for A, that A held B's lock/resource, or that every hop formed one continuously blocking call chain. Use stronger blocked-wait/holder wording only when a separate typed blocking or holder relation provides that authority.\n")
 		}
 		for _, node := range traceDecisionEvidenceBoundaries(projection, 8) {
-			fmt.Fprintf(&b, "- evidence_boundary: subject=`%s`; kind=`%s`; status=`no_matching_sched_wakeup_row_in_selected_window`; positive_blocker_authority=`not_provided`; causal_identity=`unresolved`",
-				strings.TrimSpace(node.Subject), traceDecisionNodeKind(node))
-			if node.EndTs > node.StartTs {
-				fmt.Fprintf(&b, "; observed_sleep_interval=`%.6f..%.6f`; interval_ms=%.3f",
-					node.StartTs, node.EndTs, (node.EndTs-node.StartTs)*1000)
-			} else if node.ImpactMS > 0 {
-				fmt.Fprintf(&b, "; observed_sleep_interval=`unavailable`; interval_ms=%.3f", node.ImpactMS)
-			}
-			fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
+			traceDecisionWriteEvidenceBoundary(&b, node)
 		}
 
 		actual := traceDecisionActualOccupancyCandidates(projection, 8)
@@ -1002,13 +995,13 @@ func traceDecisionEvidenceBoundaries(projection types.TraceCausalProjection, lim
 			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 			continue
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%.9f\x00%.9f\x00%.6f\x00%d\x00%d",
-			strings.TrimSpace(node.Subject), traceDecisionNodeKind(node),
-			node.StartTs, node.EndTs, node.ImpactMS, node.LineStart, node.LineEnd)
-		if seen[key] {
+		key := traceDecisionEvidenceBoundaryKey(node)
+		if key != "" && seen[key] {
 			continue
 		}
-		seen[key] = true
+		if key != "" {
+			seen[key] = true
+		}
 		out = append(out, node)
 	}
 	out = traceDecisionPreferProjectionWindowNodes(projection, out)

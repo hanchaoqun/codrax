@@ -5101,6 +5101,31 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	if ref == "" {
 		ref = StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "read_file-visible.txt", content)
 	}
+	if summary != content {
+		// The blob budget applies after the banner and gutter were added.
+		// A single physical line can exceed it even with limit=1. Count only
+		// complete, actually visible rows; blob wrapper lines are not source
+		// coordinates and cannot supply a source continuation cursor.
+		visible := readFileCompletePreviewLines(content, banner, sliceEnd-sliceStart)
+		if visible == 0 && totalLines > 0 {
+			result := readFileOversizedLineResult(ctx, p.Path, fsPath, ref, sliceStart+1, totalLines)
+			if originalTraceRead {
+				stampTraceQuerySourceReadResult(&result, p.Path, 0, 0, totalLines)
+			}
+			return result, nil
+		}
+		if visible < sliceEnd-sliceStart {
+			sliceEnd = sliceStart + visible
+			clampedByInlineBudget = true
+			firstBannerEnd := strings.IndexByte(banner, '\n') + 1
+			summary = fmt.Sprintf("[%s: showing lines %d-%d of %d total]\n", p.Path, sliceStart+1, sliceEnd, totalLines) +
+				banner[firstBannerEnd:] + renderWithLineGutter(allLines[sliceStart:sliceEnd], sliceStart+1)
+		} else {
+			// A configured head budget may exceed the inline threshold. No
+			// bytes were omitted in that case, so do not invent pagination.
+			summary = content
+		}
+	}
 	now := time.Now()
 	lineStart := sliceStart + 1
 	if totalLines == 0 {
