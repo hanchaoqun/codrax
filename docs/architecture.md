@@ -1610,6 +1610,12 @@ HMC §307候选将共享准备预览拆成不可分的必需包络和按优先�
 
 有界成文不是原件替代：完整业务上下文145行中背景记录排名80，被32行预算合法省略；原JSON与查询身份仍保留。单次精确目标公开查询自然入选后，五种背景量尺范围能进入中英真实成文提示。不能把前者误计为事实丢失，也不能以摘要512/180字符上限要求原始JSON损坏；是否回答正确仍按实际自然评测独立验收。§307冻结、全仓、限定只读负向轮换及未触发范围见[批汇总](../eval/parallel_selected_summary_hmc_scheduler_registration_20261029.md)。
 
+HMC §308候选分开IO查询发表身份与根因投影身份：前者保留每次查询的原selector、窗口、原件和数值；后者只在真实rank生产者已解析同一TID/TGID、同物理源代次、同请求端点、同闭合区间/量尺/榜单时复用一个席位。解析目标为进程内私有字段，连同完整观察签入来源快照，修改或JSON恢复均不能重新取得权限；未知/异源/不同请求及RQ/BIO仍隔离。没有改写原始payload，也不按名称、持续时间或文本关键词推身份。原四根因、闭合睡眠、链上优先级关系及自动补齐不变。
+
+同批`tracequery.StreamPacketQuery`成为原生工具与诊断脚本的共享包查询引擎，保旧三字段JSON包络和完整/partial/空结果语义，私有收据绑定payload内容和实际只读源代次。`tracediag`的v1/v2静态packet脚本经宿主注入的共享准备器执行；只接原始经典PCAP，不转换、不给Trace坐标/发现/混域步骤权限，indexed Run及Trace恢复仍拒绝packet。每步前后与最终发布复验同代源，报告先缓冲后发布；哈希按64KiB块响应取消和读错误，不以占位符签来源。64条预览和完整聚合分开，max_lines只限制显示，partial保原始事实但计步骤失败。新模板与零模型公共CLI验收单列，不等于模型自然选择了脚本，更不代签会话、跨源校时、完整06.1或最终解释质量；候选冻结/验收见§308批汇总，WAL生产NO-GO保持。
+
+§308终态为唯一全仓零FAIL、固定两例机器PASS/完整人工FAIL，候选不进main。真实静态脚本仅签已发表字段和完整统计，流报告实际29整组＋1局部，不把原生64预览成员冒充最终全部显示；不同查询摘要的预览数量与本文显示量还需分离。新发现的共享成文接缝为`no_sched_data`统一变成缺唤醒status，以及自由派生的错member时间在Known Facts与原生正确时间并列；两者保原始失败进入下一批，不用词面硬门消除合法计算/已证关系。图修补重复主体和PID/name自然未触发独立留账，详见[§308批汇总](../eval/parallel_selected_summary_hmc_business_pcap_script_20261029.md)与[人工审计](../eval/parallel_selected_summary_hmc_business_pcap_script_20261029_manual_audit.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
