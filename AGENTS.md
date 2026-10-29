@@ -2,6 +2,10 @@
 
 Guidance for Codex working in this repository. Detail lives in `docs/architecture.md`; this file holds only the parts that affect day-to-day work and the invariants you must not violate.
 
+## Working branch
+
+Per the user's 2026-10-29 instruction, continue development in this workspace on `main` unless the user explicitly requests another branch. The HMC299–313 candidate history is synchronized into `main`; branch integration does not mark outstanding validation or audit failures as passed. This development workflow instruction does not relax the product's write-mode isolation, approval, or main-merge safeguards below.
+
 ## Project Overview
 
 Codrax is a Go code-analysis + change-proposal tool. **Read mode** (default): natural-language question → 4-stage LLM pipeline (analyze → explore → extract → finalize) → grounded structured answer; no source files touched. **Write mode** (CLI opt-in via `--mode=write`, defaulting to Auto Pilot apply; `--write-phase=plan|verify` are advanced lanes; REPL opt-in via `/mode write` / `/write`, or auto mode structured `route=write`): runs controller-first Auto Pilot inside an isolated git worktree. The controller may explore, split, plan, apply, verify, and replan; low/medium deterministic risk proceeds automatically, high risk pauses for approval, critical risk denies, and main repo HEAD/merge never changes automatically. `codrax.yaml :: write_enabled: false` is the organization-level kill switch, absent defaults to enabled.
