@@ -4037,7 +4037,7 @@ func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
 }
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
-	ioIdentity, ioMeasurement := TraceObservationIOPublicationKey(record)
+	ioIdentity, ioMeasurement := traceObservationIOProjectionKey(record)
 	node := TraceCausalProjectionNode{
 		ioRequestIdentity:    ioIdentity,
 		IORequestMeasurement: ioMeasurement,

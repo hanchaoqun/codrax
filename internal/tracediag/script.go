@@ -381,6 +381,9 @@ func (s *Script) Validate() error {
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("tracediag: script has no steps")
 	}
+	if err := validatePacketScriptDomain(s); err != nil {
+		return err
+	}
 	if s.Version == ScriptVersion && s.tidOverrideSet {
 		return fmt.Errorf("tracediag: --trace-tid requires a version: 2 script with inputs.tid and pid_from: tid")
 	}

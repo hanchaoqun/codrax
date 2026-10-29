@@ -21,7 +21,7 @@ func TestHMC307ExecutionCatalogAndAdmissionShareDeclarations(t *testing.T) {
 				t.Fatalf("missing/shared execution declaration: %+v", view)
 			}
 			for _, entry := range []ViewExecutionEntry{ExecutionEntryNativeTool, ExecutionEntryTraceDiag, ExecutionEntryIndexedRun, "unknown_entry"} {
-				want := entry == ExecutionEntryNativeTool || entry == ExecutionEntryTraceDiag && c.Mode != ExecutionStreamingPacket || entry == ExecutionEntryIndexedRun && c.Mode == ExecutionIndexedTrace
+				want := entry == ExecutionEntryNativeTool || entry == ExecutionEntryTraceDiag || entry == ExecutionEntryIndexedRun && c.Mode == ExecutionIndexedTrace
 				if got := ValidateViewExecution(view.View, entry) == nil; got != want {
 					t.Fatalf("entry %q admitted=%v want=%v", entry, got, want)
 				}

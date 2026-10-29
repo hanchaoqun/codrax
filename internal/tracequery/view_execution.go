@@ -36,7 +36,7 @@ func ViewExecutionFor(view string) ViewExecutionCapability {
 	case ExecutionStreamingTrace:
 		return ViewExecutionCapability{mode, []ViewExecutionEntry{ExecutionEntryNativeTool, ExecutionEntryTraceDiag}, "trace_query_scope"}
 	case ExecutionStreamingPacket:
-		return ViewExecutionCapability{mode, []ViewExecutionEntry{ExecutionEntryNativeTool}, "packet_source_native_clock"}
+		return ViewExecutionCapability{mode, []ViewExecutionEntry{ExecutionEntryNativeTool, ExecutionEntryTraceDiag}, "packet_source_native_clock"}
 	default:
 		return ViewExecutionCapability{}
 	}

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // A request identity is minted only alongside the native source-read receipt.
@@ -13,21 +15,45 @@ import (
 // they cannot mint physical identity or any causal qualification.
 type traceIORequestIdentity struct {
 	physical, snapshot string
+	projectionTarget   traceIOProjectionTarget
+}
+
+// A resolved native rank target is not a user selector or a display label.
+// It remains private and gains identity authority only with the source receipt.
+type traceIOProjectionTarget struct {
+	TID, TGID int
+	Comm      string
 }
 
 // TraceIORequestEndpoints is the original paired request, independently of
 // clipped request time or the issuer's blocked interval. This public fact
 // carrier grants no identity permission without the private source receipt.
 type TraceIORequestEndpoints struct {
-	Family       string  `json:"family"`
-	IssueLine    int     `json:"issue_line"`
-	CompleteLine int     `json:"complete_line"`
-	IssueTs      float64 `json:"issue_ts"`
-	CompleteTs   float64 `json:"complete_ts"`
-	Device       string  `json:"device,omitempty"`
-	Operation    string  `json:"operation,omitempty"`
-	Sector       string  `json:"sector,omitempty"`
-	Length       string  `json:"length,omitempty"`
+	projectionTarget traceIOProjectionTarget
+	Family           string  `json:"family"`
+	IssueLine        int     `json:"issue_line"`
+	CompleteLine     int     `json:"complete_line"`
+	IssueTs          float64 `json:"issue_ts"`
+	CompleteTs       float64 `json:"complete_ts"`
+	Device           string  `json:"device,omitempty"`
+	Operation        string  `json:"operation,omitempty"`
+	Sector           string  `json:"sector,omitempty"`
+	Length           string  `json:"length,omitempty"`
+}
+
+// WithProjectionTarget copies a native request's producer-resolved rank target.
+// No identity is granted here; source-read stamping binds this value to the
+// complete observation. Missing process/thread identity stays conservative.
+func (p *TraceIORequestEndpoints) WithProjectionTarget(tid, tgid int, comm string) *TraceIORequestEndpoints {
+	if p == nil {
+		return nil
+	}
+	out := *p
+	out.projectionTarget = traceIOProjectionTarget{}
+	if tid > 0 && tgid > 0 {
+		out.projectionTarget = traceIOProjectionTarget{TID: tid, TGID: tgid, Comm: comm}
+	}
+	return &out
 }
 
 func (p TraceIORequestEndpoints) valid() bool {
@@ -44,6 +70,10 @@ func traceIORequestRecord(record ObservationRecord) bool {
 func traceIORequestRecordSnapshot(record ObservationRecord) string {
 	// Bind the original publication context without turning query coordinates
 	// into physical endpoints. Preserve exact names and clocks.
+	var target traceIOProjectionTarget
+	if record.IORequestEndpoints != nil {
+		target = record.IORequestEndpoints.projectionTarget
+	}
 	data, _ := json.Marshal([]any{record.Producer, record.Origin, record.Negative, record.GroundingPolicy,
 		record.SourceRef.Kind, record.SourceRef.ArtifactKind, record.SourceRef.Path,
 		record.SourceRef.TimeDomain, record.SourceRef.CanonicalTimeDomain, record.SourceRef.ClockAlignment,
@@ -52,7 +82,7 @@ func traceIORequestRecordSnapshot(record ObservationRecord) string {
 		record.SourceRef.QueryTargetPID, record.SourceRef.QueryTargetThread, record.SourceRef.QueryTargetScope,
 		record.SourceRef.QueryWindowKnown, record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs,
 		record.SourceRef.QueryLineRangeKnown, record.SourceRef.QueryLineStart, record.SourceRef.QueryLineEnd,
-		record.IORequestEndpoints, record.Value, record.Unit})
+		record.IORequestEndpoints, record.Value, record.Unit, target})
 	return string(data)
 }
 
@@ -77,6 +107,13 @@ func stampTraceIORequestIdentities(result *ToolResult, ref TraceQuerySourceReadR
 		data, _ := json.Marshal(parts)
 		sum := sha256.Sum256(data)
 		r.ioRequestIdentity = &traceIORequestIdentity{physical: hex.EncodeToString(sum[:]), snapshot: traceIORequestRecordSnapshot(*r)}
+		target := r.IORequestEndpoints.projectionTarget
+		if target.TID > 0 && target.TGID > 0 && r.SourceRef.QueryTargetScope == "thread" &&
+			r.SourceRef.QueryWindowKnown && r.SourceRef.QueryLineRangeKnown &&
+			(r.SourceRef.QueryTargetPID > 0 || strings.TrimSpace(r.SourceRef.QueryTargetThread) != "") &&
+			(r.SourceRef.QueryTargetPID <= 0 || r.SourceRef.QueryTargetPID == target.TID) {
+			r.ioRequestIdentity.projectionTarget = target
+		}
 	}
 }
 
@@ -91,6 +128,27 @@ func TraceObservationIOPublicationKey(record ObservationRecord) (key string, han
 	if identity == nil || identity.snapshot != traceIORequestRecordSnapshot(record) {
 		return "", true
 	}
+	return traceIOObservationPublicationKey(record, identity), true
+}
+
+// The publication key deliberately retains the original query selector. The
+// projection alone can use its producer-resolved alias, without changing any
+// original row, payload, source coordinate, or independent measurement scope.
+func traceObservationIOProjectionKey(record ObservationRecord) (string, bool) {
+	key, handled := TraceObservationIOPublicationKey(record)
+	if key == "" || record.ioRequestIdentity == nil {
+		return key, handled
+	}
+	target := record.ioRequestIdentity.projectionTarget
+	if target.TID <= 0 || target.TGID <= 0 {
+		return key, handled
+	}
+	canonical := record
+	canonical.SourceRef.QueryTargetPID, canonical.SourceRef.QueryTargetThread = target.TID, target.Comm
+	return "resolved-rank-target:" + strconv.Itoa(target.TGID) + "\x00" + traceIOObservationPublicationKey(canonical, record.ioRequestIdentity), handled
+}
+
+func traceIOObservationPublicationKey(record ObservationRecord, identity *traceIORequestIdentity) string {
 	ref := record.SourceRef
 	data, _ := json.Marshal([]any{identity.physical, ref.TimeDomain, ref.CanonicalTimeDomain, ref.ClockAlignment,
 		ref.ClockCalibrated, ref.ClockOffsetSec, ref.ClockSlope, record.Subject, record.Object, record.Predicate,
@@ -101,7 +159,7 @@ func TraceObservationIOPublicationKey(record ObservationRecord) (key string, han
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIORequestResidenceCaliber),
 		traceCausalProjectionChainRelevance(record.RichNotes),
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality)})
-	return string(data), true
+	return string(data)
 }
 
 // TraceCausalProjectionIOPublicationKey retains request identity AND every

@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/pcapinput"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -65,14 +66,15 @@ func (t *TraceQuery) packetInventory(ctx *types.BusContext, p traceQueryParams, 
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
 	path = filepath.Clean(physical)
-	result, err := pcapinput.Stream(contextFromBus(ctx), path, p.Limit.Int())
+	query, err := tracequery.StreamPacketQuery(contextFromBus(ctx), path, tracequery.ViewPacketInventory, p.Limit.Int())
 	if err != nil {
 		if traceQueryIsCancellation(err) {
 			return traceQueryCancellationResult(p.View, path, err), nil
 		}
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet capture query failed; no complete inventory was published: " + err.Error(), Timestamp: time.Now()}, nil
 	}
-	payload, err := json.Marshal(tracequery.Result{View: tracequery.ViewPacketInventory, SourcePath: path, PacketInventory: &result.PacketInventoryResult})
+	result := *query.Payload.PacketInventory
+	payload, err := json.Marshal(query.Payload)
 	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
@@ -80,10 +82,10 @@ func (t *TraceQuery) packetInventory(ctx *types.BusContext, p traceQueryParams, 
 	if result.Status != "complete" {
 		return types.ToolResult{ToolName: t.Name(), Summary: fmt.Sprintf("Packet inventory incomplete: %s at byte %d after %d valid records. This is not a zero-packet or complete-capture result. Partial raw record facts: %s", result.Failure.Code, result.Failure.Offset, result.PacketCount, payloadRef), RawRef: payloadRef, Timestamp: time.Now()}, nil
 	}
-	if err := result.ValidateCurrentSource(); err != nil {
+	if err := query.ValidateCurrentSource(); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
-	scope := fmt.Sprintf("pcap:%x", sha256.Sum256(append([]byte(result.SourceVersionToken()+"\x00"+strconv.Itoa(p.Limit.Int())+"\x00"), payload...)))
+	scope := fmt.Sprintf("pcap:%x", sha256.Sum256(append([]byte(query.SourceVersionToken()+"\x00"+strconv.Itoa(p.Limit.Int())+"\x00"), payload...)))
 	minTime, maxTime := packetTimestamp(result.MinTimestamp), packetTimestamp(result.MaxTimestamp)
 	var text strings.Builder
 	fmt.Fprintf(&text, "PCAP packet inventory: source=%s; status=complete; records=%d; members=%d; omitted=%d. Epoch seconds min=%s max=%s (%s precision); captured frame bytes=%d; original frame bytes=%d; truncated records=%d. These lengths are not transport payload or physical bandwidth. No scheduler clock alignment, PID or thread identity.\n", path, result.PacketCount, len(result.Members), result.OmittedPackets, minTime, maxTime, result.Header.Resolution, result.CapturedBytes, result.OriginalBytes, result.TruncatedPackets)
@@ -111,7 +113,7 @@ func (t *TraceQuery) packetInventory(ctx *types.BusContext, p traceQueryParams, 
 	if !ok {
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet raw-fact publication validation failed", RawRef: payloadRef, Timestamp: now}, nil
 	}
-	if err := result.ValidateCurrentSource(); err != nil {
+	if err := query.ValidateCurrentSource(); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), RawRef: payloadRef, Timestamp: now}, nil
 	}
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: []types.ObservationRecord{sealed}, TraceQuerySourceRead: types.TraceQueryPhysicalSourceReadCandidate(path)}, nil
@@ -142,7 +144,7 @@ func packetUint32(p *uint32) string {
 	return strconv.FormatUint(uint64(*p), 10)
 }
 
-func packetInventoryPublication(r types.ObservationRecord, p pcapinput.Result) types.RuntimeMeasurementPublication {
+func packetInventoryPublication(r types.ObservationRecord, p tracewire.PacketInventoryResult) types.RuntimeMeasurementPublication {
 	notes := []string{"来源：" + p.SourcePath, fmt.Sprintf("完整文件扫描得到%d条包记录；明细预览%d条，省略%d条。完整记录扫描不证明抓包未丢包或业务网络活动完整。", p.PacketCount, len(p.Members), p.OmittedPackets), "时间为PCAP原生epoch秒，精度=" + p.Header.Resolution + "；不映射到Trace调度时间窗。时间范围是记录观察范围，不是用户查询窗或响应耗时。", "captured为记录中保留的帧字节，original为记录报告的原始帧字节；不相加，不等于传输层payload、应用字节、硬件带宽或线程等待。", "协议按已观察头字段解码；未知/截断保留，分片不猜端口；方向仅Linux cooked记录类型证明，Ethernet方向未知。每条ordinal/byte_offset独立，重复字节不去重。接口索引不是进程或线程身份。"}
 	notes = append(notes, fmt.Sprintf("每条记录最多解码前%d字节；解码前缀受限与原始抓包截断分别记录，不把未读取的payload解释为零或完整协议内容。", pcapinput.PacketPrefixBytes))
 	table := func(view types.RuntimeMeasurementView, label string, columns []string) types.RuntimeMeasurementTable {

@@ -74,6 +74,9 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 			// escape-aware wire grammar from this leaf package.
 			modPath + "/internal/tracewire":      true,
 			modPath + "/internal/threadidentity": true,
+			// The shared native packet executor is checked for real, not a
+			// fake package that would hide selections or weaken strict checking.
+			modPath + "/internal/pcapinput": true,
 		},
 		fakes: map[string]*types.Package{},
 	}

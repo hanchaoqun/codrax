@@ -1,0 +1,9 @@
+version: 1
+description: Read-only native packet inventory and bidirectional flow statistics.
+defaults:
+  max_lines: 450
+steps:
+  - label: packet-records
+    view: packet_inventory
+  - label: packet-flows
+    view: packet_flows

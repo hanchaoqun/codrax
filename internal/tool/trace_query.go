@@ -9989,7 +9989,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// (there rank == i+1 held by construction).
 				ID:                 fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
 				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
-				IORequestEndpoints: item.IORequestEndpoints,
+				IORequestEndpoints: item.IORequestEndpoints.WithProjectionTarget(result.RootCauseRank.Target.PID, result.RootCauseRank.Target.TGID, result.RootCauseRank.Target.Comm),
 				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 				Producer:           "trace_query",
 				Role:               role,

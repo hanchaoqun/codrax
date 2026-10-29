@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Options configures one tracediag collection run.
@@ -37,6 +38,9 @@ type Options struct {
 	Now func() time.Time
 	// TotalMaxLines bounds the whole report; 0 = DefaultTotalMaxLines.
 	TotalMaxLines int
+	// TraceInputPreparer supplies the host's process-local readonly material
+	// receipt for packet scripts. Legacy Trace execution never invokes it.
+	TraceInputPreparer types.TraceInputPreparer
 }
 
 // StepStatus is the per-step outcome recorded for the end-of-report summary
@@ -122,6 +126,9 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
+	}
+	if scriptUsesPacketDomain(script) {
+		return runPacketScript(ctx, opts, w, script, tracePath, flavorHint, now())
 	}
 	if script.Version == ScriptVersionV2 {
 		return runV2(ctx, opts, w, script, tracePath, info, flavorHint, now())

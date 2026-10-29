@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hanchaoqun/codrax/internal/pcapinput"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -22,14 +21,15 @@ func (t *TraceQuery) packetFlows(ctx *types.BusContext, p traceQueryParams, path
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
 	path = filepath.Clean(physical)
-	result, err := pcapinput.StreamFlows(contextFromBus(ctx), path, p.Limit.Int())
+	query, err := tracequery.StreamPacketQuery(contextFromBus(ctx), path, tracequery.ViewPacketFlows, p.Limit.Int())
 	if err != nil {
 		if traceQueryIsCancellation(err) {
 			return traceQueryCancellationResult(p.View, path, err), nil
 		}
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet endpoint query failed; no complete census was published: " + err.Error(), Timestamp: time.Now()}, nil
 	}
-	payload, err := json.Marshal(tracequery.Result{View: tracequery.ViewPacketFlows, SourcePath: path, PacketFlows: &result.PacketFlowsResult})
+	result := *query.Payload.PacketFlows
+	payload, err := json.Marshal(query.Payload)
 	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), Timestamp: time.Now()}, nil
 	}
@@ -41,10 +41,10 @@ func (t *TraceQuery) packetFlows(ctx *types.BusContext, p traceQueryParams, path
 		}
 		return types.ToolResult{ToolName: t.Name(), Summary: fmt.Sprintf("Packet endpoint query partial: %s; scanned records=%d, tracked groups=%d, group budget exceeded=%t. Neither a complete census nor global Top N is published. Partial original facts: %s", reason, result.PacketCount, result.TrackedFlowCount, result.GroupBudgetExceeded, payloadRef), RawRef: payloadRef, Timestamp: time.Now()}, nil
 	}
-	if err := result.ValidateCurrentSource(); err != nil {
+	if err := query.ValidateCurrentSource(); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), RawRef: payloadRef, Timestamp: time.Now()}, nil
 	}
-	scope := fmt.Sprintf("pcap-flows:%x", sha256.Sum256(append([]byte(result.SourceVersionToken()+"\x00"+strconv.Itoa(p.Limit.Int())+"\x00"), payload...)))
+	scope := fmt.Sprintf("pcap-flows:%x", sha256.Sum256(append([]byte(query.SourceVersionToken()+"\x00"+strconv.Itoa(p.Limit.Int())+"\x00"), payload...)))
 	var text strings.Builder
 	fmt.Fprintf(&text, "PCAP endpoint groups: source=%s; status=complete; records=%d; grouped records=%d; ungrouped records=%d; endpoint groups=%d; displayed groups=%d; omitted groups=%d. Ordering is captured frame bytes descending. Epoch observation bounds=%s..%s (%s precision). Groups are not sessions, connections or requests; frame lengths are not payload.\n", path, result.PacketCount, result.GroupedPackets, result.UngroupedPackets, *result.FlowCount, len(result.Members), result.OmittedTrackedFlows, packetTimestamp(result.MinTimestamp), packetTimestamp(result.MaxTimestamp), result.Header.Resolution)
 	for _, flow := range result.Members {
@@ -58,7 +58,7 @@ func (t *TraceQuery) packetFlows(ctx *types.BusContext, p traceQueryParams, path
 	now := time.Now()
 	ref := types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: path, ArtifactKind: "trace", TimeDomain: "pcap_epoch_seconds", ClockAlignment: "unaligned", PayloadRef: payloadRef, RawRef: rawRef, QueryScopeID: scope}
 	r := types.ObservationRecord{ID: "trace_query:" + scope + "#endpoint-groups", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard, ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref, ClaimKey: "packet_flows_observation", Predicate: "packet_flows_observation", Subject: "packet endpoint groups", Object: "complete", Summary: "Complete packet endpoint grouping; bounded group preview; native epoch clock and directional frame lengths, not sessions or causal relationships", ObservedAt: now.Format(time.RFC3339Nano), Confidence: 1}
-	publication := packetFlowsPublication(r, result.PacketFlowsResult)
+	publication := packetFlowsPublication(r, result)
 	data, err := json.Marshal(publication)
 	if err != nil || len(data) > 64<<10 {
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet endpoint publication exceeds the bounded native receipt; no truncated publication was accepted", RawRef: payloadRef, Timestamp: now}, nil
@@ -68,7 +68,7 @@ func (t *TraceQuery) packetFlows(ctx *types.BusContext, p traceQueryParams, path
 	if !ok {
 		return types.ToolResult{ToolName: t.Name(), Summary: "Packet endpoint raw-fact publication validation failed", RawRef: payloadRef, Timestamp: now}, nil
 	}
-	if err := result.ValidateCurrentSource(); err != nil {
+	if err := query.ValidateCurrentSource(); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Summary: err.Error(), RawRef: payloadRef, Timestamp: now}, nil
 	}
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: []types.ObservationRecord{sealed}, TraceQuerySourceRead: types.TraceQueryPhysicalSourceReadCandidate(path)}, nil

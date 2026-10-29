@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracediag"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 )
 
 // runTraceDiagCLI executes the --tracediag collection mode (§28.12): a
@@ -37,13 +38,14 @@ func runTraceDiagCLI(ctx context.Context, stdout io.Writer, args []string) error
 		fmt.Fprintf(os.Stderr, "tracediag: 忽略日志 flag(本模式不装日志器): %s\n", strings.Join(inert, ", "))
 	}
 	opts := tracediag.Options{
-		ScriptPath:     scriptPath,
-		TracePath:      tracePath,
-		WindowOverride: strings.TrimSpace(flagTraceDiagWindow),
-		TIDOverride:    strings.TrimSpace(flagTraceDiagTID),
-		FlavorHint:     strings.TrimSpace(flagTraceDiagFlavor),
-		Version:        version,
-		BuildTime:      buildTime,
+		ScriptPath:         scriptPath,
+		TracePath:          tracePath,
+		WindowOverride:     strings.TrimSpace(flagTraceDiagWindow),
+		TIDOverride:        strings.TrimSpace(flagTraceDiagTID),
+		FlavorHint:         strings.TrimSpace(flagTraceDiagFlavor),
+		Version:            version,
+		BuildTime:          buildTime,
+		TraceInputPreparer: traceinput.NewCoordinator(traceinput.Options{}),
 	}
 	outPath := strings.TrimSpace(flagTraceDiagOut)
 	if outPath == "" {
