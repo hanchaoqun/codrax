@@ -1644,7 +1644,15 @@ HMC §313修复上述§312量测域隔离回归：只在producer值拷贝的显�
 
 同批定位原始段合计量尺：`summarizeWakeupCausalImpact`所给6/41.5ms是所选原始状态段的正确总量，不是业务/查询裁剪后的某状态总量。`ActualWindow`是这些原始段的定位包络，不必证明连续执行。共享树/摘要仅在该范围已发布且有限、非负、递增时说明原始段总和/范围/可能混状态；不新增数字字段、不逆算范围、不修改累加器、原值或合法小计。缺失/非法范围维持旧兼容文案，这个窄片不宣称已完成所有未知范围教学。自然恢复稿已命中新说明，整体图/正文仍FAIL。
 
-§313代表规格审计确认当前schema已有view枚举，模型显式选了event_search；没有证据证明编译器丢弃已受理resource_stack。原查询总体、右端规则、选择身份与独立额外查询不可互相代签，普通status的同代index/snapshot可审计但不保证语义规格正确。已有错误runtime binding与只改可见声明的局部修补之间出现可复现候选，下一批应查fresh lease/失败基准/绑定动作，不放宽当前身份验证或猜长ID。事实已足的正文跨源/窗口/关系误述留账；参见[§313批汇总](../eval/parallel_selected_summary_hmc_display_spec_representative_20261029.md)。完整能力新增0、候选子能力2组，53开放不变，main及WAL生产边界不变。
+§313代表规格审计确认当前schema已有view枚举，模型显式选了event_search；没有证据证明编译器丢弃已受理resource_stack。原查询总体、右端规则、选择身份与独立额外查询不可互相代签，普通status的同代index/snapshot可审计但不保证语义规格正确。已有错误runtime binding与只改可见声明的局部修补之间出现可复现候选，下一批应查fresh lease/失败基准/绑定动作，不放宽当前身份验证或猜长ID。事实已足的正文跨源/窗口/关系误述留账；参见[§313批汇总](../eval/parallel_selected_summary_hmc_display_spec_representative_20261029.md)。完整能力新增0、候选子能力2组，53开放不变；该批当时的main及WAL边界不变。
+
+HMC §314按用户后续明确指令在main工作，候选历史已快进合入；不改变产品自身worktree、审批或禁止自动合入保护。图局部修补为原visibility `ensure_visible` 增加有界、显式的可选 `native_participant`：仅对唯一已声明但当前原生绑定缺失/陈旧的selector提供当前native lane枚举。旧display-only操作仍不改绑定；当前block fingerprint、participant_ref、唯一声明、原selector与原生身份共同校验，只替换目标selector及作者显式显示标签，不改变节点ID、其它selector、notes、messages和事件锚。合并后继续走完整发射的端点、关系和未证业务映射校验；不得用相似ID、业务名或隐藏文本猜绑定。孤立主体操作不接受此字段，不能借该分支扩大为全块替换。
+
+代表选择交接通过纯 `ExecutionView.RepresentativeNavigation()` 关联同代完整规格和执行记录。选中与未选成员均携带 `specification`、`query_origin`、`attempt_outcomes`，保view、主体、窗口端点及完整参数；query/catalog/artifact/revision/source/latest-attempt不一致时不拼接。完整有序attempt仍留原saved_index，不无界重放到prompt；24KiB上下文及64KiB/16条页面按整成员保留并披露省略。导航不授事实、选择、完成或因果权；同一路径另一view的成功不能代签代表任务。自然例新8行交接已到场，但模型选择thread_timeline而非原resource_stack合同，完整11.2仍开放。
+
+评测请求关联统一复用字节保真的 `eval/request_intervals.py`：没有request ID的重叠组在已证归零前保持歧义，未知model/非法时钟不替其它请求排空；使用正式spawn记录的时区偏移和整数微秒，不从进程重叠推断模型请求重叠。解析诊断、真实进程终态、机器判据和人工验收分开。
+
+§314冻结后唯一全仓98包PASS，图公开RED已闭合；自然A保3主体2唤醒/上CPU及50/52、31/35、2ms和47背景，但正文/图完成点与唤醒点混写、调查advisory与原生运行区间冲突仍FAIL，新显式重选未触发。两例完整人工0/2，不以正确表格或本地回归替代整答；详见[§314批汇总](../eval/parallel_selected_summary_hmc_repair_pairing_representative_20261029.md)。Trace因果投影、自动补齐及原查询总体不变，WAL生产NO-GO保留。
 
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
