@@ -97,12 +97,16 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	owned := opts.streamDirectory
+	sourceFormat, queryFormat := "", "text"
 	defer func() {
 		// A source replacement dominates any provisional format verdict.
 		if identityErr := validateHeld(source, held, original); identityErr != nil {
 			err = identityErr
 		}
 		err = errors.Join(err, ctx.Err(), held.Close())
+		if err == nil {
+			material, err = material.WithDisplayFormats(ctx, sourceFormat, queryFormat)
+		}
 		if err == nil {
 			retain(owned)
 			return
@@ -124,6 +128,10 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	kind, binary := binaryCandidate(probe)
+	sourceFormat = kind
+	if !binary {
+		sourceFormat = "text"
+	}
 	if opts.ArchiveMember != "" && kind != string(attachment.BinaryTraceFormatZIP) {
 		return nil, &Error{Code: "archive_member_requires_zip", Path: source, Err: fmt.Errorf("archive member selection requires the original ZIP file")}
 	}
@@ -133,6 +141,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		bindings[opts.streamReceiptPath] = opts.streamReceiptID
 	}
 	if pcapinput.HasMagic(probe) {
+		sourceFormat, queryFormat = "pcap", "pcap"
 		h, err := pcapinput.ParseHeader(probe)
 		if err != nil {
 			return nil, &Error{Code: "packet_capture_header_invalid", Path: source, Err: err}
@@ -155,6 +164,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 			if err := bindBundle(ctx, source, bindings); err != nil {
 				return nil, err
 			}
+			sourceFormat, queryFormat = "tracebundle", "tracebundle"
 		}
 		return bind(ctx, source, source, preview, bindings, complete && opts.streamReceiptPath == "")
 	}
@@ -300,6 +310,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	queryPath := previewPath
 	if result.BundlePath != "" {
 		queryPath = result.BundlePath
+		queryFormat = "tracebundle"
 	}
 	for _, artifact := range result.Artifacts {
 		if err := bindArtifact(ctx, artifact, bindings); err != nil {

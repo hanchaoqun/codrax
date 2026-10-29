@@ -1,6 +1,7 @@
 package outputdump
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,6 +73,13 @@ type RuntimeArtifact struct {
 	Source string
 	Bytes  int
 	Detail string
+	// Presentation metadata stays process-local and grants no input authority.
+	previewOnly      bool
+	fileBytesKnown   bool
+	preparedMaterial *attachment.TraceMaterialDisplay
+	inputChannel     string
+	filePath         string
+	fileGeneration   filegeneration.Identity
 	// Carrier is typed construction provenance for hard-gate consumers. It is
 	// intentionally not rendered: Source/Detail remain the report surface,
 	// while request-path admission must never reverse-engineer origin from
@@ -244,7 +252,7 @@ func BuildBody(a Args) string {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", labels.Kind, labels.Source, labels.Size, labels.Detail)
 		b.WriteString("|---|---|---:|---|\n")
 		for _, artifact := range a.RuntimeArtifacts {
-			detail := artifact.Detail
+			detail := artifact.DisplayDetail(a.Language)
 			if typed := artifact.traceBundleArtifact; typed != nil {
 				disclosure := hitraceconv.PerfCaptureDisclosureForArtifact(*typed)
 				if disclosure.Present {
@@ -258,9 +266,9 @@ func BuildBody(a Args) string {
 				}
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n",
-				escapeMarkdownTableCell(firstNonEmpty(artifact.Kind, "artifact")),
+				escapeMarkdownTableCell(artifact.DisplayKind()),
 				escapeMarkdownTableCell(firstNonEmpty(artifact.Source, "(unknown)")),
-				HumanBytes(artifact.Bytes),
+				escapeMarkdownTableCell(artifact.DisplaySize(a.Language)),
 				escapeMarkdownTableCell(detail))
 		}
 		if len(perfCaptureDisclosures) > 0 {
@@ -389,7 +397,7 @@ func dumpLabels(lang string) dumpTextLabels {
 	}
 }
 
-func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {
+func RuntimeArtifactsFromAttachment(kind, body string, materials ...*attachment.TraceMaterial) []RuntimeArtifact {
 	kind = strings.TrimSpace(kind)
 	if kind == "" || body == "" {
 		return nil
@@ -400,11 +408,33 @@ func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {
 		artifacts := runtimeArtifactsForSegment(kind, segment.source, segment.body)
 		for index := range artifacts {
 			artifacts[index].Carrier = RuntimeArtifactCarrierAttachment
+			artifacts[index].inputChannel = kind
+			artifacts[index].previewOnly = index == 0
 			if index > 0 {
 				artifacts[index].Carrier = RuntimeArtifactCarrierBundleChild
 			}
 		}
 		out = append(out, artifacts...)
+	}
+	// A source header is only a label. Only a current in-process preparation
+	// receipt can bind this exact preview to original/query file generations.
+	if kind == "trace" && len(materials) == 1 && materials[0] != nil && len(segments) == 1 && len(out) > 0 {
+		if metadata, err := materials[0].DisplayMetadata(context.Background(), body); err == nil {
+			out[0].preparedMaterial = &metadata
+			out[0].Source = metadata.SourcePath
+			out[0].previewOnly = false
+			out[0].fileBytesKnown = true
+			out[0].Bytes = safeInt64ToInt(metadata.SourceBytes)
+			out[0].filePath = metadata.SourcePath
+			out[0].fileGeneration, _ = metadata.FileGeneration(metadata.SourcePath)
+			for index := 1; index < len(out); index++ {
+				member := traceBundleArtifactFilePath(metadata.QueryPath, out[index].Source)
+				if id, ok := metadata.FileGeneration(member); ok {
+					out[index].Bytes = safeInt64ToInt(id.Size())
+					out[index].fileBytesKnown = true
+				}
+			}
+		}
 	}
 	return out
 }
@@ -472,25 +502,29 @@ func RuntimeArtifactsFromRequest(request string) []RuntimeArtifact {
 }
 
 func MergeRuntimeArtifacts(groups ...[]RuntimeArtifact) []RuntimeArtifact {
-	seen := map[string]bool{}
 	var out []RuntimeArtifact
 	for _, group := range groups {
 		for _, artifact := range group {
-			kind := strings.TrimSpace(artifact.Kind)
-			source := strings.TrimSpace(artifact.Source)
-			if kind == "" && source == "" {
+			if strings.TrimSpace(artifact.Kind) == "" && strings.TrimSpace(artifact.Source) == "" {
 				continue
 			}
-			sourceKey := source
-			if runtime.GOOS == "windows" {
-				sourceKey = strings.ToLower(sourceKey)
+			merged := false
+			for index := range out {
+				if samePreparedOriginalDisplayRoot(out[index], artifact) {
+					if artifact.preparedMaterial != nil {
+						out[index] = artifact
+					}
+					merged = true
+					break
+				}
+				if sameRuntimeArtifactDisplayKey(out[index], artifact) {
+					merged = true
+					break
+				}
 			}
-			key := strings.ToLower(kind) + "\x00" + sourceKey
-			if seen[key] {
-				continue
+			if !merged {
+				out = append(out, artifact)
 			}
-			seen[key] = true
-			out = append(out, artifact)
 		}
 	}
 	return out
@@ -580,8 +614,8 @@ func resolveRequestRuntimeArtifactPath(path string) string {
 }
 
 func requestPathContentLooksLikeRuntimeArtifact(path string) bool {
-	buf, _, ok := readRequestRuntimeArtifactPrefix(path, 8192)
-	if !ok || len(buf) == 0 {
+	buf, _, observed := readRequestRuntimeArtifactPrefix(path, 8192)
+	if !observed.Initialized() || len(buf) == 0 {
 		return false
 	}
 	switch attachment.KnownBinaryTraceFormat(buf) {
@@ -601,7 +635,8 @@ func requestPathContentLooksLikeRuntimeArtifact(path string) bool {
 }
 
 func runtimeArtifactsForRequestPath(kind, source, resolved string) []RuntimeArtifact {
-	body, bytes := requestRuntimeArtifactBodyAndSize(resolved)
+	body, bytes, observed := requestRuntimeArtifactBodyAndSize(resolved)
+	known := observed.Initialized()
 	if strings.EqualFold(kind, "trace") {
 		out := runtimeArtifactsForSegment("trace", source, body)
 		if len(out) > 0 {
@@ -609,10 +644,10 @@ func runtimeArtifactsForRequestPath(kind, source, resolved string) []RuntimeArti
 				out[i].Carrier = RuntimeArtifactCarrierBundleChild
 			}
 			out[0].Carrier = RuntimeArtifactCarrierDirectRequestPath
+			out[0].fileBytesKnown = known
+			out[0].filePath, out[0].fileGeneration = resolved, observed
 			out[0].Detail = appendDetail(out[0].Detail, "referenced in request")
-			if bytes > 0 {
-				out[0].Bytes = bytes
-			}
+			out[0].Bytes = bytes
 			return out
 		}
 	}
@@ -621,27 +656,29 @@ func runtimeArtifactsForRequestPath(kind, source, resolved string) []RuntimeArti
 		detail = appendDetail(detail, "runtime log")
 	}
 	return []RuntimeArtifact{{
-		Kind:    kind,
-		Source:  source,
-		Bytes:   bytes,
-		Detail:  detail,
-		Carrier: RuntimeArtifactCarrierDirectRequestPath,
+		Kind:           kind,
+		Source:         source,
+		Bytes:          bytes,
+		Detail:         detail,
+		Carrier:        RuntimeArtifactCarrierDirectRequestPath,
+		fileBytesKnown: known,
+		filePath:       resolved, fileGeneration: observed,
 	}}
 }
 
-func requestRuntimeArtifactBodyAndSize(resolved string) (string, int) {
+func requestRuntimeArtifactBodyAndSize(resolved string) (string, int, filegeneration.Identity) {
 	resolved = strings.TrimSpace(resolved)
 	if resolved == "" {
-		return "", 0
+		return "", 0, filegeneration.Identity{}
 	}
-	data, bytes, ok := readRequestRuntimeArtifactPrefix(resolved, runtimeArtifactMetadataScanBytes+1)
-	if !ok {
-		return "", 0
+	data, bytes, observed := readRequestRuntimeArtifactPrefix(resolved, runtimeArtifactMetadataScanBytes+1)
+	if !observed.Initialized() {
+		return "", 0, filegeneration.Identity{}
 	}
 	if len(data) > runtimeArtifactMetadataScanBytes {
 		data = data[:runtimeArtifactMetadataScanBytes]
 	}
-	return string(data), bytes
+	return string(data), bytes, observed
 }
 
 // readRequestRuntimeArtifactPrefix is metadata-only intake for paths named in
@@ -649,13 +686,13 @@ func requestRuntimeArtifactBodyAndSize(resolved string) (string, int) {
 // Unix FIFO swaps cannot block, Windows named-pipe namespaces are rejected,
 // reads are capped to the held size, and the held/path generation is re-bound
 // before any bytes become a preflight or report hint.
-func readRequestRuntimeArtifactPrefix(path string, limit int) ([]byte, int, bool) {
+func readRequestRuntimeArtifactPrefix(path string, limit int) ([]byte, int, filegeneration.Identity) {
 	if strings.TrimSpace(path) == "" || limit <= 0 {
-		return nil, 0, false
+		return nil, 0, filegeneration.Identity{}
 	}
 	file, opened, err := filegeneration.OpenRegularReadOnly(path)
 	if err != nil {
-		return nil, 0, false
+		return nil, 0, filegeneration.Identity{}
 	}
 	readBytes := opened.Size()
 	if readBytes > int64(limit) {
@@ -667,9 +704,9 @@ func readRequestRuntimeArtifactPrefix(path string, limit int) ([]byte, int, bool
 	closeErr := file.Close()
 	if readErr != nil || int64(len(data)) != readBytes || finalErr != nil || bindingErr != nil || closeErr != nil ||
 		!opened.SameVersion(final) || !opened.SameVersion(bound) {
-		return nil, 0, false
+		return nil, 0, filegeneration.Identity{}
 	}
-	return data, safeInt64ToInt(opened.Size()), true
+	return data, safeInt64ToInt(opened.Size()), opened
 }
 
 type attachmentSegment struct {
@@ -814,6 +851,7 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 			Bytes:               safeInt64ToInt(a.Bytes),
 			Detail:              detail,
 			traceBundleArtifact: artifact,
+			fileBytesKnown:      a.bytesKnown,
 		})
 	}
 	if strings.TrimSpace(bundle.Systrace) != "" {
@@ -884,40 +922,32 @@ func traceBundleArtifactWithStatFallback(bundleSource string, artifact traceBund
 	if artifact.Bytes > 0 {
 		return artifact
 	}
-	if size := traceBundleArtifactStatSize(bundleSource, artifact.Path); size > 0 {
-		artifact.Bytes = size
+	// The bounded regular-file reader distinguishes a genuinely observed empty
+	// member from an omitted manifest size. It never performs an unbounded read.
+	if _, _, id := readRequestRuntimeArtifactPrefix(traceBundleArtifactFilePath(bundleSource, artifact.Path), 1); id.Initialized() {
+		artifact.Bytes = id.Size()
+		artifact.bytesKnown = true
 	}
 	return artifact
 }
 
-func traceBundleArtifactStatSize(bundleSource, artifactPath string) int64 {
+func traceBundleArtifactFilePath(bundleSource, artifactPath string) string {
 	artifactPath = strings.TrimSpace(artifactPath)
 	if artifactPath == "" {
-		return 0
+		return ""
 	}
 	if filepath.IsAbs(artifactPath) {
-		return fileSizeIfRegular(artifactPath)
+		return filepath.Clean(artifactPath)
 	}
 	bundleSource = strings.TrimSpace(bundleSource)
 	if bundleSource == "" || strings.HasPrefix(bundleSource, "(") {
-		return 0
+		return ""
 	}
 	dir := filepath.Dir(bundleSource)
 	if dir == "" {
-		return 0
+		return ""
 	}
-	return fileSizeIfRegular(filepath.Join(dir, artifactPath))
-}
-
-func fileSizeIfRegular(p string) int64 {
-	if filegeneration.IsWindowsNamedPipePath(p) {
-		return 0
-	}
-	info, err := os.Stat(p)
-	if err != nil || !info.Mode().IsRegular() {
-		return 0
-	}
-	return info.Size()
+	return filepath.Join(dir, artifactPath)
 }
 
 func runtimeArtifactForSegment(kind, source, body string) RuntimeArtifact {
@@ -957,6 +987,7 @@ type traceBundleReportArtifact struct {
 	PluginVersion string                              `json:"plugin_version"`
 	Perf          *hitraceconv.PerfArtifactCapability `json:"perf_capability"`
 	Caveats       []string                            `json:"caveats"`
+	bytesKnown    bool
 }
 
 func (artifact traceBundleReportArtifact) asHitraceconvArtifact() *hitraceconv.Artifact {

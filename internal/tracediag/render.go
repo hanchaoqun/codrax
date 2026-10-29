@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -546,6 +547,12 @@ func minInt(a, b int) int {
 
 func renderResultMeta(res *tracequery.Result, emit func(string)) {
 	parts := []string{"result:", "view=" + res.View}
+	if res.View == tracequery.ViewPacketInventory && res.PacketInventory != nil {
+		// The dedicated native face carries packet counts and epoch coordinates.
+		// Unpopulated Trace line/event counters are not measured packet zeros.
+		emit(strings.Join(parts, " "))
+		return
+	}
 	if res.TraceFlavor != "" {
 		parts = append(parts, fmt.Sprintf("flavor=%s(conf=%s)", res.TraceFlavor, formatFloatToken(res.FlavorConfidence)))
 	}
@@ -738,6 +745,13 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
 	switch t {
+	case reflect.TypeOf(tracewire.PacketInventoryResult{}), reflect.TypeOf(tracewire.PacketHeader{}),
+		reflect.TypeOf(tracewire.PacketTimestamp{}), reflect.TypeOf(tracewire.PacketRecord{}),
+		reflect.TypeOf(tracewire.PacketCount{}), reflect.TypeOf(tracewire.PacketFailure{}):
+		// Packet DTO presence is native evidence: required zero/false survives,
+		// optional nil stays unknown, and exact epoch strings are never aligned.
+		renderExactNativeDTO(v, path, emit, depth, policy)
+		return
 	case reflect.TypeOf(types.TraceWakeupMeasuredWait{}):
 		// Preserve required zero and unknown actual boundaries using the same
 		// typed display as the answer surfaces, without changing event identity.

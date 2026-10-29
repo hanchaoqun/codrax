@@ -87,7 +87,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 			artifacts: outputdump.MergeRuntimeArtifacts(
 				outputdump.RuntimeArtifactsFromRequest(dumpRequest),
 				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
-				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
+				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace, o.attachedTraceMaterial),
 			),
 			rootCauses:                 rootCauses,
 			requireRootCauseJSON:       o.hasTraceRootCauseOutputContext(o.busCtx),

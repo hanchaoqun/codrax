@@ -27,6 +27,8 @@ type TraceMaterial struct {
 	explicitArchiveSelection bool
 	queryArtifacts           map[string]bool
 	queryDomain              TraceQueryDomain
+	sourceFormat             string
+	queryFormat              string
 }
 
 // TraceQueryDomain identifies the reader selected by physical preparation,

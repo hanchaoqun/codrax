@@ -7764,7 +7764,7 @@ func (r *REPL) writeLocalMarkdownTranscript(request, answer string) outputdump.R
 		RuntimeArtifacts: outputdump.MergeRuntimeArtifacts(
 			outputdump.RuntimeArtifactsFromRequest(request),
 			outputdump.RuntimeArtifactsFromAttachment("log", r.attachedLog),
-			outputdump.RuntimeArtifactsFromAttachment("trace", r.attachedHitrace),
+			outputdump.RuntimeArtifactsFromAttachment("trace", r.attachedHitrace, r.attachedTraceMaterial),
 		),
 		Now: time.Now(),
 		PID: os.Getpid(),

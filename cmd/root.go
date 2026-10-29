@@ -22,6 +22,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -894,7 +895,7 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if request != "" {
-		printCLIRuntimeArtifactStatus(flagLang, request, attached, trace)
+		printCLIRuntimeArtifactStatus(flagLang, request, attached, trace, preparedTrace.material)
 		printCLIRuntimeAnalysisKickoff(flagLang, attached, trace)
 	}
 	if flagLogSourcePrefix != "" {
@@ -1594,8 +1595,8 @@ func printAnswerSeparator() {
 	fmt.Fprintf(os.Stderr, "\n━━━\n\n")
 }
 
-func printCLIRuntimeArtifactStatus(lang, request, logBody, traceBody string) {
-	artifacts := cliRuntimeArtifacts(request, logBody, traceBody)
+func printCLIRuntimeArtifactStatus(lang, request, logBody, traceBody string, material ...*attachment.TraceMaterial) {
+	artifacts := cliRuntimeArtifacts(request, logBody, traceBody, material...)
 	if len(artifacts) == 0 {
 		return
 	}
@@ -1605,11 +1606,11 @@ func printCLIRuntimeArtifactStatus(lang, request, logBody, traceBody string) {
 	}
 }
 
-func cliRuntimeArtifacts(request, logBody, traceBody string) []outputdump.RuntimeArtifact {
+func cliRuntimeArtifacts(request, logBody, traceBody string, material ...*attachment.TraceMaterial) []outputdump.RuntimeArtifact {
 	return outputdump.MergeRuntimeArtifacts(
 		outputdump.RuntimeArtifactsFromRequest(request),
 		outputdump.RuntimeArtifactsFromAttachment("log", logBody),
-		outputdump.RuntimeArtifactsFromAttachment("trace", traceBody),
+		outputdump.RuntimeArtifactsFromAttachment("trace", traceBody, material...),
 	)
 }
 
@@ -1619,10 +1620,7 @@ func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeAr
 	}
 	counts := map[string]int{}
 	for _, artifact := range artifacts {
-		kind := strings.TrimSpace(artifact.Kind)
-		if kind == "" {
-			kind = "artifact"
-		}
+		kind := artifact.DisplayKind()
 		counts[kind]++
 	}
 	kinds := make([]string, 0, len(counts))
@@ -1639,10 +1637,10 @@ func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeAr
 	var lines []string
 	if zh {
 		lines = append(lines, fmt.Sprintf("[运行时附件] 共 %d 个：%s", len(artifacts), strings.Join(parts, ", ")))
-		lines = append(lines, fmt.Sprintf("[运行时附件] 主附件: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
+		lines = append(lines, fmt.Sprintf("[运行时附件] 主附件: %s %s", primary.DisplayKind(), firstNonEmptyCLI(primary.Source, "(unknown)")))
 	} else {
 		lines = append(lines, fmt.Sprintf("[runtime artifacts] total=%d kinds=%s", len(artifacts), strings.Join(parts, ", ")))
-		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", primary.DisplayKind(), firstNonEmptyCLI(primary.Source, "(unknown)")))
 	}
 	const maxRows = 8
 	for i, artifact := range artifacts {
@@ -1650,21 +1648,21 @@ func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeAr
 			lines = append(lines, fmt.Sprintf("[runtime artifacts] ... +%d more", len(artifacts)-maxRows))
 			break
 		}
-		detail := strings.TrimSpace(artifact.Detail)
+		detail := strings.TrimSpace(artifact.DisplayDetail(lang))
 		if detail != "" {
 			detail = " " + detail
 		}
 		if zh {
 			lines = append(lines, fmt.Sprintf("[运行时附件] - %s %s %s%s",
-				firstNonEmptyCLI(artifact.Kind, "artifact"),
+				artifact.DisplayKind(),
 				firstNonEmptyCLI(artifact.Source, "(unknown)"),
-				outputdump.HumanBytes(artifact.Bytes),
+				artifact.DisplaySize(lang),
 				detail))
 		} else {
 			lines = append(lines, fmt.Sprintf("[runtime artifacts] - %s %s %s%s",
-				firstNonEmptyCLI(artifact.Kind, "artifact"),
+				artifact.DisplayKind(),
 				firstNonEmptyCLI(artifact.Source, "(unknown)"),
-				outputdump.HumanBytes(artifact.Bytes),
+				artifact.DisplaySize(lang),
 				detail))
 		}
 	}

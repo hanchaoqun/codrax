@@ -15,6 +15,7 @@ import (
 // declaration order, field types and JSON tags remain in the older witnesses.
 func resultSchemaBeforePerfSamplingTree(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforePacketInventory(t, schema)
 	const added = "PerfSamplingTree|*tracequery.PerfSamplingTreeResult|perf_sampling_tree,omitempty"
 	var previous []string
 	count := 0
@@ -33,7 +34,9 @@ func resultSchemaBeforePerfSamplingTree(t *testing.T, schema string) string {
 
 func TestPerfSamplingTreeResultSchemaAddsOnlyOptionalTree(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.Result{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, schema := detailSchemaFingerprint(typ)
+	beforePackets := sha256.Sum256([]byte(resultSchemaBeforePacketInventory(t, schema)))
+	current := hex.EncodeToString(beforePackets[:])
 	const currentFullResult = "aefd0aaa1adde3b00685730bd355eb8f435e1b7d78d3ea416707a6bf542e0bd1"
 	if current != currentFullResult {
 		t.Fatalf("sampling-tree Result schema drift: got=%s want=%s\nschema=%s", current, currentFullResult, schema)
