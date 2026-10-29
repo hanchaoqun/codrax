@@ -10325,7 +10325,9 @@ type aggregateToolLine struct {
 
 func aggregateReadFileToolLinesFromResult(result types.ToolResult) []aggregateToolLine {
 	coverage := result.ReadCoverage
-	if coverage == nil {
+	if coverage == nil || coverage.LineStart <= 0 || coverage.LineEnd < coverage.LineStart {
+		// Raw artifacts may retain bytes beyond the visible preview. Only an
+		// actual positive read range can supply source-line member support.
 		return nil
 	}
 	path := strings.TrimSpace(strings.ReplaceAll(coverage.Path, `\`, `/`))
@@ -10341,13 +10343,7 @@ func aggregateReadFileToolLinesFromResult(result types.ToolResult) []aggregateTo
 		return nil
 	}
 	lineStart := coverage.LineStart
-	if lineStart <= 0 {
-		lineStart = 1
-	}
 	lineEnd := coverage.LineEnd
-	if lineEnd < lineStart {
-		lineEnd = lineStart
-	}
 	var out []aggregateToolLine
 	for _, line := range strings.Split(content, "\n") {
 		m := aggregateReadFileGutterPattern.FindStringSubmatch(line)

@@ -189,6 +189,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
 		return nil
 	}
+	original := doc
 	doc = diagramModelAuthoredRelationDocument(doc)
 	// Keep the first emit-time gate and the later orchestrator contract on one
 	// evidence provider. In particular, BusContext.EvidenceItems may contain
@@ -202,6 +203,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		pctx.ctx, doc, view, evidence,
 	)
 	if len(mismatches) == 0 {
+		bindNativeDiagramCoverage(original, pctx.ctx)
 		return nil
 	}
 	parts := make([]string, 0, len(mismatches))
@@ -249,6 +251,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
+	expected += " " + runtimeDiagramUnmappedParticipantTeaching(runtimeDiagramRelationsForContext(pctx.ctx), &pctx.ctx.AnalysisIR.RequestModel)
 	if candidates != "" {
 		expected += ". Existing typed candidate map (choose only the relevant candidate edges needed for the failed participant or its typed join frontier; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
 	}

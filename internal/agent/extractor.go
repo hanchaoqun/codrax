@@ -2695,7 +2695,7 @@ func extractorReadFileLineIndex(ctx *types.AgentContext) map[string]map[int]stri
 			continue
 		}
 		coverage := r.ReadCoverage
-		if coverage == nil {
+		if coverage == nil || coverage.LineStart <= 0 || coverage.LineEnd < coverage.LineStart {
 			continue
 		}
 		path := strings.TrimSpace(coverage.Path)
@@ -2719,14 +2719,9 @@ func extractorReadFileLineIndex(ctx *types.AgentContext) map[string]map[int]stri
 		if bodyStart < 0 || bodyStart >= len(content)-1 {
 			continue
 		}
-		lineStart := coverage.LineStart
-		if lineStart <= 0 {
-			lineStart = 1
-		}
-		lineEnd := coverage.LineEnd
-		if lineEnd < lineStart {
-			lineEnd = lineStart
-		}
+		// Raw artifacts can retain bytes omitted from the visible preview. Only
+		// exact positive producer coverage permits indexing those source lines.
+		lineStart, lineEnd := coverage.LineStart, coverage.LineEnd
 		for _, raw := range strings.Split(content[bodyStart+1:], "\n") {
 			line, text, ok := extractorParseGutterLine(raw)
 			if !ok {

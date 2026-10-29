@@ -4348,6 +4348,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				SurfaceRole:               b.SurfaceRole,
 				SystemGeneratedKind:       b.SystemGeneratedKind,
 				RequestedDimensionIndices: append([]int(nil), b.RequestedDimensionIndices...),
+				nativeDiagramCoverage:     cloneNativeDiagramCoverageReceipt(b.nativeDiagramCoverage),
 			}
 			if len(b.Columns) > 0 {
 				cloned.Columns = append([]string(nil), b.Columns...)

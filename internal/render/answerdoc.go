@@ -1352,9 +1352,22 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, lang answer
 		}
 	}
 	if len(blk.ParticipantBoundaries) > 0 {
+		unmapped, nativeRelations := blk.NativeDiagramCoverage()
+		unmappedSet := make(map[string]bool, len(unmapped))
+		for i, participant := range unmapped {
+			unmappedSet[participant] = true
+			unmapped[i] = "`" + participant + "`"
+		}
+		if len(unmapped) > 0 {
+			if lang == answerDocLangZH {
+				fmt.Fprintf(b, "**未证关系边界 · 业务身份对应尚未核实：** %s。该限制针对业务角色与记录中线程的对应，不否定本图已验证的 %d 条线程关系；不能仅凭显示标签推断角色对应或额外因果连接。\n\n", strings.Join(unmapped, "、"), nativeRelations)
+			} else {
+				fmt.Fprintf(b, "**Unproven relation boundaries · Business-role mapping remains unverified:** %s. This limits the mapping from requested roles to native threads, not the %d verified native relations in this diagram. Display labels cannot establish that mapping or additional causal links.\n\n", strings.Join(unmapped, ", "), nativeRelations)
+			}
+		}
 		participants := make([]string, 0, len(blk.ParticipantBoundaries))
 		for _, boundary := range blk.ParticipantBoundaries {
-			if boundary.Status != types.DiagramParticipantBoundaryUnproven || strings.TrimSpace(boundary.Participant) == "" {
+			if boundary.Status != types.DiagramParticipantBoundaryUnproven || strings.TrimSpace(boundary.Participant) == "" || unmappedSet[boundary.Participant] {
 				continue
 			}
 			participants = append(participants, "`"+strings.TrimSpace(boundary.Participant)+"`")

@@ -78,7 +78,9 @@ func TestHMC305PacketActualRenderPreservesOrderBudgetAndEpoch(t *testing.T) {
 	} {
 		found := false
 		for _, line := range full.lines {
-			if strings.HasPrefix(line, "- packet_inventory."+pair.path+":") && strings.Contains(line, "epoch_seconds="+pair.epoch) {
+			// A complete packet member now occupies one physical line; its
+			// exact timestamp path/value remains uniquely addressable within it.
+			if strings.Contains(line, "- packet_inventory."+pair.path+":") && strings.Contains(line, "epoch_seconds="+pair.epoch) {
 				found = true
 			}
 		}

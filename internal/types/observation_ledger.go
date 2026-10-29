@@ -713,7 +713,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		combined = append(combined, input.SystemTraceSupplementResults...)
 		toolResults = combined
 	}
-	compileToolResultObservations(toolResults, supplementFrom, input.RowSetWriter, add)
+	compileToolResultObservations(toolResults, supplementFrom, input.RepoRoot, input.RowSetWriter, add)
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
@@ -1922,7 +1922,7 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 // every record they mint is stamped SystemSupplement=true (structural
 // provenance — the callback wrapper is the single stamping point for the
 // typed, carrier, AND legacy summary-reparse lanes alike).
-func compileToolResultObservations(results []ToolResult, supplementFrom int, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
+func compileToolResultObservations(results []ToolResult, supplementFrom int, repoRoot string, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
 	typedSeen := map[string]bool{}
 	carrierSeen := map[string]bool{}
 	baseAdd := add
@@ -1945,7 +1945,7 @@ func compileToolResultObservations(results []ToolResult, supplementFrom int, row
 		// re-parse path until D1-F10g.113c removes it from answer-grade
 		// consumers.
 		typedCovered := compileProducerToolResultObservations(i, result, typedSeen, add)
-		carrierCovered := compileToolResultCarrierObservations(i, result, rowSetWriter, carrierSeen, add)
+		carrierCovered := compileToolResultCarrierObservationsForRepo(i, result, repoRoot, rowSetWriter, carrierSeen, add)
 		if typedCovered || carrierCovered {
 			continue
 		}
@@ -2050,6 +2050,10 @@ func compileProducerToolResultObservations(index int, result ToolResult, seen ma
 }
 
 func compileToolResultCarrierObservations(index int, result ToolResult, rowSetWriter ObservationRowSetWriter, seen map[string]bool, add func(ObservationRecord)) bool {
+	return compileToolResultCarrierObservationsForRepo(index, result, "", rowSetWriter, seen, add)
+}
+
+func compileToolResultCarrierObservationsForRepo(index int, result ToolResult, repoRoot string, rowSetWriter ObservationRowSetWriter, seen map[string]bool, add func(ObservationRecord)) bool {
 	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 	covered := false
 	if result.CommandMeasurement != nil {
@@ -2089,7 +2093,7 @@ func compileToolResultCarrierObservations(index int, result ToolResult, rowSetWr
 	}
 	if result.ReadCoverage != nil {
 		covered = true
-		if record, ok := observationRecordForReadCoverage(index, result, *result.ReadCoverage, observedAt); ok {
+		if record, ok := observationRecordForReadCoverage(index, result, *result.ReadCoverage, repoRoot, observedAt); ok {
 			if !seen[record.ID] {
 				seen[record.ID] = true
 				add(record)
@@ -2362,20 +2366,24 @@ func observationRecordForPathDiscovery(index int, result ToolResult, discovery T
 	return record, true
 }
 
-func observationRecordForReadCoverage(index int, result ToolResult, coverage ToolReadCoverage, observedAt string) (ObservationRecord, bool) {
+func observationRecordForReadCoverage(index int, result ToolResult, coverage ToolReadCoverage, repoRoot, observedAt string) (ObservationRecord, bool) {
 	path := strings.TrimSpace(coverage.Path)
 	if path == "" {
 		return ObservationRecord{}, false
 	}
 	lineStart := coverage.LineStart
 	lineEnd := coverage.LineEnd
-	if lineStart <= 0 {
-		lineStart = 1
-	}
-	if lineEnd < lineStart {
-		lineEnd = lineStart
-	}
 	lineCount := lineEnd - lineStart + 1
+	evidenceScope := ScopeLineRange
+	if ReadFileHasKnownEmptyLines(result, repoRoot) {
+		// A complete empty-file receipt proves file coverage, not a line 1.
+		lineCount = 0
+		evidenceScope = ScopeFile
+	} else if lineStart <= 0 || lineEnd < lineStart {
+		// Readable bytes and an addressable raw artifact do not prove that any
+		// source line reached the caller's visible preview.
+		return ObservationRecord{}, false
+	}
 	rawRef := firstNonEmptyString(coverage.RawRef, result.RawRef)
 	role := AnswerAggregateRoleSupportingCoverage
 	record := ObservationRecord{
@@ -2397,7 +2405,7 @@ func observationRecordForReadCoverage(index int, result ToolResult, coverage Too
 		},
 		EvidenceKind:    EvidenceDirect,
 		AnchorKind:      AnchorTextReference,
-		EvidenceScope:   ScopeLineRange,
+		EvidenceScope:   evidenceScope,
 		GroundingStatus: GroundingRecovered,
 		ClaimKey:        "read_coverage:" + path,
 		Subject:         path,

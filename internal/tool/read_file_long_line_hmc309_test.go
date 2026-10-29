@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestReadFileLongLineHMC309Public(t *testing.T) {
@@ -19,10 +21,11 @@ func TestReadFileLongLineHMC309Public(t *testing.T) {
 				content := prefix + `{"value":"` + strings.Repeat("宽", MaxInlineBytes) + `","tail":42}` + "\n"
 				ctx := physicalReadFixture(t, path, content)
 				out := physicalRead(t, ctx, path, offset, 1)
-				if out.Success || out.Repair == nil || out.Repair.Code != "read_file_physical_line_exceeds_byte_budget" {
-					t.Fatalf("display budget failure must remain distinct from a missing or empty file: %+v", out)
+				if !out.Success || out.Repair == nil || out.Repair.Code != "read_file_physical_line_exceeds_byte_budget" {
+					t.Fatalf("successful byte read with incomplete display must remain distinct from a missing or empty file: %+v", out)
 				}
-				if out.ReadCoverage != nil || len(out.Observations) != 0 {
+				reads, ranges, totals := types.ExtractReadCoverage([]types.ToolResult{out}, ctx.RepoRoot)
+				if len(reads)+len(ranges)+len(totals) != 0 || len(out.Observations) != 0 || (out.ReadCoverage != nil && (out.ReadCoverage.LineStart != 0 || out.ReadCoverage.LineEnd != 0)) {
 					t.Fatalf("non-visible physical line acquired source coverage: %+v", out)
 				}
 				if out.EnumerationAuthority == nil || out.EnumerationAuthority.Status != "incomplete" || len(out.EnumerationAuthority.Boundaries) != 1 || out.EnumerationAuthority.Boundaries[0].Emitted != 0 || out.EnumerationAuthority.Boundaries[0].Total != offset+1 {
@@ -50,7 +53,7 @@ func TestReadFileLongLineNoPersistedArtifactHMC309Public(t *testing.T) {
 	ctx := physicalReadFixture(t, "source.go", strings.Repeat("x", MaxInlineBytes*2))
 	ctx.WorkDir = ""
 	out := physicalRead(t, ctx, "source.go", 0, 1)
-	if out.Success || out.RawRef != "" || !strings.Contains(out.Summary, "could not be persisted") || strings.Contains(out.Summary, "retains the selected bytes") {
+	if !out.Success || out.RawRef != "" || !strings.Contains(out.Summary, "could not be persisted") || strings.Contains(out.Summary, "retains the selected bytes") {
 		t.Fatalf("missing artifact was reported as retained: %+v", out)
 	}
 }
@@ -68,7 +71,7 @@ func TestReadFileLongLineHeldTraceIdentityHMC309Public(t *testing.T) {
 	}
 	ctx.Mutable.AppendDispatchToolResult(query)
 	out := physicalRead(t, ctx, path, 1, 1)
-	if out.Success || out.ReadCoverage != nil || len(out.Observations) != 0 || out.RuntimeArtifactRead == nil || out.RuntimeArtifactRead.Kind != "trace" || out.RuntimeArtifactRead.LineStart != 0 || out.RuntimeArtifactRead.LineEnd != 0 || out.RuntimeArtifactRead.TotalLines != 4 {
+	if !out.Success || out.ReadCoverage != nil || len(out.Observations) != 0 || out.RuntimeArtifactRead == nil || out.RuntimeArtifactRead.Kind != "trace" || out.RuntimeArtifactRead.LineStart != 0 || out.RuntimeArtifactRead.LineEnd != 0 || out.RuntimeArtifactRead.TotalLines != 4 {
 		t.Fatalf("display failure lost original trace identity or acquired unseen rows: %+v", out)
 	}
 }
@@ -113,7 +116,7 @@ func TestReadFileLongLineDoesNotBlockOtherLinesHMC309Public(t *testing.T) {
 		t.Fatalf("complete leading row or exact continuation lost: %+v", first)
 	}
 	oversized := physicalRead(t, ctx, "source.go", 1, 1)
-	if oversized.Success || oversized.ReadCoverage != nil || oversized.Refinement != nil {
+	if !oversized.Success || oversized.ReadCoverage == nil || oversized.ReadCoverage.LineStart != 0 || oversized.ReadCoverage.LineEnd != 0 || oversized.ReadCoverage.TotalLines != 3 || oversized.Refinement != nil {
 		t.Fatalf("oversized row was skipped or certified: %+v", oversized)
 	}
 	last := physicalRead(t, ctx, "source.go", 2, 1)

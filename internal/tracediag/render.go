@@ -175,17 +175,27 @@ func stepParamsEcho(step *Step) string {
 }
 
 func writeStatusSummary(rw *reportWriter, statuses []StepStatus) {
+	writeStatusSummaryWithDetails(rw, statuses, nil)
+}
+
+// Optional display accounting shares the existing bounded per-step status
+// line. It adds no lines outside the validated v2 report budget.
+func writeStatusSummaryWithDetails(rw *reportWriter, statuses []StepStatus, details []string) {
 	rw.summaryLine("")
 	rw.summaryLine(strings.Repeat("=", 80))
 	rw.summaryLine("[步骤状态摘要]")
 	failed := 0
 	for i, st := range statuses {
+		detail := ""
+		if i < len(details) && details[i] != "" {
+			detail = "; 展示范围: " + details[i]
+		}
 		if st.Err != nil {
 			failed++
-			rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=失败: %s", i+1, st.Label, st.View, clampToken(st.Err.Error())))
+			rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=失败: %s%s", i+1, st.Label, st.View, clampToken(st.Err.Error()), detail))
 			continue
 		}
-		rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=成功 输出行=%d/%d", i+1, st.Label, st.View, st.BodyShown, st.BodyTotal))
+		rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=成功 输出行=%d/%d%s", i+1, st.Label, st.View, st.BodyShown, st.BodyTotal, detail))
 	}
 	if rw.suppressed > 0 {
 		rw.summaryLine(fmt.Sprintf("- 总行帽截断: %d 行未输出(总帽=%d)", rw.suppressed, rw.totalCap))
@@ -202,6 +212,7 @@ type stepBody struct {
 	lines       []string // at most the per-step cap
 	total       int      // lines the step would have produced without the cap
 	eventSearch *eventSearchReportAccounting
+	packet      *packetReportAccounting
 }
 
 // eventSearchReportAccounting records the rows the REPORT actually exposes,
@@ -244,6 +255,10 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 	defer func() { sourcePathAmbiguousBases = nil }()
 	if step.View == "event_search" {
 		return renderEventSearchBody(step, res)
+	}
+	if (res.View == tracequery.ViewPacketInventory && res.PacketInventory != nil) ||
+		(res.View == tracequery.ViewPacketFlows && res.PacketFlows != nil) {
+		return renderPacketStepBody(step, res)
 	}
 	var meta []string
 	renderResultMeta(res, func(line string) { meta = append(meta, line) })

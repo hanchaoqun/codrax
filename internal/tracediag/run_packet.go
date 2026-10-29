@@ -104,6 +104,7 @@ func runPacketScript(ctx context.Context, opts Options, w io.Writer, script *Scr
 	rw.line(fmt.Sprintf("script=%s version=%d steps=%d execution=streaming_packet", filepath.Base(opts.ScriptPath), script.Version, len(script.Steps)))
 	rw.line("说明: 原件只读;时间为 PCAP 原生 epoch 秒,不对齐 Trace 时钟;帧长不是应用载荷。全部记录聚合与最多 64 个可见记录/流分开;max_lines 仅限制展示。")
 	statuses := make([]StepStatus, 0, len(script.Steps))
+	packetDisplays := make([]string, len(script.Steps))
 	for i := range script.Steps {
 		if err := validate(); err != nil {
 			return 0, err
@@ -124,9 +125,16 @@ func runPacketScript(ctx context.Context, opts Options, w io.Writer, script *Scr
 				return 0, err
 			}
 			body := renderStepBody(step, stepOutcome{result: &query.Payload})
-			status.BodyTotal, status.BodyShown = body.total, len(body.lines)
+			status.BodyTotal = body.total
 			for _, line := range body.lines {
+				before := rw.emitted
 				rw.line(line)
+				if rw.emitted > before {
+					status.BodyShown++
+				}
+			}
+			if body.packet != nil {
+				packetDisplays[i] = body.packet.summary(status.BodyShown)
 			}
 			if body.total > len(body.lines) {
 				rw.line(fmt.Sprintf("…共 %d 行,按帽截断至 %d,余 %d 行未列", body.total, len(body.lines), body.total-len(body.lines)))
@@ -142,7 +150,7 @@ func runPacketScript(ctx context.Context, opts Options, w io.Writer, script *Scr
 		}
 		statuses = append(statuses, status)
 	}
-	writeStatusSummary(rw, statuses)
+	writeStatusSummaryWithDetails(rw, statuses, packetDisplays)
 	if err := rw.flushErr(); err != nil {
 		return 0, err
 	}

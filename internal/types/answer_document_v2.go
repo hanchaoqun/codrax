@@ -404,6 +404,10 @@ type AnswerBlock struct {
 	// require exact agreement with analyzer participant obligations.
 	ParticipantBoundaries []DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
 
+	// The emitter may distinguish missing business identity from proved native
+	// arrows for display only. This receipt is never model-authored or serialized.
+	nativeDiagramCoverage *nativeDiagramCoverageReceipt
+
 	// RequestedRelationScope is a model-authored whole-diagram disclosure. It
 	// complements ParticipantBoundaries for the distinct case where each named
 	// participant may have a valid local incident relation, but the typed

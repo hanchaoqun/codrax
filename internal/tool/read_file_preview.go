@@ -29,9 +29,15 @@ func readFileOversizedLineResult(ctx *types.BusContext, requestedPath, fsPath, r
 	} else {
 		hint += " The selected bytes could not be persisted as a raw artifact; the original file remains the source."
 	}
+	// Reading bytes succeeded. The zero range retains source identity without
+	// certifying any visible line, unlike a complete, known-empty enumeration.
+	var coverage *types.ToolReadCoverage
+	if sourcePath := readFileTypedSourcePath(ctx, requestedPath, fsPath); sourcePath != "" {
+		coverage = &types.ToolReadCoverage{Path: sourcePath, TotalLines: total, RawRef: strings.TrimSpace(ref)}
+	}
 	return types.ToolResult{
 		ToolName: "read_file",
-		Success:  false,
+		Success:  true,
 		Summary:  fmt.Sprintf("[%s: no complete lines displayed; physical line %d exceeds the inline byte budget; %d total lines]\n%s", requestedPath, line, total, hint),
 		RawRef:   ref,
 		Repair: &types.ToolRepair{
@@ -46,6 +52,7 @@ func readFileOversizedLineResult(ctx *types.BusContext, requestedPath, fsPath, r
 			}},
 		},
 		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, requestedPath, fsPath, ref, 0, 0, total),
+		ReadCoverage:        coverage,
 		Timestamp:           time.Now(),
 	}
 }
