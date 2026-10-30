@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-29，§313复核）：79个稳定子任务中26项实现交付、53项开放，18类仍有开放项；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。§313新增完整能力0、候选分支有界子能力2组，未改旧断言的量测域隔离回归和唯一全仓通过；完整人工0/2，剩余3产品原因组＋1评测精度组仍归原ID，不销父项或进main。下文初始映射和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
+当前实施状态（2026-10-30 UTC，§318复核）：79个稳定子任务中26项实现交付、53项开放，18类仍有开放项；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。现持续main，§318完整能力新增0、有界子能力1组，窗口化每源覆盖公开回归、相邻/race及唯一全仓通过。机器2/2，A统计限定PASS但成文有欠项、B完整FAIL；3组成文欠项及新Windowed自然未触发分别留账，04.2不销。下文初始映射、候选分支和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
 
 ## 1. 范围、证据与结论口径
 
@@ -11201,3 +11201,47 @@ B实际成文INIT显示2/8解释单元index0/2；current_exact_rows仅验证表�
 旧18档5607件、394来源快照身份逐字节保真，18历史污染为其子集，未恢复归档源码到仓库。本批290件按来源＋SHA封存，含两组原RED、真实输入、INIT、调用原件、完整payload、原最终MD/HTML源码和独立审计；非法UTF8保原字节，HTML不冒像素QA，凭据不读/哈希/复制。索引SHA51c758ace53b34d17b1cbef431d3abd663d4520a05a7216d8985a05a1ff92f24。
 
 实现提交221fa35b4f368e891c2fc2a0885318b598fe0d40与5份文档紧邻分笔main普通推送；后置同代源/远端/清洁/封存验证见[批汇总](../../eval/parallel_selected_summary_hmc_tail_io_inflight_20261029.md)、[人工审计](../../eval/parallel_selected_summary_hmc_tail_io_inflight_20261029_manual_audit.md)及publication收据。closure=none、79/26/53不变；发布完整性不倒签失败和未触发分支。
+
+## 318. 窗口化每源覆盖与业务树有限验收（2026-10-30 UTC，main）
+
+### 318.1 核账、双轨与参考设计
+
+基线10237c5c45cbcdcc6505f6139f99f5206d4bea5b。根与独立代理核79唯一＝26交付＋53开放，18类；18部分／29待实施／3待验收／2验收中／1持续。**完整能力新增0；有界产品子能力1组；本批成文剩余3组，另有Windowed自然覆盖未触发。** 不把子缺陷组当新稳定任务。缺陷轨接§317窗口化物理覆盖，能力轨轮换04.2原业务树合同。
+
+主代理实际阅读参考thread_sched_ops.py:130–335：171取trace_range，206以真实trace_end收未结束状态，再在308–317求frame窗交集；marker_ops.py:421–478按parent_id树、517–540算self、547–680按同线程状态求交集。采用“来源范围先于查询裁切、实例身份先于关系解释”，不照搬参考直接子时长相加或空调度返回零。本项目保子区间并集和缺测未知。参考源码及其根/core/preprocess AGENTS、GOLDEN_RULES、architecture共7件只读冻结，未执行参考服务器或改其文件。
+
+### 318.2 公开复现与有界修复
+
+公开2顶层RED保留：Windowed冷扫、完整导出、精确cache和anchor路径的真EOF仍把worker睡眠算40.5/total51，应为36.5/47；另一有晚事件1.055的源被timeline误用局部1.051截短。随后独立检查发现typed注释载体被当普通注释，混合时间域错误授EOF资格，另留1顶层/3叶RED。
+
+新增私有按值source-event coverage，置于已有每源账本与锚缓存；记录路径/完整代次、完整扫描、hasEvent及maxEventTs。只有parseSingleTraceFile从字节0完整扫描、取消检查、held file与当前路径同代核验后发布。通用流observer不采新证明，旧前缀cache/排序证明不升EOF；合法零时间不等于无事件。严格物理ftrace头才能贡献边界，注释/残缺头不延长；带未知时间域typed carrier或非法CPU/TID头降未知。多源、affine/mixed时钟不以合并max或子源复制证明代签。
+
+来源证明不授当前查询完整、真实关闭、业务根因或因果边。保全局Size/顺序与旧无ledger完整索引兼容，取消/预算/行范围各自守界；O(1)尾行只有真实完整扫描资格才可补证明，不补查询覆盖。timeline撤掉局部LastTs二次覆盖，churn/CPUStats/root-gap共用边界；原4候选、31闭合睡眠/35请求驻留、合法2ms及47背景未变。
+
+首次边界测试编译和夹具前提失误（RunContext、空文件原有拒绝、未给padding）原件保留；只修新测试，不改旧门。protections-v1暴露旧Size/顺序资格被绕过，终版恢复；v2原分配上限55测得57.69失败。复用原lineScan严格submatch及leading-prefix解析，保UTF8/控制符/精确分隔规则；终版54.69，不抬阈值或松原断言。最终protections-v3为92顶层/172子例、race-v1为90/300、downstream-v2为239/351，全部PASS/无跳过。新测试9顶层，公开入口和私有运输边界分别覆盖。
+
+### 318.3 冻结与两例真实执行
+
+唯一标准CLI构建exit0，SHA5ae6cee9726cda4c4e36be328675772f364774ac2cb822910089949e8a2a141a。冻结7518仓库/206外部/18仓外快照，SHAe30ed9abe0cd75dfd296a3dad80184d8a35b48a5420d75d72992d4369c98f2a7；之后源码、测试、注释、helper及模型输入停写。唯一全仓pid65426，04:43:15.404622Z至04:54:31.120848Z正式exit0、前后输入一致：98包PASS/12无测试、28569顶层/33909子例PASS、原43顶层/14子例SKIP、零FAIL/非JSON/重复终态/未终态。日志SHA2b6bc3b4773a9ee34f5c35cf52080425b42936fff8e98c30ced02c93d43f5734。
+
+A新自然两窗统计题，B原业务树专家约束题，原B QUESTION/EXPECT不动；各15步/n1，仅两例。均为既有authored导出文本，不能冒新设备实采或新二进制格式；oracle单独操作员保存，不注入模型题面。A shell65427于04:45:35.780926Z、B65428于04:46:09.081769Z真实exit0，机器PASS。请求配对各4唯一对，另A7请求/6响应、B11/10各1未闭合日志歧义组；不从日志欠响应推已终态进程仍活跃、不猜相邻配对。最大可证请求交集18.820秒，非启动barrier推定。
+
+### 318.4 人工审计与已证共享接缝
+
+A实际8次trace_query全成功，四target/window组合各两次，4个去重payload；一次完整答案受理、无patch/恢复。两窗四账为main宽7/1/44、worker宽9.5/1/36.5，窄4/1/15及4.49/1/14.51；宽52/47已覆盖、13/18未知，窄两侧20完整。31ms闭合段与5.5ms开放尾分开，窄窗对应10.01/4.5ms；正文/表格都正确。实际INIT原生16/16行到场，解释2/6且明确省略。统计原题限定PASS，但MD102误以分母不同禁止时长差；同源同线程running7−4=3ms是合法已观测子集差，仍不补未知尾。整答不签无欠项，归16.4/18.2。
+
+A、B实际build/run均windowed=false，不能用选了时间窗或表正确代签新增Windowed路径；自然覆盖NOT_TRIGGERED。公开冷/暖/代次/预算等回归独立存在。A多目标未执行自动补采不代表请求未执行；B确有补采，保其原生能力。
+
+B实际8次模型trace_query成功＋1次确定性window_stats补采，7个去重payload；2次完整提交拒绝后1次boundary patch受理。原04.2数值、所有self分段、Async在700、同名后台900与缺调度未知均正确，原生2条contain图亦保留；但MD49称父层自身状态与子层状态重叠，直接违背原去重合同。合法self5+4+1=10、self运行5+3.5+1=9.5能反证，非要求模型额外做加法。完整FAIL，不关闭04.2。
+
+实际INIT03:547的unit1已带“层间不可相加”含混推论，状态为no_native_row_address；正确self原生分段同时到场，受理不验证解释。另两处系统提示确已投递：runtime_relations.go:313的Do not sum parent and child durations，以及trace_query_business_measurement.go:68的“不能跨嵌套业务相加”（该表其实是inclusive）。它们缺适用域，但不能仅凭措辞相似宣称直接生成了self错误句；不归纯模型波动，也不做全文硬门。
+
+B还有可证系统身份桥缺口：正确2条contain边仍被要求3×missing_unproven_boundary，模型仅补边界后受理；answerdoc.go:1377确定性生成“用户所请求有向关系未证明”。实际分析未请求额外frame因果或runtime_work关系，原题要的正是同步包含。requested_runtime_participant.go仅接threadEndpoints，业务provider已有实例但未桥到请求业务主体；coverage与renderer把身份映射不足笼统写成关系缺证。归12.5/16.4/18.2，保已证包含，不按名字相似度认领后台实例或放宽因果边。
+
+### 318.5 留账、ROI与main交付
+
+本批3组成文问题为A合法差值限制、Bself解释/摘要冲突、业务图主体桥/边界冲突；新Windowed自然覆盖另欠，旧IO/采样/权限/代表选择/扩大race及共享标题端点均继续原ID。多源/mixed源末证明保持unknown，不能冒全域能力已交付。下一优先共享业务实例绑定与inclusive/self量尺交接，再受信查询端点到统一标题；完整能力槽轮换只读登记负控、代表规格，不无限重复充分事实下的同一误述。二进制17.6按新增真实格式/工具/宿主材料推进，WAL零副作用前生产NO-GO。
+
+旧19档5897件、410来源快照身份逐字节保真，18历史污染为子集；当前388件按canonical source+SHA封存，索引SHA8204f84fee94124a06d18e9895f48ec41496fed2e577dcd402f58e5af75b3f92。两组RED、全部中间失败/输入、实际INIT/提交/payload/最终表面、独立A/B审计保留。非法UTF8不清洗，HTML仅源审不冒像素；凭据不读/哈希/复制。仓外快照不回流为仓内可编译源码。
+
+实现cc974a5d7dad19413febb2a277ea36c38ced881d，紧邻5文档分笔main普通推送；closure=none，79/26/53不变。后置提交/冻结字节/远端/清洁与留存收据见[批汇总](../../eval/parallel_selected_summary_hmc_windowed_business_tree_20261029.md)、[人工审计](../../eval/parallel_selected_summary_hmc_windowed_business_tree_20261029_manual_audit.md)及本批publication，不以发布成功改签模型FAIL或未覆盖。
