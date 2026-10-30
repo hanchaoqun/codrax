@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-30 UTC，§320复核）：79个稳定子任务中27项实现交付、52项开放，18类仍有开放项；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。持续main，完整能力新增1（04.2原有限合同）、有界共享子能力2组（查询发布量尺、已展示同实例字段补全），公开正反/race与唯一全仓通过。A原有限完整人工PASS并保非阻断欠项；B原代表选择结构实际FAIL、人工FAIL，不能以两进程exit0冒机器2/2。仅04.2销账，本批4组剩余问题及旧未触发保留；新增Donghu两例NOT_RUN。下文初始映射、候选分支和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签旧模型答案验收。
+当前实施状态（2026-10-30 UTC，§322复核）：79个唯一稳定任务＝27实现交付＋52开放，18类仍有开放项；最新排序与计数见[实施清单](hmosperf_implementation_tasks_20260917.md)。§321双人工及全仓失败封存、未单独发布；§322修复可选Notes删减导致原生端点丢失的回归，统一共享有界算术教学，唯一全仓通过。完整能力本批新增0、已交付共享子能力2组；A采样完整人工FAIL、B只读登记负控限定PASS，closure=none。重点剩余9组问题与旧未触发继续留账，105版Donghu元宝已真实运行、100版抖音仍NOT_RUN。持续main；历史段落保留当时代次，不以当前修复倒签旧FAIL，也不把交付、整答验收和领域完整性混算。
 
 ## 1. 范围、证据与结论口径
 
@@ -11329,3 +11329,49 @@ B自然选择view=window_stats，原期望resource_stack的cluster/member结构�
 新两例均NOT_RUN，没有占用第三个模型额度；它们是实际设备ftrace文本，不是二进制入口成功凭证。下一ROI：①共享合计规则适用域和受信端点到正文表图；②轮换两真实Donghu例及18.5登记负控，保持各批双例；③11.2自然规格→选择/执行/未选名册原合同，别用补查成功倒签；④17.6只在真实格式/工具材料具备时扩验。旧IO/采样/权限、Windowed未触发、扩大race及登记反馈仍挂原ID。WAL零副作用前不接生产。
 
 本批剩余4组：代表规格失败、共享求和教学冲突、窗口/端点及重复展示、自由解释适用域/措辞；不以警告新增能力退出门。旧21档6728件/450来源快照身份按字节保留，18历史污染为子集。实现与5文档紧邻分笔main普通推送，closure仅HMC-04.2；精确提交及本批封存索引见[批汇总](../../eval/parallel_selected_summary_hmc_business_representative_20261030.md)、[人工审计](../../eval/parallel_selected_summary_hmc_business_representative_20261030_manual_audit.md)和publication。凭据不读取/哈希/复制，失败及未触发不改签，仓外Go快照不回流可编译源码。
+
+## 321. IO与真实Donghu启动实例：失败代次封存，未单独发布
+
+基线main d14d2c24fb343e685c282f3e70da982e14c431cc，79＝27交付＋52开放不变。双轨为08.3原IO完整合同与共享量尺/教学、真实04.3实例取数。先读参考io_ops、io_latency与marker_ops，保原配对sweep/全窗分母、直接子并集和未知，不移植桶计数作硬件深度或关键词归并作硬门。三处系统算术限定合法互斥和同量尺差，四类原生区间producer传真实端点到来源标题。
+
+冻结7529仓库/185外部/23快照后停写，CLI一次。唯一full实际exit1：97包PASS/1FAIL/12无测试；28592顶层PASS/2FAIL/43SKIP、33984子例PASS/3FAIL/14SKIP，零非JSON/重复或未终态。旧ShortProviderNotes三子例合法删说明却失端点是实际新回归；HMC283已证原生半开窗仍要求unknown是过时文字pin，原数值未坏。二者不能混称模型波动。本代11项未提交改动保留失败快照，后继§322修复最终版再发布，不冻后修改本代或重跑full。
+
+恰好两例各一次，实际请求11/59完整配对、最大可证重叠22.855秒。两进程exit0、原smoke PASS，完整人工均FAIL。A四组统计和九张原生半开表正确、成员自动补齐；正文无积压/正常性越权、4–6ms完整驻留混窗内2ms、6次发起与含carry-in的4配对误作子集、旧selector又禁合法小计。错误数组JSON patch未staged而后停机，保原失败。
+
+B实际读取用户提供的105版元宝63,659,046B原件（SHA be59c0648ac7e1d8a2d117f5dc36efa0c92b5f3686671719ada435c16713a20c），独立整数微秒标尺不送模型。两个activityStart inclusive59.695/111.487、自身6.770/3.938，主子阶段与header46571/payload2227身份原生正确。完整self3.938未进三份INIT，窄窗self0配完整111.487；12条IO总量1.350ms被配前6条0.710ms的预览范围；0.006ms D的IO未知被共用标签写非IO，另12条真实iowait/caller仍保留。两张同源836行表重复、132.869ms间隙/caller/睡眠比例解释继续留账。不能把已取数称完整交付或回退04.2旧有限合同。
+
+528件封存/index SHA bc54772053efb86af5024269041959f7af35f189b0f3094a9079b84de0877dc9，完整能力新增0、04.3/08.3不销账；图未触发，不新增图门。100版抖音case仍NOT_RUN，真实ftrace不当二进制验收。[失败批汇总](../../eval/parallel_selected_summary_hmc_io_donghu_measurement_20261030.md)、[人工审计](../../eval/parallel_selected_summary_hmc_io_donghu_measurement_20261030_manual_audit.md)和原始失败保持独立；无本代publication。
+
+## 322. 删除式端点兼容、共享算术及sample-only/只读登记轮换
+
+### 322.1 核账、参考设计与最终修复
+
+同基线main d14d2c24，最终实现ab5834066d310208474e16e0c913f9b9c491a680。独立核账79唯一＝27＋52，18部分/29待实施/3待验收/1验收中/1持续；18类开放数2/1/1/4/2/2/4/6/3/2/1/5/3/5/3/2/2/4。完整能力新增0、已交付有界共享子能力2组；无稳定ID关闭。
+
+参考io_ops的summary_only只改展示、不改已算聚合；io_latency的read/write/total合法分区COUNT/SUM不等于RQ/BIO物理对应。由此区分可选呈现删减与量测身份，以及合法运算与关系权限；不复制省略空桶后的分母。marker_ops保存实例/parent/children，保本项目子并集、未知与Async独立；extract_trace_notes的关键词归并不作原文硬门。
+
+原生端点凭证保3字段外形，已知端点lane的projection用不可变字符串封存原strict projection、核心与逐表原Notes。当前Notes只能是原表保序子序列，重复数不增加；源/查询/窗/单位/主体/行列等全保。native finalize用原Notes校验原projection后仅做既有来源装饰，生成新凭证不改旧共享指针；消费者不得修签。raw旧路径、旧表显示seal及JSON/legacy未知不放宽。HMC283只精确更新有证半开标题，原事实断言保留。
+
+三处Tier B与原生selector统一有限算术资格，保各操作数原始范围和单位；互斥self/同状态小计与嵌套同量尺差可用，未知不补零、非穷尽不称全部。重叠inclusive、跨线程墙钟、重叠请求层及根因rank不相加；计算不授物理、执行、完成或因果。旧绝对禁止教学文字pin按有意合同演进更新，不删真实数值或因果断言。实际finalizer双类型公开RED→green，无问答关键词门。
+
+### 322.2 验证、冻结与双例实际终态
+
+最终端点公开6顶层/29子例、相邻23/126、race8/44、算术相关20/10、因果保护64/293均通过且零跳过。真正RED、首green新测试[]/nil期望与诊断失败保留，按旧Clone合同调整新夹具表示，不改生产Clone或原断言。CLI/testbin各一次、同源码清单；冻结7531仓库/234外部/27仓外快照（SHA7617104d50fa1ef7c4e24c6e63745b35a0f0dcc4f0d3fc3ced2012293c83eaa1）后源/测试/注释/helper/输入停写。
+
+唯一full exit0，98包PASS/12无测试，28599顶层/34015子例PASS，原43/14 SKIP，零FAIL/非JSON/重复或未终态；日志SHA7503c97606296c5a5efe397c4a8eca31f91a754d4b2da5fd757bd0516f39421c，后置输入校验通过。原4候选、31/35/2/47合同、Trace投影与自动补齐保留。
+
+两例各一次，A9/B2实际请求完整配对，零歧义，最大可证重叠0.074秒；不以进程重叠代称模型并行。A原sample-only完整PERFILE2原件30,062,585B、15步/n1；B原HMC287缺来源终态负控，真实planner＋脚本恢复controller＋真实public RunTests，不冒自然controller/fullCLI。机器均PASS、A完整人工FAIL、B限定负控PASS。
+
+A原生9份payload＝7次显式成功＋2系统补采；2次查询及1次shell拒绝保留，不计成功。tid1609/tgid1514，164条/259权重、CPU0回调82/85、CPU1内核82/174、完整包络与独立82/20预览正确。3份INIT已有unknown/执行状态未确立，正文仍肯定在CPU运行；末尾限定不抵消。未发现完整错误调查reason重传或裁剪丢关键事实，122725峰值/一次历史裁剪不新立失败门；这是充分给证后的旧解释欠项，不无限阻塞高ROI任务。两次同cohort质量展示冗余另记预算观察，未错误相加。
+
+B两轮planner完整读取当前源码/测试、一次空改动精确登记；独立父7246/子7364重新执行，本轮1断言/1通过/1native invocation/2命令不混历史。授权撤销、源码/测试/HEAD不变；source无verify/Completion、proof verified，整体unverified/missing_terminal_verify_verdict。父子实际.final.json同字节SHAaf8f56836f5d7a34e0dfe3d41c8c6d8588e9671c480debf1053debd1f99d44c2，精确引用内容寻址c4fd5f83…report，不是兼容alias。workflow后来新增context-pack引用不改变执行身份，不冒全部耐久或Markdown覆盖。
+
+### 322.3 未销账缺口、ROI与发布
+
+重点9组问题，不是新增9稳定ID或全历史穷举：①完整/窄窗业务账户；②等待总体/预览包络；③IO unknown/false分类；④同源重复/跨块预算；⑤采样执行状态解释；⑥IO物理解释/驻留量尺/集合；⑦业务等待/caller/比例解释；⑧错误JSON修补与已有答案终态；⑨代表选择自然规格。旧321算术解释FAIL不改签，共享教学已修，其自然复验另排。新Notes删除复发布、模型图/局部patch未触发，旧权限/Windowed/扩大race/登记反馈欠项不消失。
+
+后继先共享系统缺口：真实元宝完整self3.938不是ID碰撞或源值丢失，而被16条前缀及实际128行展示预算挤出；整表不完整门正确阻止伪完整补全，不能松门或简单加常数。应原子交接来源/查询/实例/窗/完整账户并做多查询公平预算，再统一区分全集与预览包络、D原状态/IO已知真/已知假/未知。保窄窗合法量测、闭合睡眠、既有IO与链上根因，不删查询、不复制候选。完整能力轨轮换11.2，17.6仅真实新材料具备时扩验，18.5持续轮换。
+
+[完整52项ROI核账](../../eval/results/hmc_endpoint_sample_registration_20261030_v1/sealed-v1/0218-codrax-hmc322-census-roi-v1.md)分层8+4+9+3+17+10+1，当前清单同步全ID排序，原状态不动。实际105版Donghu已使用，100版仍NOT_RUN，WAL零副作用前生产NO-GO。426件新封存/index SHA25e9d3323465d04695e4ff61e33c211f2205d7c71445d52eaf4ea7daea00670a；旧23档7703件/493来源快照身份保真，18历史污染为子集。原件/同字节全文只引用，派生材料不按大小删；仓外Go快照不回流可编译树，凭据不读/哈希/复制，HTML只源审。
+
+最终实现与7份批次文档紧邻分笔main普通提交推送，closure=none；[批汇总](../../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030_manual_audit.md)及后置publication分别记录提交、远端和验收范围，不把原件本地封存冒Git上传。

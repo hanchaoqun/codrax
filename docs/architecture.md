@@ -1686,6 +1686,16 @@ HMC §320把上述两个共享交接缺口分开修复：业务树上下文计�
 
 新增Donghu真实材料清单只登记外部原件的SHA/物理行/闭合marker区间与两个未来用例，不复制大文件、不冒充已运行验收。header发射TID/TGID与marker payload PID分列：同步实例和调度状态归属使用物理来源及header owner，完整span另存SpanPID；不由两者不同猜宿主/容器映射，也不把marker自身墙钟代签CPU时间。详见[材料清单](../eval/fixtures/donghu_real_trace_manifest.json)。
 
+HMC §321–322补齐原生量测的查询端点与共享教学。端点由业务区间、IO在途、线程时序和CPU频率时序的native producer在真实查询范围与完整表校验后签发；不读用户问句、自由notes、标题或成员首末值猜端点。它只服务来源窗口展示，不扩大raw谓词allowlist、根因席位或关系权限；旧无凭证、JSON恢复和其它producer保持端点未知，不能把window_stats事件计数的含右端合同一概改成半开。
+
+§321最初把端点绑在整记录摘要，唯一全仓发现合法缩短可选表说明会误丢端点；本代原件已封存且未单独发布。§322将已知端点的私有projection存为不可变字符串，含原strict projection、非Notes核心摘要和逐表原Notes基线。只允许原说明的保序子序列（重复次数也受限），包括非前缀删除和空集；新增/替换/逆序/跨表、行列/单位/主体/源/查询/窗等变更仍失效。native finalize以原Notes还原原strict projection验证，再按原允许的来源装饰生成新witness，不改共享旧指针；消费者不能修复或重签。旧raw无端点路径仍严格绑定全部语义字段/Notes；新的当前表显示凭证与原生查询端点凭证分开，直接编辑旧表不能继承显示资格。
+
+三处Tier B数值规则与原生selector统一“有证据的有限运算”：操作数各自保来源/代次、主体、时间域/窗/端点、单位和集合；互斥self/同状态交集的小计及已证嵌套同量尺差可用，未知/省略不补零、非穷尽小计不称总体。重叠inclusive、跨线程墙钟、重叠请求层及根因rank席位不求和；request·ms、请求驻留、线程状态、桶计数和采样权重不互换。计算不产生物理对应、执行状态、完成或因果权限。保稳定规则标识，语义资格集中教学，不扫描问答正文设硬门。
+
+§321已实际使用105版元宝63MB ftrace及独立整数μs标尺，暴露完整实例self3.938虽已取到却被固定前缀/展示预算挤出、窄窗self0配完整总量、等待预览包络套完整聚合和IO unknown被公共标签写成非IO。现有严格来源/查询身份没有发生碰撞；不以删查询、松完整性门或提高常数代替整实例账户交接。另有重复同源时序、caller/等待概括欠项，下一批按共享事实预算与三值分类修复，既有已证IO、闭合睡眠及Trace因果投影保持。
+
+§322唯一冻结全仓通过，sample-only原件准备/字段/独立分母/完整包络与自动补采保真，但正文仍把unknown样本类型肯定为CPU执行，完整人工FAIL；关键限制已在实际INIT，未发现完整错误调查reason重传或裁剪丢关键事实。只读登记缺来源终态负控限定PASS，当前proof与来源/整体完成严格分开；不冒自然controller/fullCLI或全部持久化覆盖。新Notes删除自然复发布与模型图分支未触发，不因单测或其它表通过销账。详见[§321失败批](../eval/parallel_selected_summary_hmc_io_donghu_measurement_20261030.md)、[§322批汇总](../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030.md)。WAL零副作用前生产NO-GO，write-mode隔离/审批/主仓合并红线不变。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
