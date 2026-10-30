@@ -15,9 +15,12 @@ import (
 type answerDocNativePresentationReceipt struct {
 	measurementViews       map[string]bool
 	measurementViewDetails map[string]answerDocMeasurementViewPresentation
-	queries                map[string]bool
-	records                map[string]bool
-	eventMembers           map[answerDocEventMemberKey]bool
+	// Detached native owners from the same fresh measurement contract; only
+	// an actually published full-table receipt can use them for field handoff.
+	businessAnnotations []types.NativeBusinessDiagramAnnotation
+	queries             map[string]bool
+	records             map[string]bool
+	eventMembers        map[answerDocEventMemberKey]bool
 	// Selection and publication completeness are independent: reference
 	// previews must not hide exact flat member quantities from the same query.
 	// This private routing receipt cannot satisfy completeFor or remove notes.

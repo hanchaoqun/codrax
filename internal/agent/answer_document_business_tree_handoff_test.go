@@ -49,7 +49,7 @@ func TestBusinessTreePublicFinalizerKeepsInstancesSelfStatesAndNoCausalAuthority
 				t.Errorf("%s context lost source-bound full tree account for %s", lang, row.Object)
 			}
 		}
-		for _, boundary := range []string{"不是唤醒因果链", "不要从展示省略后的子项重算自身", "最终上下文独立展示 4 个实例、另省略 0", "状态未能计量，不按零处理"} {
+		for _, boundary := range []string{"不是唤醒因果链", "不要从展示省略后的子项重算自身", "最终上下文独立展示 4 条查询发布记录、另省略 0", "状态未能计量，不按零处理"} {
 			if !strings.Contains(prompt, boundary) {
 				t.Errorf("lost boundary %q", boundary)
 			}
@@ -110,7 +110,7 @@ func TestBusinessTreeHandoffHasIndependentBudgetAndKeepsQueryIdentity(t *testing
 		ledger.Records = append(ledger.Records, r)
 	}
 	text := renderAnswerDocBusinessTreeFacts(ctx, ledger)
-	if strings.Count(text, "observation_id=") != 16 || !strings.Contains(text, "另省略 4 个已发布实例") {
+	if strings.Count(text, "observation_id=") != 16 || !strings.Contains(text, "另省略 4 条已发布记录") {
 		t.Fatal(text)
 	}
 	ledger.Records = []types.ObservationRecord{original, original}

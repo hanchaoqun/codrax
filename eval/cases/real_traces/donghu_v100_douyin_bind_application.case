@@ -1,0 +1,11 @@
+# Future real-material case: NOT_RUN. Registered during HMC320; not one of its two live cases.
+# Source identity and independent closed-marker boundaries are operator-only in
+# eval/fixtures/donghu_real_trace_manifest.json; no expected numbers are in QUESTION.
+# A nonempty primary answer is only a smoke check, not semantic acceptance.
+ID="donghu_v100_douyin_bind_application"
+NAME="Donghu v100 Douyin Lite — application binding startup"
+QUESTION="只分析附加的 trace，不分析代码。请分析 .ugc.aweme.lite（TID 57874）在 236627.820748s 到 236628.490099s 的 bindApplication 启动过程：主要同步业务阶段分别花了多久，包含子阶段的总耗时与自身耗时如何分布？请用表格列出主要阶段，并结合该线程的运行、等待 CPU 和睡眠情况说明时间主要花在哪里。"
+HTRACE_FILE="/Users/han/opt/donghu/基线数据/100版本/抖音极速版/应用后台销毁后冷启动/1、LOG_ftrace_20261019_9.55.40/ftrace-20261019_9.55.40.ftrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="[^[:space:]]"

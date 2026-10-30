@@ -25,6 +25,9 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	if !view.RuntimeMeasurementContract.Active() {
 		return renderAcceptedNativeAnswerDisplay(ctx, view)
 	}
+	if publication != nil {
+		publication.businessAnnotations = view.RuntimeMeasurementContract.NativeBusinessDiagramAnnotations()
+	}
 	const maxRosterGroups = 32
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
 	publication.prepareSamplingTableIdentities(ctx)

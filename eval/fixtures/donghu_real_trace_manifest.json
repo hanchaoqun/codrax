@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "purpose": "Future real-material evaluation candidates; not an HMC320 execution or acceptance result.",
+  "status": "NOT_RUN",
+  "registered_batch": "HMC320",
+  "active_batch_cases_replaced": false,
+  "model_invocations": 0,
+  "production_queries": 0,
+  "input_handling": "Cases reference original absolute paths. No trace bytes were copied into Git or into stub_repo. This manifest is operator-only and is not part of QUESTION or the model repository.",
+  "machine_check_scope": "Each case only checks that primary visible answer text is nonempty; it does not require a tool name, exact answer number, diagram format, or infer semantic acceptance.",
+  "independent_boundary_method": {
+    "implementation": "Read-only Ruby standard library stream scan, independent of Codrax parsers and queries.",
+    "timestamps": "Decimal trace timestamps converted to integer microseconds without floating-point arithmetic.",
+    "matching": "Per header emitter TID, pair synchronous tracing_mark_write B/E by LIFO nesting and matching marker payload PID; retain header TGID and payload PID as distinct identities. Async S/F events do not create synchronous children.",
+    "self_wall": "Closed interval duration minus union of its direct synchronous child intervals. This is marker-based wall time, not CPU execution duration or wait state.",
+    "observed_envelope": "Minimum and maximum parsed event timestamps across the file, not proof of continuous recording or complete scheduling coverage.",
+    "stability": "Full-file SHA-256 and size were read; size, mtime and inode were unchanged across the subsequent full streaming scan.",
+    "limits": [
+      "No host/container PID mapping was inferred.",
+      "Scheduling state totals and causal relations were not independently computed; future acceptance must check actual source evidence.",
+      "A full-target unmatched E count is preserved; it is not attached to the selected closed instances.",
+      "Selected boundary scalars are operator evidence, not answer hints or extra mandatory output requirements."
+    ]
+  },
+  "cases": [
+    {
+      "id": "donghu_v100_douyin_bind_application",
+      "case_path": "eval/cases/real_traces/donghu_v100_douyin_bind_application.case",
+      "status": "NOT_RUN",
+      "selection": {
+        "version": "100版本",
+        "application": "抖音极速版",
+        "scenario": "应用后台销毁后冷启动",
+        "reason": "Real closed application-binding startup interval with nested synchronous markers."
+      },
+      "source": {
+        "path": "/Users/han/opt/donghu/基线数据/100版本/抖音极速版/应用后台销毁后冷启动/1、LOG_ftrace_20261019_9.55.40/ftrace-20261019_9.55.40.ftrace",
+        "size_bytes": 235422121,
+        "sha256": "93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef",
+        "line_count": 1696481,
+        "first_line": "# tracer: nop",
+        "observed_timestamp_envelope_us": {
+          "min": 236626516340,
+          "max": 236641540440
+        }
+      },
+      "identity": {
+        "header_comm": ".ugc.aweme.lite",
+        "header_emitter_tid": 57874,
+        "header_tgid": 57874,
+        "marker_payload_pid": 10266,
+        "namespace_mapping": "NOT_INFERRED"
+      },
+      "query_window_us": {
+        "start": 236627820748,
+        "end": 236628490099
+      },
+      "model_fixture": "eval/fixtures/stub_repo",
+      "intended_repetitions": 1,
+      "full_target_scan": {
+        "unmatched_E": 1,
+        "marker_payload_pid_mismatches": 0,
+        "open_synchronous_stack_at_EOF": 0
+      },
+      "selected_closed_markers": [
+        {
+          "name": "bindApplication",
+          "start_line": 61440,
+          "end_line": 167407,
+          "start_us": 236627820748,
+          "end_us": 236628490099,
+          "inclusive_wall_us": 669351,
+          "direct_synchronous_child_count": 1429,
+          "direct_synchronous_child_union_us": 442250,
+          "self_wall_us": 227101,
+          "emitter_stack_depth": 0,
+          "begin_source_line": ".ugc.aweme.lite-57874   (  57874) [004] .... 236627.820748: tracing_mark_write: B|10266|bindApplication",
+          "end_source_line": ".ugc.aweme.lite-57874   (  57874) [007] .... 236628.490099: tracing_mark_write: E|10266",
+          "largest_direct_child": {
+            "name": "makeApplication",
+            "start_line": 97804,
+            "end_line": 122589,
+            "start_us": 236628031203,
+            "end_us": 236628184269,
+            "inclusive_wall_us": 153066,
+            "direct_synchronous_child_count": 4,
+            "direct_synchronous_child_union_us": 151988,
+            "self_wall_us": 1078,
+            "emitter_stack_depth": 1
+          }
+        }
+      ],
+      "scheduler_state_oracle": null,
+      "acceptance_result": null
+    },
+    {
+      "id": "donghu_v105_yuanbao_activity_instances",
+      "case_path": "eval/cases/real_traces/donghu_v105_yuanbao_activity_instances.case",
+      "status": "NOT_RUN",
+      "selection": {
+        "version": "105版本",
+        "application": "元宝",
+        "scenario": "容器重启后冷启动",
+        "reason": "Different version/application/startup scenario with two distinct closed activityStart instances and distinct performCreate children."
+      },
+      "source": {
+        "path": "/Users/han/opt/donghu/基线数据/105版本/元宝/容器重启后冷启动/1、LOG_ftrace_20261019_17.17.44/ftrace-20261019_17.17.44.ftrace",
+        "size_bytes": 63659046,
+        "sha256": "be59c0648ac7e1d8a2d117f5dc36efa0c92b5f3686671719ada435c16713a20c",
+        "line_count": 412546,
+        "first_line": "# tracer: nop",
+        "observed_timestamp_envelope_us": {
+          "min": 3731082403,
+          "max": 3743133535
+        }
+      },
+      "identity": {
+        "header_comm": "unyuan.app.chat",
+        "header_emitter_tid": 46571,
+        "header_tgid": 46571,
+        "marker_payload_pid": 2227,
+        "namespace_mapping": "NOT_INFERRED"
+      },
+      "query_window_us": {
+        "start": 3733491839,
+        "end": 3733795890
+      },
+      "model_fixture": "eval/fixtures/stub_repo",
+      "intended_repetitions": 1,
+      "full_target_scan": {
+        "unmatched_E": 1,
+        "marker_payload_pid_mismatches": 0,
+        "open_synchronous_stack_at_EOF": 0
+      },
+      "selected_closed_markers": [
+        {
+          "name": "activityStart",
+          "start_line": 154186,
+          "end_line": 158632,
+          "start_us": 3733491839,
+          "end_us": 3733551534,
+          "inclusive_wall_us": 59695,
+          "direct_synchronous_child_count": 30,
+          "direct_synchronous_child_union_us": 52925,
+          "self_wall_us": 6770,
+          "emitter_stack_depth": 1,
+          "begin_source_line": "unyuan.app.chat-46571   (  46571) [007] ....  3733.491839: tracing_mark_write: B|2227|activityStart",
+          "end_source_line": "unyuan.app.chat-46571   (  46571) [007] ....  3733.551534: tracing_mark_write: E|2227",
+          "largest_direct_child": {
+            "name": "performCreate:com.tencent.hunyuan.app.chat.biz.login.v2.HYLoginMainActivity",
+            "start_line": 155107,
+            "end_line": 158588,
+            "start_us": 3733504661,
+            "end_us": 3733551261,
+            "inclusive_wall_us": 46600,
+            "direct_synchronous_child_count": 44,
+            "direct_synchronous_child_union_us": 24995,
+            "self_wall_us": 21605,
+            "emitter_stack_depth": 2
+          }
+        },
+        {
+          "name": "activityStart",
+          "start_line": 172560,
+          "end_line": 183577,
+          "start_us": 3733684403,
+          "end_us": 3733795890,
+          "inclusive_wall_us": 111487,
+          "direct_synchronous_child_count": 17,
+          "direct_synchronous_child_union_us": 107549,
+          "self_wall_us": 3938,
+          "emitter_stack_depth": 1,
+          "begin_source_line": "unyuan.app.chat-46571   (  46571) [007] ....  3733.684403: tracing_mark_write: B|2227|activityStart",
+          "end_source_line": "unyuan.app.chat-46571   (  46571) [007] ....  3733.795890: tracing_mark_write: E|2227",
+          "largest_direct_child": {
+            "name": "performCreate:com.tencent.hunyuan.app.chat.home.v2.YBHomeActivityV2",
+            "start_line": 174030,
+            "end_line": 183557,
+            "start_us": 3733692357,
+            "end_us": 3733795672,
+            "inclusive_wall_us": 103315,
+            "direct_synchronous_child_count": 50,
+            "direct_synchronous_child_union_us": 20172,
+            "self_wall_us": 83143,
+            "emitter_stack_depth": 2
+          }
+        }
+      ],
+      "scheduler_state_oracle": null,
+      "acceptance_result": null
+    }
+  ]
+}

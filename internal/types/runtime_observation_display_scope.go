@@ -68,6 +68,29 @@ func runtimeDisplayKey(source ObservationSourceRef) runtimeDisplayQueryKey {
 func BuildRuntimeObservationDisplayScopes(input ObservationLedgerInput) *RuntimeObservationDisplayScopes {
 	comparison := input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil && input.RequestModel.RuntimeArtifactScopeProfile.Comparison != nil
 	currentRows := input.RequestModel != nil && input.RequestModel.DiagramHint != nil && input.RequestModel.DiagramHint.Required
+	if !currentRows {
+		// Business-account completion needs the same current-query proof even
+		// for a prose-only request. Inspect the sealed predicate roster, not
+		// every row of unrelated queries or a fabricated diagram request.
+		for _, results := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
+			for _, result := range results {
+				if census := result.TraceQueryWindowReplay.currentRows; census != nil {
+					for _, population := range census.populations {
+						if len(population.rows[TraceBusinessTreePredicate]) > 0 {
+							currentRows = true
+							break
+						}
+					}
+				}
+				if currentRows {
+					break
+				}
+			}
+			if currentRows {
+				break
+			}
+		}
+	}
 	if !comparison && !currentRows {
 		return nil
 	}

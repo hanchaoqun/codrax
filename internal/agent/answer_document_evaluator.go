@@ -5835,6 +5835,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
 		return resourceStacks.authorityText(ctx, promptLedger) + resourceStacks.text + answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx, publication) +
+			renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
@@ -5894,9 +5895,6 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	if facts := renderAnswerDocBusinessSpanFacts(ctx, promptLedger); facts != "" {
 		b.WriteString(facts)
 	}
-	if facts := renderAnswerDocBusinessTreeFacts(ctx, promptLedger); facts != "" {
-		b.WriteString(facts)
-	}
 	// Relation providers project from accepted records themselves: a wakeup's
 	// subject is the upstream waker, not the user's target. Generic prose-row
 	// filtering must not delete that endpoint or require a business marker.
@@ -5921,6 +5919,7 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
 		b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx, publication))
 	}
+	b.WriteString(renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication))
 	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
 	}

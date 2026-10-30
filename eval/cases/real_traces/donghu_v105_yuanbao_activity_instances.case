@@ -1,0 +1,11 @@
+# Future real-material case: NOT_RUN. Registered during HMC320; not one of its two live cases.
+# Source identity and independent closed-marker boundaries are operator-only in
+# eval/fixtures/donghu_real_trace_manifest.json; no expected numbers are in QUESTION.
+# A nonempty primary answer is only a smoke check, not semantic acceptance.
+ID="donghu_v105_yuanbao_activity_instances"
+NAME="Donghu v105 Yuanbao — distinct activity startup instances"
+QUESTION="只分析附加的 trace，不分析代码。请分析 unyuan.app.chat（TID 46571）在 3733.491839s 到 3733.795890s 这段启动过程：窗口内有哪些 activityStart 实例，各自对应哪些主要业务子阶段？请对照列出每次实例和主要子阶段的总耗时、自身耗时，并结合线程状态说明它们的差别。"
+HTRACE_FILE="/Users/han/opt/donghu/基线数据/105版本/元宝/容器重启后冷启动/1、LOG_ftrace_20261019_17.17.44/ftrace-20261019_17.17.44.ftrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="[^[:space:]]"
