@@ -101,6 +101,9 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	seen := map[RuntimeMeasurementView]bool{}
 	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
 	p.rawFacts = uniqueMembers && runtimeRawMeasurementValid(r)
+	if uniqueMembers {
+		p.queryWindowEnd = runtimeMeasurementSealedQueryEnd(r, p)
+	}
 	if r.Predicate == RuntimeResourceMeasurementPredicate {
 		if !uniqueMembers || !runtimeResourcePublicationValid(r) {
 			return RuntimeMeasurementPublication{}, false

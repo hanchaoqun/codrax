@@ -86,21 +86,21 @@ func TestFinBindNoCrossRowDurationSums(t *testing.T) {
 		t.Fatalf("no-sum rule must be trace-gated: %+v", item.AppliesTo)
 	}
 	for _, want := range []string{
-		"never add durations from different measured rows or different threads into a new total",
-		"a self-made aggregate fabricates time",
+		"prohibit unsupported sums, not evidence-qualified arithmetic",
+		"the evidence proves they are mutually disjoint and additive",
+		"Never add durations across threads as one wall-clock interval",
 		"top N root-cause rank seats",
 		"comparable attribution/head-room values, not additive parts",
 		"licenses only the members inside that one row",
-		"must still be one published value, not your own sum",
+		"must round one published or permitted derived value, never rescue an unsupported aggregate",
 		"Self-derived RATIOS stay allowed",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("no-sum rule missing %q:\n%s", want, item.Body)
 		}
 	}
-	// R7 sync half: the core-numbers clause no longer licenses self-made
-	// sums — its derivation license covers ratios only and defers duration
-	// totals to this rule.
+	// HMC321 evolves only the contradictory absolute teaching: retain the
+	// single authority for qualified duration arithmetic and its exclusions.
 	core := finBindTierBItem(t, "WINDOW-STATS CORE NUMBERS")
 	if strings.Contains(core.Body, "a ratio or a sum yourself") {
 		t.Fatalf("core-numbers clause must not re-license self-made sums:\n%s", core.Body)
@@ -108,9 +108,8 @@ func TestFinBindNoCrossRowDurationSums(t *testing.T) {
 	if !strings.Contains(core.Body, "governed by the NO CROSS-ROW DURATION SUMS rule") {
 		t.Fatalf("core-numbers clause must defer duration totals to the no-sum rule:\n%s", core.Body)
 	}
-	// R7 sync half two (复核 P2-3, 2026-07-12): the PROSE NUMBER GROUNDING
-	// derivation license likewise covers ratios/normalizations only and
-	// defers duration totals to this rule.
+	// PROSE NUMBER GROUNDING must defer to that same authority, not recreate
+	// an unconditional sum license or an unconditional ban beside it.
 	png := finBindTierBItem(t, "PROSE NUMBER GROUNDING")
 	if strings.Contains(png.Body, "(a sum, a ratio, a normalization)") {
 		t.Fatalf("prose-number-grounding clause must not re-license self-made sums:\n%s", png.Body)

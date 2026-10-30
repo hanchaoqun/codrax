@@ -70,7 +70,7 @@ func traceQueryNativeTimelineRecord(predicate, subject string, table types.Runti
 	publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: ref, Tables: []types.RuntimeMeasurementTable{table}}
 	data, _ := json.Marshal(publication) // all numeric inputs were validated before formatting
 	r.RichNotes = []string{types.TraceNoteKeyRuntimeMeasurement + "=" + string(data)}
-	return r
+	return types.PublishRuntimeMeasurementQueryWindow(r, ref.QueryWindowStartTs, ref.QueryWindowEndTs, false)
 }
 
 // The parser's declared index bounds are configuration, not proof that parsing

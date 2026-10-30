@@ -154,6 +154,9 @@ func traceQueryTypedIOInFlightObservations(stats *tracequery.IOInFlightStats, re
 		})
 		if note := traceQueryIOInFlightReceipt(out[len(out)-1], stats, group); note != "" {
 			out[len(out)-1].RichNotes = append(out[len(out)-1].RichNotes, note)
+			if stats.Window != nil {
+				out[len(out)-1] = types.PublishRuntimeMeasurementQueryWindow(out[len(out)-1], stats.Window.StartTs, stats.Window.EndTs, false)
+			}
 		}
 	}
 	for i, c := range stats.Coverage {

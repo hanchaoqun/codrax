@@ -31,6 +31,7 @@ func traceQueryBusinessMeasurementPublications(result tracequery.Result, records
 				if annotation := traceQueryBusinessDiagramAnnotationNote(*r, span); annotation != "" {
 					r.RichNotes = append(r.RichNotes, annotation)
 				}
+				*r = types.PublishRuntimeMeasurementQueryWindow(*r, result.WindowStats.Window.StartTs, result.WindowStats.Window.EndTs, false)
 			}
 			break
 		}

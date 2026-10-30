@@ -206,9 +206,9 @@ func TestHMC283StatisticsSourceWindowUnchanged(t *testing.T) {
 		math.Abs(group.Values.MeanRequests-group.Values.RequestMs/((end-start)*1000)) > 1e-9 {
 		t.Fatalf("native read counts, values or denominator changed: %+v", group)
 	}
-	// This producer has exact statistical coordinates but no private endpoint
-	// declaration. Do not borrow the request's half-open point-selection rule.
-	const wantWindow = "1–1.01 s (endpoint inclusion unavailable)"
+	// The native interval producer declares its own half-open query window.
+	// This does not change the statistical denominator or borrow a member span.
+	const wantWindow = "[1,1.01) s"
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	seen := 0
 	views := map[types.RuntimeMeasurementView]bool{}

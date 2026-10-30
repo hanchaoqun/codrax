@@ -78,7 +78,9 @@ func TestHMC296CalculationScopeActualFinalizer(t *testing.T) {
 	for _, want := range []string{
 		"Self-derived RATIOS stay allowed",
 		"two published boundary timestamps of the SAME named object",
-		"never add durations from different measured rows or different threads",
+		// HMC321: preserve the cross-thread wall-clock prohibition without
+		// contradicting already-published mutually disjoint self segments.
+		"Never add durations across threads as one wall-clock interval",
 		"never borrow it as a wakeup total",
 		"「wakeup往来共65次(唤醒31次+被唤醒34次)」",
 	} {
