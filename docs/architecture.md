@@ -1680,6 +1680,12 @@ HMC §319为已证业务包含关系补请求主体的精确身份交接。真�
 
 量测表、业务成文上下文及图关系教学统一限定重叠inclusive不能直接相加，已证互斥self及同状态交集仅在同源/线程/查询范围/单位下可作有限小计；未知/省略不补零，采样权重不当毫秒。自然例已发布三个业务身份、两个contain并一次受理，不再强补未证角色。但完整成文仍FAIL：跨查询9条发布被共享摘要称9物理实例、目标外相关实例self字段未交接、正文小计规则仍冲突；当前源地址和身份桥都不是自由解释真实性凭证。只读登记负控保本轮proof verified与来源缺终态overall unverified，错误JSON形状先报身份错的提示债另留。详见[§319批汇总](../eval/parallel_selected_summary_hmc_business_registration_binding_20261029.md)，不以确定性或限定通过倒签父项。
 
+HMC §320把上述两个共享交接缺口分开修复：业务树上下文计数明确是保留各查询身份的“查询发布记录”，不把不同查询中重复出现的物理实例增算，也不删除合法查询。原16条预算、完整记录去重及原4、16+4约束保持。对于本轮已经完整展示的原生业务区间，增加独立16条的同实例字段补全；自身墙钟已知与调度分解未知分别交接，不把后者扩成所有字段未知。
+
+补全复用同一次新鲜量测合同的原始业务注释，不从经过显示别名装饰的账本重造或放宽原生凭证。实际整表的rows/notes均完整、当前来源/查询的tree与span两个完整predicate库存一致、原生owner及起止行/时间唯一精确配对，才可附带该实例的完整账户；没有主目标行时也保留这一窄片。已展示背景仍是背景，不增加分析目标、因果席位或完成权限。缺库存、部分显示、不同表借同selector、跨源/跨查询、重签/JSON恢复、旧代次及模糊同名均不获补全；同名不同闭合实例各自保存。纯正文业务请求只复用producer已有的私有行库存，不伪造图请求或扫描无关查询行。实现、真实成文与剩余验收分别见[§320批汇总](../eval/parallel_selected_summary_hmc_business_representative_20261030.md)。
+
+新增Donghu真实材料清单只登记外部原件的SHA/物理行/闭合marker区间与两个未来用例，不复制大文件、不冒充已运行验收。header发射TID/TGID与marker payload PID分列：同步实例和调度状态归属使用物理来源及header owner，完整span另存SpanPID；不由两者不同猜宿主/容器映射，也不把marker自身墙钟代签CPU时间。详见[材料清单](../eval/fixtures/donghu_real_trace_manifest.json)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
