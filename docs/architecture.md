@@ -1674,6 +1674,12 @@ HMC §318补上§317未接入的窗口化源末边界：每源私有账本与锚
 
 冷索引、完整索引导出、精确缓存及锚路径共用该记录，保原全局Size/顺序资格及旧无ledger完整索引兼容。timeline不再用局部LastTs二次覆盖测量端；状态汇总、CPU及根因缺口消费相同来源边界。查询窗和已闭合31ms睡眠不改，31ms线程睡眠不混35ms请求驻留，原4候选/合法2ms/47ms背景由旧针保护。解析热路径复用原严格header的submatch与leading-prefix结果，避免逐行重复正则；原分配上限55不放宽。公开对偶、相邻/race与唯一全仓通过。自然两窗四账正确，但实际均非Windowed，新窗口化自然覆盖仍NOT_TRIGGERED；业务树自身计量解释及业务实例到图请求身份的交接继续留账，见[§318批汇总](../eval/parallel_selected_summary_hmc_windowed_business_tree_20261029.md)。
 
+HMC §319为已证业务包含关系补请求主体的精确身份交接。真实trace_query在来源规范化后一次性密封当前predicate的完整行摘要，挂在既有私有TraceQueryWindowReplayRef；JSON不携带，编译器不从编辑后的ToolResult重签。沿原current-source/replay检查来源、查询与消费者同代，4096行是新桥资格上限，不截原事实或已有关系。完整未裁库存先于目标选择；孤立同名根也参加歧义判断。部分/裁剪/源变代、重复重签、JSON恢复、memo与外来运行不能获得此资格。
+
+业务provider将已接受的业务字面身份、唯一user_explicit线程目标和完整原生节点精确对应。跨查询同物理源/实例/线程/实际端点可共用请求身份，但各查询的量测及关系凭证仍独立；无目标、多目标、多个同名实例不凭相似度归并。完整emit与局部patch仍走同一关系provider和后校验；私有businessEndpoints不冒threadEndpoints，不增加调用、唤醒或根因资格，也不阻断原合法部分contain。原Trace投影、自动补采和因果排序未改。
+
+量测表、业务成文上下文及图关系教学统一限定重叠inclusive不能直接相加，已证互斥self及同状态交集仅在同源/线程/查询范围/单位下可作有限小计；未知/省略不补零，采样权重不当毫秒。自然例已发布三个业务身份、两个contain并一次受理，不再强补未证角色。但完整成文仍FAIL：跨查询9条发布被共享摘要称9物理实例、目标外相关实例self字段未交接、正文小计规则仍冲突；当前源地址和身份桥都不是自由解释真实性凭证。只读登记负控保本轮proof verified与来源缺终态overall unverified，错误JSON形状先报身份错的提示债另留。详见[§319批汇总](../eval/parallel_selected_summary_hmc_business_registration_binding_20261029.md)，不以确定性或限定通过倒签父项。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。

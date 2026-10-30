@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-30 UTC，§318复核）：79个稳定子任务中26项实现交付、53项开放，18类仍有开放项；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。现持续main，§318完整能力新增0、有界子能力1组，窗口化每源覆盖公开回归、相邻/race及唯一全仓通过。机器2/2，A统计限定PASS但成文有欠项、B完整FAIL；3组成文欠项及新Windowed自然未触发分别留账，04.2不销。下文初始映射、候选分支和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
+当前实施状态（2026-10-30 UTC，§319复核）：79个稳定子任务中26项实现交付、53项开放，18类仍有开放项；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。持续main，§319完整能力新增0、有界子能力2组（当前业务实例身份桥、inclusive/self教学），公开回归、相邻/race与唯一全仓通过。机器2/2，A完整FAIL但新图桥自然有限PASS，B只读登记负控PASS；本批4组欠项和旧未触发独立留账，04.2不销。下文初始映射、候选分支和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
 
 ## 1. 范围、证据与结论口径
 
@@ -11245,3 +11245,49 @@ B还有可证系统身份桥缺口：正确2条contain边仍被要求3×missing_
 旧19档5897件、410来源快照身份逐字节保真，18历史污染为子集；当前388件按canonical source+SHA封存，索引SHA8204f84fee94124a06d18e9895f48ec41496fed2e577dcd402f58e5af75b3f92。两组RED、全部中间失败/输入、实际INIT/提交/payload/最终表面、独立A/B审计保留。非法UTF8不清洗，HTML仅源审不冒像素；凭据不读/哈希/复制。仓外快照不回流为仓内可编译源码。
 
 实现cc974a5d7dad19413febb2a277ea36c38ced881d，紧邻5文档分笔main普通推送；closure=none，79/26/53不变。后置提交/冻结字节/远端/清洁与留存收据见[批汇总](../../eval/parallel_selected_summary_hmc_windowed_business_tree_20261029.md)、[人工审计](../../eval/parallel_selected_summary_hmc_windowed_business_tree_20261029_manual_audit.md)及本批publication，不以发布成功改签模型FAIL或未覆盖。
+
+## 319. 当前业务实例桥、量尺教学与只读登记负控（main）
+
+### 319.1 核账、双轨及参考发现
+
+基线100e86c98ab6484f8ab3c205a5f527163f8293a9。79唯一＝26交付＋53开放，18类；18部分／29待实施／3待验收／2验收中／1持续。完整能力新增0、有界子能力2组、本批4组剩余缺陷；不把子能力或原因组加入稳定任务数。缺陷轨接§318已证图主体桥与量尺教学，能力轨复验04.2原业务树，另轮换18.5只读登记缺来源终态负控。
+
+主代理实际阅读参考marker_ops.py:290–680及相关AGENTS/GOLDEN_RULES/architecture，6件只读冻结。id/parent_id与callid=itid提供同线程实例关系，cookie异步不塞同步树；517–540扣直接子层、547–680按itid状态交集，postorder cache绑定当前node_map。采用当前来源/物理实例/字段量尺优先，不照搬简单子时长相加或缺状态返回零；本项目仍以直接子区间并集及未知覆盖计量。未运行或修改参考仓。
+
+### 319.2 公开缺口与有界实施
+
+完整发射公开RED，并补局部attach公共回归：两条正确contain仍不能满足三个所问业务主体，产生missing_unproven_boundary；修前RED只执行完整发射测试，局部attach为修后正反/一致性回归。原provider仅以threadEndpoints桥身份。现在真实trace_query沿原来源规范化后一次性密封当前predicate完整行摘要，既有私有replay按同代消费；JSON不恢复，编译器不依据改写/裁剪结果重新授信。4096行仅限制新桥资格，超限不丢旧事实和已证边，不宣称整个模块内存固定。
+
+完整未裁库存先验证，再由唯一已验证显式线程目标与精确请求业务名选择唯一原生实例；孤立同名节点也参加歧义。同一物理实例可跨查询认领请求身份，查询关系/量测凭证不合并。完整emit/局部patch/后校验共用provider；无目标、多目标、跨源同名、多实例、部分库存、旧源、外来运行、JSON及重复重签拒新桥，原合法部分contain仍可展示。业务载体不冒线程载体，不增调用/唤醒/根因权限。
+
+生产量测表、业务成文交接、图关系教学同步限定：重叠inclusive不可直接相加；同源/线程/查询范围/单位下已证互斥self及同状态交集可作有限小计，未知/省略不补零，不换算采样权重。无用户/答案原文关键词硬门，不改统计、原4候选或Trace因果投影/自动补采。
+
+首轮图夹具未声明需求，记PASS/NOT_TRIGGERED而非RED；补真实前提后公开FAIL。草稿编译、新测试等价查询前提错误与teaching async前提错误保留，只调整新测试。graph-public-red-v2并发新增另一轨测试导致source_unchanged=false如实记录。最终不同窗口查询证明同实例多发布仍保各查询边，不放宽旧断言。相关397顶层/418子例、因果保护64/293、race47/77全部PASS；原31闭合睡眠/35请求驻留、合法2ms/47背景及原4候选保住。
+
+### 319.3 冻结、真实执行和全仓
+
+CLI/testbin各正式编译一次；冻结7522仓库/271外部/22仓外快照，SHAc80db935883d3ce9348bf3aedfa4ca7ab1058352a5d9a7992db2867eafaacadd。之后源码、测试、注释、helper及模型输入停写。唯一全仓pid3476，06:59:17.632466Z→07:10:33.151509Z，exit0且输入前后一致；98包PASS/12无测试、28582顶层/33932子例PASS、原43/14 SKIP、零FAIL/非JSON/重复或未终态。日志SHAf8642dd13729f84467dd0d8c28c861dad66d305636d8a36b698707c4f6938130。
+
+A原trace_query_business_tree题/EXPECT、1481B既有导出文本、15步/n1；B原MissingTerminalReceipt、n1，真实planner＋scripted controller＋独立恢复公开RunTests。仅两例无追跑；A专家显式窗不冒默认发现，B子进程不算第三例、不冒自然controller/full CLI。原operator标尺保留，独立校准其跨行加总歧义，不改题面/断言或强制新增小计。原件不冒新增设备实采/二进制材料。
+
+两进程exit0、机器PASS；实际请求最大可证重叠2.853秒。A13请求/12响应，4唯一闭合对＋9/8歧义组；B4/4均唯一配对，不猜配或以欠日志否定进程终态。A九模型query＋一自动补采、10独立payload；complete两次一拒一受理、emit一次受理、patch零。B五声明=两read＋三emit，两拒一受理；零参数blob是内联载体，不是零调用。
+
+### 319.4 人工裁定与四组留账
+
+A核心三层inclusive10/5/1、self5/4/1及分段/状态正确。INIT03提供精确请求主体绑定，提交三个原生实例与两contain，实际受理后MD/HTML保持同结构，无旧额外未证角色；图桥自然有限PASS，不授因果，未触发局部patch全分支。完整FAIL，04.2仍验收中：
+
+1. 同三物理实例跨三个查询形成9发布行；business_tree_handoff.go:28–49按完整ObservationRecord保查询身份正确，却把shown称独立实例。INIT03:209→最终MD151传播“9个业务实例”，是共享量尺缺口，非孤立模型波动；归16.4/16.5/18.2。
+2. background-900原生self.duration_ms=5.5且无子层，仅self.states未知。最终表self也写未知；实际INIT只传700的self、background仅inclusive/状态预览，故是字段交接缺失叠加unknown外扩，不称完整事实已到场后纯模型误述。
+3. 正文在self说明中禁止跨层状态相加，又允许本次已证互斥self。新正确教学确已到INIT及系统表，矛盾来自模型原提交；失败是规则冲突，不是未输出额外加法。Async“该线程”只记指代歧义，不升确定错归。
+
+B原负向合同PASS：历史1结果/2命令/0登记与当前1/2/1分开，新invocation不冒旧执行；父3480/子3598实际独立恢复，只读源码43B/测试144B与HEAD不变。source只有apply、无Completion/verify，proof verified而整体unverified/missing_terminal_verify_verdict。父子真正WriteFinalReport均26519B/SHA2c3404ad3b5938d37bb80ae31a2a036130f1a6636e9af4da9e7f32635c3316dd，各4原件/1attempt/1link同代。context-pack持久化及自然controller/full CLI未覆盖。
+
+4. B首次changes={}转[{}]后跳过零变更登记分支，registration=false归一化先报ref不current，晚于此才验空path；真实ref与INIT一致，不能误称引用陈旧，也不能采信模型“我发了[]”。两拒一受理原件保留，错误形状下适用域反馈债归16.4/18.5；授权门未绕过，不新增原负控退出门。
+
+### 319.5 ROI、保真与main交付
+
+下一先公开复现发布记录/物理实例计数及字段级可用性交接，再受信IO端点→共享标题；不删合法来源、混原查询总体或扫描正文改句。完整能力槽轮换11.2真实代表规格到执行/未选名册原合同，18.5保持负控；充分给证的采样/IO/self误述不无限追跑。17.6需新增真格式/工具/宿主材料，不将旧包装算新实采。旧Windowed自然未触发、权限/代表选择/§310扩大race留账，WAL零副作用前生产NO-GO。
+
+旧20档6285件/428来源快照身份逐字节保真，18历史污染是子集；本批443件封存，索引SHA115e14a90e811f8a4d8a7f3a751d7b058221944bde04069f5c7cd1caea903ab2。失败/未触发/完整输入/实际INIT/参数/payload/MD/HTML及独立双审计保留。HTML只源审，凭据不读/哈希/复制，仓外Go快照不回流源码；raw本地留存不冒Git上传。
+
+实现dbc3ea6d74ef5b7521f7f225f9cbd10d331d76fa与紧邻5文档分笔main普通推送，closure=none，79/26/53不变。后置远端/清洁/冻结与封存一致性见[批汇总](../../eval/parallel_selected_summary_hmc_business_registration_binding_20261029.md)、[人工审计](../../eval/parallel_selected_summary_hmc_business_registration_binding_20261029_manual_audit.md)和publication，不倒签人工FAIL或未触发能力。
