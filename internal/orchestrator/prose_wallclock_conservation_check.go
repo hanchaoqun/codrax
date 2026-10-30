@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -135,7 +136,7 @@ func (d proseWallClockDimension) labelZH() string {
 	case proseWallClockDimDState:
 		return "D状态(D-state)"
 	case proseWallClockDimDStateNonIO:
-		return "非IO D状态(non-IO D-state)"
+		return tracefence.StateNonIODStateWord(true)
 	case proseWallClockDimIOWait:
 		return "IO等待(io_wait)"
 	}
@@ -154,6 +155,13 @@ type proseWallClockKeyword struct {
 
 // proseWallClockKeywords is longest-match-first per position.
 var proseWallClockKeywords = []proseWallClockKeyword{
+	// The complete native residual-D label owns its measure. In particular,
+	// its embedded IO wording is not an IO-lane claim. The existing latest-end
+	// selection still allows a genuinely later state word to own its number.
+	// This only refines the disclosure-only scanner; no hard gate or threshold
+	// changes, and legacy explicit non-IO qualifiers retain their old handling.
+	{word: tracefence.StateNonIODStateWord(true), dim: proseWallClockDimDStateNonIO},
+	{word: tracefence.StateNonIODStateWord(false), dim: proseWallClockDimDStateNonIO},
 	{word: "runnable_wait", dim: proseWallClockDimRunnable},
 	{word: "runnable", dim: proseWallClockDimRunnable},
 	{word: "可运行", dim: proseWallClockDimRunnable},

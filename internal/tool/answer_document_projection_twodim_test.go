@@ -137,7 +137,7 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 		"两轴分别成账，不能相加或互相替代",
 		"本表自身不证明某个占用已经导致具体丢帧",
 		"running 60.000ms、runnable 30.000ms、sleep 80.000ms",
-		"非 IO D-state 10.000ms、io_wait 20.000ms",
+		"D 状态（未标记为 IO 等待） 10.000ms、io_wait 20.000ms",
 		"不能直接当作可消除收益",
 		"Worker-9001 / one long span",
 		"链上依据：链上节点",

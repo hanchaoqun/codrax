@@ -88,7 +88,7 @@ func TestFormatTargetStateAccountOmitsArtifactClauseWhenLabelUnknown(t *testing.
 
 func TestFormatTargetStateAccountCaliberStatesTheFold(t *testing.T) {
 	zh := FormatTargetStateAccountCaliber("zh")
-	for _, want := range []string{"不可中断等待 = 非 IO 的 D 状态 + 调度器标记的 IO 等待", "不再相加", "未评估而不是零"} {
+	for _, want := range []string{"不可中断等待 = D 状态（未标记为 IO 等待） + 调度器标记的 IO 等待", "不再相加", "未评估而不是零"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh caliber sentence missing %q:\n%s", want, zh)
 		}
@@ -96,7 +96,7 @@ func TestFormatTargetStateAccountCaliberStatesTheFold(t *testing.T) {
 	en := FormatTargetStateAccountCaliber("en")
 	for _, want := range []string{
 		"narrow scheduler-marked definition",
-		"uninterruptible wait = non-IO D state + scheduler-marked IO wait",
+		"uninterruptible wait = D-state without an IO-wait mark + scheduler-marked IO wait",
 		"never added again",
 		"Target blocking closed by IO issue-to-completion evidence is a separate ruler",
 		"unassessed rather than zero",

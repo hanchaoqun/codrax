@@ -7,8 +7,8 @@ func TestStateNonIODStateWordKeepsBucketAndPhysicalFoldDistinct(t *testing.T) {
 		zh           bool
 		bucket, fold string
 	}{
-		{true, "非 IO D-state", "不可中断等待"},
-		{false, "non-IO D-state", "uninterruptible wait"},
+		{true, "D 状态（未标记为 IO 等待）", "不可中断等待"},
+		{false, "D-state without an IO-wait mark", "uninterruptible wait"},
 	} {
 		if got := StateNonIODStateWord(tc.zh); got != tc.bucket {
 			t.Errorf("exclusive D bucket word = %q, want %q", got, tc.bucket)

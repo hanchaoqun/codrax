@@ -108,7 +108,7 @@ func capabilityMetricDescriptors() []MetricCapability {
 		m("scheduler_states", "Scheduler intervals and the target's window-clamped state account.", []CapabilityOutput{
 			o("target_window_states", "running_ms runnable_ms sleep_ms d_state_ms io_wait_ms total_ms", "ms", "measured per-thread wall-clock state partition"),
 			o("target_window_states", "sleep_io_wait_ms", "ms", "IO-marked subset already inside sleep_ms; not an addend"),
-		}, r("sched_switch", nil, "sched_wakeup sched_waking sched_blocked_reason", "Unique thread incarnation, ordered state transitions, explicit or derived window; head and CPU continuity must be inspected."), "d_state_ms is the non-IO D accounting lane, not the physical D total. IO markers do not identify a device. Raw S/D states and classified IO accounts are distinct; uncovered time stays unknown."),
+		}, r("sched_switch", nil, "sched_wakeup sched_waking sched_blocked_reason", "Unique thread incarnation, ordered state transitions, explicit or derived window; head and CPU continuity must be inspected."), "d_state_ms is the D lane without an IO-wait mark (known-zero and unknown markers), not the physical D total. An unknown marker is not a known non-IO classification. IO markers do not identify a device. Raw S/D states and classified IO accounts are distinct; uncovered time stays unknown."),
 		m("cpu_occupancy", "Per-CPU busy/idle and thread/process occupancy.", []CapabilityOutput{
 			o("window_stats.cpu", "busy_ms idle_ms", "ms", "per-CPU measured wall-clock occupancy"),
 			o("window_stats.top_running", "duration_ms", "ms", "thread running duration within its published source/window"),

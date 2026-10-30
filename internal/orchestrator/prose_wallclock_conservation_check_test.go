@@ -484,7 +484,7 @@ func TestProseWallClockConservation_NonIOQualifiedDClaimComparesAgainstDisjointL
 			t.Fatalf("%q: a non-IO-qualified D claim above the disjoint lane must disclose exactly once, got %+v", prose, findings)
 		}
 		zh := findings[0].userReadable("zh")
-		if !strings.Contains(zh, "4.039") || !strings.Contains(zh, "非IO D状态") {
+		if !strings.Contains(zh, "4.039") || !strings.Contains(zh, "D 状态（未标记为 IO 等待）") {
 			t.Fatalf("%q: the disclosure must name the disjoint lane and its published 4.039ms, got %q", prose, zh)
 		}
 	}

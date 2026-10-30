@@ -47,10 +47,10 @@ func TestTraceDIOBucketTeachingActualFinalInstruction(t *testing.T) {
 				for _, want := range []string{
 					types.FormatTargetStateAccountCaliber(lang),
 					types.TraceSchedulerWaitPartitionTeaching,
-					"`d_state`/`d_state_occurrences` describe the non-IO D bucket",
+					"`d_state`/`d_state_occurrences` describe D intervals without an IO-wait mark",
 					"`io_wait`/`io_wait_occurrences` describe D-opened intervals with a paired kernel IO-wait marker",
 					"both retain D-state provenance",
-					"A zero non-IO D bucket alone does not prove absence of D-state waiting",
+					"A zero unmarked D bucket alone does not prove absence of D-state waiting",
 					"Preserve published buckets and count each interval only once",
 					"`sleep_io_wait`/`sleep_iowait_occurrences` remain interruptible S-state waiting, not D-state",
 					"device/request IO latency or independently completion-closed IO blocking",

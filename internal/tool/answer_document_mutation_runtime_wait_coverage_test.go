@@ -189,7 +189,7 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 		"结果达到容量上限",
 		"不能据此给出全窗阻塞总量、唯一发生段",
 		"同窗共记录 IPC 请求 2 次（同步 1、单向 1、类型未知 0）",
-		"非 IO D-state 0.000ms",
+		"D 状态（未标记为 IO 等待） 0.000ms",
 		"已归账 233.190ms / 窗口 233.190ms",
 		"覆盖=完整",
 		"内核记录了 50 条 blocked_reason",
@@ -529,8 +529,8 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		answerDocumentTestBlockByID(t, doc, runtimeTraceTargetStateAuthorityBlockID),
 	)
 	for _, want := range []string{
-		"非 IO D-state 6.000ms",
-		"等待明细完整，共 2 段（非 IO D-state 2",
+		"D 状态（未标记为 IO 等待） 6.000ms",
+		"等待明细完整，共 2 段（D 状态（未标记为 IO 等待） 2",
 		"墙钟合计 6.000ms",
 		"已解析内核调用点/符号：dma_fence_default_w",
 		"第 1 段：D 状态（不可中断等待），13762.811000..13762.813000，2.000ms，内核 IO 等待标记：未标记，内核调用点/符号：dma_fence_default_w",
@@ -784,8 +784,8 @@ func TestRuntimeTargetWaitAuthorityListsRequestedScopeBeforeExploration(t *testi
 	for _, want := range []string{
 		"请求主范围先列",
 		"不能替代主范围的次数、总量或清单",
-		"非 IO D-state 与调度器标记的 IO 等待分别统计，但两者仍保留 D 状态来源",
-		"等待明细完整，共 2 段（非 IO D-state 0、调度器标记的 IO 等待 2",
+		"D 状态（未标记为 IO 等待） 与调度器标记的 IO 等待分别统计，但两者仍保留 D 状态来源",
+		"等待明细完整，共 2 段（D 状态（未标记为 IO 等待） 0、调度器标记的 IO 等待 2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("requested-scope data card missing %q:\n%s", want, got)
@@ -848,7 +848,7 @@ func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndParti
 		"另有 1.356ms 未归账",
 		"窗口尾部开放 8.793ms（状态=sleep",
 		"等待明细完整，共 11 段",
-		"非 IO D-state 11",
+		"D 状态（未标记为 IO 等待） 11",
 		"墙钟合计 36.757ms",
 		"已解析内核调用点/符号：dma_fence_default_w+0x260/0x4dc[devhost.elf]",
 		"逐段合计与上述 D/IO 状态账一致",

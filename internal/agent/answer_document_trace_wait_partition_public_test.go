@@ -91,7 +91,7 @@ func TestTraceWaitPartitionPublicFinalInstruction(t *testing.T) {
 						fmt.Sprintf("d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d;", tc.d, tc.io, tc.sleep),
 						"wall_clock_sum=" + tc.sum + "ms",
 						types.FormatTargetStateAccountCaliber(lang),
-						"A zero non-IO D bucket alone does not prove absence of D-state waiting",
+						"A zero unmarked D bucket alone does not prove absence of D-state waiting",
 						"remain interruptible S-state waiting, not D-state",
 						"not device/request IO latency or independently completion-closed IO blocking",
 					} {

@@ -105,10 +105,10 @@ func TestAnswerDocumentLocalePublicQuerySupplementEmitRenderPatch(t *testing.T) 
 					t.Fatalf("system appendix/model duplication: %d/%d", count, modelCount)
 				}
 				prefix, wrongPrefix := runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementDisclosurePrefixZH
-				labels := []string{"original scheduler state: D", "accounting category:", "non-IO D-state 0, scheduler-marked IO wait 1, interruptible sleep carrying an IO-wait marker 0"}
+				labels := []string{"original scheduler state: D", "accounting category:", "D-state without an IO-wait mark 0, scheduler-marked IO wait 1, interruptible sleep carrying an IO-wait marker 0"}
 				if tc.want == "zh" {
 					prefix, wrongPrefix = wrongPrefix, prefix
-					labels = []string{"原始调度状态：D", "统计类别：", "非 IO D-state 0、调度器标记的 IO 等待 1、带 IO 等待标记的可中断睡眠 0"}
+					labels = []string{"原始调度状态：D", "统计类别：", "D 状态（未标记为 IO 等待） 0、调度器标记的 IO 等待 1、带 IO 等待标记的可中断睡眠 0"}
 				}
 				for _, label := range labels {
 					if !strings.Contains(appendix, label) {

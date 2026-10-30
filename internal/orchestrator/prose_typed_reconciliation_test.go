@@ -169,7 +169,8 @@ func TestTypedReconciliationEnglishFacesAreNeutral(t *testing.T) {
 
 // TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord —
 // §40.49 合流复核收编 (G-target-state #1): the reconciliation row prints the
-// five DISJOINT lanes, so its D term is the exclusive non-IO lane and must be
+// five DISJOINT lanes, so its D term is the residual lane (not positively
+// marked IO; it may include unknown IO classification) and must be
 // labelled with the single-source customer-face word
 // (tool.TraceStateNonIODStateWord), byte-equal with the body wall-clock
 // partition / wait-coverage / fact-juxtaposition faces. The bare word
@@ -183,6 +184,32 @@ func TestTypedReconciliationEnglishFacesAreNeutral(t *testing.T) {
 // the "+ D-state " ban and the qualified-word requirement; the renderer fix
 // turned it green.
 func TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord(t *testing.T) {
+	// A complete qualified label may start with the fold's word. Mask only
+	// that exact shared label before detecting a bare term; a separate bare
+	// term on the same line must still fail. This is a test of the generated
+	// reference card, not a production classifier of model-authored prose.
+	hasBareDTerm := func(face string) bool {
+		qualified := "+ " + tool.TraceStateNonIODStateWord(false) + " "
+		return strings.Contains(strings.ReplaceAll(face, qualified, "+ <qualified residual D> "), "+ D-state ")
+	}
+	for _, tc := range []struct {
+		name string
+		text string
+		bare bool
+	}{
+		{"qualified", "+ D-state without an IO-wait mark 4.039ms", false},
+		{"bare", "+ D-state 4.039ms", true},
+		{"qualified_then_bare", "+ D-state without an IO-wait mark 4.039ms + D-state 4.039ms", true},
+		{"bare_then_qualified", "+ D-state 4.039ms + D-state without an IO-wait mark 4.039ms", true},
+		{"incomplete_qualifier", "+ D-state without an IO-wait 4.039ms", true},
+		{"different_qualifier", "+ D-state without an unknown mark 4.039ms", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasBareDTerm(tc.text); got != tc.bare {
+				t.Fatalf("bare term=%v, want %v for %q", got, tc.bare, tc.text)
+			}
+		})
+	}
 	// Unit face: exact bytes of both languages on the ruling fixture
 	// (running 60 / runnable 20 / sleep 29.561 / d_state 4.039 / io_wait
 	// 1.340 = 114.940 = window).
@@ -193,11 +220,11 @@ func TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord(t *tes
 		DStateMS: 4.039, IOWaitMS: 1.340, TotalMS: 114.940,
 	}
 	f := renderTargetStateReconciliation(row)
-	wantZH := "对账参考: 工件 huadong.systrace · app-10 全窗状态分区 running 60.000ms + runnable 20.000ms + sleep 29.561ms + 非 IO D-state 4.039ms + io_wait 1.340ms = 114.940ms(分析窗 114.940ms) [E2]"
+	wantZH := "对账参考: 工件 huadong.systrace · app-10 全窗状态分区 running 60.000ms + runnable 20.000ms + sleep 29.561ms + D 状态（未标记为 IO 等待） 4.039ms + io_wait 1.340ms = 114.940ms(分析窗 114.940ms) [E2]"
 	if f.entryZH != wantZH {
 		t.Fatalf("ZH reconciliation row bytes drifted:\n got %q\nwant %q", f.entryZH, wantZH)
 	}
-	wantEN := "Reconciliation reference: artifact huadong.systrace · app-10 full-window state partition: running 60.000ms + runnable 20.000ms + sleep 29.561ms + non-IO D-state 4.039ms + io_wait 1.340ms = 114.940ms (analysis window 114.940ms) [E2]"
+	wantEN := "Reconciliation reference: artifact huadong.systrace · app-10 full-window state partition: running 60.000ms + runnable 20.000ms + sleep 29.561ms + D-state without an IO-wait mark 4.039ms + io_wait 1.340ms = 114.940ms (analysis window 114.940ms) [E2]"
 	if f.entry != wantEN {
 		t.Fatalf("EN reconciliation row bytes drifted:\n got %q\nwant %q", f.entry, wantEN)
 	}
@@ -207,7 +234,7 @@ func TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord(t *tes
 		t.Fatalf("row must label its D term with tool.TraceStateNonIODStateWord: zh=%q en=%q", f.entryZH, f.entry)
 	}
 	for _, face := range []string{f.entryZH, f.entry} {
-		if strings.Contains(face, "+ D-state ") {
+		if hasBareDTerm(face) {
 			t.Fatalf("bare \"D-state\" term on the reconciliation row spells the non-IO lane under the fold's word: %q", face)
 		}
 	}
@@ -252,10 +279,10 @@ func TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord(t *tes
 	}
 	o := &Orchestrator{busCtx: bus}
 	joined := strings.Join(o.collectSystemCrossCheckFindings(), "\n")
-	if !strings.Contains(joined, "非 IO D-state 4.039ms + io_wait 1.340ms") {
+	if !strings.Contains(joined, "D 状态（未标记为 IO 等待） 4.039ms + io_wait 1.340ms") {
 		t.Fatalf("appendix reconciliation row must qualify its non-IO D term:\n%s", joined)
 	}
-	if strings.Contains(joined, "+ D-state ") {
+	if hasBareDTerm(joined) {
 		t.Fatalf("appendix must not spell the non-IO lane under the bare fold word:\n%s", joined)
 	}
 }

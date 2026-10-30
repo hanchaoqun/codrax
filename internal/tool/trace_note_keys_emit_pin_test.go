@@ -1212,7 +1212,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainCredentialSegmentDisjoint: true,
 				ChainCredentialSegments:        []string{"1.460000..1.462000", "1.478000..1.480000"},
 				DurationMs:                     4.0, LineStart: 92, LineEnd: 93,
-				Confidence: 0.80, Summary: "gapblock spent 4.000ms in non-IO D-state wait",
+				Confidence: 0.80, Summary: "gapblock spent 4.000ms in D-state without an IO-wait mark",
 			}, {
 				// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier
 				// conservative keep-⛓ io_wait view row — exercises the
@@ -1239,7 +1239,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainCredentialSegments:          []string{"1.500000..1.502000", "1.520000..1.522000"},
 				ChainCredentialSegmentsTruncated: true,
 				DurationMs:                       80.0, LineStart: 98, LineEnd: 99,
-				Confidence: 0.80, Summary: "lowbound spent 80.000ms in non-IO D-state wait",
+				Confidence: 0.80, Summary: "lowbound spent 80.000ms in D-state without an IO-wait mark",
 			}, {
 				// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-
 				// inheritance fail-open keep-⛓ D-state view row — exercises the
@@ -1252,7 +1252,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				EdgeCount:                1,
 				ChainIdentityInheritance: true,
 				DurationMs:               3.0, LineStart: 96, LineEnd: 97,
-				Confidence: 0.80, Summary: "idinherit spent 3.000ms in non-IO D-state wait",
+				Confidence: 0.80, Summary: "idinherit spent 3.000ms in D-state without an IO-wait mark",
 			}, {
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
 				// io_latency row — exercises the absorbed_by_rank_family /

@@ -28,9 +28,9 @@ func TestRootCauseWaitBucketLabelsKeepRawSplitAndEliminabilityBoundary(t *testin
 				before, _ := json.Marshal(decision)
 				for _, lang := range []string{"zh", "en"} {
 					got := RootCauseValueDescriptionForLanguage(decision, lang)
-					label, boundary := "non-IO D-state", "not a promise of directly eliminable time"
+					label, boundary := "D-state without an IO-wait mark", "not a promise of directly eliminable time"
 					if lang == "zh" {
-						label, boundary = "非 IO D-state", "不是可直接消除的承诺"
+						label, boundary = "D 状态（未标记为 IO 等待）", "不是可直接消除的承诺"
 					}
 					for _, want := range []string{fmt.Sprintf("%s %.3f ms", label, tc.d), fmt.Sprintf("I/O wait %.3f ms", tc.io), boundary} {
 						if lang == "zh" {

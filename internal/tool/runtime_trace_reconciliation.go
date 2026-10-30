@@ -47,7 +47,8 @@ type RuntimeTraceReconciliationRow struct {
 }
 
 // TraceStateNonIODStateWord is the ONE customer-face word for the exclusive
-// non-IO D-state lane — the five-lane partition member, NOT the published
+// D lane without an IO-wait mark (known-zero OR unknown marker) — the
+// five-lane partition member, NOT the published
 // uninterruptible fold. §40.49 合流复核收编 (G-target-state #1): the body
 // wall-clock partition (answer_document_mutation_runtime.go), the
 // wait-coverage face (answer_document_mutation_runtime_wait_coverage.go), the

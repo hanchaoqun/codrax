@@ -13856,7 +13856,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, stats.Window, ref, scope, at, "top_running", "running_time", "running", "ranked selected-window running bucket (not a complete subject total)", 0.70)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, stats.Window, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "ranked selected-window runnable bucket (not a complete subject total)", 0.75)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "ranked selected-window sleep bucket (not a complete subject total)", 0.76)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "ranked selected-window non-IO D-state bucket (not a complete subject total)", 0.80)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "ranked selected-window "+TraceStateNonIODStateWord(false)+" bucket (not a complete subject total)", 0.80)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "ranked selected-window IO-wait bucket (not a complete subject total)", 0.82)...)
 	// 件1 census 根修 (2026-07-13): the pid-keyed blocked_reason census —
 	// per-caller 符号×count×Σms off the FULL accumulator — reaches the

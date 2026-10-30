@@ -14,7 +14,7 @@ package tracequery
 // Event.
 //
 // Precision notes:
-//   - tracequery itself is type-checked for real (stdlib-only imports), so
+//   - tracequery itself and its internal dependencies are checked for real, so
 //     the scan there is exact and the check fails loud on any type error.
 //   - Downstream packages (internal/tool, internal/tool/width,
 //     internal/hitraceconv, cmd) are checked with a hybrid importer: stdlib
@@ -67,6 +67,9 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 			modPath + "/internal/filegeneration": true,
 			modPath + "/internal/logging":        true,
 			modPath + "/internal/tracebundle":    true,
+			// Producer summaries share the qualified residual-D word. Resolve
+			// the actual package, not a fake signature or a type-error exemption.
+			modPath + "/internal/tracefence": true,
 			// HYG (§28.2 顺手项 b, 2026-07-09): parse.go truncation goes
 			// through the shared rune-safe primitives in internal/types.
 			modPath + "/internal/types": true,

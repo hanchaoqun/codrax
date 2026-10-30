@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -23531,7 +23532,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			// truncated prefix may prove presence, never absence.
 			credentialSegments:          td.dioIntervals,
 			credentialSegmentsTruncated: td.dioIntervalsOverflow,
-			Summary:                     fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Summary:                     fmt.Sprintf("%s spent %.3fms in %s%s", threadLabel(td.Thread), td.DurationMs, tracefence.StateNonIODStateWord(false), durationCPUDetail(td)),
 		})
 	}
 	for _, td := range stats.IOWaitTop {
@@ -27241,7 +27242,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(td.Thread),
 			Predicate:  "d_state_or_io_wait",
-			Summary:    fmt.Sprintf("%s spent %.3f ms in non-IO D-state wait in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Summary:    fmt.Sprintf("%s spent %.3f ms in %s in the selected window%s", threadLabel(td.Thread), td.DurationMs, tracefence.StateNonIODStateWord(false), durationCPUDetail(td)),
 			LineStart:  td.LineStart,
 			LineEnd:    td.LineEnd,
 			Confidence: 0.8,

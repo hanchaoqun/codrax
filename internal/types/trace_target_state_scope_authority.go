@@ -155,9 +155,9 @@ func FormatTargetStateAccount(a TraceTargetStateScopeAuthority, lang string) str
 func FormatTargetStateAccountCaliber(lang string) string {
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	if zh {
-		return "不可中断等待采用调度器标记的窄口径：不可中断等待 = 非 IO 的 D 状态 + 调度器标记的 IO 等待；睡眠内的 IO 等待标记已含在可中断睡眠中，不再相加。零值只表示没有匹配该窄口径，不能证明磁盘、文件系统、设备或其他 IO 活动/阻塞不存在。由 IO 发起到完成闭合的目标线程等待是另一把尺；若未单独发布，应表述为未评估而不是零。"
+		return "不可中断等待采用调度器标记的窄口径：不可中断等待 = " + tracefence.StateNonIODStateWord(true) + " + 调度器标记的 IO 等待；未标记桶包含内核标记为 0 和标记未知的区间，不能把未知说成非 IO。睡眠内的 IO 等待标记已含在可中断睡眠中，不再相加。零值只表示没有匹配该窄口径，不能证明磁盘、文件系统、设备或其他 IO 活动/阻塞不存在。由 IO 发起到完成闭合的目标线程等待是另一把尺；若未单独发布，应表述为未评估而不是零。"
 	}
-	return "Uninterruptible wait here uses the narrow scheduler-marked definition: uninterruptible wait = non-IO D state + scheduler-marked IO wait; an IO-wait marker inside interruptible sleep stays inside the sleep term and is never added again. Zero means no match for that narrow definition; it does not prove the absence of disk, filesystem, device, or other IO activity/blocking. Target blocking closed by IO issue-to-completion evidence is a separate ruler; when it is not separately published, it is unassessed rather than zero."
+	return "Uninterruptible wait here uses the narrow scheduler-marked definition: uninterruptible wait = " + tracefence.StateNonIODStateWord(false) + " + scheduler-marked IO wait; the unmarked bucket includes known-zero and unknown kernel markers, so unknown must not be described as non-IO. An IO-wait marker inside interruptible sleep stays inside the sleep term and is never added again. Zero means no match for that narrow definition; it does not prove the absence of disk, filesystem, device, or other IO activity/blocking. Target blocking closed by IO issue-to-completion evidence is a separate ruler; when it is not separately published, it is unassessed rather than zero."
 }
 
 // BuildTraceTargetStateScopeAuthorities compiles the target-thread scope

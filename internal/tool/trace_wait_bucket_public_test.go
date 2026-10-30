@@ -113,9 +113,9 @@ func TestTraceWaitBucketPublicQueryEmitRenderPatch(t *testing.T) {
 						if count != 1 || modelCount != 1 {
 							t.Fatalf("appendix/model duplication: %d/%d", count, modelCount)
 						}
-						want := fmt.Sprintf("non-IO D-state %d, scheduler-marked IO wait %d, interruptible sleep carrying an IO-wait marker %d", tc.d, tc.io, tc.sleep)
+						want := fmt.Sprintf("D-state without an IO-wait mark %d, scheduler-marked IO wait %d, interruptible sleep carrying an IO-wait marker %d", tc.d, tc.io, tc.sleep)
 						if lang == "zh" {
-							want = fmt.Sprintf("非 IO D-state %d、调度器标记的 IO 等待 %d、带 IO 等待标记的可中断睡眠 %d", tc.d, tc.io, tc.sleep)
+							want = fmt.Sprintf("D 状态（未标记为 IO 等待） %d、调度器标记的 IO 等待 %d、带 IO 等待标记的可中断睡眠 %d", tc.d, tc.io, tc.sleep)
 						}
 						if !strings.Contains(appendix, want) {
 							t.Errorf("system counter mislabels exclusive D bucket; missing %q:\n%s", want, appendix)
