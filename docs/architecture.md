@@ -1660,6 +1660,10 @@ HMC §315统一调查单元的原生引用状态：Extract不再因没有成文�
 
 §315自然Trace的typed交接修正后曾受理，随后legacy完成受理；既有直接完成/fork合入有h=nil退役旧handoff合同，最终INIT未进入新状态显示分支。缺少逐fork私有状态快照，不将这条观察链冒称唯一退役时刻的证明。退役原意是防止旧权限继承，不能为了保说明而无条件恢复全部旧摘要；多生产者的当前事实交接范围需公开对偶复现。图修补的opaque引用与精确主体映射目前分处schema/delta，本例模型猜序错配后未完成图，恢复车道保原生表并隔离未验图。地址状态公开回归、完整自然答案和只读登记有限负控是独立验收轴；A完整FAIL、B负控PASS不关闭父项。
 
+HMC §316将完成决定的累计代次与当前活跃决定的归属分开。公开工具→完成→Reset→fork合并双向复现了新原生交接丢失和旧同名交接未退役；独立复核又补嵌套分支与父后来更新的组合。`investigationLiveCompletionGeneration`是私有精确整数：两个接受完成入口赋值、fork复制、真正自有live决定按父合入前代次加相对增量映射、Reset清零；系统exhaustion只推进累计代次，不制造live。仅有累计增量不能将继承的live标记重写到父状态。
+
+合并运输克隆当前累计代次的私有接受记录，不借消费者因其它live决定而暂不可见的nil推断退役；真正legacy决定仍显式退役。原生交接的接受尾及消费者均检查活跃决定同代，相同reason文本不替代决定身份；正常Reset后才显露合法retained交接。工具说明继续只有活跃同代完成权，不获得原生交接的Reset保留语义。JSON不恢复私有印记、源/查询/表/行仍逐次重绑，原生事实与Trace投影不随说明归属退役而删除。此修复不是正文语义裁判，也未证明§315自然日志必经新复现分支；完整能力、公开生命周期回归及自然分支覆盖分别验收，见[§316批汇总](../eval/parallel_selected_summary_hmc_reference_scope_resource_20261029.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
