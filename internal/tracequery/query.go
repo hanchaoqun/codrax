@@ -2172,15 +2172,23 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 }
 
 func schedulerMeasuredTimeEnd(idx *Index, q Query) (float64, bool) {
-	// Size is populated by physical index builders after stat/open succeeds.
-	// Keep legacy/in-memory synthetic Index values out of this proof: a hand-
-	// assembled monotonic event slice often uses LastTs as a local fixture
-	// boundary while intentionally modelling an artifact that continues beyond
-	// it. TimestampOrder + a physical source receipt together establish EOF.
-	if idx == nil || !q.TimeEndSet || idx.Size <= 0 || idx.LastTs <= 0 || q.TimeEnd <= idx.LastTs || !idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+	if idx == nil || !q.TimeEndSet || idx.Size <= 0 || !idx.TimestampOrder.AllowsTimeEndEarlyStop() {
 		return q.TimeEnd, false
 	}
-	return idx.LastTs, true
+	if end, known := idx.measuredPhysicalEventEnd(); known {
+		if q.TimeEnd > end {
+			return end, true
+		}
+		return q.TimeEnd, false
+	}
+	// Compatibility for old, non-windowed synthetic indexes without a source
+	// ledger. Real parsers always have one; neither windowed local bounds nor a
+	// deserialized public source ledger can acquire this legacy permission.
+	if !idx.Windowed && len(idx.TraceArtifacts) == 0 && idx.Size > 0 && idx.LastTs > 0 &&
+		q.TimeEnd > idx.LastTs && idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+		return idx.LastTs, true
+	}
+	return q.TimeEnd, false
 }
 
 func schedulerArtifactTailCaveat(q Query, artifactEnd float64) string {
@@ -2361,14 +2369,13 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, q.runCancel, visit)
 	timelineEnd, artifactTailUncovered := schedulerMeasuredTimeEnd(idx, q)
 	if artifactTailUncovered {
-		// A complete monotonic scan proves that the physical artifact ends at
-		// LastTs.  An explicit query may legitimately ask for a wider window,
+		// A source-generation-bound complete scan proves the physical boundary.
+		// An explicit query may legitimately ask for a wider window,
 		// but the final open scheduler state is not evidence for the uncovered
 		// suffix.  Keep the requested window on the result so downstream
 		// coverage accounting remains honest, while closing measured intervals
 		// at the last physical event rather than fabricating elapsed state up to
 		// the requested endpoint.
-		timelineEnd = idx.LastTs
 		res.Caveats = append(res.Caveats, schedulerArtifactTailCaveat(q, timelineEnd))
 		if timelineEnd <= q.TimeStart {
 			// The selected scheduler sub-window lies wholly outside physical
@@ -8718,14 +8725,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 		}
 	}
 	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visitChurn)
-	endTs := q.TimeEnd
-	// Only a full index's LastTs can be its proven physical-EOF bound. A
-	// windowed index retains local timestamp bounds, even with a whole-file
-	// monotonicity proof. Keep its existing behavior until physical source
-	// coverage is carried independently; never clip to its last selected row.
-	if !idx.Windowed {
-		endTs, _ = schedulerMeasuredTimeEnd(idx, q)
-	}
+	endTs, _ := schedulerMeasuredTimeEnd(idx, q)
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
 	}

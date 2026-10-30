@@ -1,0 +1,8 @@
+# Natural two-window scheduler-accounting question; independent oracle is not model input.
+ID="trace_query_windowed_artifact_coverage"
+NAME="Trace source coverage across two scheduler windows"
+QUESTION="请比较附加 Trace 的 0.990 到 1.055 秒和 1.030 到 1.050 秒这两个时间段：app-main-100 与 document-worker-200 各自处于运行、等待 CPU 和睡眠状态的区间及累计时长是多少？请用表格对照，并说明各项统计实际覆盖的范围。"
+HTRACE_FILE="eval/fixtures/hmosperf_business_io_chain/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

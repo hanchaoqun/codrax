@@ -59,6 +59,7 @@ type TraceArtifactSource struct {
 	// generation joins consult these fields before replaying a child.
 	timestampOrder   TraceTimestampOrder
 	clockRegressions int
+	eventCoverage    sourceEventCoverage
 }
 
 // TraceArtifactSpan is the reversible source coordinate for one virtual line

@@ -48,6 +48,8 @@ type traceAnchor struct {
 
 type traceAnchorSet struct {
 	Anchors []traceAnchor
+	// Atomically retained source-local receipt, independent of prefix bounds.
+	sourceEventCoverage sourceEventCoverage
 	// CoveredLines/CoveredOffset mark how far contiguous scanning has
 	// recorded anchors; a scan may extend coverage only when it starts at
 	// or before this frontier (anchor positions are deterministic line
@@ -218,6 +220,9 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 	defer c.mu.Unlock()
 	if existing, ok := c.items[key]; ok {
 		mergeAnchorPriorityMutationAudit(existing, set)
+		if set.sourceEventCoverage.complete {
+			existing.sourceEventCoverage = set.sourceEventCoverage
+		}
 		// Keep the widest coverage; flavor is written once by a from-0 scan.
 		if set.CoveredLines > existing.CoveredLines {
 			existing.Anchors = append([]traceAnchor(nil), set.Anchors...)
@@ -307,6 +312,7 @@ func (s *traceAnchorSet) seekAnchorFor(timeStartSet bool, paddedTimeStart float6
 // anchorRecorder accumulates anchors during one scan.
 type anchorRecorder struct {
 	set                              *traceAnchorSet
+	sourceCoverageScan               sourceEventCoverageScan
 	runningMaxTs                     float64
 	runningMaxCompletedIntervalEndTs float64
 	lastTs                           float64
@@ -389,6 +395,14 @@ func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool,
 	r.set.CoveredClockRegressions = r.clockRegressions
 }
 
+// observeScan reuses the single-file parser's exact header memo. Generic stream
+// anchor writers neither gather nor publish this independent source receipt.
+func (r *anchorRecorder) observeScan(rawLen int, scan *lineScan) {
+	ts, hasTS := scan.timestamp()
+	r.sourceCoverageScan.observe(scan, ts, hasTS)
+	r.observe(scan.lineNo, rawLen, ts, hasTS, scan.line)
+}
+
 // finishEOF promotes the contiguous prefix metadata into a complete-artifact
 // timestamp-order proof. Callers must invoke it only after ReadString returned
 // io.EOF, never after a line/time gate or event-budget stop.
@@ -396,6 +410,7 @@ func (r *anchorRecorder) finishEOF() {
 	if r == nil || !r.contiguous {
 		return
 	}
+	r.sourceCoverageScan.reachedEOF = true
 	if r.maxLine > r.set.CoveredLines {
 		r.set.CoveredLines = r.maxLine
 		r.set.CoveredOffset = r.byteOffset

@@ -1102,7 +1102,10 @@ func (opts BuildOptions) cacheKey() string {
 // headers. A loose twin locates the same delimiter without admitting malformed
 // scalars. Legal ']' and header-like bytes in comm therefore remain data.
 func matchFtraceLine(line string) []string {
-	indexes := matchFtraceLineIndex(line)
+	return ftraceSubmatches(line, matchFtraceLineIndex(line))
+}
+
+func ftraceSubmatches(line string, indexes []int) []string {
 	if len(indexes) == 0 {
 		return nil
 	}
@@ -1370,6 +1373,7 @@ type lineScan struct {
 	lineNo               int
 	line                 string
 	m                    []string
+	mIndexes             []int
 	mTried               bool
 	kv                   map[string]string
 	kvTried              bool
@@ -1397,7 +1401,8 @@ func (s *lineScan) reset(lineNo int, line string) {
 func (s *lineScan) match() []string {
 	if !s.mTried {
 		s.mTried = true
-		s.m = matchFtraceLine(s.line)
+		s.mIndexes = matchFtraceLineIndex(s.line)
+		s.m = ftraceSubmatches(s.line, s.mIndexes)
 	}
 	return s.m
 }
@@ -1570,6 +1575,7 @@ func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine 
 		}
 		return currentReadErr
 	}
+	var scan lineScan
 	for lineNo := nextLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1579,8 +1585,8 @@ func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
-			ts, hasTS := parseLineTimestamp(trimmed)
-			recorder.observe(lineNo, len(line), ts, hasTS, trimmed)
+			scan.reset(lineNo, trimmed)
+			recorder.observeScan(len(line), &scan)
 		}
 		if readErr != nil {
 			if readErr == io.EOF {
@@ -1753,6 +1759,9 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		anchorSet = &traceAnchorSet{}
 	}
 	recorder := newAnchorRecorder(anchorSet, seekAnchor, seeked)
+	// Only the checked single-file producer may collect a new EOF receipt.
+	// Other anchor writers keep their existing prefix/order-only behavior.
+	recorder.sourceCoverageScan.fromStart = !seeked
 	recording := recorder.canExtend(startLine)
 	// R6 rule 4 (full_freq_curves.go): arm the full-file frequency-curve
 	// collector, unless the per-file anchor record already carries a complete
@@ -1952,8 +1961,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					// ts (memoized: at most one header match per line) or a
 					// future time-window seek could jump past an in-window
 					// line.
-					lineTs, lineHasTS := scan.timestamp()
-					recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
+					recorder.observeScan(len(line), &scan)
 				}
 				if stop {
 					break
@@ -1965,8 +1973,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					goto nextLine
 				}
 			} else if recording {
-				lineTs, lineHasTS := scan.timestamp()
-				recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
+				recorder.observeScan(len(line), &scan)
 			}
 			flavor.observeRawLine(trimmed)
 			if evOK {
@@ -2159,6 +2166,16 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	} else {
 		idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	}
+	// Source coverage is shared only after the complete physical read has been
+	// checked against the held descriptor and current path. Prefix/denial cache
+	// writes elsewhere cannot mint this independent EOF receipt.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "trace parsing"); err != nil {
+		return nil, err
+	}
+	recorder.publishSourceEventCoverage(path, openedIdentity)
 	if recording {
 		if !seeked && !recorder.set.FlavorSet {
 			recorder.set.FlavorSet = true
@@ -2220,12 +2237,10 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		}
 	}
 	if len(idx.TraceArtifacts) == 0 {
-		if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "trace parsing"); err != nil {
-			return nil, err
-		}
 		source := singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))
 		source.timestampOrder = idx.TimestampOrder
 		source.clockRegressions = idx.ClockRegressions
+		source.eventCoverage = recorder.set.sourceEventCoverage
 		idx.TraceArtifacts = []TraceArtifactSource{source}
 	}
 	return idx, nil
@@ -4332,6 +4347,10 @@ func ProbeLeadingExactEventNamePrefix(prefix string) (string, bool) {
 	if len(match) == 0 {
 		match = loosePhysicalFtraceLineIndex(prefix)
 	}
+	return leadingExactEventNameFromPrefixMatch(prefix, match)
+}
+
+func leadingExactEventNameFromPrefixMatch(prefix string, match []int) (string, bool) {
 	name, headerEnd, ok := exactEventNameFromPrefixMatch(prefix, match)
 	if !ok || len(match) < 4 || match[2] < 0 || headerEnd <= match[2] {
 		return "", false
