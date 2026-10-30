@@ -77,8 +77,11 @@ func (m *MutableState) AcceptInvestigationNativeFactHandoff(h *InvestigationNati
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.investigationComplete || m.investigationLiveCompletionGeneration != m.investigationCompleteGeneration {
+		return
+	}
 	m.investigationNativeFactCompletion = nil
-	if m.investigationComplete && h != nil {
+	if h != nil {
 		m.investigationNativeFactCompletion = &investigationNativeFactCompletion{h.Clone(), m.investigationCompleteGeneration, m.investigationCompleteReason}
 	}
 }
@@ -86,6 +89,9 @@ func (m *MutableState) AcceptInvestigationNativeFactHandoff(h *InvestigationNati
 func (m *MutableState) acceptedNativeFactHandoffLocked() *InvestigationNativeFactHandoff {
 	a := m.investigationNativeFactCompletion
 	if a == nil || a.generation != m.investigationCompleteGeneration {
+		return nil
+	}
+	if m.investigationComplete && m.investigationLiveCompletionGeneration != a.generation {
 		return nil
 	}
 	reason := strings.TrimSpace(m.investigationCompleteReason)

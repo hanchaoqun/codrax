@@ -145,6 +145,9 @@ func (m *MutableState) AcceptToolDocumentationCompletion(rm *RequestModel) {
 	profile := toolDocumentationProfile(rm)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.investigationComplete || m.investigationLiveCompletionGeneration != m.investigationCompleteGeneration {
+		return
+	}
 	m.toolDocumentation.accepted = nil
 	if profile == "" || !m.investigationComplete || len(m.toolDocumentation.documents) == 0 {
 		return
@@ -158,6 +161,7 @@ func (m *MutableState) AcceptToolDocumentationCompletion(rm *RequestModel) {
 func (m *MutableState) acceptedToolDocumentationLocked() *toolDocumentationCompletion {
 	a := m.toolDocumentation.accepted
 	if a == nil || a.generation != m.toolDocumentation.generation || a.completion != m.investigationCompleteGeneration || !m.investigationComplete ||
+		a.completion != m.investigationLiveCompletionGeneration ||
 		a.profile != toolDocumentationProfile(m.requestModel) {
 		return nil
 	}

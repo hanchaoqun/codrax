@@ -225,6 +225,9 @@ type MutableState struct {
 	// backtrack vetoes exactly once: until the model (or a typed system
 	// closure) re-decides completion in the bound epoch.
 	investigationCompleteGeneration uint64
+	// The accepted decision owning the live flag, distinct from newer retained
+	// decisions merged from reset forks. Private, never reconstructed from JSON.
+	investigationLiveCompletionGeneration uint64
 	// exploreForkCompletionGenerationBase is the parent's generation at
 	// fork time; MergeExploreFork advances the parent only by the decisions
 	// the fork itself made (fork generation − base), so a fork that merely
@@ -1448,6 +1451,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		answerSurfaceRevision:                       m.answerSurfaceRevision,
 		exploreBacktrackEpoch:                       m.exploreBacktrackEpoch,
 		investigationCompleteGeneration:             m.investigationCompleteGeneration,
+		investigationLiveCompletionGeneration:       m.investigationLiveCompletionGeneration,
 		exploreForkCompletionGenerationBase:         m.investigationCompleteGeneration,
 		exploreBacktrackExhaustedDecisions:          m.exploreBacktrackExhaustedDecisions,
 		lastExploreBacktrackExhausted:               m.lastExploreBacktrackExhausted,
@@ -1557,7 +1561,12 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
 	investigationMeasurementMemberSets := cloneMeasurementMemberSetSelections(fork.investigationMeasurementMemberSets)
-	nativeFactHandoff := fork.acceptedNativeFactHandoffLocked()
+	var nativeFactCompletion *investigationNativeFactCompletion
+	if a := fork.investigationNativeFactCompletion; a != nil && a.generation == fork.investigationCompleteGeneration {
+		// Transport current acceptance even when a separate live decision hides
+		// it from consumers. Invisible does not mean explicitly retired.
+		nativeFactCompletion = cloneInvestigationNativeFactCompletion(a)
+	}
 	investigationRelationClaims := CloneAnswerRelationClaims(fork.investigationRelationClaims)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
@@ -1596,6 +1605,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	// most recently accepted terminal state; a fork that decided nothing
 	// never overwrites it.
 	forkDecidedCompletion := fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase
+	var completionGenerationDelta uint64
+	if forkDecidedCompletion {
+		completionGenerationDelta = fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
+	}
+	var liveCompletionGenerationDelta uint64
+	if investigationComplete && fork.investigationLiveCompletionGeneration > fork.exploreForkCompletionGenerationBase {
+		liveCompletionGenerationDelta = fork.investigationLiveCompletionGeneration - fork.exploreForkCompletionGenerationBase
+	}
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
@@ -1623,13 +1640,27 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.preReadSourceRevision++
 		}
 	}
+	// Acceptance belongs to the fork's decision, not its live window flag.
+	// A same-investigation reset retains that decision; its generation and
+	// private handoff must travel together, including an explicit retirement.
+	// Do not change the parent's live flag/reason here. The existing getter
+	// still rejects a retained handoff while a different live decision is active.
+	parentCompletionGenerationBase := m.investigationCompleteGeneration
+	if forkDecidedCompletion {
+		m.investigationCompleteGeneration += completionGenerationDelta
+		m.investigationNativeFactCompletion = nil
+		if nativeFactCompletion != nil {
+			nativeFactCompletion.generation = m.investigationCompleteGeneration
+			m.investigationNativeFactCompletion = nativeFactCompletion
+		}
+	}
 	// Completion write-back (live + retained lanes) only from a fork that
 	// recorded its OWN accepted completion (finding W): a fork that merely
 	// inherited the parent's completed flag carries the parent's fork-time
 	// copy — writing it back would revert a sibling's later-accepted closure
 	// (or resurrect a completion the parent has since reset). An inherited
 	// flag is not a decision (§40.14 V7-2 复核) and not a state to fold back.
-	if investigationComplete && forkDecidedCompletion {
+	if investigationComplete && forkDecidedCompletion && liveCompletionGenerationDelta > 0 {
 		// XGAP-FIX ① (§29.104.8): the fork carries the LATER-accepted
 		// emit_investigation_complete, so its ordinal-seated ranking facts
 		// supersede the parent's same-label versions before the union merge.
@@ -1639,21 +1670,12 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			SupersedeOrdinalMemberSetFactsByLabel(m.investigationAggregateFacts, investigationAggregateFacts),
 			investigationAggregateFacts)
 		m.investigationComplete = true
+		m.investigationLiveCompletionGeneration = parentCompletionGenerationBase + liveCompletionGenerationDelta
 		m.investigationCompleteReason = investigationCompleteReason
 		m.absenceJustification = absenceJustification
 		m.investigationResultKind = investigationResultKind
-		// Only the fork's OWN completion decisions are decisions of the
-		// parent's epoch: fold exactly those into the parent's generation so
-		// a parallel-dispatch completion lifts the explore-backtrack veto
-		// like a direct SetInvestigationComplete (§40.14 V7-2 复核; the
-		// branch guard above already excludes an inherited flag).
-		m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
 		m.investigationAggregateFacts = mergedAggregateFacts
 		m.investigationMeasurementMemberSets = investigationMeasurementMemberSets
-		m.investigationNativeFactCompletion = nil
-		if nativeFactHandoff != nil {
-			m.investigationNativeFactCompletion = &investigationNativeFactCompletion{nativeFactHandoff, m.investigationCompleteGeneration, investigationCompleteReason}
-		}
 		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		if investigationCompleteReason != "" {
@@ -1669,7 +1691,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(mergedAggregateFacts)
 		}
 	}
-	m.mergeToolDocumentationLocked(toolDocumentation, investigationComplete && forkDecidedCompletion)
+	m.mergeToolDocumentationLocked(toolDocumentation, investigationComplete && forkDecidedCompletion && liveCompletionGenerationDelta > 0)
 	// Retained lane write-back from the fork's retained copy (a decided fork
 	// whose window was reset before the merge still carries its accepted
 	// state here). Finding W: gated on the fork's own accepted completion —
@@ -6751,6 +6773,7 @@ func (m *MutableState) SetInvestigationComplete(reason string) {
 	// convergence-stall force-complete — advances the generation the
 	// explore-backtrack veto is bound against (§40.14 V7-2).
 	m.investigationCompleteGeneration++
+	m.investigationLiveCompletionGeneration = m.investigationCompleteGeneration
 	// System/legacy closure is not a model-selected business instance. Keep
 	// ordinary closure recovery unchanged while retiring any earlier focus.
 	m.resetTraceBusinessFocusLocked()
@@ -7162,6 +7185,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.investigationComplete = false
+	m.investigationLiveCompletionGeneration = 0
 	m.resetTraceBusinessFocusLocked()
 	m.investigationCompleteReason = ""
 	m.absenceJustification = ""

@@ -85,6 +85,7 @@ func (m *MutableState) AcceptInvestigationCompleteWithBusinessSpanRef(reason str
 		m.retainedInvestigationCompleteReason = reason
 	}
 	m.investigationCompleteGeneration++
+	m.investigationLiveCompletionGeneration = m.investigationCompleteGeneration
 	decision := &traceBusinessFocusDecision{dispatch: m.traceBusinessFocus.ticket, completionGeneration: m.investigationCompleteGeneration}
 	if ref != nil {
 		copied := *ref
