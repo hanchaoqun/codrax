@@ -11375,3 +11375,47 @@ B两轮planner完整读取当前源码/测试、一次空改动精确登记；�
 [完整52项ROI核账](../../eval/results/hmc_endpoint_sample_registration_20261030_v1/sealed-v1/0218-codrax-hmc322-census-roi-v1.md)分层8+4+9+3+17+10+1，当前清单同步全ID排序，原状态不动。实际105版Donghu已使用，100版仍NOT_RUN，WAL零副作用前生产NO-GO。426件新封存/index SHA25e9d3323465d04695e4ff61e33c211f2205d7c71445d52eaf4ea7daea00670a；旧23档7703件/493来源快照身份保真，18历史污染为子集。原件/同字节全文只引用，派生材料不按大小删；仓外Go快照不回流可编译树，凭据不读/哈希/复制，HTML只源审。
 
 最终实现与7份批次文档紧邻分笔main普通提交推送，closure=none；[批汇总](../../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030_manual_audit.md)及后置publication分别记录提交、远端和验收范围，不把原件本地封存冒Git上传。
+
+## 323. 业务账户公平预算、D未知分类及真实原件复验——失败代保留
+
+本代基于main 395ca294542ef47bde85746b5e06df1263fff7a2，79唯一＝27已交付＋52开放，未独立发布。完整能力新增0，08.3/04.3及全部旧失败不销账。
+
+对照参考marker_ops的物理实例、self和状态求交及IO分层，候选只把实收账户按精确查询/物理源/窗口公平分配，主lane16、完整记录键去重，补充只排除实际已展示项；不升128行预算、不松严格JSON/完整tree+span库存。D残余桶统一为“未标记为IO等待”，保已知真/假/未知，不将分类余量解释成已证非IO。原始数值、原4根因、16+4、闭合睡眠、31/35量尺、自动补齐及链上权限保持。
+
+原IO例和105版元宝真实63659046B ftrace各15步/n1，两例进程exit0，原smoke FAIL/PASS，完整人工均FAIL。真实模型请求最大重叠20.808秒；IO原机器正则未匹配“未能配对”，不能误写语义披露缺失，但原机器判定保留、不改断言。
+
+- IO：四分组原标量正确；正文仍错认RQ/BIO同操作、无硬件队列与禁止合法小计，5个活动表标题端点unknown与已证半开notes冲突。08.3保持验收中。
+- 业务：四个完整self 6.770/21.605/3.938/83.143已在原生结果和两次受理调查，但3份实际成文INIT缺失，最终主业务计划仅窄窗组1/1，不能用fair lane重排恢复已经消失的查询。幸存数据的真实目标performCreate又在offset17、父状态非observed_root，存在组内目标导航缺口。正文窄窗46.600/0与完整活动错配、反转业务父子、背景线程及GC可运行误述仍失败。
+- 等待：完整10条3.454ms与前8条2.522ms、完整13条1.356ms与前8条.965ms的不同量尺已进INIT，最终仍把预览小计配全集条数；旧12条1.350/前6条包络欠项不销账。未知D .006本次未被说成非IO，仅作局部正向证据。
+
+冻结7536仓库/254外部/42快照，SHA4d6c8547e72f2635c0df83fbf08135c040e7e7a35cbeb1819bebac4439535dc7。唯一全仓exit1：95包PASS/3FAIL/12无测试，28605顶层PASS/4FAIL/43SKIP，34035子例PASS/14SKIP，零重复/未终态。严格事件审计缺真实共享模块导入、3个旧标签断言不兼容，不能归为模型波动。CLI v1因冻结前两处教学改字失效，v2才绑定最终冻结；两次构建均保留，不冒仅一次。790件失败原件/index SHA5725d270627c24a162413912cc054db715a3c175f2120e8db4aac7456c1ea42e封存，后修不回签。见[§323汇总](../../eval/parallel_selected_summary_hmc_io_donghu_handoff_20261030.md)及[手审](../../eval/parallel_selected_summary_hmc_io_donghu_handoff_20261030_manual_audit.md)。
+
+## 324. 严格兼容修复与只读登记／sample-only轮换
+
+沿用同一main基线，承接上述未发布生产修改；本代相对§323只改3份测试，修4个全仓FAIL。事件结构审计导入真实tracefence而非忽略类型错误；生成卡片识别完整限定标签，新增6个限定/裸项/混合/缺限定正反子例；两处快照精确更新共享标签。原4.039/1.340/5.379数值、主体、源、窗口、ClaimUses及禁止伪仓库引用均保留。相对发布基线共32源/测试文件＝11生产＋21测试（5新增）。旧墙钟scanner保持离线retired，未接回生产正文检查，不设问答关键词门。
+
+### 324.1 验证与来源
+
+复验3包4顶层/6子例；相邻因果6包96顶层/356子例，均PASS。helper零模型自测和预检通过。CLI/testbin各唯一编译，源码同代；冻结7536仓库/172外部/44仓外快照，SHAf5f0b13587e3ecfadbeea2a01c559937fb1a40b14a76da59a39aca0c4a65cc06，随后源/测试/注释/helper/输入停写。唯一全仓pid71665，12:02:23.022579Z→12:13:31.917822Z，实际exit0/输入未变：98包PASS/12无测试，28609顶层PASS/43SKIP，34041子例PASS/14SKIP，零FAIL/非JSON/重复/未终态；日志SHA97d66d30d1094d2ccf3885b6a3d70bd4e8b4023414046fc1455c4f213915f913。
+
+实际读取参考extensions说明及hiperf解析器的数据定义、索引、record字段解析。设计意图是二进制字段与符号解释分离，PID/TID/CPU/period各保原义；本项目用显式质量/时钟/identity能力避免参考缺值零默认和首attr推断。参考头注释链接的设计文档在checkout缺失，未声称读过。没有改参考仓或重新跑历史oracle解析器。
+
+### 324.2 两例各一次及人工边界
+
+A原缺来源终态负控，真实planner12轮上限、脚本controller、独立恢复公开RunTests。原机器PASS、限定人工PASS：2次完整源/测试读取，非法字符串数组先拒、合法suite/id模型修正再登记，旧/新invocation分开；当前1断言/2命令/1ExistingTestExecution，授权撤销、源/测试/HEAD不变。proof verified但来源无verify/Completion，overall仍unverified/missing_terminal_verify_verdict。父子各4原件同字节，真正26342B .final.json指当前7606B不可变报告，历史未覆盖。中文目标不逐字进入INIT，typed framing和脚本controller不能代验自然路由/full CLI；context-pack耐久false、既有降级和apply checkpoint缺失仍留账。只读不冒WAL零副作用。
+
+B原sample-only二进制题15steps/n1；完整原件30062585B/SHA da713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632，七份旧独立标尺明确是历史证据，不注入模型。真实准备后10份原生查询、3份实际INIT、一份HTML。原机器PASS、完整人工FAIL：164/259、两热点82/174与82/85、PID1514/TID1609、CPU记录范围及完整包络正确，正文仍肯定on-CPU/内核态执行，与原生未知类型/执行未确立冲突。122.5ms记录空隙的端点差是合法计算，不把它本身列为越权；由此证明调度/阻塞则不成立。表格正确不能抵销正文。
+
+实际请求A3/B13唯一配对、0歧义，最大重叠3.490秒；进程都exit0/输入未变，不从退出码推人工通过。没有第三例或暗中重跑，图/局部patch成功、assertion_ref成功、自然controller等未触发继续留账。HTML仅源审，非法UTF-8日志原字节保留。
+
+B三份INIT含unknown及不得断on-/off-CPU边界，正确包络、单位和分母齐全；1/5完整独立解释单元被展示，其余错误.469586扫描终点与宽窗链路未重传。未发现关键事实预算丢失，110571tokens与工具历史裁剪不单独判FAIL。此例记证据充分的模型误述，不与§323已证上游账户丢失混为一类；families_present跳过自动补采，不冒新增隐藏查询。
+
+### 324.3 下一ROI与交付边界
+
+完整能力新增0；本次已交付有界共享子能力2组（实收账户公平预算、D残余分类语义），实现01ee615a9ab975923e0403ea37ceea8a5d1bd5f8，不称完整业务树或采样解释验收完成。重点9组旧债继续开放：业务账户、等待总体/预览、D/IO未知、重复/预算、采样执行解释、IO量尺/物理关系、业务等待/caller/比例、JSON终态、代表自然规格。
+
+优先公开复现§323已证的受理后事实消失与非根目标导航。1MiB/2MiB整ToolResult历史裁剪是有代码根据的候选机制，尚无实际parent Mutable/query-specific drop收据，不能写成已证唯一原因；不能回灌调查文字冒原生事实、放宽完整库存或只增16/128常数。随后统一完整等待聚合与预览成员的成文交接。证据已经足量的采样误述保留、不无限挡住这些系统级缺口。
+
+52稳定项按9个ROI组无重漏重排（7/8/5/5/1/9/6/8/3），原checkbox与18部分/29待实施/3待验收/1验收中/1持续不改。完整ID名册保在本批census报告；18.5持续并行，17.6需新增真实格式/宿主/工具材料才扩验。真实105版元宝ftrace已应用，100版抖音case仍NOT_RUN；WAL零副作用前生产NO-GO。
+
+旧25档8919件/562快照身份核验，18旧污染为子集、544在仓外；不把Go快照放回编译树。原大文件及同字节副本仅按完整身份引用，不按大小裁掉query/INIT/答案。凭据仅走正常运行时加载，审计不读/hash/copy。本代397件封存，index SHA2d94635aafdad3d0ee35ea412a8b13dad124cca4c3a7d366a644b3b19b5a3412。最终紧邻两笔main提交与远端一致性以[§324汇总](../../eval/parallel_selected_summary_hmc_registration_sample_compat_20261030.md)、[人工审计](../../eval/parallel_selected_summary_hmc_registration_sample_compat_20261030_manual_audit.md)及publication收据为准；本地raw归档不冒Git上传，§323保持未独立发布失败代。

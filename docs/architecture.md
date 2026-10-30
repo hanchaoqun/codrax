@@ -1696,6 +1696,12 @@ HMC §321–322补齐原生量测的查询端点与共享教学。端点由业�
 
 §322唯一冻结全仓通过，sample-only原件准备/字段/独立分母/完整包络与自动补采保真，但正文仍把unknown样本类型肯定为CPU执行，完整人工FAIL；关键限制已在实际INIT，未发现完整错误调查reason重传或裁剪丢关键事实。只读登记缺来源终态负控限定PASS，当前proof与来源/整体完成严格分开；不冒自然controller/fullCLI或全部持久化覆盖。新Notes删除自然复发布与模型图分支未触发，不因单测或其它表通过销账。详见[§321失败批](../eval/parallel_selected_summary_hmc_io_donghu_measurement_20261030.md)、[§322批汇总](../eval/parallel_selected_summary_hmc_endpoint_sample_registration_20261030.md)。WAL零副作用前生产NO-GO，write-mode隔离/审批/主仓合并红线不变。
 
+HMC §323–324将业务账户展示预算与状态分类含义分开处理。业务主lane仍只交付16条原子账户，先按精确来源、查询、主体、时钟和窗口分组，再在组间公平取数；组内优先原生明确的observed_root，随后按原始行及稳定键排序。完整记录键去重，不把同名或同ID跨源/跨查询合并。补全lane仅排除主lane真正已发布的账户，而不是排除所有候选；原16+4、128行、strict JSON、完整tree/span库存与物理来源校验不变。预算选择不增加分析目标、因果候选或完成权限。
+
+残余D桶统一表达为“D 状态（未标记为 IO 等待）”/“D-state without an IO-wait mark”：这是已有字段的分类口径，不代表已证排除IO，更不代表设备机制。原始D状态、已知IO/已知非IO/未知三值及数值仍独立保存；保原有IO量测、唤醒链、闭合睡眠和根因席位。公开摘要、成文教学和生成卡片复用共享词汇；已有离线墙钟诊断识别完整限定标签，未重接system_crosscheck_appendix，不新增对问句/回答原文的关键词硬门。测试同时保裸D、混合标签、数值和身份负控；严格事件提升审计接入真实tracefence模块，不忽略类型错误。
+
+这两个有界改动不能被描述为完整业务账户链已修好。§323实际105版元宝回放中，原始查询及两次受理调查均有四个完整self，成文INIT却只保留窄窗业务组；现有原生选择器也未选择完整tree账户，真实目标未必是observed_root。应先公开复现上游来源保留与目标账户导航，不能用放大预算或放宽完整性门补救。对话历史按整工具结果裁剪是代码路径假说，尚不能倒签为本次实际丢失的已证分支。等待总体/明细预览、IO层次和同源解释欠项独立留账；失败代与后续兼容修复分别见[§323原始失败](../eval/parallel_selected_summary_hmc_io_donghu_handoff_20261030.md)、[§324轮换验收](../eval/parallel_selected_summary_hmc_registration_sample_compat_20261030.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
