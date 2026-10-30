@@ -1654,6 +1654,12 @@ HMC §314按用户后续明确指令在main工作，候选历史已快进合入�
 
 §314冻结后唯一全仓98包PASS，图公开RED已闭合；自然A保3主体2唤醒/上CPU及50/52、31/35、2ms和47背景，但正文/图完成点与唤醒点混写、调查advisory与原生运行区间冲突仍FAIL，新显式重选未触发。两例完整人工0/2，不以正确表格或本地回归替代整答；详见[§314批汇总](../eval/parallel_selected_summary_hmc_repair_pairing_representative_20261029.md)。Trace因果投影、自动补齐及原查询总体不变，WAL生产NO-GO保留。
 
+HMC §315统一调查单元的原生引用状态：Extract不再因没有成文发布收据而固定传入false，而是与Finalize共用当前受理凭证及精确source/query/table/row重绑。地址当前、行实际发布和解释正确是三件不同的事。共享预览逐单元标明`current_exact_rows`、`unverified_address`或`no_native_row_address`；无引用的业务线索、合法计算及阴性分析原文仍保留，不借同一handoff另一单元的引用取得事实权。状态与原JSON、边界作为一个整体占用原预算，原七单元容量、旧前缀和兼容解释不变；不从support_refs、数字或邻近时间猜原生绑定。
+
+当前地址只证明原生行地址及其源/查询/表未变，不验证自由正文、算术、事件关系或图注。JSON恢复、源变代仍不能恢复私有权限；未绑定的完成/唤醒时点混写和运行区间误述继续人工验收，不把本次接线修复说成自由文本语义校验。原Trace因果投影、自动补齐、量尺及图关系门均未修改。批次收据见[§315批汇总](../eval/parallel_selected_summary_hmc_temporal_registration_20261029.md)。
+
+§315自然Trace的typed交接修正后曾受理，随后legacy完成受理；既有直接完成/fork合入有h=nil退役旧handoff合同，最终INIT未进入新状态显示分支。缺少逐fork私有状态快照，不将这条观察链冒称唯一退役时刻的证明。退役原意是防止旧权限继承，不能为了保说明而无条件恢复全部旧摘要；多生产者的当前事实交接范围需公开对偶复现。图修补的opaque引用与精确主体映射目前分处schema/delta，本例模型猜序错配后未完成图，恢复车道保原生表并隔离未验图。地址状态公开回归、完整自然答案和只读登记有限负控是独立验收轴；A完整FAIL、B负控PASS不关闭父项。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。

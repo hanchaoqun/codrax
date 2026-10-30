@@ -11089,3 +11089,35 @@ B8行完整spec/attempt导航实际进入INIT，选中4个各成功1次、未选
 剩余2产品原因组：11.2/16.4自然观察意图→正确代表规格；16.4/12.5/18.2事件/状态/量尺→调查解释和正文表图绑定。另12.5/18.4新显式重选自然覆盖欠项，不伪作实际失败或通过。稳定开放仍53，不增加3个ID；旧IO、采样、权限未触发、§310扩大race保留。下一完整能力槽轮换只读登记原负向终态；17.6有新真实格式/工具/宿主材料才扩，事实充分的孤立措辞不无限占槽。WAL未满足零副作用前生产NO-GO。
 
 旧15档4475件、336快照身份逐字节保全，18历史污染来源是336子集。本批原RED、前提失误、全部真实上下文/提交/结果及独立审计按来源身份＋SHA封存，不混代或覆盖旧报告。11文件代码与5文档相邻分笔、普通main推送和冻结字节一致性见[批汇总](../../eval/parallel_selected_summary_hmc_repair_pairing_representative_20261029.md)及[人工审计](../../eval/parallel_selected_summary_hmc_repair_pairing_representative_20261029_manual_audit.md)的publication收据；收据不授完整验收通过。
+
+## 315. 调查引用状态一致性与只读登记负向验收（2026-10-30 UTC，main）
+
+### 315.1 核账与参考发现
+
+本地2026-10-29目录、正式UTC终态2026-10-30，保原收据日期。基线f5ed02252e46b6b4a39965817cc7957f078d9260，在main继续；79唯一＝26已交付＋53开放，18类，状态18部分／29待实施／3待验收／2验收中／1持续。**完整能力新增0、有界子能力1组，稳定父项不销账。** B是既有负控轮换，不重复计入完整交付。
+
+参考core/llm_contract.py的簇/代表/字段适用域与core/batch/closure/merge.py消费前校验：应统一来源身份复验，但不能把同一行的地址正确性当成自由解释正确性。参考的数字扫描、容差和自由文本重复门不适用于本项目的权限合同，不照搬。业务线索和合法计算即使没有原生行引用也应保留，不能因其它单元有引用就借权。
+
+### 315.2 公开反例与有界修复
+
+公开TraceQuery→EmitInvestigationComplete→实际Extract和Finalize INIT复现同一当前行在Extract被固定标为未验证，而Finalize认可当前地址。Extract改用已有私有source/query/table/row检查；共享预览每单元发布current_exact_rows、unverified_address或no_native_row_address。状态随原JSON/边界整单元预算，旧前缀、七单元容量、独立业务/计算/阴性文本保留；源变代或JSON恢复不得恢复私有权限。不新增schema、不猜support_refs、不扫描问答硬门，不修改Trace因果/自动补齐或原图关系门。
+
+原RED exit1保留，早期GREEN与最终追加覆盖分别计数。最终定向14顶层/41子例，相关75/259，race35/106，原等待身份/图重选/业务顺序三针通过；新4顶层/7子例与旧HMC303、HMC280原断言均在全仓通过。唯一冻结全仓真实正常exit0：98包PASS／12无测试，28542顶层／33834子例PASS，43/14 SKIP，零FAIL/非JSON/重复/未结束。既有真实PCAP opt-in跳过不冒新实采通过，§310扩大race失败不回签。
+
+### 315.3 两例真实结果及状态/交接边界
+
+冻结7510仓库／124外部／16仓外快照，SHA30a8faf08f0352277c7237f3ea2ba6c27c6ef6436587e187ff66e4228bacc94d，冻后源码/测试/注释/helper停写。唯一标准CLI和独立测试二进制同源；两例各一次，A原15步自然Trace、B原缺来源终态负控。实际最大请求交集8.441秒；A31请求/31响应中18唯一对＋1个13/13歧义组，B2对，歧义不猜配。全部正式进程exit0不等于案例PASS。
+
+A机器FAIL degraded_answer_checks_skipped:1、完整人工FAIL。最终恢复稿保受信原生两线程状态表、投影、31/35、50/52、合法2ms与47背景，完成1.040000和唤醒1.040010本轮分开。未验图隔离后0 Mermaid，不能称原题图义务已完成；正文“50ms减5ms其余44ms”漏1ms就绪，当前调查advisory的起点/阻塞解释冲突也继续留账。原生完整worker运行段4.490ms与止于唤醒main的3.990ms不是同一端点口径。
+
+本轮typed native_refs第一次拒绝、修正后受理；随后3次legacy完成受理，现有直接完成/fork合入均有h=nil退役旧交接合同。最终3份logged INIT无native_reference_status，新显示分支自然NOT_TRIGGERED，不能写未提交/全拒或已经自然验收；原地址校验已经触发。没有逐fork私有状态快照，不冒称定位唯一对象的退役时刻。设计上防旧权限的退役有意图，应先公开复现多生产者适用范围，再决定如何保当前事实；不得简单保留全部旧摘要。
+
+图1完整草稿＋5patch：3次opaque主体ref错配、1次新增未授权边均未staged，最后merged已staged但仍失败。模型确有按ref顺序猜主体；当前schema枚举与另一处typed delta的精确映射交接是泛化改进线索，不是正确身份被拒或全部合法路线失效的证明。首次估计148151/200000 tokens，末轮732076/800000 bytes触及91.5%保护；不能把日志估计当实际计费量或仅凭体积归因语义错误。冻结后不改源码、不第三例追绿。
+
+B原测试及限定人工PASS：真实planner2请求、原测试源码完整读取、零变更登记，独立新进程公共RunTests取得新原断言见证。旧1结果/2命令/0登记凭证，本轮1/2/1；来源只有apply、无controller verify/Completion，proof verified但整体unverified/missing_terminal_verify_verdict。真正WriteFinalReport与当前内容地址report同代，父/子各4原件/1attempt/1link、8副本bytes/SHA一致，历史不覆盖。不是自然controller/full CLI/context-pack全能力验收；辅助参数索引空而原日志有3调用的旧18.4采集欠项保留。
+
+### 315.4 下一ROI、未销账与发布
+
+优先16.4/18.2多生产者完成→当前原生事实/解释的精确生命周期；其次12.5/18.2/18.4主体身份与局部关系修补的同源导航/共享预算；各自先立公开对偶，保现有合法退役、精确身份、因果和局部权限。完整能力槽轮换11.2代表规格自然入口，17.6有新真实格式/宿主材料才扩。新状态与显式重选自然覆盖、旧采样/IO/权限未触发、扩大race和采集欠项继续原ID，不因孤立措辞无限追跑。WAL未满足零副作用前生产NO-GO。
+
+旧16档4949件/7025591024字节、359快照身份保真，18历史污染为其中子集。A97/B29明确索引原件全部hash一致；A13截断locator与1缺memory路径不猜补，不冒所有日志旁路已恢复。原题/失败/提交/上下文/最终MD与HTML源码、原生payload、正式收据及独立审计封存。三代码文件与五文档相邻分笔、普通main推送及同代字节检查见[批汇总](../../eval/parallel_selected_summary_hmc_temporal_registration_20261029.md)、[人工审计](../../eval/parallel_selected_summary_hmc_temporal_registration_20261029_manual_audit.md)和本批publication；发布完整性不改A失败或53开放。
