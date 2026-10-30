@@ -8,6 +8,9 @@ import "encoding/json"
 type TraceQueryWindowReplayRef struct {
 	source TraceQuerySourceReadRef
 	params string
+	// One-shot producer census, after final source decoration. It grants only
+	// current projected-row identity, independently of replay/navigation.
+	currentRows *runtimeCurrentQueryCensus
 	// Independent navigation does not grant physical reads or change the
 	// original replay contract (which may change only window endpoints).
 	nativeNavigation *traceIntervalNavigation

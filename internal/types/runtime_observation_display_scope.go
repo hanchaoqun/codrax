@@ -41,8 +41,9 @@ func RuntimeArtifactDisplayScopeForOriginal(requested *RuntimeArtifactScopeProfi
 // A copied/cropped ledger retains the receipts; JSON and new hand-built rows
 // cannot reconstruct them. Each use rechecks the receiving run and source.
 type RuntimeObservationDisplayScopes struct {
-	input   ObservationLedgerInput
-	queries map[runtimeDisplayQueryKey]ToolResult
+	input       ObservationLedgerInput
+	queries     map[runtimeDisplayQueryKey]ToolResult
+	currentRows map[runtimeDisplayQueryKey]runtimeCurrentQueryPopulation
 }
 
 type runtimeDisplayQueryKey string
@@ -65,12 +66,20 @@ func runtimeDisplayKey(source ObservationSourceRef) runtimeDisplayQueryKey {
 }
 
 func BuildRuntimeObservationDisplayScopes(input ObservationLedgerInput) *RuntimeObservationDisplayScopes {
-	if input.RequestModel == nil || input.RequestModel.RuntimeArtifactScopeProfile == nil || input.RequestModel.RuntimeArtifactScopeProfile.Comparison == nil {
+	comparison := input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil && input.RequestModel.RuntimeArtifactScopeProfile.Comparison != nil
+	currentRows := input.RequestModel != nil && input.RequestModel.DiagramHint != nil && input.RequestModel.DiagramHint.Required
+	if !comparison && !currentRows {
 		return nil
 	}
 	// Keep only the consumer and source-path context, not entire result bodies.
 	index := &RuntimeObservationDisplayScopes{input: ObservationLedgerInput{runtimeMeasurementPairConsumer: input.runtimeMeasurementPairConsumer,
 		RequestModel: input.RequestModel, RepoRoot: input.RepoRoot}, queries: map[runtimeDisplayQueryKey]ToolResult{}}
+	if currentRows {
+		index.currentRows = buildRuntimeCurrentQueryPopulations(input)
+	}
+	if !comparison {
+		return index
+	}
 	for _, group := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range group {
 			if !result.Success || result.ToolName != "trace_query" || result.ReusedFromRunMemo {

@@ -329,6 +329,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		traceQueryFinalizeMeasurementSources(&out)
 		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.StampRuntimeCurrentQueryPopulation(&out)
 			ctx.Mutable.StampTraceEventSelectionAcquisition(sourceRead, &out, eventSelectionParams)
 		}
 		traceCatalogFinishQuery(ctx, catalogTickets, &out, executeErr)

@@ -65,7 +65,7 @@ func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span traceq
 		}, Notes: []string{
 			"来源：" + r.SourceRef.Path,
 			fmt.Sprintf("查询窗口 [%s, %s) 秒；表中数值仅属于该业务区间，不能用整个查询窗口的线程统计替代。", traceQueryDisplaySeconds(start), traceQueryDisplaySeconds(end)),
-			"各业务独立计量，不能跨嵌套业务相加；调度状态不证明等待机制、唤醒依赖或响应根因，睡眠中的IO等待标记不是额外加项。",
+			"本表为含子层的总区间量测，不能跨嵌套业务相加以免重复计量；此限制不适用于已扣除子区间的自身分段，后者须按同源、同线程、同窗同单位及已证互斥范围另计，省略或未知不能补零或外推全集。调度状态不证明等待机制、唤醒依赖或响应根因，睡眠中的IO等待标记不是额外加项。",
 		}}
 	if span.ActualEndTs > span.ActualStartTs {
 		table.Notes = append(table.Notes, fmt.Sprintf("原始配对业务区间 [%s, %s) 秒，完整耗时 %s ms；裁切时不把完整耗时计入当前业务区间。", traceQueryDisplaySeconds(span.ActualStartTs), traceQueryDisplaySeconds(span.ActualEndTs), strconv.FormatFloat(span.ActualDurationMs, 'g', 9, 64)))

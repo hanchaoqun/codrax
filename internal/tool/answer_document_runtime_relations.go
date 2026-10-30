@@ -28,6 +28,7 @@ type RuntimeDiagramRelation struct {
 	// provider-validated event may populate this private carrier.
 	eventOrder                 *runtimeDiagramEventOrder
 	threadEndpoints            *runtimeDiagramThreadEndpoints
+	businessEndpoints          *runtimeDiagramBusinessEndpoints
 	requestedFrom, requestedTo []string
 }
 
@@ -41,9 +42,12 @@ func runtimeDiagramHasNamedBoundedTarget(rm *types.RequestModel) bool {
 	return types.RuntimeDiagramHasNamedBoundedTarget(rm)
 }
 
-type businessTreeDiagramRelationProvider struct{}
+type businessTreeDiagramRelationProvider struct {
+	request      *types.RequestModel
+	filterTarget bool
+}
 
-func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLedger) []RuntimeDiagramRelation {
+func (provider businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLedger) []RuntimeDiagramRelation {
 	type instance struct {
 		fact   TraceBusinessTreeFact
 		record types.ObservationRecord
@@ -51,6 +55,8 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 	}
 	nodes := map[string]instance{}
 	ambiguous := map[string]bool{}
+	populations := map[string][]types.ObservationRecord{}
+	populationFacts := map[string]map[string]TraceBusinessTreeFact{}
 	for _, record := range ledger.Records {
 		fact, ok := DecodeTraceBusinessTreeFact(record)
 		if !ok || record.Negative {
@@ -62,11 +68,28 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 			continue
 		}
 		key := runtimeBusinessInstanceKey(record, fact, fact.Node.ID)
+		scope := requestedRuntimeParticipantScope(record.SourceRef)
+		populations[scope] = append(populations[scope], record)
+		if populationFacts[scope] == nil {
+			populationFacts[scope] = map[string]TraceBusinessTreeFact{}
+		}
+		populationFacts[scope][key] = fact
 		data, _ := json.Marshal(fact)
 		if prior, exists := nodes[key]; exists && prior.bytes != string(data) {
 			ambiguous[key] = true
 		}
 		nodes[key] = instance{fact, record, string(data)}
+	}
+	// Check complete, current query populations before target filtering. A
+	// same-name isolated root must participate in ambiguity checks too.
+	complete := map[string]bool{}
+	for scope, records := range populations {
+		facts := populationFacts[scope]
+		valid := ledger.CurrentRuntimeQueryPopulation(records[0].SourceRef, types.TraceBusinessTreePredicate, records)
+		for key, fact := range facts {
+			valid = valid && !ambiguous[key] && fact.Coverage == "observed_stream" && fact.OmittedNodes == 0 && fact.NodeCount == len(facts)
+		}
+		complete[scope] = valid
 	}
 	var out []RuntimeDiagramRelation
 	for key, child := range nodes {
@@ -80,6 +103,9 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 			continue
 		}
 		p := parent.fact.Node
+		if provider.filterTarget && (!types.ObservationRecordMatchesUserRuntimeTarget(child.record, provider.request) || !types.ObservationRecordMatchesUserRuntimeTarget(parent.record, provider.request)) {
+			continue
+		}
 		// Reject internally inconsistent ancestry even if individual rows decode.
 		// Open parents retain observed nesting but never acquire elapsed time.
 		if p.DirectChildCount < 1 || p.StartLine >= n.StartLine || p.ActualStartTs > n.ActualStartTs ||
@@ -89,6 +115,11 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 			(p.ActualEndTs != nil && n.ActualEndTs != nil && *n.ActualEndTs > *p.ActualEndTs) {
 			continue
 		}
+		var endpoints *runtimeDiagramBusinessEndpoints
+		scope := requestedRuntimeParticipantScope(child.record.SourceRef)
+		if complete[scope] {
+			endpoints = &runtimeDiagramBusinessEndpoints{source: child.record.SourceRef, instances: populationFacts[scope], from: parentKey, to: key}
+		}
 		out = append(out, RuntimeDiagramRelation{Kind: types.DiagramRelContain,
 			FromIdentity: parentKey, ToIdentity: key,
 			FromNode: runtimeDiagramNode(parentKey), ToNode: runtimeDiagramNode(key),
@@ -96,7 +127,8 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 			ScopeLabel: fmt.Sprintf("线程=%q；物理源=%q；%s；父起点=%s；子起点=%s",
 				traceThreadLabel(n.Thread), n.SourcePath, TraceBusinessTreeWindowText(child.fact),
 				runtimeBusinessStartLabel(parent.record, parent.fact), runtimeBusinessStartLabel(child.record, child.fact)),
-			SupportRefs: append(append([]string(nil), parent.record.SupportRefs...), child.record.SupportRefs...),
+			SupportRefs:       append(append([]string(nil), parent.record.SupportRefs...), child.record.SupportRefs...),
+			businessEndpoints: endpoints,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -155,6 +187,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 	}
 	wakeupRows := (wakeupDiagramRelationProvider{request: rm}).Relations(ledger)
 	transactionRows := (transactionDiagramRelationProvider{request: rm}).Relations(ledger)
+	filterBusinessTarget := false
 	if rm != nil && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
 		!rm.RuntimeQuestionProfile.RequestsFactFamily(types.RuntimeQuestionFactOtherObservedValue) {
 		named := false
@@ -165,17 +198,12 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 			}
 		}
 		if named {
-			filtered := make([]types.ObservationRecord, 0, len(ledger.Records))
-			for _, r := range ledger.Records {
-				if types.ObservationRecordMatchesUserRuntimeTarget(r, rm) {
-					filtered = append(filtered, r)
-				}
-			}
-			ledger.Records = filtered
+			filterBusinessTarget = true
 		}
 	}
-	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{}
-	return bindRequestedRuntimeParticipants(append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...), rm)
+	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{request: rm, filterTarget: filterBusinessTarget}
+	rows := bindRequestedRuntimeParticipants(append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...), rm)
+	return bindRequestedBusinessParticipants(rows, rm)
 }
 
 func runtimeDiagramRelationsForContext(ctx *types.BusContext) []RuntimeDiagramRelation {
@@ -310,7 +338,7 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	}
 	const limit = 8
 	var b strings.Builder
-	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Exact producer node IDs receive the endpoint names below when their display label is omitted or still equals that ID; an authored business alias is preserved. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
+	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Exact producer node IDs receive the endpoint names below when their display label is omitted or still equals that ID; an authored business alias is preserved. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. For synchronous business elapsed-time accounting, do not add overlapping inclusive (child-including) durations. Proven mutually disjoint self segments, or their same-state intersections, may be added only with the same source, thread, query range and unit; a subtotal covers only participating measured segments, never omitted or unknown parts. This concerns elapsed time, not sample weights or a new causal permission.\n")
 	if runtimeDiagramRowsHaveObservedThreadLanes(rows) {
 		b.WriteString(runtimeDiagramUnmappedParticipantTeaching(authority, rm))
 		b.WriteString("During a local repair, a published from_native_participant/to_native_participant choice binds the selected event side to an existing declared sequence node, preserving that node's state notes. This explicitly selected native binding never follows a label match and cannot merge different producer lanes. An ensure_visible choice may relabel one existing declaration; it does not prove an unresolved business role.\n")
@@ -326,7 +354,7 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		}{{row.FromNode, row.requestedFrom}, {row.ToNode, row.requestedTo}} {
 			for _, participant := range side.participants {
 				binding, _ := json.Marshal(map[string]string{"participant": participant, "native_node": side.node})
-				fmt.Fprintf(&b, "  requested_participant_binding=%s; this exact selected thread satisfies the requested identity; keep the native node/instance anchors with a readable label, not a second unproven role lane. This does not grant a causal claim.\n", binding)
+				fmt.Fprintf(&b, "  requested_participant_binding=%s; this exact selected native instance satisfies the requested identity; keep the native node/instance anchors with a readable label, not a second unproven role lane. This does not grant a causal claim.\n", binding)
 			}
 		}
 	}

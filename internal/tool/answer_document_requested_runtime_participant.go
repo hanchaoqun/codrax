@@ -15,6 +15,106 @@ type runtimeDiagramThreadEndpoints struct {
 	from, to types.RuntimeWakeupThread
 }
 
+// Private provider-owned inventory, separate from a scheduling thread. The
+// source/query/instance coordinates remain in the existing exact edge IDs.
+type runtimeDiagramBusinessEndpoints struct {
+	source    types.ObservationSourceRef
+	instances map[string]TraceBusinessTreeFact
+	from, to  string
+}
+
+func requestedBusinessParticipantThread(rm *types.RequestModel) (int, bool) {
+	if rm == nil || rm.RuntimeTargetProfile == nil || rm.RuntimeTargetProfile.Declaration != types.RuntimeTargetDeclarationNamedTarget {
+		return 0, false
+	}
+	var selected []types.RuntimeTarget
+	for _, target := range rm.RuntimeTargets {
+		if target.Source == "user_explicit" {
+			selected = append(selected, target)
+		}
+	}
+	if len(selected) != 1 || selected[0].Kind != types.RuntimeTargetKindThread || selected[0].PID <= 0 || selected[0].PID > types.RuntimeTargetMaxPID || !runtimeTargetIdentityInQuote(selected[0], rm.RuntimeTargetProfile.SourceQuote) {
+		return 0, false
+	}
+	return selected[0].PID, true
+}
+
+func bindRequestedBusinessParticipants(rows []RuntimeDiagramRelation, rm *types.RequestModel) []RuntimeDiagramRelation {
+	if rm == nil || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return rows
+	}
+	tid, ok := requestedBusinessParticipantThread(rm)
+	if !ok {
+		return rows
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(participant.Identity) == "" || !entityNamedInQuote(participant.SourceQuote, participant.Identity) {
+			continue
+		}
+		selected := map[string]string{}
+		physical := map[string]bool{}
+		seenScopes := map[string]bool{}
+		for _, row := range rows {
+			e := row.businessEndpoints
+			if e == nil {
+				continue
+			}
+			scope := requestedRuntimeParticipantScope(e.source)
+			if seenScopes[scope] {
+				continue
+			}
+			seenScopes[scope] = true
+			matches := 0
+			threadIdentity := ""
+			threadAmbiguous := false
+			for identity, fact := range e.instances {
+				if fact.Node.Thread.PID != tid {
+					continue
+				}
+				threadBytes, _ := json.Marshal(fact.Node.Thread)
+				if threadIdentity != "" && threadIdentity != string(threadBytes) {
+					threadAmbiguous = true
+				}
+				threadIdentity = string(threadBytes)
+				if fact.Node.Name != participant.Identity {
+					continue
+				}
+				matches++
+				selected[scope] = identity
+				// Query publications remain separate. Only one exact physical
+				// instance may own the requested participant across those scopes.
+				instance, _ := json.Marshal(struct {
+					Source, ID, Thread string
+					StartLine, EndLine int
+					Start              float64
+					End                *float64
+				}{fact.Node.SourcePath, fact.Node.ID, threadIdentity, fact.Node.StartLine, fact.Node.EndLine, fact.Node.ActualStartTs, fact.Node.ActualEndTs})
+				physical[string(instance)] = true
+			}
+			if matches != 1 || threadAmbiguous {
+				delete(selected, scope)
+			}
+		}
+		if len(physical) != 1 {
+			continue
+		}
+		for i := range rows {
+			e := rows[i].businessEndpoints
+			if e == nil {
+				continue
+			}
+			identity := selected[requestedRuntimeParticipantScope(e.source)]
+			if identity != "" && identity == e.from {
+				rows[i].requestedFrom = append(rows[i].requestedFrom, participant.Identity)
+			}
+			if identity != "" && identity == e.to {
+				rows[i].requestedTo = append(rows[i].requestedTo, participant.Identity)
+			}
+		}
+	}
+	return rows
+}
+
 // Reconcile an exact accepted request phrase with its independently validated
 // numeric selector. Identity membership reuses the analyzer's exact lexical
 // provenance predicate on that typed quote, never a scan of raw question or
