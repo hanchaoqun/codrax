@@ -32,7 +32,11 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 	fmt.Fprintf(&b, "- lifecycle rationale only (not an answer conclusion or evidence): %s\n", truncateExtractorPromptText(sanitizeExtractorStageHandoffText(reason), limit))
 	refs, _ := json.Marshal(h.RuntimeMeasurements)
 	fmt.Fprintf(&b, "- Native measurement references (rebind current observations; these do not certify publication, completeness or causality): %s\n", refs)
-	preview := previewInvestigationInterpretation(h, 900, func(s string) string {
+	// Address freshness and prompt publication are separate contracts. Use the
+	// same private source/query/table check as finalization; extraction's lack
+	// of a publication receipt must not turn a current address into an unverified one.
+	nativeReferencesCurrent := types.InvestigationNativeRowReferencesCurrent(h, view.RuntimeMeasurementContract)
+	preview := previewInvestigationInterpretationWithNativeReferences(h, 900, func(s string) string {
 		s = sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, s, facts))
 		if len(h.InterpretationUnits) == 0 {
 			// Legacy prose retains stage-navigation formatting. Structured
@@ -42,7 +46,7 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 			s = sanitizeExtractorStageHandoffText(s)
 		}
 		return s
-	})
+	}, nativeReferencesCurrent)
 	if preview.text != "" {
 		fmt.Fprintf(&b, "- Independent interpretation (model-authored advisory; typed evidence remains authoritative): %s\n", preview.text)
 	}

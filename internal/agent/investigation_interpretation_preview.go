@@ -39,13 +39,21 @@ func previewInvestigationInterpretationWithNativeReferences(h *types.Investigati
 		}
 		for i, unit := range h.InterpretationUnits {
 			raw, _ := json.Marshal(unit)
-			part := fmt.Sprintf("- unit[%d]: %s\n\n", i, raw)
+			// A current handoff selector does not bind an unreferenced unit.
+			// Keep this status in the atomic unit, not in a shared header that
+			// could lend another unit's source identity to independent reasoning.
+			status := "no_native_row_address"
 			if len(unit.NativeRefs) > 0 {
-				status := "unverified_address"
+				status = "unverified_address"
 				if nativeReferencesCurrent {
 					status = "current_exact_rows"
 				}
+			}
+			part := fmt.Sprintf("- unit[%d]: %s\n\n", i, raw)
+			if len(unit.NativeRefs) > 0 {
 				part += "  native_reference_status=" + status + "; references only the original table rows and that selector's source/query/notes. Address validation does not validate text, arithmetic, causality or diagram notes, and does not certify row publication.\n\n"
+			} else {
+				part += "  native_reference_status=" + status + "\n\n"
 			}
 			parts = append(parts, part)
 			unchanged := unchangedContent(unit.Text)
