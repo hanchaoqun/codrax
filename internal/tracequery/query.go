@@ -8719,6 +8719,13 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 	}
 	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visitChurn)
 	endTs := q.TimeEnd
+	// Only a full index's LastTs can be its proven physical-EOF bound. A
+	// windowed index retains local timestamp bounds, even with a whole-file
+	// monotonicity proof. Keep its existing behavior until physical source
+	// coverage is carried independently; never clip to its last selected row.
+	if !idx.Windowed {
+		endTs, _ = schedulerMeasuredTimeEnd(idx, q)
+	}
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
 	}
