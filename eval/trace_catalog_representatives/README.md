@@ -94,12 +94,21 @@ The real acceptance must separately inspect:
 ## Structured post-run smoke audit
 
 Use the exact `saved_index`, `selection_snapshot`, and
-`selection_snapshot_sha256` returned together by the final successful
-`trace_catalog` result for `status` or `representative_status`. Both actions
-publish the same-generation pair when this run has a selection; a particular
-action name is not an additional acceptance requirement. The selection snapshot is
-separate from the ordinary catalog; it is navigation-only and cannot restore
-execution authority. Do not choose files by timestamp or manufacture a mirror.
+`selection_snapshot_sha256` returned together by either the final successful
+`trace_catalog` result for `status` or `representative_status`, or the current
+run's unique production terminal receipt logged as
+`[agent/terminal_representatives] receipt=...` with
+`kind=trace_representative_delivery/v1` and `status=published`. The terminal
+receipt is an equivalent same-generation delivery source after the exploration
+branches have joined; it does not require an additional model `status` call.
+Take the whole tuple from one original successful result or receipt, never
+combine generations or reconstruct it from model prose, a mutable latest alias,
+timestamps, or a later audit query. A missing, failed or ambiguous terminal
+receipt does not supply a valid tuple. This only identifies the audit inputs;
+all existing source, selection, execution and human acceptance checks below
+remain unchanged. The selection snapshot is separate from the ordinary catalog;
+it is navigation-only and cannot restore execution authority. Do not manufacture
+a mirror.
 
 ```sh
 SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \

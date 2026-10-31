@@ -37,11 +37,15 @@ func traceQueryDiscoveredSpanMeasurementPublications(result tracequery.Result, r
 			continue
 		}
 		for _, span := range result.SpanWindows {
-			if span.Name != r.Object || traceThreadLabel(span.Thread) != r.Subject || span.SourcePath != r.SourceRef.Path ||
+			if span.Name != r.Object || traceThreadLabel(span.Thread) != r.Subject ||
 				span.StartTs != r.Span.StartTs || span.EndTs != r.Span.EndTs || span.StartLine != r.Span.LineStart || span.EndLine != r.Span.LineEnd {
 				continue
 			}
-			if note := traceQueryDiscoveredSpanMeasurementReceipt(*r, span, queries...); note != "" {
+			physical, ok := traceQueryDiscoveredSpanPhysicalSource(result, *r, span)
+			if !ok {
+				continue
+			}
+			if note := traceQueryDiscoveredSpanMeasurementReceipt(*r, span, physical, queries...); note != "" {
 				r.RichNotes = append(r.RichNotes, note)
 				start, end, _ := types.TraceObservationContinuousQueryWindow(r.SourceRef)
 				*r = types.PublishRuntimeMeasurementQueryWindow(*r, start, end, false)
@@ -52,7 +56,40 @@ func traceQueryDiscoveredSpanMeasurementPublications(result tracequery.Result, r
 	return records
 }
 
-func traceQueryDiscoveredSpanMeasurementReceipt(r types.ObservationRecord, span tracequery.TraceSpanSummary, queries ...tracequery.Query) string {
+// Query identity remains the capture/index. Pair coordinates belong to one
+// physical member, even when two members contain identical bytes. Reuse the
+// native reversible mapping; a partial intersection is not a complete pair.
+// This qualifies measured facts only, not cross-capture scheduler identity.
+func traceQueryDiscoveredSpanPhysicalSource(result tracequery.Result, r types.ObservationRecord, span tracequery.TraceSpanSummary) (tracequery.TraceArtifactSpan, bool) {
+	if r.SourceRef.Path != result.SourcePath || span.SourcePath == "" {
+		return tracequery.TraceArtifactSpan{}, false
+	}
+	mapped := result.ResolveArtifactSpans(r.Span.LineStart, r.Span.LineEnd)
+	if len(result.TraceArtifacts) == 0 && span.SourcePath == r.SourceRef.Path {
+		// Preserve ordinary single-source results without an artifact map.
+		mapped = []tracequery.TraceArtifactSpan{{SourcePath: span.SourcePath,
+			LocalLineStart: r.Span.LineStart, LocalLineEnd: r.Span.LineEnd,
+			VirtualLineStart: r.Span.LineStart, VirtualLineEnd: r.Span.LineEnd}}
+	}
+	if len(mapped) != 1 {
+		return tracequery.TraceArtifactSpan{}, false
+	}
+	physical := mapped[0]
+	if physical.SourcePath != span.SourcePath || physical.VirtualLineStart != r.Span.LineStart ||
+		physical.VirtualLineEnd != r.Span.LineEnd || physical.LocalLineStart <= 0 || physical.LocalLineEnd < physical.LocalLineStart {
+		return tracequery.TraceArtifactSpan{}, false
+	}
+	support := fmt.Sprintf("%s:%d", physical.SourcePath, physical.LocalLineStart)
+	if physical.LocalLineEnd != physical.LocalLineStart {
+		support += fmt.Sprintf("-%d", physical.LocalLineEnd)
+	}
+	if len(r.SupportRefs) != 1 || r.SupportRefs[0] != support {
+		return tracequery.TraceArtifactSpan{}, false
+	}
+	return physical, true
+}
+
+func traceQueryDiscoveredSpanMeasurementReceipt(r types.ObservationRecord, span tracequery.TraceSpanSummary, physical tracequery.TraceArtifactSpan, queries ...tracequery.Query) string {
 	start, end, known := types.TraceObservationContinuousQueryWindow(r.SourceRef)
 	if !known || span.StartTs < start || span.EndTs > end || span.EndTs <= span.StartTs {
 		return ""
@@ -68,10 +105,13 @@ func traceQueryDiscoveredSpanMeasurementReceipt(r types.ObservationRecord, span 
 			{"业务区间开始（秒，含）", traceQueryDisplaySeconds(span.StartTs)}, {"业务区间结束（秒，不含）", traceQueryDisplaySeconds(span.EndTs)},
 			{"已配对业务耗时（ms）", strconv.FormatFloat(span.DurationMs, 'g', 9, 64)},
 		}, Notes: []string{
-			"来源：" + r.SourceRef.Path,
-			fmt.Sprintf("本次定位结果覆盖 [%s, %s) 秒；配对行 %d–%d。查找范围用于选择相交业务，完整配对区间可以超出查找范围，不是仅在原始筛选窗内裁切后的量测。", traceQueryDisplaySeconds(start), traceQueryDisplaySeconds(end), span.StartLine, span.EndLine),
+			"来源：" + physical.SourcePath,
+			fmt.Sprintf("本次定位结果覆盖 [%s, %s) 秒；配对行 %d–%d。查找范围用于选择相交业务，完整配对区间可以超出查找范围，不是仅在原始筛选窗内裁切后的量测。", traceQueryDisplaySeconds(start), traceQueryDisplaySeconds(end), physical.LocalLineStart, physical.LocalLineEnd),
 			"本表仅证明已配对的业务区间及其耗时；未查询自身分段和调度状态，不是零，不能把墙钟耗时当CPU执行、等待机制或根因贡献。不同嵌套区间可能重叠，不能将其总量直接相加。",
 		}}
+	if physical.SourcePath != r.SourceRef.Path {
+		table.Notes = append(table.Notes, "查询入口："+r.SourceRef.Path+"；上面的来源和配对行属于实际成员文件，不是清单文件的行号。")
+	}
 	if len(queries) > 0 {
 		q := queries[0]
 		if (q.TimeStartSet || q.TimeStart > 0) && (q.TimeEndSet || q.TimeEnd > 0) && q.TimeEnd > q.TimeStart {
