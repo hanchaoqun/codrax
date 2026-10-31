@@ -1714,6 +1714,14 @@ HMC §323–324将业务账户展示预算与状态分类含义分开处理。�
 
 本代发现两个应先于措辞调优处理的P0接缝。代表查询的Complete与Save(false)只持久化可变alias和同run执行union，不生成执行后的不可变index/selection/SHA；成文目录从当前Mutable取得正确8计划/4尝试/3success+1empty/4未执行及完整选中/未选名册，却没有fresh publication身份。不能解释为模型拿到终态凭证后遗漏，也不可在审计时读latest补签；后继应在确定性终态交付边界复用受信Publication的同代原子单元，status保留分页而非必需模型记忆动作。真实业务树producer将3718/460/1548节点按起始行只发前32，两个主要child self21.605/83.143确未产出；另一原生span_window已发login总量46.600和完整名，但3实际INIT未带账户。受理调查正确unit[1]未投递（仅[0]/5、省略4531B）不授模型aggregate原生权限；没有Mutable快照就不扩大归因为整ToolResult留存丢失。实收2211时序行/312业务字段0错配不替代目标完整产出，21个有标签的其它线程背景表是噪声、不伪称因果越权。A/B完整人工均FAIL、B终态入口NOT_TRIGGERED；已充分给出的D互斥/自段数/父子时点/self列误述留账，旧父账户窄窗问题本轮已有明确限定，不重挂同错。552件index SHA ba1e205759df90d3ebf9d7124d7e8a3a8901c6f915083ce9cf8fda72e7c8ae7f保原件，79/27/52、closure=none；详见[§327实现与剩余范围](../eval/parallel_selected_summary_hmc_native_publication_compat_20261030.md)。
 
+§328–329补齐上述两个已证接缝，30文件实现81cc27c5f1f51ab6e83f606cbda251c4d126c5d7。业务树始终先完成完整节点/子并集/self/状态交集统计，再使用共享纯比较器：显式正物理TID时owner优先、有效闭合非负有限inclusive降序、稳定身份破同；没有精确TID保持旧行序，未知不补零。原32节点/16自段上限、全体与省略计数/拓扑不变。成文16账户lane仅在原唯一完整实例资格成立后复用排序，不扩大主目标、根因或完成资格。真实105元宝的后部主要child self21.605/83.143已进入原生结果与实际INIT，不用oracle回灌或扩预算。
+
+真实span_window的SpanWindows经与window_stats共用的原生行生成器进入普通事实发布，限CanonicalView=span_window，不把frame合成跨度混入；同步保原名、物理线程、起止行与完整配对区间。查找time_start/time_end独立于完整实例量测范围，查到相交实例不裁成查询窗口，也不凭空签半开端点。发布不造self、调度、CPU或semantic-work机制，不把被分类的marker名自动授根因；单条量测发布JSON的64KiB上限不限制原始Trace大小，原物理源/查询身份及下游严格校验不改。复合路径、多实例自然发现等未覆盖仍有账。
+
+代表终态在模型答案已选定、探索分支汇合后确定性调用受信Catalog生产入口。仅当前live selection可交付；同run全部已跟踪分支（含中间保存失败的真实尝试）先合并为独立view，不回灌fork；授权与全部原件Resolve在发布前后复核，执行digest在发布前后相等才签index/selection/SHA。失败/撤权/取消不发有效路径；已写出的不可变文件仅历史导航。run私有成功内容键允许同字节终态复用，不读latest JSON恢复权限、不反复改可变alias。宿主附加独立“抽样检查记录”并留typed INFO回执，不进入模型primary/principal或替诊断结论；选择、保存、交付不等于查询或分析完成。
+
+§328两例完整人工及唯一full失败均保原件；§329用ShallowClone修新夹具copylocks，独立精确逆变换登记业务树教学演进，旧SHA/负控不放宽，canonical golden仅按原入口更新。新代唯一full98包28674顶层34127子例PASS，冻后输入未改；§328旧失败不回签。§329sample-only原件/原生事实/目标自动补齐有限通过，unknown执行状态的正文误述仍FAIL且实际关键事实充分，不能归因丢失或错误reason重传。只读登记缺来源终态原混合负控限定PASS，当前proof不授source/整体完成；不冒fullCLI。3组产品子能力与完整能力0分开，79/27/52不变；旧9组及未覆盖保持，WAL生产NO-GO。详细边界与main交付见[§328失败代](../eval/parallel_selected_summary_hmc_terminal_business_publication_20261030.md)、[§329实现与验收](../eval/parallel_selected_summary_hmc_teaching_compat_binary_registration_20261031.md)。
+
 HMC §249把代表入口的前置计划字段直接投影自实际`TraceQuery.Parameters()`，仅排除逐采集不适用的source/path/business_span_ref/comparison/catalog_query_ref。模型schema要求显式view，保普通字段类型、枚举、边界与兼容元数据，短教学不复制整套查询说明；字段与顶层约束普查要求未来变更明确审查。零计划页只解释缺少的步骤，有计划页提供可选当前代表动作，不自动猜目标、选样或执行。同根补计划保原catalog/query/attempt身份；schema-bypassed直接Execute的旧兼容不因此收紧。
 
 来源域也不由文件所在位置决定：运行时调用位置、栈、路径和检查状态属于原生观测，只有另需当前实现证据时才声明source_location。当前源码仍可用，但不是所有外部观察的默认必需义务；明确源码、mixed、当前版本与显式排除规则保留。完成拒绝可显示已有typed mode/outcome和至多三条required source_location的索引/原句，便于定位错误声明；诊断不改分类、引用门或waiver，不扫描问答原文作硬门。
