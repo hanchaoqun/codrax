@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-31 UTC，§329）：79唯一＝27实现交付＋52开放，18类仍有开放项；最新ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)。本批完整能力新增0、closure=none，有界子能力3组，实现81cc27c5f1f51ab6e83f606cbda251c4d126c5d7。唯一full实际0、源前后未变，98包28674顶层34127子例PASS；本批sample-only完整人工FAIL／只读登记负控限定PASS。§328完整业务账户和代表同代终态已有真实有限进展，但原全仓7FAIL及两份完整人工FAIL保持，不倒签。当前406件和旧30代12103件保真；main代码/7文档交付由[publication](../../eval/results/hmc_teaching_compat_binary_registration_20261031_v1/publication-v1.json)确认。后继逐条核11.2原有限出口并统一原生账户/解释范围，已有充分事实的采样、IO、自段/父子和栈关系误述留账，不无限调单例。105元宝完整ftrace已实际用；100版抖音NOT_RUN，WAL生产NO-GO。交付、有限验收与整答分别记账。
+当前实施状态（2026-10-31 UTC，§330）：79唯一＝27实现交付＋52开放，18类仍有开放项；最新ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)。本批完整能力新增0、明确closure=none，有界子能力1项：组合输入的物理业务配对→原生量测→成文表，5文件实现d82037ac67286f34625f53cc0a6c5dc058d91aa8。唯一full实际0、源前后未变，98包28679顶层34146子例PASS。真实100版抖音完整235422121B ftrace已实际使用；两例完整人工均FAIL，原代表规格operator FAIL，11.2保持开放。主要账户/完整时序及同代代表交付的有限PASS保留，历史失败不回签。本代504件、旧31代12509件保真；main代码/5文档交付见[publication](../../eval/results/hmc_douyin_representative_scoped_delivery_20261031_v1/publication-v1.json)。后继优先结构化目标到查询规格、查询范围到解释绑定；充分事实后的措辞错误不无限追题。WAL零副作用前生产NO-GO，交付、有限验收与整答分别记账。
 
 ## 1. 范围、证据与结论口径
 
@@ -11505,3 +11505,33 @@ B缺来源终态原负控限定人工PASS：真实planner2请求、完整读入2
 406件封存index6c60219735778fefc898f8240051fe404bc89c146eb4c1bc20b71090048b51e1；旧30代12103件/748来源快照身份逐件核验。原件、失败与独立完整审计见[汇总](../../eval/parallel_selected_summary_hmc_teaching_compat_binary_registration_20261031.md)及[手审](../../eval/parallel_selected_summary_hmc_teaching_compat_binary_registration_20261031_manual_audit.md)。三组有界产品子能力可按本代代码/full交付，完整任务仍27/52，不把一组子能力当完整父项。main代码/7文档相邻交付由publication核验，§328仍不独立发布。
 
 后继双轨优先核11.2原有限出口与原生账户/解释的来源、查询、实例、范围和父子限定，避免无关栈误述无限阻塞代表能力。原9组债保留；单纯展示重复/内部字段是降噪候选而非本次核心事实缺失。全52项ROI分组7/7/11/21/6见本批精确名册；其它完整能力按真实材料和依赖推进。复合来源/多配对发现、h2/h3 live、lower-cost-full、其它格式平台、旧IO/权限/图覆盖均未签绿；100版抖音NOT_RUN。真实Donghu已用于实施和评测；WAL零副作用前生产NO-GO，Trace投影、闭合睡眠、原4候选和自动补齐不变。
+
+## 330. 物理成员业务量测与代表原合同复验（完整能力0，closure=none）
+
+本代main基线116b367b32a1c05781bf4b753602f217d49298ad，5文件实现d82037ac67286f34625f53cc0a6c5dc058d91aa8。稳定总账仍79/27/52。只交付1项有界子能力，不将自然两例的局部进展计为完整能力。
+
+### 330.1 已证共享缺口及泛化修复
+
+组合输入的查询SourceRef必须继续指向索引入口，而SpanWindows中的SourcePath是物理成员。旧span发布要求两者相等，导致两份有独立来源的组合输入共6个配对事实/2个查询均没有量测摘要。公开工具RED2实际复现，既有单源和组合window_stats未授调度的负控通过；RED1另含macOS路径别名夹具错误，原日志保留，修夹具不弱化断言。
+
+修复复用ResolveArtifactSpans：单一未隔离物理成员、完整虚拟区间覆盖、有效本地行及唯一精确SupportRef同时成立才发布。查询身份不换成物理成员；表中来源/行号取物理成员，组合入口另列。部分映射、跨成员/异源/陈旧不借权，single-source旧输出不变。此修复只发布已有业务量测，不赋self、调度、等待机制或因果资格，也不放宽组合window_stats的调度身份要求。公开正负4顶层19子例、实际finalizer/emit的6实例→6独立表、相邻与race通过；本代两自然例未触发复合配对分支，仍NOT_TRIGGERED。
+
+参考marker_ops的完整node_map、callid→线程实例、状态交集及closure/select的同规格/完整名册设计；实际取舍是保完整原生事实后有界展示，不复制直接子时长求和、未知补零或固定Top前缀。参考归档不是独立标尺，也不冒参考已有本项目的组合行映射。查询入口与物理成员分离复用本项目现有CMP来源合同，不另建执行内核。
+
+### 330.2 自然验收：充分事实与仍失败的解释分别记账
+
+A原100版抖音题15steps/n1，完整235422121B/1696481行原件，SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef。独立整数微秒标尺在审计侧计算1430账户（根+1429直接子），总669.351/self227.101/子并集442.250ms，header57874与marker PID10266不混同。真实9次成功查询回执对应4唯一载荷；实际3条INIT是同次成文system/user/user，16完整业务账户和各自状态/来源齐全，非三轮复验。最终1张16行阶段表的64量测格、6行状态表及2783行完整线程时序与原生同源保真，有限PASS。
+
+A完整人工FAIL：小Runnable被扩大为排除Running阶段算力供给效应；event_search5509/200且最终无事件表，却称已展示全部打点；正确0.634ms被概括小于0.6、“只有三处self占多数”与同表锁段全self矛盾。self墙钟混写执行风险保留，合法父子并集442.250和Running487.440不撤销。受理调查错误并非全部重传，实际只投递[0,2,3]/7；关键事实充分，不杜撰预算丢失。原生Runnable8.698/S170.924/D+IO2.289与独立标尺8.714/170.918/2.279相差16µs，定位同刻switch-out/wake的两段；跨CPU行序不能暗定真实先后，单列待验证政策边界，不在冻后修闭合睡眠。
+
+B原代表自然题50steps/n1，输入是两类完整构造SQLite的四份复制件，不冒四个实机捕获。实际8声明/两组选择均event_search，后补4个resource_stack；原operator严格要求resource_stack声明，唯一实际1：cluster specification or full membership differs。11.2有限原合同本代FAIL，不能以无关整答问题掩盖这个具体规格失败，也不放宽operator。通用选择/8完整名册/4未选、12当前记录/8实际尝试7success+1empty/4未执行，以及同一生产terminal的index ec55f086…/selection464b1420…/SHA有限PASS。额外资源查询合法，5资源事件/14源帧/原生分组保真，不反写原计划。
+
+B完整人工FAIL：原事件查询含10.050端点的5匹配，被附到半开窗标题；4保留成员是窗口投影，不是预算截断（excluded1/budget0）；空d202也被首段说成有堆入口；每来源2声明/1代表的计数被混写。实际INIT投递unit[0,1]/6，错误“统一窗口”确实重传；被拒/省略的其它强断言不冒已证污染。末尾同代交付正确，18张HTML/MD表内容一致、原生资源表及14帧保真，仍不能抵销手写表范围与正文错误。旧栈解释失败不单凭箭头倒灌为本次新失败。
+
+### 330.3 验证、原件与下一ROI
+
+最终定向5包204顶层/360子例PASS＋1可选SKIP，race4包40/58 PASS；唯一full实际0：98包PASS/12无测试包，28679顶层PASS/44SKIP、34146子例PASS/14SKIP，266268 GoJSON，三层FAIL/非JSON/重复/未终态均0。全仓PID69215、UTC08:03:53.685387至08:17:17.438425，log SHA675bcf395884f80a8a17593ad04d089168e45c4f285c947cd7525bac7c592ee3；source前后true。冻结7568输入/201外部/14仓外快照，SHA4593c34fd90bc9ebf78e597af5844fabb8c2b4183049abb32b1ae2c554ac0104；冻结后无源码/helper/输入改动。两例各一次，A原smoke PASS/B原operator FAIL；明确配对区间A6/B16，A另6歧义群组共34请求不猜配，最大可证重叠12.533秒。
+
+504件封存index111ec43148554d35614bab3c960f0297581a68c6fa4904abef65a312ca7c1523，旧31代12509件/790来源快照身份保真。原始失败、invalidUTF8日志、完整查询/INIT/输出及两份完整审计保留，原始大ftrace仅按完整身份引用；不让Go快照重新进入编译树。见[汇总](../../eval/parallel_selected_summary_hmc_douyin_representative_scoped_delivery_20261031.md)及[手审](../../eval/parallel_selected_summary_hmc_douyin_representative_scoped_delivery_20261031_manual_audit.md)。
+
+下一双轨为结构化目标→正确代表查询规格/声明/补查归属，以及查询身份/端点/总体/投影到解释和表图的同源绑定；只读登记负控、sample-only及IO原有限合同轮换，不加第三例追绿。16µs边界先独立复现，不放宽既有闭合睡眠断言；充分事实后的偶发误述暂留，不增加业务名特判。52项完整ROI名册仍7/7/11/21/6，旧9组债、复合自然分支、图/patch、h2/h3、lower-cost-full、更多平台/协议材料欠项不抹去；WAL生产NO-GO，Trace因果投影和自动补齐保留。
