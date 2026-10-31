@@ -162,6 +162,7 @@ func Run(idx *Index, q Query) Result {
 		strings.TrimSpace(q.ThreadInput) != "" ||
 		len(q.EventTypes) > 0
 	q = normalizeQuery(idx, q)
+	q = withSchedulerWakeCompletions(idx, q, 0, nil, false)
 	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
 		return eventFieldFilterInvalidResult(idx, q, err)
 	}
@@ -2199,6 +2200,7 @@ func schedulerArtifactTailCaveat(q Query, artifactEnd float64) string {
 }
 
 func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
+	q = withSchedulerWakeCompletions(idx, q, target.PID, eventIDs, useIndexedEvents)
 	res := TimelineResult{
 		Thread: target,
 		Window: queryResultTimeWindow(q),
@@ -2307,7 +2309,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 					res.Intervals = append(res.Intervals, iv)
 				}
 				if offOpen {
-					res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, ev.Ts, offLine, ev.Line, offState, offKnownState, nil)...)
+					res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, ev.Ts, offLine, ev.Line, offState, offKnownState, wake)...)
 				}
 				runningStart, runningOpen, runningCPUKnown = 0, false, false
 				offStart, offOpen = ev.Ts, true
@@ -2326,7 +2328,10 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				offLine, offKnownState, offState = ev.Line, StateRunnable, "R"
 				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
 			}
-			if offOpen && ev.Ts >= offStart {
+			// Match the off-CPU sweep and scheduler-head checkpoint: the
+			// first accepted wake transitions this off-CPU cycle to runnable.
+			// Later wake rows remain source evidence, not a new sleep boundary.
+			if offOpen && ev.Ts >= offStart && wake == nil {
 				copy := ev
 				wake = &copy
 			}
@@ -2550,7 +2555,7 @@ func enrichBlockedReasonIntervalsWithSelection(idx *Index, q Query, target Threa
 		// blocked_reason rows inside the interval remain valid (official
 		// Perfetto/Harmony shape); only the producer's +5us closing-side tail
 		// allowance requires a physical wake/switch closure.
-		match := matchBlockedReasonForWithSelectionAtClosure(idx, q, target, intervals[i].StartTs, intervals[i].EndTs, blockedReasonIDs, useIndexedEvents, intervals[i].EndLine > 0)
+		match := matchBlockedReasonForWithSelectionAtClosure(idx, q, target, intervals[i].StartTs, intervals[i].EndTs, blockedReasonIDs, useIndexedEvents, intervals[i].EndLine > 0, intervals[i].EndLine)
 		if match.Ambiguous {
 			ambiguousIntervals++
 			continue
@@ -2611,11 +2616,14 @@ func offCPUIntervalsFromState(thread ThreadRef, start, end float64, startLine, e
 	if knownState != "" {
 		state = knownState
 	}
-	if wake != nil && wake.Ts > start && wake.Ts < end && state != StateRunnable {
-		return []Interval{
-			makeInterval(thread, state, start, wake.Ts, startLine, wake.Line, prevState),
-			makeIntervalWithWake(thread, StateRunnable, wake.Ts, end, wake.Line, endLine, prevState, wake.Line),
+	if wake != nil && wake.Ts >= start && wake.Ts < end && state != StateRunnable {
+		intervals := make([]Interval, 0, 2)
+		// An accepted transition at the opening timestamp has no measured
+		// sleep duration. Do not manufacture a zero-width wait/closure row.
+		if wake.Ts > start {
+			intervals = append(intervals, makeInterval(thread, state, start, wake.Ts, startLine, wake.Line, prevState))
 		}
+		return append(intervals, makeIntervalWithWake(thread, StateRunnable, wake.Ts, end, wake.Line, endLine, prevState, wake.Line))
 	}
 	return []Interval{makeInterval(thread, state, start, end, startLine, endLine, prevState)}
 }
@@ -2769,6 +2777,7 @@ func threadMatches(ref ThreadRef, pid int, comm string) bool {
 
 func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	q = ensureQueryFlavor(idx, q)
+	q = withSchedulerWakeCompletions(idx, q, 0, nil, false)
 	if q.statsSweepProbe != nil {
 		// RSPA-HYG 件② test probe (§29.77 立案②): precise per-Run sweep count
 		// for the 单 Run 恰一次 sweep pin. nil in production — zero effect.
@@ -6045,6 +6054,7 @@ type offCPUStart struct {
 // map, so the off-CPU frequency context reads the SAME caliber as the busy
 // loop and the two faces cannot fork on donor-covered CPUs.
 func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc, identity *queryPIDIdentityFilter, concurrencyCollectors ...*schedulerConcurrencyCollector) offCPUStatsResult {
+	q = withSchedulerWakeCompletions(idx, q, 0, nil, false)
 	if idx == nil {
 		return offCPUStatsResult{}
 	}
@@ -6464,7 +6474,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line, offCPUMeasurementWakeClosure(ev))
 				case StateDSleep, StateIOWait:
-					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
+					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true, ev.Line); io {
 						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true, schedulerMeasurementSegment{
 							State: StateIOWait, Closure: offCPUMeasurementWakeClosure(ev), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
 						})
@@ -6513,7 +6523,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					case StateSSleep:
 						addDuration(sleep, start, ev.Ts, ev.Line, string(EventSchedSwitch))
 					case StateDSleep, StateIOWait:
-						if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
+						if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true, ev.Line); io {
 							addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true, schedulerMeasurementSegment{
 								State: StateIOWait, Closure: string(EventSchedSwitch), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
 							})
@@ -6675,7 +6685,7 @@ func offCPUDStateVerdict(start offCPUStart, endTs float64, blockedReasons map[in
 	return offCPUDStateVerdictForQuery(nil, start, endTs, blockedReasons, Query{}, true)
 }
 
-func offCPUDStateVerdictForQuery(idx *Index, start offCPUStart, endTs float64, blockedReasons map[int][]Event, q Query, allowClosingTolerance bool) (isIOWait, marked bool, caller string, ambiguous bool) {
+func offCPUDStateVerdictForQuery(idx *Index, start offCPUStart, endTs float64, blockedReasons map[int][]Event, q Query, allowClosingTolerance bool, closureLines ...int) (isIOWait, marked bool, caller string, ambiguous bool) {
 	if start.state == StateIOWait {
 		return true, true, "", false
 	}
@@ -6685,13 +6695,14 @@ func offCPUDStateVerdictForQuery(idx *Index, start offCPUStart, endTs float64, b
 	if !intervalHasPositiveQueryIntersection(start.ts, endTs, q) {
 		return false, false, "", false
 	}
-	if blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, allowClosingTolerance) {
-		return false, false, "", false
-	}
 	// The shared matcher owns the ONE established closing-boundary tolerance.
 	// Callers pass the physical interval unchanged; widening here as well would
 	// silently double the admitted tail to 10µs.
-	match := matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, allowClosingTolerance)
+	endLine := 0
+	if len(closureLines) > 0 {
+		endLine = closureLines[0]
+	}
+	match := matchBlockedReasonForQueryInterval(idx, q, blockedReasons, start.thread, start.ts, endTs, endLine, allowClosingTolerance)
 	if match.Ambiguous {
 		return false, false, "", true
 	}
@@ -8615,6 +8626,7 @@ type stateChurnAcc struct {
 }
 
 func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ...*queryPIDIdentityFilter) []ThreadStateChurnSummary {
+	q = withSchedulerWakeCompletions(idx, q, 0, nil, false)
 	if idx == nil {
 		return nil
 	}
@@ -8893,9 +8905,7 @@ func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start sta
 	physicalEndLine := endLine
 	match := blockedReasonIntervalMatch{}
 	if state == StateDSleep {
-		if !blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, endLine > 0) {
-			match = matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, endLine > 0)
-		}
+		match = matchBlockedReasonForQueryInterval(idx, q, blockedReasons, start.thread, start.ts, endTs, endLine, endLine > 0)
 		if reason := match.Event; reason != nil && reason.IOWait > 0 {
 			state = StateIOWait
 			endLine = firstPositive(endLine, reason.Line)
@@ -25339,12 +25349,13 @@ func tracePeerLabel(peer ThreadRef, edge IPCEdge) string {
 }
 
 type chainQueryCache struct {
-	idx             *Index
-	eventsByPID     map[int][]int
-	wakeupsByPID    map[int][]int
-	blockedByPID    map[int][]int
-	timelineByKey   map[string]TimelineResult
-	resolvedByQuery map[string]threadResolution
+	idx                           *Index
+	eventsByPID                   map[int][]int
+	wakeupsByPID                  map[int][]int
+	blockedByPID                  map[int][]int
+	timelineByKey                 map[string]TimelineResult
+	resolvedByQuery               map[string]threadResolution
+	intervalMetadataBySourceQuery map[string]*schedulerIntervalMetadataIndex
 	// priorityAuthority is the one immutable point/range ledger for the
 	// normalized run window. It replaces every hard nearest-sample lookup.
 	priorityAuthority    *priorityPointAuthority
@@ -26044,6 +26055,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	tq.TimeStart = start
 	tq.TimeEnd = end
 	tl := cache.timeline(tq, thread)
+	tl = cache.projectOriginalIntervalMetadata(q, tq, thread, tl)
 	res.Caveats = dedupStrings(append(res.Caveats, tl.Caveats...))
 	if tl.IntegrityFailure != "" {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("wakeup_chain_dependency_fail_closed=true; %s timeline integrity failure=%s; this branch is not converted into trace_gap evidence", threadLabel(thread), tl.IntegrityFailure))
@@ -26175,13 +26187,12 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		// LineEnd/Summary breaks its immutable occurrence identity and re-mints
 		// a duplicate rank seat.
 		if root.Type == "d_state_or_io_wait" || root.Type == "io_wait" {
-			match := cache.findBlockedReason(q, thread, interesting.StartTs, interesting.EndTs, interesting.EndLine > 0)
-			if reason := match.Physical; reason != nil {
-				if match.Event != nil && reason.IOWait > 0 {
+			if interesting.BlockedReasonLine > 0 {
+				if interesting.BlockedReasonIOWaitKnown && interesting.BlockedReasonIOWait > 0 {
 					root.Type = "io_wait"
 				}
-				root.LineEnd = firstPositive(reason.Line, root.LineEnd)
-				root.Summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%s caller=%s", blockedReasonIOWaitText(reason.BlockedReasonIOWaitKnown, int(reason.IOWait)), firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
+				root.LineEnd = firstPositive(interesting.BlockedReasonLine, root.LineEnd)
+				root.Summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%s caller=%s", blockedReasonIOWaitText(interesting.BlockedReasonIOWaitKnown, int(interesting.BlockedReasonIOWait)), firstNonEmpty(interesting.BlockedReasonCaller, "unknown"))
 			}
 		}
 		res.RootEvidence = append(res.RootEvidence, root)
@@ -26864,7 +26875,7 @@ func matchBlockedReasonForWithSelection(idx *Index, q Query, thread ThreadRef, s
 	return matchBlockedReasonForWithSelectionAtClosure(idx, q, thread, start, end, eventIDs, useIndexedEvents, true)
 }
 
-func matchBlockedReasonForWithSelectionAtClosure(idx *Index, q Query, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool, allowClosingTolerance bool) blockedReasonIntervalMatch {
+func matchBlockedReasonForWithSelectionAtClosure(idx *Index, q Query, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool, allowClosingTolerance bool, closureLines ...int) blockedReasonIntervalMatch {
 	if idx == nil {
 		return blockedReasonIntervalMatch{}
 	}
@@ -26872,10 +26883,16 @@ func matchBlockedReasonForWithSelectionAtClosure(idx *Index, q Query, thread Thr
 	if scopeQ.TimeStart == 0 && scopeQ.TimeEnd == 0 && scopeQ.LineStart == 0 && scopeQ.LineEnd == 0 {
 		scopeQ.TimeStart, scopeQ.TimeEnd = start, end
 	}
-	if blockedReasonRefinementUnavailableForInterval(idx, scopeQ, thread.PID, start, end, allowClosingTolerance) {
+	endLine := 0
+	if len(closureLines) > 0 {
+		endLine = closureLines[0]
+	}
+	proof := schedulerWakeCompletionFor(idx, q, thread.PID, end, endLine)
+	if blockedReasonRefinementUnavailableWithCompletion(idx, scopeQ, thread.PID, start, end, allowClosingTolerance, proof) {
 		return blockedReasonIntervalMatch{}
 	}
 	matcher := newBlockedReasonIntervalMatcherAtClosure(thread, start, end, allowClosingTolerance)
+	matcher.completion, matcher.completionIndex = proof, idx
 	if blockedReasonIntervalCanConsumeHeadCarry(q, start, end) {
 		for _, marker := range blockedReasonHeadCarryEvents(idx, q, thread.PID) {
 			candidate := marker
@@ -26902,11 +26919,14 @@ func matchBlockedReasonForWithSelectionAtClosure(idx *Index, q Query, thread Thr
 	for i := range idx.blockedReasonIntegrityFailures {
 		failure := &idx.blockedReasonIntegrityFailures[i]
 		if !blockedReasonFailureHasIdentityIssue(*failure) ||
-			!blockedReasonIntegrityFailureRelevantToQuery(failure, scopeQ, 0) ||
 			!blockedReasonFailureBindsPID(*failure, thread.PID) {
 			continue
 		}
 		candidate := blockedReasonOpaqueIdentityCandidate(*failure, thread.PID)
+		if !blockedReasonIntegrityFailureRelevantToQuery(failure, scopeQ, 0) &&
+			!(blockedReasonMarkerInQuery(candidate, q) && proof.admits(idx, &candidate)) {
+			continue
+		}
 		matcher.consider(&candidate)
 	}
 	return matcher.result()
@@ -26940,6 +26960,8 @@ type blockedReasonIntervalMatcher struct {
 	candidate             *Event
 	physical              *Event
 	candidateCount        int
+	completion            *schedulerWakeCompletionProof
+	completionIndex       *Index
 }
 
 type blockedReasonIntervalMatch struct {
@@ -26971,7 +26993,7 @@ func (m *blockedReasonIntervalMatcher) consider(candidate *Event) {
 	if m.allowClosingTolerance {
 		upper = wakeupClosingUpperBound(m.end)
 	}
-	if candidate.Ts <= m.start || candidate.Ts > upper {
+	if (candidate.Ts <= m.start || candidate.Ts > upper) && !m.completion.admits(m.completionIndex, candidate) {
 		return
 	}
 	m.candidateCount++

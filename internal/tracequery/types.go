@@ -1199,6 +1199,10 @@ type Query struct {
 	// nil (tracediag lane, direct builder calls, tests) keeps every scan
 	// byte-identical.
 	runCancel *runCancelState
+	// schedulerWakeCompletions is a query-local, non-serialized index of
+	// precisely paired waking/completed-wake metadata. It never moves a
+	// measured state boundary or grants a new causal edge.
+	schedulerWakeCompletions *schedulerWakeCompletionScope
 	// perfRoleContextScanProbe is test-only, per-Query instrumentation for the
 	// root-rank role-index full-scan bound. nil in production.
 	perfRoleContextScanProbe *perfRoleContextScanProbe

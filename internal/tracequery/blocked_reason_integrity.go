@@ -498,6 +498,17 @@ func blockedReasonRefinementUnavailableForInterval(idx *Index, q Query, pid int,
 	if physicalClosure {
 		upper = wakeupClosingUpperBound(end)
 	}
+	return blockedReasonRefinementUnavailableInDomain(idx, q, pid, start, upper, false)
+}
+
+// Domain inclusion is explicit: ordinary positive sleep keeps its original
+// open left endpoint, while a separately proven completion metadata point
+// includes its timestamp (with the caller's exact post-completion line gate).
+func blockedReasonRefinementUnavailableInDomain(idx *Index, q Query, pid int, start, upper float64, includeStart bool) bool {
+	if idx == nil || pid <= 0 || upper < start {
+		return false
+	}
+	afterStart := func(ts float64) bool { return ts > start || includeStart && ts == start }
 	markerInDomain := func(ts float64, line int) bool {
 		if q.LineStart > 0 && line < q.LineStart {
 			return false
@@ -505,7 +516,7 @@ func blockedReasonRefinementUnavailableForInterval(idx *Index, q Query, pid int,
 		if q.LineEnd > 0 && line > q.LineEnd {
 			return false
 		}
-		return ts > start && ts <= upper
+		return afterStart(ts) && ts <= upper
 	}
 	for i := range idx.blockedReasonIntegrityFailures {
 		failure := &idx.blockedReasonIntegrityFailures[i]
@@ -518,13 +529,13 @@ func blockedReasonRefinementUnavailableForInterval(idx *Index, q Query, pid int,
 	}
 	scope := idx.blockedReasonIdentityOverflow
 	if scope.AffectsAllPIDs {
-		return scope.MaxTs > start && scope.MinTs <= upper &&
+		return afterStart(scope.MaxTs) && scope.MinTs <= upper &&
 			(q.LineStart <= 0 || scope.MaxLine >= q.LineStart) &&
 			(q.LineEnd <= 0 || scope.MinLine <= q.LineEnd)
 	}
 	if len(scope.PIDDomains) > 0 {
 		for _, domain := range scope.PIDDomains {
-			if domain.PID != pid || domain.MaxTs <= start || domain.MinTs > upper {
+			if domain.PID != pid || !afterStart(domain.MaxTs) || domain.MinTs > upper {
 				continue
 			}
 			if (q.LineStart <= 0 || domain.MaxLine >= q.LineStart) && (q.LineEnd <= 0 || domain.MinLine <= q.LineEnd) {
@@ -535,7 +546,7 @@ func blockedReasonRefinementUnavailableForInterval(idx *Index, q Query, pid int,
 	}
 	for _, candidate := range scope.PIDs {
 		if candidate == pid {
-			return scope.MaxTs > start && scope.MinTs <= upper
+			return afterStart(scope.MaxTs) && scope.MinTs <= upper
 		}
 	}
 	return false
