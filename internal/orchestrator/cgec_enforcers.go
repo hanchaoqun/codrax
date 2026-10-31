@@ -324,7 +324,7 @@ func (o *Orchestrator) runForcedReads() int {
 			o.busCtx.ToolResults = append(o.busCtx.ToolResults, result)
 			artifacts.ToolResults = append(artifacts.ToolResults, result)
 		}
-		o.busCtx.Mutable.SetTurnAArtifacts(*artifacts)
+		o.busCtx.Mutable.PublishTurnAArtifacts(*artifacts, types.TurnAHandoffSourceEvidenceAugmented)
 
 		// 2026-05-10 path-canonicalization audit: p.File is canonical
 		// (addPendingReadLocked normalises at insert) so the lookup

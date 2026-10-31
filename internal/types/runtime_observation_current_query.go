@@ -16,6 +16,10 @@ type runtimeCurrentQueryPopulation struct {
 
 type runtimeCurrentQueryCensus struct {
 	populations map[runtimeDisplayQueryKey]runtimeCurrentQueryPopulation
+	// Admission to the run-local fact carrier requires this producer's entire
+	// final native core, not merely possession of a copied population pointer.
+	generation       *traceSourceReadGeneration
+	nativeCoreDigest [32]byte
 }
 
 const runtimeCurrentQueryPopulationLimit = 4096
@@ -52,6 +56,10 @@ func (m *MutableState) StampRuntimeCurrentQueryPopulation(result *ToolResult) {
 	if m == nil || !result.Success || result.ToolName != "trace_query" || result.ReusedFromRunMemo || result.TraceViewCancellation != nil {
 		return
 	}
+	m.mu.RLock()
+	census.generation = m.traceSourceReadGeneration
+	m.mu.RUnlock()
+	census.nativeCoreDigest, _ = nativeFactCoreDigest(*result)
 	input := ObservationLedgerInput{runtimeMeasurementPairConsumer: m}
 	for _, record := range result.Observations {
 		ref := record.SourceRef

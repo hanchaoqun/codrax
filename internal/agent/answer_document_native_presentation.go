@@ -13,6 +13,7 @@ import (
 // checks and all their display budgets. It conveys no factual/causal authority
 // and is never persisted into a future dispatch.
 type answerDocNativePresentationReceipt struct {
+	promptBudget           *finalizerPromptBudget
 	measurementViews       map[string]bool
 	measurementViewDetails map[string]answerDocMeasurementViewPresentation
 	// Detached native owners from the same fresh measurement contract; only

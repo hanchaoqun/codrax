@@ -33,10 +33,10 @@ func validTraceEventSelectionPublication(result ToolResult, generation *traceSou
 		CanonicalToolName(result.ToolName) == "trace_query" && traceEventSelectionSnapshot(result) == ref.snapshot
 }
 
-func (m *MutableState) registerTraceEventSelectionAcquisition(result ToolResult) {
-	m.mu.RLock()
+// Caller holds m.mu so selection registration and dispatch publication share
+// the same evidence-collection check. Lock order remains m.mu -> ledger.mu.
+func (m *MutableState) registerTraceEventSelectionAcquisitionLocked(result ToolResult) {
 	generation := m.traceSourceReadGeneration
-	m.mu.RUnlock()
 	if !validTraceEventSelectionPublication(result, generation) {
 		return
 	}

@@ -56,8 +56,10 @@ func planAnswerDocBusinessTreeFacts(ctx *types.AgentContext, ledger types.Observ
 // Give every exact source/query population one account before spending its
 // next slot. The grouping retains payload generation, target, clock and actual
 // measuring window; equal business names or physical instance IDs never merge
-// queries. Only a producer-declared observed root receives nesting priority;
-// missing parents are not inferred from names, chronology or depth heuristics.
+// queries. A unique whole-instance match to this query's exact thread/window
+// is display navigation, not a user focus or a causal root. Otherwise only a
+// producer-declared observed root receives nesting priority; missing parents
+// are not inferred from names, chronology or depth heuristics.
 func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answerDocBusinessAccountPlan {
 	plan := answerDocBusinessAccountPlan{published: map[string]bool{}}
 	groups := map[string][]answerDocBusinessAccount{}
@@ -77,8 +79,12 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 	keys := make([]string, 0, len(groups))
 	for key, rows := range groups {
 		keys = append(keys, key)
+		instance := answerDocBusinessQueryInstanceKey(rows)
 		sort.Slice(rows, func(i, j int) bool {
 			a, b := rows[i], rows[j]
+			if selectedA, selectedB := a.key == instance, b.key == instance; selectedA != selectedB {
+				return selectedA
+			}
 			aroot, broot := a.fact.Node.ParentStatus == "observed_root", b.fact.Node.ParentStatus == "observed_root"
 			if aroot != broot {
 				return aroot
@@ -112,13 +118,36 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 	return plan
 }
 
+// Only already-admitted records from one exact source/query generation reach
+// this matcher. Actual endpoints identify the physical pair; query-clipped
+// inclusive/self segments can give many enclosing nodes identical endpoints.
+// An absent/ambiguous owner or pair preserves the previous ordering. This
+// neither mints an accepted business focus nor changes query/causal authority.
+func answerDocBusinessQueryInstanceKey(rows []answerDocBusinessAccount) string {
+	key, matches := "", 0
+	for _, a := range rows {
+		s, n := a.record.SourceRef, a.fact.Node
+		if s.QueryTargetScope != "thread" || s.QueryTargetPID <= 0 || s.QueryTargetPID > types.RuntimeTargetMaxPID ||
+			s.QueryTargetPID != n.Thread.PID || s.QueryTargetThread != "" && s.QueryTargetThread != n.Thread.Comm ||
+			!s.QueryWindowKnown || a.fact.WindowUnavailableReason != "" || n.Closure != "closed" || n.ActualEndTs == nil ||
+			n.ActualStartTs != s.QueryWindowStartTs || *n.ActualEndTs != s.QueryWindowEndTs {
+			continue
+		}
+		key, matches = a.key, matches+1
+	}
+	if matches != 1 {
+		return ""
+	}
+	return key
+}
+
 func renderAnswerDocBusinessAccountPlan(plan answerDocBusinessAccountPlan) string {
 	var b strings.Builder
 	for i, a := range plan.accounts {
 		r, fact := a.record, a.fact
 		if i == 0 {
 			b.WriteString("### 已观测同步业务层级 / Observed synchronous work nesting\n\n")
-			b.WriteString("- 以下为真实同源同线程同步打点的父子关系，不是唤醒因果链。原生为全线程观察库存，不是目标过滤结果；下列按各来源与查询公平分配完整账户，优先保留原生已证最外层，再按原始起始行选取，不是耗时排名。按用户所问线程解释，其它线程只作背景。总耗时包含子层，自身耗时扣除完整直接子区间并集，按各条记录的查询范围与已配对区间计量；不要把父子总耗时相加，也不要从展示省略后的子项重算自身。实例身份不能用名称替代；跨线程或邻近业务不能猜父子。\n")
+			b.WriteString("- 以下为真实同源同线程同步打点的父子关系，不是唤醒因果链。原生为全线程观察库存，不是目标过滤结果；下列按各来源与查询公平分配完整账户，组内优先保留与查询线程及完整起止时刻精确对应的唯一实例，其余按原生已证最外层、原始起始行选取，不是耗时排名，也不改变用户所问主体或因果身份。按用户所问线程解释，其它线程只作背景。总耗时包含子层，自身耗时扣除完整直接子区间并集，按各条记录的查询范围与已配对区间计量；不要把父子总耗时相加，也不要从展示省略后的子项重算自身。实例身份不能用名称替代；跨线程或邻近业务不能猜父子。\n")
 			b.WriteString("- 状态按每个业务总区间/自身离散区间分别求交；未知不是零，睡眠中IO等待为睡眠包含项。业务耗时不是CPU执行时间、可消除量或根因贡献。父子图须区分缺失父/未闭合/展示省略，链上根因仍需独立唤醒与等待证据。Use the requested answer language and reader-facing business labels, not internal IDs/status codes; retain IDs only for unambiguous evidence references.\n")
 			b.WriteString("- 同源、同线程、同一查询范围及单位下，已证互斥自身分段及其同状态交集可合计；小计只覆盖实际参与的分段，省略或未知不能补零或外推全集。此规则针对业务时间，不把采样权重换成毫秒，也不增加因果权限。\n")
 			b.WriteString("- 每条总量、自身量、状态与窗口共同引用同一账户，不把另一窗口的自身量接到本条总量上。账户展示独立于测量表预览，不使被省略的表行或父子成员变为完整。\n")

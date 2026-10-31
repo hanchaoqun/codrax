@@ -25,14 +25,22 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 	candidates = append(candidates, cloneTraceBusinessSpanToolResults(fork.dispatchToolResults)...)
 	traceCatalogs := cloneTraceCatalogs(fork.traceCatalogs)
 	traceSourceGeneration := fork.traceSourceReadGeneration
+	nativeHandles := cloneNativeFactHandles(fork.nativeFactRetentionHandles)
+	nativeOrder := append([]string(nil), fork.nativeFactRetentionOrder...)
+	nativeOmission := fork.nativeFactRetentionOmission
+	turnAReplacementBase := fork.exploreForkTurnAReplacementBase
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if turnAReplacementBase != nil && turnAReplacementBase != m.turnAReplacementToken {
+		return nil // neither raw tools nor catalogs may revive a replaced collection
+	}
 	// A successful selection need not produce a measurement. Preserve its
 	// private generation/run identity, never reconstruct it from summary JSON.
 	hasCurrentCatalogs := traceSourceGeneration != nil && traceSourceGeneration == m.traceSourceReadGeneration && len(traceCatalogs) > 0
 	m.mergeTraceCatalogsLocked(traceSourceGeneration, traceCatalogs)
+	nativeChanged := m.mergeNativeFactHandlesLocked(traceSourceGeneration, nativeHandles, nativeOrder, nativeOmission)
 	snapshot := cloneTurnAArtifactsPtr(m.turnAArtifacts)
 	if snapshot == nil {
 		snapshot = &TurnAArtifacts{}
@@ -56,7 +64,7 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 		m.registerTraceBusinessSpanRefsLocked(result)
 	}
 	if len(added) == 0 {
-		if hasCurrentCatalogs {
+		if hasCurrentCatalogs || nativeChanged {
 			m.bumpAnswerSurfaceRevisionLocked()
 		}
 		return nil

@@ -344,6 +344,17 @@ type MutableState struct {
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
 	dispatchToolResults []ToolResult
+	// Immutable native facts have a separate bounded run-local lifetime. A
+	// fork shares storage capacity, but only inherits its parent's visible
+	// handles; siblings become visible only through an explicit merge.
+	nativeFactRetentionHandles  map[string]*retainedNativeFact
+	nativeFactRetentionOrder    []string
+	nativeFactRetentionOmission NativeFactRetentionStatus
+	// Explicit evidence replacement is local to this branch. A fork remembers
+	// its parent's collection token so an old snapshot cannot later resurrect
+	// withdrawn evidence through either merge lane. This is not a source epoch.
+	turnAReplacementToken           *turnAReplacementToken
+	exploreForkTurnAReplacementBase *turnAReplacementToken
 	// Read receipts carry current-dispatch physical identity and, for write
 	// reads, separately bound byte versions/visible ranges. Neither is test
 	// execution proof. The generation changes only on reset, not on append.
@@ -1167,7 +1178,7 @@ type RichnessTelemetrySignal struct {
 // Lifecycle:
 //
 //  1. Turn A's ParseOutput populates the struct via
-//     MutableState.SetTurnAArtifacts. This happens at end-of-stage
+//     MutableState.PublishTurnAArtifacts. This happens at end-of-stage
 //     after ensureStructuredEvidence + grounding + ranking, so the
 //     evidence slice already reflects every deterministic
 //     (concrete-value / mechanism / flow) item the explorer has.
@@ -1184,6 +1195,20 @@ type RichnessTelemetrySignal struct {
 // what Turn B actually needs. Anything we omit here can be added
 // incrementally as a backwards-compatible struct field; anything we
 // include and stop using costs a 5-line removal commit.
+// TurnAHandoffPublicationKind identifies non-withdrawing handoff updates.
+// These operations preserve already admitted native facts; they never admit
+// new facts, reconstruct private receipts, or change query authority.
+type TurnAHandoffPublicationKind uint8
+
+const (
+	TurnAHandoffHistoryCompacted TurnAHandoffPublicationKind = iota + 1
+	TurnAHandoffSourceEvidenceAugmented
+	TurnAHandoffAdvisoryUpdated
+)
+
+// Nonzero size ensures distinct replacements have distinct pointer identity.
+type turnAReplacementToken struct{ identity byte }
+
 type TurnAArtifacts struct {
 	toolDocumentationCompletion *toolDocumentationCompletion
 	// UserQuestion is the original task question, plumbed through so
@@ -1401,7 +1426,7 @@ type HypothesisVerdict struct {
 // raw objective (user question). Use this instead of zero-value
 // literals so the internal mutex is paired correctly with its data.
 func NewMutableState(objective string) *MutableState {
-	return &MutableState{
+	m := &MutableState{
 		objective:                        objective,
 		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
 		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
@@ -1409,7 +1434,10 @@ func NewMutableState(objective string) *MutableState {
 		recoveryNavigationRoles:          &recoveryNavigationRoles{},
 		traceCatalogLineages:             &traceCatalogLineages{},
 		toolDocumentation:                toolDocumentationState{generation: &toolDocumentationGeneration{}},
+		turnAReplacementToken:            &turnAReplacementToken{},
 	}
+	m.traceSourceReadGeneration.nativeFactsOwner = m
+	return m
 }
 
 // ForkForExploreDispatch creates an isolated MutableState for one
@@ -1422,6 +1450,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		return nil
 	}
 	traceInputAdmissionTerminal := m.traceInputAdmissionTerminalLatchRef()
+	m.turnAReplacementTokenRef()
 	m.mu.RLock()
 	out := &MutableState{
 		objective:                                   m.objective,
@@ -1461,6 +1490,11 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceCatalogs:                               cloneTraceCatalogs(m.traceCatalogs),
 		traceCatalogLineages:                        m.traceCatalogLineages,
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
+		nativeFactRetentionHandles:                  cloneNativeFactHandles(m.nativeFactRetentionHandles),
+		nativeFactRetentionOrder:                    append([]string(nil), m.nativeFactRetentionOrder...),
+		nativeFactRetentionOmission:                 m.nativeFactRetentionOmission,
+		turnAReplacementToken:                       m.turnAReplacementToken,
+		exploreForkTurnAReplacementBase:             m.turnAReplacementToken,
 		toolDocumentation:                           cloneToolDocumentationState(m.toolDocumentation),
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
 		recoveryNavigationRoles:                     m.recoveryNavigationRoles,
@@ -1544,6 +1578,10 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	supersededMergeKeys := append([]string(nil), fork.emittedEvidenceSupersededMergeKeys...)
 	supersededIDs := append([]string(nil), fork.emittedEvidenceSupersededIDs...)
 	turnA := cloneTurnAArtifactsPtr(fork.turnAArtifacts)
+	nativeHandles := cloneNativeFactHandles(fork.nativeFactRetentionHandles)
+	nativeOrder := append([]string(nil), fork.nativeFactRetentionOrder...)
+	nativeOmission := fork.nativeFactRetentionOmission
+	turnAReplacementBase := fork.exploreForkTurnAReplacementBase
 	turnABase := turnAArtifactsMergeBase{
 		NotesLen:              fork.exploreForkTurnABaseNotesLen,
 		ValidationBoundaryLen: fork.exploreForkTurnABaseBoundaryLen,
@@ -1616,10 +1654,28 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
+	// Preserve the legacy query-output read registry even for a late fork.
+	// This only copies already-qualified paths; using the registration helper
+	// here would mint current navigation origins for historical query outputs.
+	// Every evidence, source-generation, tool and completion merge remains
+	// below the explicit collection-replacement boundary.
+	for canonKey, verbatim := range traceQueryBlobRefs {
+		if m.traceQueryPublishedBlobRefs == nil {
+			m.traceQueryPublishedBlobRefs = map[string]string{}
+		}
+		if _, exists := m.traceQueryPublishedBlobRefs[canonKey]; !exists {
+			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
+		}
+	}
+	if turnAReplacementBase != nil && turnAReplacementBase != m.turnAReplacementToken {
+		m.mu.Unlock()
+		return // the parent explicitly replaced the collection this fork observed
+	}
 	if len(supersededMergeKeys) > 0 {
 		m.emittedEvidence = filterEvidenceByStableMergeKeys(m.emittedEvidence, supersededMergeKeys)
 	}
 	m.emittedEvidence = mergeEvidenceByStableID(m.emittedEvidence, emitted)
+	m.mergeNativeFactHandlesLocked(traceSourceGeneration, nativeHandles, nativeOrder, nativeOmission)
 	if turnA != nil {
 		merged := mergeTurnAArtifactsForMutable(m.turnAArtifacts, *turnA, turnABase)
 		m.turnAArtifacts = cloneTurnAArtifactsPtr(&merged)
@@ -1736,14 +1792,6 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if traceQueryRuntimeObservationDelta > 0 {
 		m.traceQueryRuntimeObservationCount += traceQueryRuntimeObservationDelta
-	}
-	for canonKey, verbatim := range traceQueryBlobRefs {
-		if m.traceQueryPublishedBlobRefs == nil {
-			m.traceQueryPublishedBlobRefs = map[string]string{}
-		}
-		if _, exists := m.traceQueryPublishedBlobRefs[canonKey]; !exists {
-			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
-		}
 	}
 	m.mergeTraceQuerySourceReadsLocked(traceSourceGeneration, traceSourceReads)
 	m.mergeTraceCatalogsLocked(traceSourceGeneration, traceCatalogs)
@@ -2706,10 +2754,21 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	if m == nil {
 		return
 	}
-	m.registerTraceEventSelectionAcquisition(r)
+	m.appendDispatchToolResultInCollection(r, m.turnAReplacementTokenRef())
+}
+
+// The token covers the whole public append, not just native storage. A
+// replacement during validation/encoding must not revive the old result via
+// dispatch history or a producer-publication registry after retention refused it.
+func (m *MutableState) appendDispatchToolResultInCollection(r ToolResult, replacement *turnAReplacementToken) {
+	m.retainNativeFact(r, replacement)
 	r = cloneTraceBusinessSpanToolResult(AttachToolHandoffCarrier(r))
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.turnAReplacementToken != replacement {
+		return
+	}
+	m.registerTraceEventSelectionAcquisitionLocked(r)
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
 	m.dispatchToolResultsRevision++
 	traceRuntimeObservations := traceQueryRuntimeObservationToolResultCount(r)
@@ -5459,18 +5518,55 @@ func (m *MutableState) ClearSourceInventoryAdvisory() {
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 
-// SetTurnAArtifacts stores the P2.1 handoff snapshot from the
-// explorer (Turn A) for the extractor (Turn B) to consume. Called
-// from the explorer's ParseOutput at end-of-stage when
-// agent.TwoTurnExplorerEnabled() is true. The setter takes a value
-// (not a pointer) so the explorer cannot accidentally mutate the
-// snapshot after handoff — Turn B always sees a frozen view.
+// SetTurnAArtifacts explicitly replaces the current handoff evidence set.
+// Native retention is restricted to already admitted, intact publications
+// present in the replacement. Omitted or failed evidence is withdrawn, not
+// recovered from history. Normal bounded history publication and advisory
+// updates must use PublishTurnAArtifacts instead.
 func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if m == nil {
 		return
 	}
+	keys := nativeFactReplacementKeys(a.ToolResults)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.turnAReplacementToken = &turnAReplacementToken{}
+	m.reconcileNativeFactHandlesLocked(keys)
+	m.storeTurnAArtifactsLocked(a)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+// PublishTurnAArtifacts publishes a bounded history or an additive/advisory
+// handoff update without withdrawing separately retained native publications.
+// Only AppendDispatchToolResult can admit producer facts to that bounded lane.
+// An invalid kind leaves all state unchanged rather than guessing intent.
+func (m *MutableState) PublishTurnAArtifacts(a TurnAArtifacts, kind TurnAHandoffPublicationKind) bool {
+	if m == nil {
+		return false
+	}
+	switch kind {
+	case TurnAHandoffHistoryCompacted, TurnAHandoffSourceEvidenceAugmented, TurnAHandoffAdvisoryUpdated:
+	default:
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.storeTurnAArtifactsLocked(a)
+	return true
+}
+
+func (m *MutableState) turnAReplacementTokenRef() *turnAReplacementToken {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.turnAReplacementToken == nil {
+		m.turnAReplacementToken = &turnAReplacementToken{}
+	}
+	return m.turnAReplacementToken
+}
+
+// Caller holds m.mu. All publication lanes retain the same defensive copies
+// and existing evidence-closure/accepted-handoff handling.
+func (m *MutableState) storeTurnAArtifactsLocked(a TurnAArtifacts) {
 	// Defensive copy of the slice headers so a later append on the
 	// caller side cannot mutate the buffered snapshot in place.
 	snap := a
@@ -5598,6 +5694,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.turnAReplacementToken = &turnAReplacementToken{}
 	m.turnAArtifacts = nil
 	m.investigationMeasurementMemberSets = nil
 	m.investigationNativeFactCompletion = nil
@@ -5612,7 +5709,13 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
 	m.resetTraceCatalogsForInvestigationLocked()
-	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
+	if m.traceSourceReadGeneration != nil && m.traceSourceReadGeneration.nativeFactsOwner == m {
+		m.traceSourceReadGeneration.nativeFactsRetired.Store(true)
+	}
+	m.traceSourceReadGeneration = &traceSourceReadGeneration{nativeFactsOwner: m}
+	m.nativeFactRetentionHandles = nil
+	m.nativeFactRetentionOrder = nil
+	m.nativeFactRetentionOmission = NativeFactRetentionStatus{}
 	m.toolDocumentation = toolDocumentationState{generation: &toolDocumentationGeneration{}}
 	m.traceQuerySourceReads = nil
 	m.resetRecoveryNavigationRolesLocked()

@@ -20,6 +20,9 @@ type TraceQuerySourceReadRef struct {
 }
 
 type traceSourceReadGeneration struct {
+	nativeFacts        nativeFactRetentionPool
+	nativeFactsRetired atomic.Bool
+	nativeFactsOwner   *MutableState
 	businessSpanIssued atomic.Uint32
 	eventSelections    traceEventSelectionLedger
 	preparedSelection  tracePreparedQuerySelectionLedger

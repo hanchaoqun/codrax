@@ -48,6 +48,9 @@ import (
 // answerDocumentEvaluator is the Evaluator implementation for the
 // finalize stage.
 type answerDocumentEvaluator struct {
+	promptBudget        *finalizerPromptBudget
+	pendingPromptBudget func() *finalizerPromptBudget
+	requestBytePolicy   types.FinalizerRequestBytePolicy
 	// maxRetries caps correction rounds. Set from
 	// AgentSettings.FinalizerMaxCorrectionRetries at construction.
 	maxRetries int
@@ -220,6 +223,8 @@ const (
 )
 
 type answerDocDynamicTrace struct {
+	promptBudget *finalizerPromptBudget
+	deferred     []answerDocDeferredSection
 	ctx          *types.AgentContext
 	stage        string
 	started      time.Time
@@ -247,6 +252,10 @@ func (t *answerDocDynamicTrace) appendSection(b *strings.Builder, section string
 	}
 	if t.shouldStop(b, section) {
 		return false
+	}
+	if t.promptBudget != nil && (section == "observation_ledger" || section == "investigation_narrative_handoff") {
+		t.deferred = append(t.deferred, answerDocDeferredSection{offset: b.Len(), name: section, render: fn})
+		return true
 	}
 	stop := t.startSection(section)
 	out := fn()
@@ -384,6 +393,22 @@ func (e *answerDocumentEvaluator) rejectHintBudget() int {
 // are a known footgun, so this evaluator deliberately never
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
+	e.postEmitAdvisoryDelivered = false
+	resolve := e.pendingPromptBudget
+	e.pendingPromptBudget = nil
+	return e.buildInitialInstruction(ctx, sk, resolve)
+}
+
+func (e *answerDocumentEvaluator) BuildInitialInstructionWithBudget(ctx *types.AgentContext, sk *skill.Config, resolve func() *finalizerPromptBudget) string {
+	// Both entry points reset the dispatch through the same public owner.
+	// Consume the resolver there before building so a later ordinary dispatch
+	// cannot inherit a previous budget or cause a second construction.
+	e.pendingPromptBudget = resolve
+	return e.BuildInitialInstruction(ctx, sk)
+}
+
+func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContext, sk *skill.Config, resolve func() *finalizerPromptBudget) (instruction string) {
+	e.promptBudget = nil
 	e.retriesUsed = 0
 	e.proseFallbackRequested = false
 	e.rejectHintsUsed = 0
@@ -399,7 +424,6 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.diagramMinimum = 0
 	e.diagramKinds = nil
 	e.configTraceDiagram = false
-	e.postEmitAdvisoryDelivered = false
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
@@ -412,6 +436,12 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	var b strings.Builder
 	trace := newAnswerDocDynamicTrace(ctx)
 	var nativePresentation answerDocNativePresentationReceipt
+	if resolve != nil {
+		e.promptBudget = resolve()
+		trace.promptBudget = e.promptBudget
+		nativePresentation.promptBudget = e.promptBudget
+	}
+	defer func() { instruction = trace.finishBudgeted(instruction) }()
 
 	// W3.3 (2026-05-05): one-line pointer to the schema's
 	// authoritative PRE-EMIT CONSTRAINTS section. The prompt below
@@ -616,7 +646,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "observation_ledger", func() string {
-		return renderAnswerDocObservationLedgerWithPublication(ctx, &nativePresentation)
+		return renderAnswerDocNativeFactRetentionBoundary(ctx) + renderAnswerDocObservationLedgerWithPublication(ctx, &nativePresentation)
 	}) {
 		return b.String()
 	}
@@ -5823,7 +5853,20 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
 	resourceStacks := renderAnswerDocScopedResourceStacks(ctx, ledger, promptLedger)
-	inventoryPrompt, publishedInventoryMetadata := renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, ledger, promptLedger, publication)
+	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
+	var deferred *answerDocNativeDeferredGroups
+	var inventoryPrompt string
+	var publishedInventoryMetadata map[string]bool
+	if publication.promptBudget != nil {
+		deferred = &answerDocNativeDeferredGroups{destination: publication, inventoryPublication: &answerDocNativePresentationReceipt{}}
+		publication = cloneNativePresentationReceipt(publication)
+		// Plan the inventory before its consumers, without signing the actual
+		// dispatch. Its complete metadata can be reused only if this entire
+		// dependency group survives the later request allocation.
+		deferred.inventoryText, deferred.publishedMetadata = renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, ledger, promptLedger, deferred.inventoryPublication)
+	} else {
+		inventoryPrompt, publishedInventoryMetadata = renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx, ledger, promptLedger, publication)
+	}
 	// Independent completion-closed waits keep their established causal and
 	// blocking rulers even when the query's statistical population is unknown.
 	// This separate pool must never feed requested facts or occupancy totals.
@@ -5831,9 +5874,16 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	if waits := answerDocIndependentIOWaitRecords(ctx, separateIOContext); len(waits) > 0 {
 		ioWaitLedger.Records = append(append([]types.ObservationRecord(nil), promptLedgerRecords...), waits...)
 	}
-	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
+		if deferred != nil {
+			prefix := resourceStacks.authorityText(ctx, promptLedger) + resourceStacks.text + answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata
+			deferred.inventory = len(prefix)
+			prefix += renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext)
+			deferred.measurements = len(prefix)
+			deferred.business = len(prefix)
+			return deferred.finish(prefix+renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger)+renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger), ctx, ledger, promptLedger, publication)
+		}
 		return resourceStacks.authorityText(ctx, promptLedger) + resourceStacks.text + answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx, publication) +
 			renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
@@ -5882,7 +5932,11 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	if coverage := renderAnswerDocTraceObservationCoverage(promptLedger); coverage != "" {
 		b.WriteString(coverage)
 	}
-	b.WriteString(inventoryPrompt)
+	if deferred != nil {
+		deferred.inventory = b.Len()
+	} else {
+		b.WriteString(inventoryPrompt)
+	}
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -5917,9 +5971,16 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		// Occupancy is already-queried resource context regardless of whether
 		// the model classified the question as pressure, counts or causality.
 		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
-		b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx, publication))
+		if deferred == nil {
+			b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx, publication))
+		}
 	}
-	b.WriteString(renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication))
+	if deferred != nil {
+		deferred.measurements = b.Len()
+		deferred.business = b.Len()
+	} else {
+		b.WriteString(renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication))
+	}
 	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
 	}
@@ -5966,8 +6027,14 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	}
 	queryScopes := make(map[string]string)
 	measurementWindows := make(map[string]string)
-	inventorySources, inventorySourceRoster := traceEventInventoryPromptSourceAliases(records, traceEventInventorySourceReferences(promptLedger.Records, publishedInventoryMetadata))
-	b.WriteString(inventorySourceRoster)
+	var inventorySources map[string]string
+	if deferred == nil {
+		var inventorySourceRoster string
+		inventorySources, inventorySourceRoster = traceEventInventoryPromptSourceAliases(records, traceEventInventorySourceReferences(promptLedger.Records, publishedInventoryMetadata))
+		b.WriteString(inventorySourceRoster)
+	} else {
+		deferred.genericOffset = b.Len()
+	}
 	nativeMirrorReferences := publication.samplingMirrorReferences(promptLedger)
 	for _, record := range promptLedger.Records {
 		measurementWindows[record.ID] = types.TraceObservationMeasurementWindowDisplayRole(record, false)
@@ -5976,6 +6043,10 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		}
 	}
 	for _, record := range records {
+		if deferred != nil {
+			deferred.generic = append(deferred.generic, planAnswerDocObservationRecord(record, measurementWindows[record.ID], queryScopes[record.ID]))
+			continue
+		}
 		if reference := nativeMirrorReferences[record.ID]; reference != "" {
 			if publication.writePresentationNavigation(&b, reference) {
 				continue
@@ -5988,68 +6059,15 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		if inventory := inventorySources[record.ID]; inventory != "" {
 			source = inventory
 		}
-		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; producer=`%s`; source=`%s`; role=`%s`; policy=`%s`",
-			record.ID,
-			record.Origin,
-			record.Producer,
-			source,
-			record.Role,
-			record.GroundingPolicy,
-		)
-		if record.ProvenanceLane.IsValid() {
-			fmt.Fprintf(&b, "; lane=`%s`", record.ProvenanceLane)
-		}
-		if record.ClaimAuthority.IsValid() {
-			fmt.Fprintf(&b, "; claim_authority=`%s`", record.ClaimAuthority)
-		}
-		if span := strings.TrimSpace(record.Span); span != "" {
-			fmt.Fprintf(&b, "; span=%s", span)
-			if role := measurementWindows[record.ID]; role != "" {
-				fmt.Fprintf(&b, "; span_role=%s (not a continuous state interval)", role)
-			}
-		}
-		if scope := queryScopes[record.ID]; scope != "" {
-			fmt.Fprintf(&b, "; query_scope=%q", scope)
-		}
-		if claim := strings.TrimSpace(record.Claim); claim != "" {
-			fmt.Fprintf(&b, "; claim=%q", claim)
-		}
-		if record.Negative {
-			b.WriteString("; negative=true")
-		}
-		if record.ResultCount != nil {
-			fmt.Fprintf(&b, "; result_count=%d", *record.ResultCount)
-		}
-		if value := strings.TrimSpace(record.Value); value != "" {
-			fmt.Fprintf(&b, "; value=%q", value)
-		}
-		if summary := strings.TrimSpace(record.Summary); summary != "" {
-			fmt.Fprintf(&b, "; summary=%q", summary)
-		}
-		if excerpt := strings.TrimSpace(record.Excerpt); excerpt != "" {
-			fmt.Fprintf(&b, "; excerpt=%q", excerpt)
-		}
-		if excerpt := types.FormatObservationPromptSourceExcerpt(record.SourceExcerpt); excerpt != "" {
-			fmt.Fprintf(&b, "; %s", excerpt)
-		}
-		if len(record.Notes) > 0 {
-			if notes := renderAnswerDocObservationNotes(record.Notes, len(record.Notes)); notes != "" {
-				fmt.Fprintf(&b, "; notes=%s", notes)
-			}
-		}
-		if modelNotes := types.FormatObservationModelNotes(record.ModelNotes); modelNotes != "" {
-			fmt.Fprintf(&b, "; %s", modelNotes)
-		}
-		if record.SupportRefCount > 0 {
-			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
-		}
-		b.WriteString("\n")
+		planAnswerDocObservationRecord(record, measurementWindows[record.ID], queryScopes[record.ID]).write(&b, source)
 	}
-	if publication.navigationOmitted > 0 {
+	if publication.navigationOmitted > 0 && deferred == nil {
 		fmt.Fprintf(&b, "- Native presentation reference records omitted=%d by the separate whole-record navigation budget; original references remain in the audit ledger. Omitted navigation is not missing evidence, zero results or complete presentation.\n", publication.navigationOmitted)
 	}
 	b.WriteString("\n")
+	if deferred != nil {
+		return deferred.finish(b.String(), ctx, ledger, promptLedger, publication)
+	}
 	return b.String()
 }
 

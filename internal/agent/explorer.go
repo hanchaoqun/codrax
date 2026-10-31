@@ -14315,7 +14315,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		// windows via the cross-run reset gate — these four fields
 		// must match that semantics via merge.
 		snapshot = mergeTurnAArtifactsWithPrior(ctx.Mutable.TurnAArtifacts(), snapshot)
-		ctx.Mutable.SetTurnAArtifacts(snapshot)
+		ctx.Mutable.PublishTurnAArtifacts(snapshot, types.TurnAHandoffHistoryCompacted)
 		logging.Debug("[explorer] turn A → turn B handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
 			len(snapshot.InvestigationNotes), len(snapshot.ReadFiles), len(snapshot.ToolResults), len(snapshot.EvidenceItems), len(snapshot.FlowFindings), snapshot.TerminalEvidenceCount)
 		stopParseSection()

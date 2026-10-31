@@ -205,7 +205,7 @@ func (o *Orchestrator) writeExplorationProjectionArtifacts() (types.TurnAArtifac
 		strings.TrimSpace(out.AcceptedClosureReason) == "" {
 		return types.TurnAArtifacts{}, false
 	}
-	o.busCtx.Mutable.SetTurnAArtifacts(out)
+	o.busCtx.Mutable.PublishTurnAArtifacts(out, types.TurnAHandoffSourceEvidenceAugmented)
 	return out, true
 }
 

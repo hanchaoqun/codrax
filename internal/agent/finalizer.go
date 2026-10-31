@@ -27,10 +27,14 @@ func NewFinalizerAgent(deps *Dependencies) Agent {
 	}
 	lp.IdenticalErrorStreak = finalizerIdenticalErrorStreak
 	fdeps.LoopPolicy = lp
-	return NewBaseAgent(types.AgentFinalizer, &fdeps, &answerDocumentEvaluator{
+	policy := finalizerRequestBytePolicy(deps.AgentSettings)
+	agent := NewBaseAgent(types.AgentFinalizer, &fdeps, &answerDocumentEvaluator{
+		requestBytePolicy:    policy,
 		maxRetries:           deps.AgentSettings.FinalizerMaxCorrectionRetries,
 		preservePriorProse:   deps.AgentSettings.FinalizerPreservePriorProse,
 		shrinkageMinProseLen: deps.AgentSettings.FinalizerShrinkageMinProseLen,
 		shrinkageRatio:       deps.AgentSettings.FinalizerShrinkageRatio,
 	})
+	agent.finalizerContentBudget = true
+	return agent
 }

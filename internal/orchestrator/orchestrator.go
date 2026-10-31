@@ -6207,7 +6207,7 @@ func (o *Orchestrator) recordAcceptedClosureValidationBoundaries(window []*types
 	if added == 0 {
 		return
 	}
-	o.busCtx.Mutable.SetTurnAArtifacts(snapshot)
+	o.busCtx.Mutable.PublishTurnAArtifacts(snapshot, types.TurnAHandoffAdvisoryUpdated)
 	logging.Info("[orchestrator] recorded %d accepted-closure validation boundary note(s)", added)
 }
 
@@ -7267,7 +7267,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 			artifacts.InvestigationNotes,
 			output.InvestigationNotes,
 		)
-		o.busCtx.Mutable.SetTurnAArtifacts(*artifacts)
+		o.busCtx.Mutable.PublishTurnAArtifacts(*artifacts, types.TurnAHandoffAdvisoryUpdated)
 	}
 
 	// Carry the agent's own retry diagnosis through to the next

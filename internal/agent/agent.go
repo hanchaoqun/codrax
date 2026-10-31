@@ -241,9 +241,12 @@ type Dependencies struct {
 // BaseAgent provides the common ReAct loop implementation.
 // Concrete agents embed this and customize behavior via the Evaluator interface.
 type BaseAgent struct {
-	name types.AgentName
-	deps *Dependencies
-	eval Evaluator
+	// Product-factory opt-in; embedding an evaluator in a custom/generic
+	// agent does not silently change that agent's request admission policy.
+	finalizerContentBudget bool
+	name                   types.AgentName
+	deps                   *Dependencies
+	eval                   Evaluator
 }
 
 // Evaluator allows concrete agents to customize the ReAct loop behavior.
@@ -2400,6 +2403,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		// Reason — call LLM
+		if guard, ok := b.eval.(interface {
+			finalizerRequestByteError(*types.AgentContext, []llm.Message, []llm.ToolSchema) error
+		}); ok && b.finalizerContentBudget {
+			if err := guard.finalizerRequestByteError(ctx, requestMessages, effectiveTools); err != nil {
+				if keeper, accepted := b.eval.(acceptedAnswerPressureKeeper); accepted && keeper.keepAcceptedAnswerUnderPressure(ctx) {
+					logging.Warning("[agent %s] finalizer byte allocation exhausted during optional repair; preserving accepted answer", b.name)
+					break
+				}
+				return nil, err
+			}
+		}
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, requestMessages, effectiveTools)
 		// round= is the 1-based counter the CLI shows as "第 N 轮"
 		// (renderer derives round := iteration + 1). Logged alongside
@@ -4621,7 +4635,14 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 	// 3. Append evaluator instruction (evaluator's dynamic supplement,
 	//    when non-empty; never restates the skill static contract).
 	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_dynamic_instruction")
-	messages = AppendDynamicInstruction(messages, b.eval, ctx, promptSkill)
+	if evaluator, ok := b.eval.(budgetedInitialInstructionEvaluator); ok && b.finalizerContentBudget && ctx != nil && ctx.Stage == types.StageFinalize {
+		instruction := evaluator.BuildInitialInstructionWithBudget(ctx, promptSkill, func() *finalizerPromptBudget { return b.initialFinalizerBudget(ctx, promptSkill, messages) })
+		if instruction != "" {
+			messages = append(messages, llm.Message{Role: "user", Content: instruction})
+		}
+	} else {
+		messages = AppendDynamicInstruction(messages, b.eval, ctx, promptSkill)
+	}
 	stopPreflight()
 	return messages
 }

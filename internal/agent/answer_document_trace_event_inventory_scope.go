@@ -16,22 +16,33 @@ func renderAnswerDocScopedTraceEventInventoryView(ctx *types.AgentContext, accep
 
 func renderAnswerDocScopedTraceEventInventoryViewWithPublication(ctx *types.AgentContext, accepted, principal types.ObservationLedger, publication *answerDocNativePresentationReceipt) (string, map[string]bool) {
 	bridge := buildTraceEventPublicationBridge(ctx)
+	ledger, request := answerDocTraceEventInventoryDisplayInput(ctx, accepted, principal)
+	if request != nil {
+		return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger, bridge, publication, request)
+	}
+	return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(ledger, bridge, publication)
+}
+
+// Both full previews and an omitted-preview navigation receipt use this exact
+// source pool. A principal aggregate filter must not erase the original query
+// whose individually owned event rows have a separate display projection.
+func answerDocTraceEventInventoryDisplayInput(ctx *types.AgentContext, accepted, principal types.ObservationLedger) (types.ObservationLedger, *types.RequestModel) {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(principal, bridge, publication)
+		return principal, nil
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	p := rm.RuntimeQuestionProfile
 	scope := rm.RuntimeArtifactScopeProfile
 	hasDisplayScope := answerDocHasUserRuntimeTarget(rm) || scope.HasExplicitTimeWindows() || scope != nil && scope.Comparison != nil
 	if p == nil || !p.SuppressesRootCauseRankingPrompt() || !p.CarriesBoundedFactFamilies() || !hasDisplayScope {
-		return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(principal, bridge, publication)
+		return principal, nil
 	}
 	// Unlike whole-window aggregates, inventories contain individual events.
 	// Project those points below instead of rejecting an entire receipt whose
 	// executed lookup includes tolerance outside one or more requested windows.
 	// The renderer displays only inventories, but needs the independent typed
 	// row-local participant receipts to qualify their finite display members.
-	return renderAnswerDocTraceEventInventoryPublicationViewWithPublication(accepted, bridge, publication, rm)
+	return accepted, rm
 }
 
 type traceInventoryScopeProjection struct {

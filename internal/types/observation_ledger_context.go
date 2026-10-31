@@ -62,6 +62,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, ctx.Mutable.DispatchToolResults())
+		toolResults = ctx.Mutable.observationLedgerNativeToolResults(toolResults)
 		aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, ctx.Mutable.EmittedEvidence()...)
 		if len(evidenceItems) < normalizedObservationLedgerEvidenceLimit(evidenceLimit) || evidenceLimit <= 0 {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.Mutable.EmittedEvidence()...)
@@ -146,6 +147,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, bus.Mutable.DispatchToolResults())
+		toolResults = bus.Mutable.observationLedgerNativeToolResults(toolResults)
 		aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, bus.Mutable.EmittedEvidence()...)
 	}
 	var supplementResults []ToolResult

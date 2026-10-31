@@ -328,8 +328,17 @@ func DefaultRetryBudgetByKindSettings() RetryBudgetByKindSettings {
 // the provider's own tokenizer endpoint.
 const BytesPerToken = 4
 
+// FinalizerRequestBytePolicy selects the finalizer request-byte contract.
+// It is independent of evidence validity and does not change native facts.
+type FinalizerRequestBytePolicy string
+
+const (
+	FinalizerRequestByteLegacyAdvisory FinalizerRequestBytePolicy = "legacy_advisory"
+	FinalizerRequestByteEnforce        FinalizerRequestBytePolicy = "enforce"
+)
+
 // AgentSettings carries per-agent tunable limits. Zero values mean
-// "use code default" — see DefaultAgentSettings().
+// "use code default" when resolved — see ResolvedAgentSettings().
 type AgentSettings struct {
 	// MaxIterations is the ReAct loop ceiling for all agents.
 	// Default 20. When i reaches maxIter the ReAct for-loop exits
@@ -370,6 +379,12 @@ type AgentSettings struct {
 	// being silently scrubbed, so a realistic dispatch may burn one
 	// retry to clear the field before the real answer lands.
 	FinalizerMaxCorrectionRetries int `yaml:"finalizer_max_correction_retries"`
+
+	// FinalizerRequestBytePolicy explicitly selects bounded request publication.
+	// Default/resolved settings enforce it; an unresolved zero-value settings
+	// object retains the legacy advisory behavior for direct agent composition.
+	// This in-memory policy adds no YAML or CLI configuration surface.
+	FinalizerRequestBytePolicy FinalizerRequestBytePolicy `yaml:"-"`
 
 	// FinalizerPreservePriorProse toggles the pre-tool-call draft
 	// salvage in the finalizer ParseOutput. When the model writes a
@@ -655,18 +670,19 @@ const (
 func DefaultAgentSettings() AgentSettings {
 	t := true
 	return AgentSettings{
-		MaxIterations:                 20,
-		MaxToolHistoryBytes:           150 * 1024,
-		LoopMinInjectInterval:         3,
-		LoopMaxContinuations:          5,
-		LoopMaxMidLoopInjects:         6,
-		LoopIdleStopThreshold:         2,
+		MaxIterations:         20,
+		MaxToolHistoryBytes:   150 * 1024,
+		LoopMinInjectInterval: 3,
+		LoopMaxContinuations:  5,
+		LoopMaxMidLoopInjects: 6,
+		LoopIdleStopThreshold: 2,
 		// R10 (§29.104.7, user ruling 2026-07-15): 3 → 4. Modest raise of
 		// the finalize validation retry budget (also lifts the derived
 		// reject-hint budget max(n×4, 8): 12 → 16). Auxiliary to the
 		// XGAP-FIX ① supersede root fix — the budget is headroom for
 		// format-class fixes, never a substitute for hint quality.
 		FinalizerMaxCorrectionRetries: 4,
+		FinalizerRequestBytePolicy:    FinalizerRequestByteEnforce,
 		FinalizerPreservePriorProse:   &t,
 		FinalizerShrinkageMinProseLen: 400,
 		FinalizerShrinkageRatio:       0.5,
@@ -739,6 +755,12 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.FinalizerMaxCorrectionRetries == 0 {
 		s.FinalizerMaxCorrectionRetries = d.FinalizerMaxCorrectionRetries
+	}
+	switch s.FinalizerRequestBytePolicy {
+	case FinalizerRequestByteLegacyAdvisory, FinalizerRequestByteEnforce:
+		// Preserve an explicit, typed compatibility or enforcement choice.
+	default:
+		s.FinalizerRequestBytePolicy = d.FinalizerRequestBytePolicy
 	}
 	if s.FinalizerPreservePriorProse == nil {
 		s.FinalizerPreservePriorProse = d.FinalizerPreservePriorProse
