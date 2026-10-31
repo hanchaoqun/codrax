@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-30 UTC，§322复核）：79个唯一稳定任务＝27实现交付＋52开放，18类仍有开放项；最新排序与计数见[实施清单](hmosperf_implementation_tasks_20260917.md)。§321双人工及全仓失败封存、未单独发布；§322修复可选Notes删减导致原生端点丢失的回归，统一共享有界算术教学，唯一全仓通过。完整能力本批新增0、已交付共享子能力2组；A采样完整人工FAIL、B只读登记负控限定PASS，closure=none。重点剩余9组问题与旧未触发继续留账，105版Donghu元宝已真实运行、100版抖音仍NOT_RUN。持续main；历史段落保留当时代次，不以当前修复倒签旧FAIL，也不把交付、整答验收和领域完整性混算。
+当前实施状态（2026-10-31 UTC，§327）：79个唯一稳定任务＝27实现交付＋52开放，18类仍有开放项；最新排序与计数见[实施清单](hmosperf_implementation_tasks_20260917.md)。本代唯一full实际exit0/源未变，98包、28650顶层、34095子例PASS；A/B完整人工均FAIL，B执行后同代交付NOT_TRIGGERED，operator未跑。552件已封存，34文件代码提交776c8683940a777ec99cfac94bc51ff2e5f42afa；完整能力新增0、closure=none，交付范围是共享子能力3组而非完整父任务，文档/远端交付由[publication](../../eval/results/hmc_native_publication_compat_20261030_v1/publication-v1.json)确认，不从本地提交推断。P0提升为查询完成后的同代不可变终态交接，以及业务树producer前缀裁剪/已查询登录页账户跨通道遗漏；足量证据后的解释误述继续留档。A2211时序行及312业务字段无错配不能替代主要子阶段完整产出。§325/326原FAIL、§326 B局部PASS各保原代，不能由本代全仓通过倒签。105版Donghu完整ftrace已实用，100版抖音NOT_RUN，WAL仍生产NO-GO。持续main，交付、整答验收与领域完整性分别记账。
 
 ## 1. 范围、证据与结论口径
 
@@ -11419,3 +11419,65 @@ B三份INIT含unknown及不得断on-/off-CPU边界，正确包络、单位和分
 52稳定项按9个ROI组无重漏重排（7/8/5/5/1/9/6/8/3），原checkbox与18部分/29待实施/3待验收/1验收中/1持续不改。完整ID名册保在本批census报告；18.5持续并行，17.6需新增真实格式/宿主/工具材料才扩验。真实105版元宝ftrace已应用，100版抖音case仍NOT_RUN；WAL零副作用前生产NO-GO。
 
 旧25档8919件/562快照身份核验，18旧污染为子集、544在仓外；不把Go快照放回编译树。原大文件及同字节副本仅按完整身份引用，不按大小裁掉query/INIT/答案。凭据仅走正常运行时加载，审计不读/hash/copy。本代397件封存，index SHA2d94635aafdad3d0ee35ea412a8b13dad124cca4c3a7d366a644b3b19b5a3412。最终紧邻两笔main提交与远端一致性以[§324汇总](../../eval/parallel_selected_summary_hmc_registration_sample_compat_20261030.md)、[人工审计](../../eval/parallel_selected_summary_hmc_registration_sample_compat_20261030_manual_audit.md)及publication收据为准；本地raw归档不冒Git上传，§323保持未独立发布失败代。
+
+## 325. 原生整查询留存、完整账户导航与真实双例失败（未独立发布）
+
+本代实际阅读参考`core/preprocess/marker_ops.py`的完整node_map/roots、线程itid身份、节点状态交集及map身份关联缓存。设计意图是先建立同源完整实例和状态，再选择展示；不能把裁剪结果、同名邻近节点或参考缺值零默认当完整账户。本项目候选以真实查询签名、物理源版本和准备代绑定整份原生核心，Agent/Bus及fork合并复用；128查询/16MiB encoded边界不是模型提示或heap承诺。仅原生成功当前查询可登记，memo、取消、失败、未签名/恢复稿不增权，读取输出不赋完成或因果权限。
+
+公开压力回归通过真实TraceQuery→工具追加→Explorer.ParseOutput→清dispatch→fork合并→最终INIT：47查询在普通历史1MiB裁剪中由1324758B/47条变1041080B/40条，完整self3.938丢失、窄窗0仍在。原始RED原件保留；后续候选恢复整查询并优先唯一精确owner/完整端点账户，16+4及128行边界不变。最终带独立进程收据的目标测试3包41顶层/105子例、race2包3顶层/5子例均PASS。早期agent重定向测试缺原intent/OS终态收据，补的是如实标缺的回顾索引，不伪造原收据。
+
+冻结7545仓库/181外部/26仓外快照，SHA060bfe9501d2733ccfefa84214c4276b663e503dbeaf7ce5d29c0bacb7780379。唯一全仓exit1、输入前后同代：96包PASS/2FAIL/12无测试，28621顶层PASS/7FAIL/43SKIP，34030子例PASS/38FAIL/14SKIP，零重复/未终态/非JSON。3处新测试复制mutex；其余6组旧合同证明显式证据替换/清空仍被留存池补回，包含移除Replay/Stats、换物理源及失败结果。必须区分显式替换和预算压缩，不能改旧断言或称旧测试过时。
+
+A原105版元宝完整63659046B ftrace、15steps/n1；29原生JSON/6INIT/0HTML。四完整账户self6.770/21.605/3.938/83.143全部进入本代INIT，仍无最终答案：两次provider2013上下文超限，进程0但smoke/人工FAIL。每轮三INIT662219B、messages662295B加tools122507B，HARD784802/800000仍Chat；196438是token估计，不是实际量测。KnownFacts及原生多lane冗余需共享预算/精确身份复用。三次read拒使用伪造后缀，一次派生grep拒返回真JSON导航，不据此放松来源门。中间受理调查仍有12段IO包到预览尾、背景线程升子阶段等错误；实际只重传1/6解释单元，不能说全部进finalizer。
+
+B原代表自然问题、50steps/n1；四份完整SQLite拷贝来自两份夹具，不冒四设备采集。8计划/2组/4选/4未选确实触发，但view选成window_stats；一次同return索引/选择快照的原operator审计exit1，不能用附加resource_stack查询抵销。最终表格保全五资源事件/十四帧，正文仍混用逐查询尝试、8192地址、全1位型协议含义及栈深度/展开关系。1280分配与malloc释放是早期解释错误，最终已纠正768/free，不作为仍残留错误。最后snapshot15次尝试后又3次真实查询，INIT18正确，不能把该代差本身误报矛盾。人工FAIL，事实齐备误述有限留账。
+
+两例各一次；此前pair只在空输出目录前置检查失败、未spawn模型，原失败保留，精确空目录可恢复移动后执行未改冻结pair。唯一完成请求A10/B27配对、28歧义另留，实际重叠14.512秒；配对数不是全部请求数。821原件/index SHA1f2120a4ca1c95188dcf34f4ed3beecbcf05f7dd4f8342b5ed565bbab30472b3封存；旧26档9316件/606快照身份核验，未引回编译树。完整能力0、交付子能力0、27/52不变，下一代先修生命周期和总预算。只读登记、sample-only、旧IO/权限/图修补本代不补签，WAL仍NO-GO。见[§325汇总](../../eval/parallel_selected_summary_hmc_donghu_representative_native_handoff_20261030.md)及[手审](../../eval/parallel_selected_summary_hmc_donghu_representative_native_handoff_20261030_manual_audit.md)。
+
+## 326. 显式证据生命周期、整请求预算与代表自然合同通过（全仓失败，未独立发布）
+
+基线仍为main的a8846881aaa1ba6cea42aeaad7dd86988165c553，承接§325未发布候选；79唯一＝27已交付＋52开放，完整能力新增0、正式交付子能力0。候选将显式SetTurnAArtifacts替换/撤销与非撤销的压缩、补证、说明更新分开，追加和fork合并检查集合身份，并保持物理源代与局部可见性独立。最终成文按静态消息、当前实际schema、尾部提示和完整动态单元统一字节预算，可选依赖组整组发布或省略；真实Chat前复核，不拿字节策略冒充精确tokenizer/provider容量保证。原128查询/16MiB、16+4/128行及完整来源、根因、Trace投影/自动补齐边界不放宽。
+
+本次参考实读marker_ops完整node_map/itid/节点状态交集和缓存对象身份，以及query_engine的summary_only/data、legend/empty/truncated分层。借鉴结构完整再缩展示，不复制扁平legend.update跨查询混字典，不以缺状态默认零、children直接相加或名字经验规则作权限。参考文件均只读，实际读取范围和归属见封存reference-findings；不把整个REFERENCES清单冒称全部独审。
+
+最终目标3包119顶层/298子例、race2包16顶层/15子例PASS。唯一full实际exit1，95包PASS/3FAIL/12无测试，28633顶层PASS/8FAIL/43SKIP，34076子例PASS/2FAIL/14SKIP，非JSON/重复终态/未终态均0，源前后核验true。8项涉及旧fork导航、通用事实共享、来源冲突修补、post-emit、重叠端点、内部术语、partial时序和窗口标题；不是8个模型失败或都属兼容文字。TestBusContextCopylocksVetClean本代PASS，§325原FAIL仍按历史保留。冻结后未改源或第二次全仓，不以局部绿销系统回归。
+
+A原105元宝完整63659046B ftrace、15steps/n1，进程0/smokePASS/人工FAIL；26唯一原生payload、43次成功trace_query声明、3INIT、1HTML，各口径分开。两activity的total/self为59.695/6.770与111.487/3.938，两performCreate为46.600/21.605与103.315/83.143，四完整账户与独立状态均进实际INIT。7原生时序表3493展示行逐行匹配独立oracle，3份全窗表属于重复展示不相加；线程46571与marker payload2227、原件与预览大小均分开。可选预览省略97252B/1依赖组没有抹掉这四账户。
+
+A仍有三类确定语义失败：实例D未标记3.333/0.006与IO0.152/1.350是互斥桶，却被写成“总不可中断等待／其中IO”；首页self83.143被说成纯CPU执行，实际含S10.413及其它非Running状态；父实例窄窗self0被说成父整体属性，同一INIT已给出用户广窗123.918/self2.375。第三类受理解释unit[0]实际重传并与正确原生账户冲突；另一个错误D解释unit[3]未发布，不得笼统归因全部调查污染。前两类已有足量证据，有限留账，不追跑或加关键词门；后继优先公开复现typed账户范围与解释复用契约。
+
+B原代表题50steps/n1，原构造材料四物理文件来自两夹具，不冒真机四次采集。自然选择resource_stack的8计划/2组/4选/4未选，之后入选及未选各真查4条，终态8尝试/6success/2empty，无失败或未执行；未选补查不变成入选。原status单次返回的index与selection snapshot同代，唯一operator exit0且独立人工PASS；完整保原半开窗、分组/事件/帧口径及源身份，深度排序未误升调用边。该原题自然验收成立，但全仓失败仍阻止11.2交付；历史FAIL、图/no-fit/修补等未触发不回签。
+
+本批准确并行凭证为已唯一配对完成区间A30/B19、26歧义保留，最大可证重叠22.459秒；B日志1个未配对request不是进程仍运行。两CLI及唯一full均有实际OS终态，源前后未变。准备中额外只读Ruby诊断曾语法失败、tool exit1且无独立OS收据，编排仍继续了原guarded prepare；偏差原文保留，未补造凭证或声称prepare没运行。根明确授权后只继续原preflight/freeze，未重复构建/模型/full。
+
+冻结7549仓库/233外部/40仓外快照，SHA b7f58716737427676120d4b5db9a558f56fb39da4306fe6699b7fc886c671b11；旧27档10137件/632快照来源身份核验。本批889件封存，index SHA1573ed5fb73eb7cfa3a1170ec483b14d7c6957505d1ff0edd79ad64f6a16c07a，不publication、不重封。原大ftrace及同字节全文副本只按身份引用，完整query/INIT/答案不按大小删减，Go快照不回编译树，providers内容不读/hash/copy。52稳定开放与旧9组仍在，先系统回归/父账户范围，再轮换既有只读登记负控与具备真实材料的二进制；采样/IO解释、权限/图欠项保持，WAL生产NO-GO。见[§326汇总](../../eval/parallel_selected_summary_hmc_native_lifecycle_prompt_budget_20261030.md)及[手审](../../eval/parallel_selected_summary_hmc_native_lifecycle_prompt_budget_20261030_manual_audit.md)。
+
+## 327. 共享发布与整请求预算兼容收口（完整能力0，closure=none）
+
+基线main a8846881aaa1ba6cea42aeaad7dd86988165c553，34文件实现776c8683940a777ec99cfac94bc51ff2e5f42afa。79唯一＝27已交付＋52开放，本代不关闭任何稳定ID；代码交付范围3组有界子能力，不把整答失败变为完整能力。代码与9文档相邻提交及main远端一致性以本批publication确认；§325/326原失败封存完全不变，不另给旧代publication。
+
+最终定向4包152顶层/346子例及race2包25顶层/32子例PASS；唯一full真实exit0，98包PASS/12无测试，28650顶层PASS/43SKIP、34095子例PASS/14SKIP。265944条GoJSON，零非JSON/重复终态/未终态，源前后核验true；日志SHA256 0c0806d12ad9290d525bfb5e2fd580b60d31168c0efa842bc8ca485d417ed90e。两次兼容选集及新soft正控前提失败的原件保留；最终两例严格较小省略负控与roomy完整发布正控不放宽。lower-cost-full公共入口仍NOT_COVERED，不能从私有成本比较或本次自然题补签。
+
+冻结7553仓库/210外部/44仓外快照，SHA675c4ac2f005e24840d904c4fded019bd6724c96812fb47262efdbaad0386bc9。两CLI各一次、实际exit0；请求明确配对完成A43/B18、歧义0、最大可证重叠21.865秒。A原105元宝15steps/n1收集11query/3INIT/1HTML，原smokePASS而完整人工FAIL；B原代表自然题50steps/n1收集4query/3INIT/1HTML，完整人工FAIL/终态NOT_TRIGGERED。552原件于UTC04:27:40.009911封存，[索引](../../eval/results/hmc_native_publication_compat_20261030_v1/sealed-index-v1.json)SHA ba1e205759df90d3ebf9d7124d7e8a3a8901c6f915083ce9cf8fda72e7c8ae7f；A/B/full收据0/0/0不代表整答PASS。
+
+### 327.1 P0：真实执行与同代不可变交付之间的共享缺口
+
+B自然discover request_plan=resource_stack正确产生8计划/2组/4选/4未选，实际执行四选中成员后直接成文。INIT02完整保4尝试、3success＋1empty、4not_executed，两侧成员均display4/omitted0；三INIT均不含saved_index/selection_snapshot及两SHA。唯一discover不可变index cd0ada…与selection e3b676…仍是0次尝试/8未执行，执行后status/representative_status没有调用，原operator未运行。
+
+代码闭环证据：`traceCatalogFinishQuery`先Complete真实结果，随后`saveTraceCatalogAfterAttempt`→`saveTraceCatalog`→`Catalog.Save`以immutable=false只更新legacy alias及同run内存publication union；fresh index/selection/SHA仅由`SavePublication`生成，生产调用方是显式trace_catalog动作。`formatTraceCatalogs`与代表摘要只读当前Mutable.CurrentExecution；本批状态确已进INIT，不存在“已生成fresh tuple仅被预算裁掉”的证据。现有terminal export仅处理接受过的证据包意图，不能冒充代表索引自动交付。
+
+该缺口提升P0，归原11.2/12.5/18.4而不新增稳定ID。后继应在确定性终态边界复用同run受信Publication，原子交接index、selection、内容SHA与状态；status只作可选分页。不可读latest JSON恢复权限，不把最后一个fork当全部执行，不把选择/保存成功升级为诊断完成。当前批绝不事后status/operator补验收，11.2保NOT_TRIGGERED。
+
+### 327.2 P0：业务账户产出与成文跨通道范围
+
+A独立完整人工FAIL（报告23548B、SHA13a6a0ece9e0c9d6752de8ceca68071ddd69cdb1f85b45179d01893f37249418）。三个window_stats实际业务树发现3718/460/1548节点，只按起始行前缀发布32个，各省略3686/428/1516、partial_topology；login/home两个主要performCreate self21.605/83.143均未进入typed产物。`trace_marker_tree_collect.go`先完成统计再前缀限流，`trace_query_business_tree.go`只能遍历已发布Nodes，后段公平预算不能恢复未产出的账户。不能笼统判作当前留存池掉了完整树，亦不能取oracle值回灌。
+
+另一条已查询信息丢失也已实证：span_window payload453bca…给登录页完整HYLoginMainActivity名、155107–158588行与46.600ms；受理调查正确unit[1]及aggregate含该值，但3份实际INIT均无完整名/46.6账户，实际只投递unit[0]/5、省略4531B。home总量103.315及两个activity完整账户已到账。此证据支持原生账户跨通道导航不足，不支持将模型aggregate升为native，也没有实际Mutable快照证明整个ToolResult被历史裁剪丢弃。优先按typed目标/来源/实例/范围补真实产出与可用导航，不粗增常数、名字特判或扫原始问答硬门。
+
+A实收4张时序836+836+217+322＝2211行及24业务表312字段全部0错配，原生显示正确；其中21张是明确标注其它线程的背景表，内容噪声不等于因果越权。D互斥桶被正文写含IO、自段总数31/18被写16/17、两早期child误放到后开始的home父下、0.044 inclusive Running列混用0.038 self Running均属足量证据后的误述，继续留账。§326的父账户窄窗外推在本轮带限定，不再误判同错；未触发根因/唤醒/图不新增要求。旧四账户与3493行证明不充本代。
+
+### 327.3 已证有界进展与未销账
+
+实现交付范围仅3组：当前代原生核心留存/历史只读隔离；精确owner完整账户交接已有产出时的保真；整请求预算、整组来源发布与已受理答案保留。不是完整业务树、全部自然预算分支或四账户整答完成。B四查询五资源事件/十四源帧和原生表、半开窗、单位、真实empty与未执行、自动补齐保真；完整人工仍FAIL：正文深度关系越权、四查询错写两次，后置caveat不消除冲突。B审计SHA a716ee220ee32091dae0bda74418db737337fabce88e5629e88d2160ed000f99，不以CLI退出0或表格正确改判。
+
+下一批先推进上述两类系统问题并轮换既有只读登记缺来源终态负控；目前未执行，不记通过。旧采样/IO/权限及图未触发保持原账，100版抖音NOT_RUN、WAL零副作用前生产NO-GO。见[§327汇总](../../eval/parallel_selected_summary_hmc_native_publication_compat_20261030.md)、[手审](../../eval/parallel_selected_summary_hmc_native_publication_compat_20261030_manual_audit.md)、[A原审计](../../eval/results/hmc_native_publication_compat_20261030_v1/sealed-v1/0265-codrax-hmc327-A-audit-v1.md)及[B原审计](../../eval/results/hmc_native_publication_compat_20261030_v1/sealed-v1/0286-codrax-hmc327-B-audit-v1.md)。
