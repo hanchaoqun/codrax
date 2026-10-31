@@ -10575,6 +10575,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessTreeObservations(result.WindowStats.BusinessTree, ref, scope, at)...)
 	}
+	out = append(out, traceQueryTypedDiscoveredSpanObservations(result, ref, scope, at)...)
 
 	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the event_search-side generator
 	// census (matched_rows caliber). The window_population twin rides
@@ -10603,7 +10604,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = traceQueryResourceMeasurementPublications(out)
 	out = traceQueryFilteredPerfMemberReceipts(result, out)
 	out = traceQuerySamplingMeasurementPublications(result, out)
-	return traceQueryBusinessMeasurementPublications(result, out)
+	out = traceQueryBusinessMeasurementPublications(result, out)
+	return traceQueryDiscoveredSpanMeasurementPublications(result, out, query...)
 }
 
 func traceQueryResultPrimaryPerfContext(result tracequery.Result) *tracequery.PerfContext {

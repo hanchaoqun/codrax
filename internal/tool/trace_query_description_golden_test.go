@@ -1,5 +1,23 @@
 package tool
 
+// EVOLUTION RECORD 2026-10-31 (HMC328 capability / HMC329 validation):
+// correct only the existing shared business-tree display-order clause.
+// An explicit physical thread gives its measured longer inclusive accounts
+// bounded display priority; without it the legacy begin-line order remains.
+// Counts, omissions, complete accounts and causal/root identity are unchanged.
+// This teaches the implemented producer's display selection, not a new view,
+// note key, semantic gate, or permission to call a ranked account a root cause.
+// The independent literal reverse-delta recovers the complete preceding
+// canonical SHA and preserves all five older whole-description/prefix hashes.
+// It is applied only at those hash comparisons, not to shared helpers whose
+// callers still verify the current business-tree suffix. Missing, repeated,
+// mixed and unapproved changes remain rejected. HMC328's six original tool
+// failures remain sealed; this record does not relabel them as passed.
+// Regenerate only via the UPDATE RITUAL below and retain full byte comparison.
+// The HMC328 fixed natural pair is not matched baseline-versus-updated h2/h3
+// dispatch A/B. That existing live-evaluation debt remains open; neither this
+// deterministic correction nor a golden regeneration discharges it.
+
 // EVOLUTION RECORD 2026-10-14 (HMC §243): the inherited-target clause now
 // describes one unambiguous typed identity rather than exactly one roster row.
 // Same-kind numeric selectors remain one query target when a cursor omits its

@@ -156,7 +156,16 @@ func (c *traceMarkerTreeCollector) build(idx *Index, q Query, schedulerSafe bool
 	if q.runCancel.sample() || len(out.Nodes) == 0 {
 		return nil
 	}
-	sort.SliceStable(out.Nodes, func(i, j int) bool { return out.Nodes[i].StartLine < out.Nodes[j].StartLine })
+	// Keep the full all-owner census and completed accounts. Only the bounded
+	// display prioritizes an explicitly selected physical thread; a process
+	// selector or a name alone must not silently become a scheduler-TID filter.
+	targetPID := 0
+	if q.PID > 0 && normalizedTargetScope(q.TargetScope) == TargetScopeThread {
+		targetPID = q.PID
+	}
+	sort.SliceStable(out.Nodes, func(i, j int) bool {
+		return TraceMarkerTreeDisplayLess(out.Nodes[i], out.Nodes[j], targetPID)
+	})
 	out.NodeCount = len(out.Nodes)
 	if len(out.Nodes) > TraceMarkerTreeNodeLimit {
 		out.OmittedNodes = len(out.Nodes) - TraceMarkerTreeNodeLimit

@@ -20,7 +20,7 @@ const MaxSnapshotBytes = 8 << 20
 // the private output location. Same-run prior publications are merged without
 // changing the executing fork; disk JSON never supplies current authority.
 func (c *Catalog) Save(ctx context.Context, path string) error {
-	_, err := c.savePublication(ctx, path, false)
+	_, err := c.savePublication(ctx, path, false, false)
 	return err
 }
 
@@ -28,10 +28,10 @@ func (c *Catalog) Save(ctx context.Context, path string) error {
 // immutable, content-addressed navigation index. The legacy path still follows
 // later saves for resume callers, but is not the delivered generation identity.
 func (c *Catalog) SavePublication(ctx context.Context, path string) (Publication, error) {
-	return c.savePublication(ctx, path, true)
+	return c.savePublication(ctx, path, true, false)
 }
 
-func (c *Catalog) savePublication(ctx context.Context, path string, immutable bool) (Publication, error) {
+func (c *Catalog) savePublication(ctx context.Context, path string, immutable, terminalReuse bool) (Publication, error) {
 	if c == nil || c.run == nil {
 		return Publication{}, fmt.Errorf("nil catalog")
 	}
@@ -116,6 +116,13 @@ func (c *Catalog) savePublication(ctx context.Context, path string, immutable bo
 				return Publication{}, err
 			}
 		}
+		// Both immutable objects have just been verified through the ordinary
+		// publisher. A prior successful in-memory publication of these exact
+		// bytes is sufficient; never read the mutable alias to restore authority
+		// or rewrite it on repeated terminal projection.
+		if terminalReuse && c.run.publishedImmutable[abs] == result.IndexSHA256+":"+result.SelectionSHA256 {
+			return result, nil
+		}
 	}
 	temp, err := os.CreateTemp(dir, ".trace-catalog-*.tmp")
 	if err != nil {
@@ -149,6 +156,12 @@ func (c *Catalog) savePublication(ctx context.Context, path string, immutable bo
 		c.run.published = map[string]*Catalog{}
 	}
 	c.run.published[abs] = publication
+	if immutable {
+		if c.run.publishedImmutable == nil {
+			c.run.publishedImmutable = map[string]string{}
+		}
+		c.run.publishedImmutable[abs] = result.IndexSHA256 + ":" + result.SelectionSHA256
+	}
 	return result, nil
 }
 

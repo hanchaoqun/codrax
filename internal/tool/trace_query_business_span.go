@@ -17,12 +17,16 @@ import (
 // clock provenance, and capacity coverage in exactly the same way as other
 // trace_query observations.
 func traceQueryTypedBusinessSpanObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	return traceQueryBusinessSpanObservationRows(stats, ref, scope, at, false)
+}
+
+func traceQueryBusinessSpanObservationRows(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string, discovery bool) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for _, span := range stats.TraceSpans {
 		if len(out) >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
-		if strings.TrimSpace(span.SemanticClass) != "" || strings.TrimSpace(span.Name) == "" ||
+		if (!discovery && strings.TrimSpace(span.SemanticClass) != "") || strings.TrimSpace(span.Name) == "" ||
 			span.DurationMs <= 0 || math.IsNaN(span.DurationMs) || math.IsInf(span.DurationMs, 0) ||
 			span.EndTs <= span.StartTs || span.StartLine <= 0 || span.EndLine < span.StartLine {
 			continue

@@ -27,6 +27,7 @@ func traceQueryDescriptionBeforePreparationEvolution(t *testing.T, description s
 func TestTraceQueryDescriptionPreparationOnlyEvolution(t *testing.T) {
 	prior := traceQueryDescriptionBeforePreparationEvolution(t, (&TraceQuery{}).Description())
 	prior = traceQueryDescriptionBeforeComparisonWindowEvolution(t, prior)
+	prior = traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t, prior)
 	// Entire canonical Description after the §207 terminal-window evolution.
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(prior))); got != "045b4bd726d2450682b2fa9c592e43a3006ed677935b36d4a703d6981d1acd38" {
 		t.Fatalf("Description changed outside the exact preparation correction: %s", got)

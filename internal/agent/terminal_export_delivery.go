@@ -15,6 +15,11 @@ import (
 // all exploration has joined. It publishes accepted requests exactly once;
 // it neither performs missing queries nor changes the model's interpretation.
 func FinalizeTraceCatalogExports(ctx *types.AgentContext, answer, lang string) string {
+	answer = finalizeTraceCatalogExports(ctx, answer, lang)
+	return finalizeTraceCatalogRepresentatives(ctx, answer, lang)
+}
+
+func finalizeTraceCatalogExports(ctx *types.AgentContext, answer, lang string) string {
 	if ctx == nil || ctx.PipelineExports == nil || strings.TrimSpace(answer) == "" {
 		return answer
 	}

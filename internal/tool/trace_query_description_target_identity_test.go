@@ -21,6 +21,7 @@ func traceQueryDescriptionBeforeTargetIdentityEvolution(t *testing.T, descriptio
 
 func TestTraceQueryDescriptionTargetIdentityOnlyEvolution(t *testing.T) {
 	prior := traceQueryDescriptionBeforeTargetIdentityEvolution(t, (&TraceQuery{}).Description())
+	prior = traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t, prior)
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(prior))); got != "8e04b6fba800ed378a871668b299a32aaa44ef9a4eb494246fea0c62e2194c5c" {
 		t.Fatalf("description changed beyond typed-target identity correction: %s", got)
 	}

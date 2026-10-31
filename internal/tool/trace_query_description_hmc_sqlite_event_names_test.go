@@ -30,6 +30,7 @@ func TestTraceQueryDescriptionSQLiteAndEventNameOnlyEvolution(t *testing.T) {
 		t.Fatal("input preparation teaching differs from the one approved SQLite paragraph correction")
 	}
 	prior := strings.Replace(description, approvedPreparation, priorPreparation, 1)
+	prior = traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t, prior)
 	// SHA of the complete golden immediately before 501f02f97 / 7834230a6.
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(prior))); got != "afad00c25048ed09f35556a4e03a93035b31c665fab8eb2fae25363c02d2f927" {
 		t.Fatalf("Description changed outside the approved SQLite paragraph and terminal event-name contract: %s", got)

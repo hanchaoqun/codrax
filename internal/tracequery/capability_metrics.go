@@ -216,7 +216,7 @@ func capabilityMetricDescriptors() []MetricCapability {
 			o("span_windows", "start_ts end_ts", "seconds", "original span endpoints"),
 			o("span_windows", "duration_ms", "ms", "closed native span duration"),
 		}, r("", [][]string{{"trace_mark"}, {"trace_async_interval"}}, "", "Valid B/E stack, unique S/F owner/name/cookie, or an admitted explicit complete trace_async_interval; endpoint completeness and scope disclosed."), "No duration from an unmatched B/S. A business label alone does not prove mechanism, execution ownership or causal relation."),
-		m("business_tree", "Observed synchronous business marker nesting with independent inclusive and self measurements, across all emitters in begin-line order rather than target-filtered or duration-ranked Top work.", []CapabilityOutput{
+		m("business_tree", "Observed synchronous business marker nesting with independent inclusive and self measurements. The inventory includes all emitters; an explicit physical thread prioritizes that owner's measured longer inclusive accounts for bounded display, otherwise display follows begin-line order. Display priority is not causal contribution, completeness or root identity.", []CapabilityOutput{
 			o("window_stats.business_tree", "node_count omitted_nodes", "count", "observed in-scope marker instances before the independent display limit versus omitted instances"),
 			o("window_stats.business_tree.nodes", "direct_child_count", "count", "direct children in the observed same-source/emitter stack, not a complete program call graph"),
 			o("window_stats.business_tree.nodes.inclusive", "duration_ms", "ms", "closed marker wall time intersected with the selected query window"),

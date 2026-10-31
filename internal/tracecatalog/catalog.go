@@ -157,9 +157,12 @@ type sourceBinding struct {
 }
 
 type runIdentity struct {
-	sequence               atomic.Uint64
-	publication            sync.Mutex
-	published              map[string]*Catalog
+	sequence    atomic.Uint64
+	publication sync.Mutex
+	published   map[string]*Catalog
+	// Only successful immutable publications populate this content key. It
+	// permits terminal same-generation reuse without consulting a disk alias.
+	publishedImmutable     map[string]string
 	exportMu               sync.Mutex
 	exportRefs             map[string]exportAttemptBinding
 	deliveryMu             sync.Mutex

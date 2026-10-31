@@ -164,7 +164,7 @@ func writeTraceBusinessTree(b *strings.Builder, tree *tracequery.TraceMarkerTree
 		return
 	}
 	shown := min(limit, len(tree.Nodes))
-	fmt.Fprintf(b, "- 同步业务层级：%s；全线程观察库存按起始行展示（不是目标过滤或耗时排名）；观察到 %d 个实例，本摘要展示 %d；原生未展示 %d、摘要另省略 %d。总耗时含子层；自身耗时排除完整直接子区间并集。不是唤醒链或根因树。\n",
+	fmt.Fprintf(b, "- 同步业务层级：%s；保留全线程观察库存；明确指定物理线程时优先展示该线程的已计量总耗时较长账户，其余按起始行展示；未指定线程时按起始行展示。这只是展示优先级，不是目标过滤、因果贡献或完整成员排名；观察到 %d 个实例，本摘要展示 %d；原生未展示 %d、摘要另省略 %d。总耗时含子层；自身耗时排除完整直接子区间并集。不是唤醒链或根因树。\n",
 		TraceBusinessTreeWindowText(TraceBusinessTreeFact{Window: tree.Window, WindowUnavailableReason: tree.WindowUnavailableReason}), tree.NodeCount, shown, tree.OmittedNodes, len(tree.Nodes)-shown)
 	for _, n := range tree.Nodes[:shown] {
 		fmt.Fprintf(b, "  - %s；来源=%q；索引行=%d..%d\n", TraceBusinessTreeNodeText(n), n.SourcePath, n.StartLine, n.EndLine)
