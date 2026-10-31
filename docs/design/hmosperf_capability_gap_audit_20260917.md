@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-31 UTC，§330）：79唯一＝27实现交付＋52开放，18类仍有开放项；最新ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)。本批完整能力新增0、明确closure=none，有界子能力1项：组合输入的物理业务配对→原生量测→成文表，5文件实现d82037ac67286f34625f53cc0a6c5dc058d91aa8。唯一full实际0、源前后未变，98包28679顶层34146子例PASS。真实100版抖音完整235422121B ftrace已实际使用；两例完整人工均FAIL，原代表规格operator FAIL，11.2保持开放。主要账户/完整时序及同代代表交付的有限PASS保留，历史失败不回签。本代504件、旧31代12509件保真；main代码/5文档交付见[publication](../../eval/results/hmc_douyin_representative_scoped_delivery_20261031_v1/publication-v1.json)。后继优先结构化目标到查询规格、查询范围到解释绑定；充分事实后的措辞错误不无限追题。WAL零副作用前生产NO-GO，交付、有限验收与整答分别记账。
+当前实施状态（2026-10-31 UTC，§331）：79唯一＝27实现交付＋52开放，18类仍有开放项；最新ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)。本批完整能力新增0、root明确closure=none，08.3有限合同及两例整答人工均FAIL。有界源码子能力3组：同刻/首次wake及代际状态分割、精确完成阶段原因属性共用、同源同实例属性到因果分支投影并重建量测域。8个Go文件已提交fb5332c0fce27c65cc74e6304b4a947d5a2ecacb；唯一full实际0、源前后未变，98包28693顶层34255子例PASS。真实100版抖音自然命中16µs修正，完成证明/链投影的新分支仍仅公开测试覆盖。本代503件封存，旧32代13013件保留，本批仅复核最新504物理原件及更早链头，不重复归档全历史。相邻5文档和远端交付由[publication实际凭证](../../eval/results/hmc_io_scheduler_boundary_20261031_v1/publication-v1.json)确认，不预填结果。下一优先共享解释单元的量尺/成员/边界/预算、合法算术与端点教学、任务到查询规格；只读/二进制轮换未在本代执行。历史FAIL不回签，WAL生产NO-GO。
 
 ## 1. 范围、证据与结论口径
 
@@ -11535,3 +11535,35 @@ B完整人工FAIL：原事件查询含10.050端点的5匹配，被附到半开�
 504件封存index111ec43148554d35614bab3c960f0297581a68c6fa4904abef65a312ca7c1523，旧31代12509件/790来源快照身份保真。原始失败、invalidUTF8日志、完整查询/INIT/输出及两份完整审计保留，原始大ftrace仅按完整身份引用；不让Go快照重新进入编译树。见[汇总](../../eval/parallel_selected_summary_hmc_douyin_representative_scoped_delivery_20261031.md)及[手审](../../eval/parallel_selected_summary_hmc_douyin_representative_scoped_delivery_20261031_manual_audit.md)。
 
 下一双轨为结构化目标→正确代表查询规格/声明/补查归属，以及查询身份/端点/总体/投影到解释和表图的同源绑定；只读登记负控、sample-only及IO原有限合同轮换，不加第三例追绿。16µs边界先独立复现，不放宽既有闭合睡眠断言；充分事实后的偶发误述暂留，不增加业务名特判。52项完整ROI名册仍7/7/11/21/6，旧9组债、复合自然分支、图/patch、h2/h3、lower-cost-full、更多平台/协议材料欠项不抹去；WAL生产NO-GO，Trace因果投影和自动补齐保留。
+
+## 331. 原生调度边界、完成属性与IO有限复验（完整0，源码子能力3组，closure=none）
+
+基线main74334472616db2df4dd469c616b05cfc09b3a67d，8个Go文件实现fb5332c0fce27c65cc74e6304b4a947d5a2ecacb。稳定79＝27＋52，原任务勾选不变。三组实现交付与A/B完整验收分账；旧IO九张原生表成功到场是复验，不增加第四组新能力。
+
+### 331.1 公开反例、参考取舍和保护合同
+
+同刻switch-out→wake在timeline遗漏等号，而off-CPU统计及头部checkpoint已转换，导致宽/窄窗状态量尺分叉；冗余wake覆盖首次转换又可能误写睡眠。现在以首次已接纳转换划分量测，零时长睡眠不生成闭合等待实例，换代/新周期仍分开。期间整包暴露3个旧回归：first-waking作为状态结束后，完成wake旁合法blocked_reason失联；原guard不改，修复后复验通过。
+
+完成阶段属性另用查询局部证明：相同物理源、目标及发起线程代次、首waking/唯一完成wake原行，两个端点均在原时间/行范围，完成侧原因只能在既有5µs包络且在下一调度/生命周期边界前。取消、歧义/多completion、跨源/代际、坏字段不借权；中间未测间隙不计睡眠。旧direct-wake匹配不扩大。timeline、off-CPU和state-churn复用同一证明，无窗公共入口也重新绑定真实域。
+
+因果链局部窗不是另一原始来源：按同源、线程代次、原状态、实际完整起止和物理端点保留原查询已证明的等待属性，正时长局部区间须包含于原实例，重复身份不投影，未知/歧义不能被缩窗洗掉。复制后重建局部量测域，不新增根因席位。两条chain RED V1正是有效元数据投影丢失回归，前提曾被误判，最终恢复独立保护；V1/V2原FAIL均封存，不写成无效夹具。原4候选与闭合睡眠合同保留。
+
+参考marker_ops按callid/itid、正区间交集保状态的设计有价值，但没有定义ftrace同刻/首次wake顺序；io_ops发起时间桶不是请求在途深度。window_utils/wakeup_chain_index及GOLDEN_RULES、architecture、closure/select/package的身份/窗口/名册设计只作静态依据，不是客户因果证据。拒绝移植裸D→nonIO、未知补零、子耗时简单相加、邻近关联和固定Top常数。读取归属与取舍见[参考审查](../../eval/results/hmc_io_scheduler_boundary_20261031_v1/sealed-v1/0395-codrax-hmc331-reference-boundaries-v1.md)及[任务规格接缝诊断](../../eval/results/hmc_io_scheduler_boundary_20261031_v1/sealed-v1/0468-codrax-hmc331-task-query-gap-v1.md)，后者仅后继方案，本批未实施。
+
+### 331.2 两原题真实复验与仍开放的失败
+
+A原IO题15steps/n1，构造文本1839B不是设备录制；3次真实查询/2份唯一JSON，1次成文/3消息。四组峰均、全窗busy、request·ms、完整成员及窗内端点正确，9张原生表同源。smoke PASS，08.3有限及整答FAIL：四相交配对不是六窗内发起的子集；完整6/4/4/4ms与裁窗4/4/4/2ms互写；RQ发起6+2+1=9误写10再加BIO1；配对深度不能排除设备饱和、证明RQ/BIO同一物理请求。正确表不抵销正文。
+
+A共享接缝包括：实际重传unit0设备越权解释、其余4单元省略；原生activity note对“不可相加”限制过宽，与合法同层小计教学冲突；标题说端点未知而同表note保[1,1.01)；无源码锚点被误说成材料不存在。主事实完整在场，不能把全部错误统称源丢失，也不能将未投递单元算成污染。
+
+B完整235422121B真实ftrace，12次真实查询/7份唯一JSON，1次成文/3消息。2783主窗＋90窄窗时序行保真，主实例total669.351/self227.101/子并集442.250ms与root＋12账户状态核对正确。旧同SHA独立oracle有1430个带状态账户，本代手审交叉仅13，不夸大为全部。1429是已证direct children，root先前误读已撤回，不登记产品缺陷。同刻S→wake6µs及D→wake10µs现正确进入Runnable8.714，S170.918、D-family2.279ms；自然只命中状态边界，first-waking完成/坏候选/链投影/图未触发。
+
+B整答FAIL五类：self墙钟升CPU执行；以小Runnable/带标IO桶排除算力供给与存储；现表6个root直子317.900ms误配上下文8项319.976ms；已具名未展示被说成不能命名、限定排序误当全窗最大；全体S的837段/0.204ms误套扣两段后的835段/100.995ms余集。合法8项小计及D-family2.245+0.034可算，问题在集合/量尺绑定。受理advisory的3/7单元实际重传错误，其余4单元未投递；正确教学与充分原生事实同在，不杜撰OOM、typed事实丢失或source权限放宽。旁线程自动摘要有自身身份/窗，不当主因，也不误登记已证因果越权。
+
+### 331.3 验证、原件与下一ROI
+
+唯一CLI构建/预检后冻结7573输入/218外部/20仓外快照，SHAcd6d4264aa7165932cf2a20405496250eeaf271d1ca429e0f661ebf57c14f50a；冻后停写。唯一full OS0，98包PASS/12无测试，28693顶层PASS/44SKIP、34255子例PASS/14SKIP，266760 GoJSON，FAIL/非JSON/重复/未终态0；log SHA06573c850353df073bb3f65be33c2d25fe7ecfd77ed742a5e26ba649468245a5。两例均OS0/源前后true/原smoke PASS，人审FAIL；严格配对A8/B9、11歧义组排除，最大重叠18.914秒，不冒17全部请求。
+
+503件封存index SHA2a64ba10f185b4652d4533bad95f4badfc74d8646be7e89668ca2e1babe2c8c9；旧32代13013件保留，本批最新504件物理核验、更早链头核验，无递归复制或全历史重跑。大ftrace及同字节副本仅登记SHA，不进Git；完整query/INIT/受理及拒绝/MDHTML不按大小删减。旧ROOT、52条ROI全名单和精确原件映射见[汇总](../../eval/parallel_selected_summary_hmc_io_scheduler_boundary_20261031.md)、[手审](../../eval/parallel_selected_summary_hmc_io_scheduler_boundary_20261031_manual_audit.md)。相邻代码/5文档及remote状态仅由publication实际凭证确认。
+
+后继先公开复现共享解释单元的原生量尺/范围/成员口径及边界整组预算，再补合法算术与端点教学；完整能力轨推进任务语义→真实代表查询规格，轮换既有只读缺来源终态与具备材料的二进制。330 event_search是显式选择，不冒编译器改写；零匹配success分类欠项不倒写旧7success+1empty，也不声称导致operator规格FAIL。本批未修这些路线、不加第三例。充分证据后的个别误述留账，不无限阻塞其它高ROI项；旧采样/IO/权限/图、h2/h3、lower-cost-full及其它平台不销，WAL生产NO-GO。

@@ -1722,6 +1722,12 @@ HMC §323–324将业务账户展示预算与状态分类含义分开处理。�
 
 本代实现d82037ac67286f34625f53cc0a6c5dc058d91aa8，唯一全仓98包28679顶层34146子例通过，冻结后输入停写。真实100版抖音主要账户/2783行时序和代表同代交付有限PASS，但两例整答FAIL；代表声明event_search偏离原resource_stack用例，原operator FAIL，完整能力新增0、79/27/52不变。调查解释仍是无原生行地址的advisory；B错误“统一窗口”确实投递，A若干受理错误句未投递，两者不能混称系统污染。16µs同刻wake差异是待验证政策边界，不在此改变闭合睡眠。公开复合修复通过不等于自然复合分支触发，图/patch、WAL等未验收不扩权。完整证据、剩余范围及main交付见[§330汇总](../eval/parallel_selected_summary_hmc_douyin_representative_scoped_delivery_20261031.md)。
 
+§331独立修复上一代保留的同刻边界，不改§330历史结论。状态量测取首次已接纳wake；同刻out→wake不制造零长睡眠，后续冗余wake不延后起点，下一物理周期/线程代次重新分割。量测结束与完成阶段原因属性分开：查询局部carrier仅接同物理源、同目标及发起线程代次、原行和原范围内的first-waking→唯一完成wake；额外原因属性只在完成侧既有5µs包络、下个调度/生命周期边界前。取消、坏字段、多完成/歧义、跨源/代际不得补证明，未测间隙不变睡眠，旧direct-wake范围不扩大。timeline、off-CPU、state-churn共用同一匹配域，无显式窗的公共入口也重建本次域。
+
+链上局部测量窗不能抹掉原查询已证明的同一闭合等待实例属性。私有chain cache按源、PID/TGID、线程代次、原状态、实际完整起止和物理端点索引；只向包含于原实例的正时长局部行投影，重复身份/不完整域不借权，原查询未知/歧义也保留。投影后重新构建局部MeasurementDomain，不从标签重建证明、不增加因果席位。两条chain RED V1有效复现属性丢失；其前提曾被误判，最终恢复独立保护，不称无效夹具。原4根因、闭合睡眠和自动补齐合同保持。
+
+8个Go文件实现fb5332c0fce27c65cc74e6304b4a947d5a2ecacb，唯一全仓98包28693顶层34255子例PASS；三组有界源码能力与完整父任务分账。实采B自然命中6＋10µs的Runnable修正，2783主窗＋90窄窗时序正确；完成新证明/链投影仅公开测试覆盖，不能冒自然链PASS。独立oracle有1430个带状态账户，手审交叉root＋12；1429确为direct children，非产品缺陷。A旧IO九表保真只是复验；A08.3有限及A/B整答FAIL，79/27/52、closure=none。受理解释仍可能与已充分交接的量尺/成员范围冲突；动态IO note的过宽禁算和端点标题不一致保留为后继，不扫问答关键词补门。详见[§331汇总](../eval/parallel_selected_summary_hmc_io_scheduler_boundary_20261031.md)及[手审](../eval/parallel_selected_summary_hmc_io_scheduler_boundary_20261031_manual_audit.md)；503件封存、相邻文档与远端发布独立核验。WAL仍生产NO-GO。
+
 代表终态在模型答案已选定、探索分支汇合后确定性调用受信Catalog生产入口。仅当前live selection可交付；同run全部已跟踪分支（含中间保存失败的真实尝试）先合并为独立view，不回灌fork；授权与全部原件Resolve在发布前后复核，执行digest在发布前后相等才签index/selection/SHA。失败/撤权/取消不发有效路径；已写出的不可变文件仅历史导航。run私有成功内容键允许同字节终态复用，不读latest JSON恢复权限、不反复改可变alias。宿主附加独立“抽样检查记录”并留typed INFO回执，不进入模型primary/principal或替诊断结论；选择、保存、交付不等于查询或分析完成。
 
 §328两例完整人工及唯一full失败均保原件；§329用ShallowClone修新夹具copylocks，独立精确逆变换登记业务树教学演进，旧SHA/负控不放宽，canonical golden仅按原入口更新。新代唯一full98包28674顶层34127子例PASS，冻后输入未改；§328旧失败不回签。§329sample-only原件/原生事实/目标自动补齐有限通过，unknown执行状态的正文误述仍FAIL且实际关键事实充分，不能归因丢失或错误reason重传。只读登记缺来源终态原混合负控限定PASS，当前proof不授source/整体完成；不冒fullCLI。3组产品子能力与完整能力0分开，79/27/52不变；旧9组及未覆盖保持，WAL生产NO-GO。详细边界与main交付见[§328失败代](../eval/parallel_selected_summary_hmc_terminal_business_publication_20261030.md)、[§329实现与验收](../eval/parallel_selected_summary_hmc_teaching_compat_binary_registration_20261031.md)。
