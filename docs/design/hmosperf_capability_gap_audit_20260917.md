@@ -11603,3 +11603,39 @@ B整答FAIL两组：VerifyDex22.183误写全Running（实际21.760Running/.383S/
 本代365件index SHA13444f60917d02d51c5ec0978823fe5e72b986c8617a009f3044314646b41b5e，A/B整答FAIL及closure=none均封存。旧33代13516件各原ROOT保留；本批物理复核最新331的503件及更早链头，不冒所有历史payload重hash。大原件及同字节副本只登记大小/SHA，不复制入Git；完整query/INIT/受理拒绝/MDHTML与无效UTF8日志不按预算裁掉。发布需源码和5文档相邻提交、main干净、远端同代及冻结输入/封存原件核验，以[publication](../../eval/results/hmc_scope_zero_netease_20261101_v1/publication-v1.json)为准。
 
 52项完整ROI分区7/7/11/21/6及精确归档导航见[本批汇总](../../eval/parallel_selected_summary_hmc_scope_zero_netease_20261101.md)，逐例全审见[人工审计](../../eval/parallel_selected_summary_hmc_scope_zero_netease_20261101_manual_audit.md)。下一共享轨先公开复现原生账户→解释引用的主体/范围/量尺绑定与payload导航，整组预算/去重保持设计欠项；完整能力轨推进有材料的二进制原有限合同，轮换只读登记缺来源终态或代表规格，不能按名字/自由label强制view。证据充分后的旧采样误述不无限阻塞其它ROI；旧IO、权限覆盖、图/局部修补、h2/h3、lower-cost-full、更多格式平台及原重点验收债继续留账，WAL零副作用前生产NO-GO。
+
+## 333. 原生引用同源导航与格式交接；原IO和只读负控复验（main）
+
+### 333.1 核账与两组有界交付
+
+重新解析稳定勾选79条/79唯一，27完整、52开放（18部分、29待实施、3待验收、1验收中、1持续）。root明确closure=none；完整能力新增0，源码子能力2组，不把其中schema/预算步骤分别当父任务完成。9个Go文件aafa997e514dd63659424631ea39d4729cb937a9，6生产/3新测试、577增8删；旧测试/问句/oracle未改。
+
+已证接缝来自§332 B：当前行地址指向H:getframe，单元文字却描述bindApplication；地址有效不等于解释正确。共享修复给实际schema分支及当前受理单元旁带producer的label/columns/原始来源/窗/选择/角色，仍由既有私有来源绑定和completion控制，无新模型字段、无原文关键词门或系统代写结论。原900/1800预算先保所有可容纳的完整单元/边界，剩余才整项追加完整或压缩描述；省略显式，不截路径/字段，不挤后面的业务线索。当前但错主体的地址仍只是地址，不声称完成任意文字核验。
+
+另一组修复针对§332 B在TXT里找JSON字段的12次导航成本：已有payload指针增加raw_ref文本报告/payload_ref结构化结果的直接说明，两者非采集原件；不改文件可读性、查询入口、原行和分页坐标。此次自然A没有结果导航读取，不能声称已实测减少12次调用。
+
+参考`core/preprocess/context_index.py`按步骤/材料保存自包含路径与元数据的设计，及`marker_ops.py:355/517/551`的itid物理实例、子阶段扣除与状态交集；取其精确语境复用意图，不复制未知补零、直子简单相减或宽松文本匹配。本项目保子区间并集、原始/查询身份与因果权限；静态参考不是客户根因证据。
+
+### 333.2 公开反例、实采与冻结
+
+新公共RED为真实query/completion/schema/read路径的3顶层/2子失败。green-v1额外暴露两个旧HMC315回归：可选元数据挤出原本900B内可容纳的单元，是真候选回归而非坏夹具；预算预约修复后原断言通过。新测试初始过宽要求重复全部来源标题字段，冻前按紧凑导航设计改成原label/columns/source/window/selection/role，原始精确地址及私有绑定不动。实采v1新测试误在inclusive-only状态表寻找self194.581；实际查询成功，修为inclusive表627.645与精确树节点627.645/194.581双断言后v2通过，未削弱self保真。原失败和初始源码快照全部封存，[独立更正](../../eval/results/hmc_reference_context_io_registration_20261101_v1/sealed-v1/0262-codrax-hmc333-public-evidence-review-v1.md)禁止将这些前提错误算产品丢数。
+
+认真复用105版网易云完整82,838,676B/559,592行原始ftrace，SHA12349db5bbdc5a4343360d9633c7d6c36f18c8be5f39fb64e78b53c9e345bfe4及§332独立整数µs oracle不变。真实原生query、当前schema、completion及实际Extract/Finalizer adapter消息验证原TID36434/物理77708–152774行/窗[5969.994941,5970.622586)；Extract压缩描述、Finalizer完整描述到场，不冒文字语义验证。v1/v2各1次native query、0模型请求，共两次模型外尝试，不是第三/第四付费eval。
+
+最终定向4包146顶层/460子例、race2包21/30 PASS；唯一普通CLI和原harness构建。冻结7580输入/178外部/19仓外快照，SHAe5a4815447c2a1947b66d2ef9283ef77d5ce8aee2ec501509305613d436e821c后停写源码/测试/教学/helper/case/oracle。唯一全仓OS0/前后true，98包PASS/12无测试，28704顶层PASS/45SKIP、34287子例PASS/14SKIP，266932 GoJSON，FAIL/非JSON/重复/未终态全0；log SHA4f3c92a5f25c5b8b635cb65708221e6726d3be328fe2bb13a952c90e61b37d42。新增实采测试默认SKIP，不冒全仓另跑了实采或模型。helper语法草稿失败未执行，原件保留，不冒产品故障。
+
+### 333.3 两例人工：A有限FAIL，B限定负控PASS
+
+A原IO自然题15steps/n1，构造文本1839B不是硬件录制；1真实查询/1原生JSON。四组峰/均/busy/面积/配对/发起24值、四请求实际端点与裁窗4/4/4/2ms、深度和活动端点全部正确，8张原生表保全部7已选展示。旧显式半开标题自然通过，合法同层跨设备小计未自然计算。原smoke PASS，08.3有限及整答FAIL两组：用低配对深度排除设备瓶颈/存储排队；4相交配对误当6窗内发起的子集，1.012完成的请求窗内2ms贡献被说不计入。原题已经要求解释结果，不能另称不相关欠项豁免。
+
+实际7次completion，前5结构拒绝、第6降级缺member_set、第7resolved；1次full emit结构拒绝、5次patch中4次形状拒绝/1次受理，最后失败不覆盖受理稿。原生合法表最终自动补齐保留。实际成文只传3/9解释单元，[0,1,2]均为正确有限观察；坏unit5/6/8未投，不能冒旧摘要污染。三个可选描述因既有预算全省略，新增描述自然正向NOT_TRIGGERED；模型外真实消息回归不代签自然命中。关键原生事实/端点/范围/边界已到实际INIT，未见OOM或事实总账丢失，充分事实后的误述留账不无限追题。
+
+B原`TestNativeRegistrationLiveRestoredMissingTerminalReceipt`：真实planner完整读已有value.py/test_value.py，零修改登记exact increment(4)==5，fresh child/public RunTests重做1断言/2命令，旧新invocation、源commit/指纹清楚分开。补证批verified/tests_passed；来源只有apply、无VerifyRef/Completion，整体unverified/missing_terminal_verify_verdict。actual final、内容寻址report、父子归档四字段同代吻合，read-only与源状态不变，原负控限定人工PASS。两份INIT是同一次planner初始化的system/user；不冒自然controller/fullCLI、context-pack耐久或完整18.5交付。
+
+恰好两例各一次，均OS0/源前后true、原smoke或原harness PASS；实际请求配对A18/B2、歧义0、最大重叠5.915秒。A无图，HTML9表与MD单元格同源，非像素QA；B不要求模型最终MD/图。图/局部图patch、其它二进制、代表终态本批未触发不补签。
+
+### 333.4 原件、5组剩余验收与下一ROI
+
+347件index SHA4cdf055474e841aee4590a949ec2a5f2b9500e262e749abdf606d34397dc4493；A完整失败、B限定PASS、root closure=none、实际INIT/全部提交和失败/全仓原日志均保原。旧34代13881件保各原ROOT，本批物理重核最新332的365件及更早链头，不冒全历史重hash；完整大原件只登记SHA，不复制进Git。相邻源码/5文档/远端main与冻结一致以[实际publication](../../eval/results/hmc_reference_context_io_registration_20261101_v1/publication-v1.json)核验；原件本地封存不冒上传远端。
+
+本代剩余5组分开记录：①IO硬件排除解释；②arrival/intersection与裁窗解释；③selector/JSON数组形状的自然重试成本；④新引用描述自然投递覆盖；⑤结果导航自然调用覆盖。前两是原合同失败，后两未触发，均不销账。旧采样、IO/权限分支、重复展示/全局预算、图身份/patch、h2/h3、lower-cost-full及更多格式/平台保留。52项全名单/ROI和精确原件导航见[批汇总](../../eval/parallel_selected_summary_hmc_reference_context_io_registration_20261101.md)，逐例详见[完整手审](../../eval/parallel_selected_summary_hmc_reference_context_io_registration_20261101_manual_audit.md)。下一完整能力轨优先已有材料的代表规格→真实执行/同代交付，二进制原有限合同轮换；共享轨优先实际工具schema/原生选择器的结构化交接和去噪，不给地址/预览/label语义权、不扫描问答关键词。Trace投影/自动补齐和链上业务线索不损，WAL零副作用前生产NO-GO。
