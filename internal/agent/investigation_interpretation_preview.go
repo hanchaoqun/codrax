@@ -12,6 +12,7 @@ type investigationInterpretationPreview struct {
 	text                       string
 	totalBytes, publishedBytes int
 	sanitized                  bool
+	contextOmittedUnits        int
 }
 
 // Budget complete declared units, never a claim separated from its limits.
@@ -22,12 +23,17 @@ func previewInvestigationInterpretation(h *types.InvestigationNativeFactHandoff,
 }
 
 func previewInvestigationInterpretationWithNativeReferences(h *types.InvestigationNativeFactHandoff, budget int, sanitize func(string) string, nativeReferencesCurrent bool) investigationInterpretationPreview {
+	return previewInvestigationInterpretationWithReferenceContexts(h, budget, sanitize, nativeReferencesCurrent, nil)
+}
+
+func previewInvestigationInterpretationWithReferenceContexts(h *types.InvestigationNativeFactHandoff, budget int, sanitize func(string) string, nativeReferencesCurrent bool, contexts map[int][]investigationNativeReferenceContext) investigationInterpretationPreview {
 	var out investigationInterpretationPreview
 	if h == nil || h.InterpretationRole == types.InvestigationNativeRestatement {
 		return out
 	}
 	budget = max(0, budget)
 	var parts []string
+	var bases, compactParts []string
 	var eligible []bool
 	unitMode := len(h.InterpretationUnits) > 0
 	if unitMode {
@@ -50,12 +56,23 @@ func previewInvestigationInterpretationWithNativeReferences(h *types.Investigati
 				}
 			}
 			part := fmt.Sprintf("- unit[%d]: %s\n\n", i, raw)
+			var base, compactPart string
 			if len(unit.NativeRefs) > 0 {
-				part += "  native_reference_status=" + status + "; references only the original table rows and that selector's source/query/notes. Address validation does not validate text, arithmetic, causality or diagram notes, and does not certify row publication.\n\n"
+				part += "  native_reference_status=" + status + "; Address validation does not validate text, arithmetic, causality or diagram notes, and does not certify row publication.\n\n"
+				if context := contexts[i]; nativeReferencesCurrent && len(context) > 0 {
+					// Keep the original unit, status and all reference metadata atomic
+					// under the SAME existing narrative budget. No context truncation.
+					base = part
+					encoded, _ := json.Marshal(context)
+					part += "  native_reference_context=" + string(encoded) + "\n\n"
+					encoded, _ = json.Marshal(compactInvestigationNativeReferenceContexts(context))
+					compactPart = base + "  native_reference_context=" + string(encoded) + "\n\n"
+				}
 			} else {
 				part += "  native_reference_status=" + status + "\n\n"
 			}
 			parts = append(parts, part)
+			bases, compactParts = append(bases, base), append(compactParts, compactPart)
 			unchanged := unchangedContent(unit.Text)
 			for _, fields := range [][]string{unit.Boundaries, unit.SupportRefs} {
 				for _, field := range fields {
@@ -81,19 +98,50 @@ func previewInvestigationInterpretationWithNativeReferences(h *types.Investigati
 		for _, paragraph := range strings.Split(clean, "\n\n") {
 			if paragraph = strings.TrimSpace(paragraph); paragraph != "" {
 				parts = append(parts, paragraph+"\n\n")
+				bases, compactParts = append(bases, ""), append(compactParts, "")
 				eligible = append(eligible, true)
 			}
 		}
 	}
 	var b strings.Builder
 	var shown []int
+	baseBytes := 0
 	for i, part := range parts {
 		out.totalBytes += len(part)
-		if eligible[i] && len(part) <= budget-out.publishedBytes {
-			b.WriteString(part)
-			out.publishedBytes += len(part)
+		if bases[i] != "" {
+			part = bases[i]
+		}
+		if eligible[i] && len(part) <= budget-baseBytes {
+			baseBytes += len(part)
 			shown = append(shown, i)
 		}
+	}
+	// Reserve the complete legacy-eligible units first, so optional navigation
+	// cannot displace a later finding or its boundaries. Then spend only the
+	// remaining SAME budget on whole full/compact descriptors in stable order.
+	extra := budget - baseBytes
+	for _, i := range shown {
+		part := parts[i]
+		if bases[i] != "" {
+			fullCost := len(part) - len(bases[i])
+			compactCost := len(compactParts[i]) - len(bases[i])
+			switch {
+			case fullCost <= extra:
+				extra -= fullCost
+			case compactCost <= extra:
+				part = compactParts[i]
+				extra -= compactCost
+				out.contextOmittedUnits++
+			default:
+				part = bases[i]
+				out.contextOmittedUnits++
+			}
+		}
+		b.WriteString(part)
+		out.publishedBytes += len(part)
+	}
+	if out.contextOmittedUnits > 0 {
+		fmt.Fprintf(&b, "Native reference context is compact or omitted for %d shown units under the existing budget; full source/query/notes remain in each original native table. This does not verify the interpretation.\n", out.contextOmittedUnits)
 	}
 	if len(shown) < len(parts) {
 		kind := "legacy paragraphs"

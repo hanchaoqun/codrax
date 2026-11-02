@@ -22,10 +22,13 @@ func projectExplorerNativeRowReferenceSchema(ctx *types.AgentContext, fields map
 			if !types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) || !receipt.IsBound() || len(receipt.BoundTable.Rows) == 0 {
 				continue
 			}
-			if _, current := receipt.BoundTable.NativeSourceTitleBasis(); !current {
+			context, current := investigationNativeTableContext(*receipt.BoundTable)
+			if !current {
 				continue
 			}
+			description, _ := json.Marshal(context)
 			branch, _ := json.Marshal(map[string]any{
+				"description": string(description),
 				"properties": map[string]any{
 					"observation_id": map[string]any{"enum": []string{receipt.ObservationID}},
 					"view":           map[string]any{"enum": []types.RuntimeMeasurementView{receipt.View}},

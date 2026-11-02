@@ -4624,6 +4624,7 @@ func writeTraceQueryPayloadRefLine(b *strings.Builder, payloadRef string, traili
 		return
 	}
 	fmt.Fprintf(b, "payload_ref=%s %s\n", sanitizeForBanner(payloadRef), traceQueryPayloadRefAdvisory)
+	b.WriteString("result_format_navigation: raw_ref is a descriptive text report; payload_ref is the structured JSON result. For JSON field names, inspect payload_ref; report headings need not use those names. Both are query results, not original captures.\n")
 	if trailingBlankLine {
 		b.WriteString("\n")
 	}

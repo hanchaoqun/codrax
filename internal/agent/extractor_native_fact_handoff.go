@@ -36,7 +36,7 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 	// same private source/query/table check as finalization; extraction's lack
 	// of a publication receipt must not turn a current address into an unverified one.
 	nativeReferencesCurrent := types.InvestigationNativeRowReferencesCurrent(h, view.RuntimeMeasurementContract)
-	preview := previewInvestigationInterpretationWithNativeReferences(h, 900, func(s string) string {
+	preview := previewInvestigationInterpretationWithReferenceContexts(h, 900, func(s string) string {
 		s = sanitizePriorDraftForSummary(sanitizeAggregateExcludedCandidatesForPrompt(ctx, s, facts))
 		if len(h.InterpretationUnits) == 0 {
 			// Legacy prose retains stage-navigation formatting. Structured
@@ -46,7 +46,7 @@ func renderExtractorNativeFactHandoff(ctx *types.AgentContext, reason string, fa
 			s = sanitizeExtractorStageHandoffText(s)
 		}
 		return s
-	}, nativeReferencesCurrent)
+	}, nativeReferencesCurrent, investigationNativeReferenceContexts(h, view.RuntimeMeasurementContract))
 	if preview.text != "" {
 		fmt.Fprintf(&b, "- Independent interpretation (model-authored advisory; typed evidence remains authoritative): %s\n", preview.text)
 	}
