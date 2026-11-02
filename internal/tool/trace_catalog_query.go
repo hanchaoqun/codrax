@@ -206,9 +206,12 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			if completion.PayloadRef == "" {
 				completion.PayloadRef = record.SourceRef.PayloadRef
 			}
-			if stack, ok := DecodeTraceResourceStack(record); ok && stack.MatchedEvents == 0 && stack.Status == "available" {
-				completion.Outcome = tracecatalog.OutcomeEmpty
-			}
+		}
+		// Zero is an executed result of this exact view, never an empty
+		// preview or one empty component of a wider/composite query.
+		if q, ok := t.catalog.Query(t.queryID); ok && !completion.Truncated &&
+			traceCatalogNativeQueryEmpty(q.View, out.Observations) {
+			completion.Outcome = tracecatalog.OutcomeEmpty
 		}
 		if out.TraceViewCancellation != nil || errors.Is(executeErr, context.Canceled) || contextFromBus(ctx).Err() != nil {
 			completion.Outcome = tracecatalog.OutcomeCanceled
@@ -262,4 +265,38 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			out.Summary += "\nCapture index persistence failed: " + err.Error()
 		}
 	}
+}
+
+// Use only existing typed native completeness/count signals. Other views stay
+// successful-but-unclassified until they have their own precise zero receipt.
+// Failure, cancellation and stale-source precedence remains at the caller.
+func traceCatalogNativeQueryEmpty(view string, records []types.ObservationRecord) bool {
+	matched := 0
+	for _, record := range records {
+		switch view {
+		case "resource_stack":
+			if stack, ok := DecodeTraceResourceStack(record); ok {
+				if stack.Status != "available" || stack.MatchedEvents != 0 {
+					return false
+				}
+				matched++
+			}
+		case "event_search":
+			if record.EventSearchInventory == nil {
+				continue
+			}
+			if !types.IsValidTraceEventSearchInventoryRecord(record) {
+				return false
+			}
+			i := record.EventSearchInventory
+			if !i.Coverage.ScopeComplete || !i.Coverage.EnumerationComplete || !i.RowsComplete ||
+				i.Coverage.MatchedTotal != 0 || i.Coverage.Emitted != 0 {
+				return false
+			}
+			matched++
+		default:
+			return false
+		}
+	}
+	return matched == 1
 }

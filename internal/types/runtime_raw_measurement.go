@@ -65,7 +65,7 @@ func PublishRuntimeMeasurementQueryWindow(r ObservationRecord, start, end float6
 		return r
 	}
 	switch r.Predicate {
-	case TraceBusinessSpanPredicate, "io_inflight", "thread_timeline_observation", "cpu_frequency_timeline_observation":
+	case TraceBusinessSpanPredicate, "io_inflight", "io_activity", "thread_timeline_observation", "cpu_frequency_timeline_observation":
 	default:
 		return r
 	}

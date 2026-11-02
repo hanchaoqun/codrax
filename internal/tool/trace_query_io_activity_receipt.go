@@ -9,6 +9,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Counts describe independent endpoints, not a deduplicated request or a
+// physical layer relation. The observation and every native presentation use
+// one scope rule so legal arithmetic and its authority boundary cannot drift.
+const traceIOActivityScopeTeaching = "All issuing threads; independently observed endpoint events, not unique logical requests or complete pairs. Disjoint device/operation groups with the same source, endpoint family, phase, byte caliber and query scope may form a qualified subtotal of endpoint counts or known bytes. Do not add an all-operations total to its operation rows, overlapping groups, or unlike sources, endpoint families, phases, byte calibers or query scopes. Such a subtotal is not unique logical requests and does not prove target waiting, response impact, hardware bandwidth or root cause. Capture completeness is unknown."
+
 func traceQueryIOActivityLabel(g tracequery.IOActivityGroup) string {
 	family := map[string]string{"block_rq": "RQ", "block_bio": "BIO", "mmc_request": "MMC", "f2fs_sync_file": "F2FS file sync", "f2fs_direct_io": "F2FS direct IO", "f2fs_write": "F2FS write"}[g.EndpointFamily]
 	if family == "" {
@@ -36,8 +41,8 @@ func traceQueryIOActivityReceipt(r types.ObservationRecord, s *tracequery.IOActi
 		}
 	}
 	notes := []string{window, "Source: " + g.SourcePath,
-		"All issuing threads; counts are independently observed endpoint events, not unique logical requests. Missing completions or ambiguous pairing do not remove independently admitted starts; endpoints outside the selected range do not count.",
-		"Do not add sources, layers, phases or byte calibers. Activity does not prove target waiting, response impact, hardware bandwidth or root cause. Capture completeness is unknown.",
+		"Missing completions or ambiguous pairing do not remove independently admitted starts; endpoints outside the selected range do not count.",
+		traceIOActivityScopeTeaching,
 		fmt.Sprintf("Query target PID %d is not an issuer filter. Groups %d; undisplayed groups %d. Supported endpoints %d; rejected endpoints %d; unresolved sources %d (query-wide coverage, not this group alone).", s.QueryPID, s.GroupCount, s.OmittedGroups, s.Coverage.SupportedEndpointCount, s.Coverage.RejectedEndpointCount, s.Coverage.UnresolvedSourceCount)}
 	if s.LineStart > 0 || s.LineEnd > 0 {
 		notes = append(notes, fmt.Sprintf("Lines %d–%d take precedence over time parameters; no wall-clock denominator is inferred.", s.LineStart, s.LineEnd))

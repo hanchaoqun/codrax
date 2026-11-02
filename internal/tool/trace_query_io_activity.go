@@ -82,7 +82,7 @@ func traceQueryTypedIOActivityObservations(s *tracequery.IOActivityStats, ref ty
 			{types.TraceNoteKeyIOActivityGroup, traceQueryIOActivityGroup(g)},
 			{types.TraceNoteKeyIOActivityBasis, traceQueryIOActivityBasis(s)},
 			{"storage_source_path", g.SourcePath},
-			{types.TraceNoteKeyIOActivityScope, "all issuers; independently observed endpoint events, not unique requests or complete pairs; source/layer/phase/byte calibers are not additive; no target waiting or root-cause authority"},
+			{types.TraceNoteKeyIOActivityScope, traceIOActivityScopeTeaching},
 		})
 		if s.Window != nil && !s.Window.EndInclusive {
 			notes = append(notes, types.TraceNoteKeySelectedWindow+"="+traceQueryDisplaySeconds(s.Window.StartTs)+".."+traceQueryDisplaySeconds(s.Window.EndTs))
@@ -94,6 +94,11 @@ func traceQueryTypedIOActivityObservations(s *tracequery.IOActivityStats, ref ty
 			Value: strconv.Itoa(g.Values.EventCount), Unit: "events", Summary: traceQueryIOActivitySummary(g), RichNotes: notes, ObservedAt: at, Confidence: 1}
 		if note := traceQueryIOActivityReceipt(r, s, g); note != "" {
 			r.RichNotes = append(r.RichNotes, note)
+			if s.Window != nil && !s.Window.EndInclusive {
+				// Only this explicit continuous query owns the half-open ruler.
+				// A line selection or implicit capture extent is not that query.
+				r = types.PublishRuntimeMeasurementQueryWindow(r, s.Window.StartTs, s.Window.EndTs, false)
+			}
 		}
 		out = append(out, r)
 	}
