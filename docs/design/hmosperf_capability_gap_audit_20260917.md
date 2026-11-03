@@ -2,7 +2,41 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§341失败审计，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0、子能力本批交付0、候选共享修复1组、剩余验收欠项4组。紧凑完整身份恢复§340预算/引用及既有同源展示，但唯一full97包PASS/1FAIL、4顶层/1子FAIL，源码仍不交付。代表原规格/operator与整答FAIL；sample-only原smoke PASS、本轮人工FAIL；879件保原，不倒签18.3或旧失败。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§341汇总](../../eval/parallel_selected_summary_hmc_compact_identity_representative_binary_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_compact_identity_representative_binary_20261103_manual_audit.md)。本次仅失败文档推送，WAL零副作用前生产NO-GO。
+当前状态（2026-11-03，§342，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0，交付3子能力/1共享组、工装精度1项，剩余验收欠项3组。源码949ff3e01eb3557032bfd64ce5746056c3222e68统一完整凭证/紧凑定位/展示及scope sibling父初始化，原四失败与唯一full98包PASS、零FAIL；两例原smoke PASS，但资源身份原有限/整答、完整抖音整答仍人工FAIL，未销任务。519件保原，旧340/341失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§342汇总](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 342. 完整父凭证、精确坐标见证与原有限资源/完整用户实采
+
+main基线a0ae3720a7b434a8eee6ae49254dd3e94b4ff251，源码949ff3e01eb3557032bfd64ce5746056c3222e68，10Go/469增34删（4生产/6测试）。稳定79/28/51、18部分/29待实施/2待验收/1验收中/1持续，勾选不变。完整新增0；独立查询定位、展示兼容、完整覆盖/账户同父凭证三个子能力共1共享组；测试选步精度单计，不充完整交付。旧340/341失败保原，不补成功publication。
+
+### 342.1 已证缺口与泛化修复
+
+原四FAIL先确定性复现，新公开Execute反例再RED：同一query的普通账户在哈希前已有目标/窗/行域，而full-artifact覆盖后补字段，same-result source虽相等，ID namespace不同仍失全采集D状态主范围。现在共享小factory在铸造前初始化完整parent receipt；复制ID而改query/raw/source或软化coverage仍不能授主范围，数值保留。没有consumer豁免、主范围猜测或新的问答原文硬门。
+
+保留340已证同payload/不同query反例，完整SourceRef/query/owner/raw/payload/窗口不丢，仅将铸造凭证全长SHA-256作bounded opaque坐标。两个展示消费者共同适配旧result-envelope及新精确64hex格式；完整publication/Notes/字段/总体/源/窗、私有当前读取与原预算门不减，不以相同值合并执行/因果/完成权。XLANE3三测试改精确fixture SourceRef.PayloadRef选步，保原板/不同拓扑指纹/数值/一个projection/无名板不借身份；新增伪装ID/来源别名/只有ID负控，legacy删除必须真的命中notes，不能空跑负控。
+
+参考context_index/llm_contract的结果导航与字段职责、select/package的manifest及独立交付意图；不照搬step/type覆盖value、固定5/50、缺值补0、latest恢复、容差/文本/fingerprint权限门。原4根因/闭合睡眠、优先级反转/调度与算力/D及IO/确定性工作及链上业务资格均不改。
+
+### 342.2 冻前、唯一full与完整实采
+
+最终相关7包508顶层/1358子、race×2三包156/354、原因果守护3包21/141及普通CLI零模型/零工具startup PASS。完整235422121B/1696481行用户抖音，SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef，再做3nativequery/0模型；冷199/热200、201后两同payload仍独立ID、各原13行/self227.101及actual Finalizer保真，6raw/payload清理前留存。旧整源整数oracle只复用，本代未重跑，不冒第三例模型。
+
+冻结7603输入/277外部/19快照，SHA9cab27f4f13b76cc5714df26c62b3bb0da62d7edd66e66741bc1cab3e39aabb5后停写源码/测试/教学/helper/case/oracle。唯一full10:33:00.955477Z→10:47:11.717636Z，OS0/源前后true：98包PASS/12无测试，28733顶层PASS/48SKIP、34384子PASS/14SKIP，267537纯JSON、零FAIL/非JSON/重复/未终态。log SHAfe3690b1118df6071818034dc62e63a6e2d07ff0bdc9932b30071f875a3fbae2。新结果只签本代，不倒改340/341原四FAIL。
+
+### 342.3 两原例人工与真实上下文
+
+A原03.2自然题15steps/n1：11查询声明/7唯一JSON，不把声明当成功调用。5操作与5独立计数、逐条时间/精确signed-hex/子类7/0/8/99/NULL及名称空串/显式NULL/未发布、8192→4096→4128与4096→8192各自合法差值正确。原smoke PASS，有限/整答FAIL：known大整数被断言占位/哨兵、不真实身份，缺频点权重1.0的供给比被用于排除算力不足，摘要漏第二分配。原退出不加图/二进制/完整栈/新算法。Finalizer实际90592/12525/162165B含提取换行，未出现结构化Independent解释段，不能冒前次坏单元直接污染。5full emit/1patch及5拒绝、3completion1拒/2受理全保原；3main表与MD/HTML cell诊断一致，非像素QA。
+
+B原完整抖音15steps/n1：8查询声明/5JSON，32已发布节点对旧独立整数账256项零差异；主要8阶段inclusive/self/端点保真，旧make裁窗和self/running数值错绑未复现。2783段状态账：959running/956runnable/837S/30D/1IO，487.440/8.714/170.918/2.245/.034ms，S最大50.650/D最大1.273正确。整答仍FAIL：低比例排除调度/IO，将parent自身小解释成子打点“等待”，正确尾注不豁免。实际100509/19477/285360B三INIT含完整原生账户；5解释单元只投[0,1,4]/省1117B，未投坏文字不冒污染，不能泛称缺数/OOM。
+
+B business_tree报25139节点/省25107，而目标旧整数oracle窗内2611、已发布32全属TID57874，全窗总体/过滤目标/展示省略适用域继续共享审计，不改旧数迎合正文。MD963064B/HTML4261003B，13main表含两份各2783行timeline及重复阶段/账户展示，源cell诊断一致但成本高；这是真实共享预算/复用ROI，不删关键事实或合并权限求小。B2exec/8grep/5read_file均指本轮query TXT/JSON，无current-source代码结论；导航重复低效留账。A/B原日志含截断无效UTF8保字节、B一参数JSON解析失败不修原件。
+
+两例恰好各n1、均OS0/原smoke PASS/完整人工FAIL。原请求A21/20响应/1未解、B27/27；精确唯一区间A8/B15，4歧义组排除，最大真实重叠26.453秒，不用barrier或旧请求解析误签零歧义。只读登记、本代sample-only/代表及图/局部图patch未运行，不拿上代PASS补签；full-artifact主范围正向及同payload碰撞本代自然双例未直接覆盖，模型外公开验证不冒自然命中。
+
+### 342.4 519件、剩余3组与下一ROI
+
+519件index SHA553c6e34f0084a3f78b357775df900d2b69c0f5894314bf3041ebd18eb76fbdb、seal receipt SHA8a808706575dcfeb0eef5d7bbe18e112903130c809e6bb0a6d02be603d48e65e；root closure none。44代按代19085非全局去重，物理重核failed341879及最新成功339624，更早只链头；大原件引用，providers含synthetic不读/哈希/复制，不冒所有本地原件已上传。源码与随后五文档相邻提交/远端main以publication核验。
+
+剩余3组：资源字段/供给解释；实采时间/机制解释；同源重复展示/总体与目标适用域/整组预算。未触发权限/图/更多格式协议另列原任务，不因共享子能力或充分事实后的偶发误述销账。完整51ID ROI见[批汇总](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103.md)，逐层证据见[手审](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103_manual_audit.md)。下一双轨先补第三组已证系统面，完整轨轮换只读负/正终态和有实物的二进制，再验原有限IO/资源，不无限追同题；14.1统计协议、旧权限/代表/图、h2/h3/lower-cost-full及更多格式平台保原。Trace投影/自动补齐与链上业务保留，WAL零副作用前生产NO-GO。
 
 ## 341. 完整凭证与紧凑定位分离、原代表规格及sample-only复验
 
