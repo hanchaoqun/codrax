@@ -11639,3 +11639,39 @@ B原`TestNativeRegistrationLiveRestoredMissingTerminalReceipt`：真实planner�
 347件index SHA4cdf055474e841aee4590a949ec2a5f2b9500e262e749abdf606d34397dc4493；A完整失败、B限定PASS、root closure=none、实际INIT/全部提交和失败/全仓原日志均保原。旧34代13881件保各原ROOT，本批物理重核最新332的365件及更早链头，不冒全历史重hash；完整大原件只登记SHA，不复制进Git。相邻源码/5文档/远端main与冻结一致以[实际publication](../../eval/results/hmc_reference_context_io_registration_20261101_v1/publication-v1.json)核验；原件本地封存不冒上传远端。
 
 本代剩余5组分开记录：①IO硬件排除解释；②arrival/intersection与裁窗解释；③selector/JSON数组形状的自然重试成本；④新引用描述自然投递覆盖；⑤结果导航自然调用覆盖。前两是原合同失败，后两未触发，均不销账。旧采样、IO/权限分支、重复展示/全局预算、图身份/patch、h2/h3、lower-cost-full及更多格式/平台保留。52项全名单/ROI和精确原件导航见[批汇总](../../eval/parallel_selected_summary_hmc_reference_context_io_registration_20261101.md)，逐例详见[完整手审](../../eval/parallel_selected_summary_hmc_reference_context_io_registration_20261101_manual_audit.md)。下一完整能力轨优先已有材料的代表规格→真实执行/同代交付，二进制原有限合同轮换；共享轨优先实际工具schema/原生选择器的结构化交接和去噪，不给地址/预览/label语义权、不扫描问答关键词。Trace投影/自动补齐和链上业务线索不损，WAL零副作用前生产NO-GO。
+
+## 334. 共享容器拒绝诊断与两原有限合同复验（main，2026-11-02本地）
+
+### 334.1 79项重数：只闭18.3，新增共享子能力不充父项
+
+起点79唯一＝27完整＋52开放；本批root只授权HMC-18.3，终点28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续）。完整新增1、共享源码子能力1组、A原11.2有限及整答FAIL分账。18.3累计已有CLI/REPL完整尾部/显式窗原正例，本轮原sample-only终稿完成unknown/CPU坐标/权重/根因边界，不能再写完全未测；也不暗加所有未来格式/设备/BRBE/图的退出条件。旧FAIL逐代保留，不倒签，17.6/协议平台与持续18.5等任务继续开放。
+
+### 334.2 已证系统缺口：同一目标类型提供索引形状反馈
+
+§333实际full/patch多次出现item对象包数组，owner错误只有首个字段、无索引。新公开full/patch与共享decoder在旧实现得到3顶层/2子FAIL，原RED保留；随后新增容器形状census，不变更原严格解码判决。仅`UnmarshalTypeError.Value`精确object/array时，沿同一目标类型/现有JSON字段resolver列原始索引、预期与实收形状，稳定顺序最多12条，剩余/遍历限额显式。自定义JSON/Text decoder、RawMessage/interface视为opaque，null/FlexInt/json.Number和旧unknown/string路径保持；不同模型产生的类似结构错共用反馈，不按业务/type关键词拟合。
+
+完整发射与局部修补共享同一修复描述，保原raw selector和dispatch-specific metadata；没有unwrap、内容删除、猜值、自动stage、语义认证或新问答硬门。7Go文件6生产/1测试、381增5删，源码4a402833c77350f8605c2377725d286d928ff9af，旧测试/断言/问题/oracle不改。参考select.py的manifest成员与软优先级、package.py的选择后独立打包意图；本项目继续以当前任务/来源/查询/窗口/每组预算和私有执行代次为准，不复制参考固定预算、未知补0或文本证据弱授权。
+
+相关3实际测试包209顶层/1881子PASS、1可选SKIP，另1包无匹配测试；race2包37/1675，原代表全套7/40 PASS。原sample-only模型外测试真实完整12000样本、窗1393、目标164/259及普通CLI预检PASS/0模型，所建唯一标准CLI供两例共用。完整105版网易云82838676B/559592行原件再经实际1次query/0模型，TID36434/原77708–152774行及[5969.994941,5970.622586)完整账户627.645/194.581ms与实际Extract/Finalize消息保真；不冒第三例模型或重新全审旧3735行，参考Python parser旧oracle只保血缘、本轮未重执行。
+
+冻结7582输入/265外部/15仓外快照，SHA318526109a5aeb6b615eaf2aafca891702d73438128342dec45b43eb0d02e604后代码/测试/教学/helper/case/oracle停写。唯一全仓OS0/前后true：98包PASS/12无测试，28709顶层PASS/45SKIP、34289子PASS/14SKIP，266960 GoJSON，FAIL/非JSON/重复/未终态全0。log SHA2c638dc3470413e83ab44202da5cbed344ad2f5b07c473e2260e072d2ee262cb；所有红稿和过程收据保原。
+
+### 334.3 真实A结构PASS但有限FAIL；B有限与整答PASS
+
+A原50steps/n1自然题，4完整构造SQLite非4设备实采。模型自然选resource_stack，经真实request_plan编译8计划2组每组2；101选b/d、202选c/a，4未选原计划仍not_executed。15真实查询/11唯一JSON，同代15记录＝8声明+7额外，11记录有15次尝试（13success/2empty），4未执行；唯一production index/selection tuple经原operator0退出结构PASS。8资源查询14事件/40帧原字段全部对独立SQLite oracle一致，未知/重复/空洞深度、源地址-1和单位保真；不借未知thread字面selector的0匹配签精确目标真零。
+
+但正文把原线程×窗规格组换成a/c与b/d两种内容形态，额外两查空被称选中，深度0/1/2被写成方向调用链。正确2组/全部4选中/状态总体已到实际INIT，未选个体仅3/4、1条显式省略；不是全名册到场，另留预算覆盖债。错误unit0也被转发并复现到正文，已显示分组与选择仍确有解释冲突；不编造OOM或主量测丢数原因，也不由一个未选导航省略豁免。原有限及整答FAIL，不由终态附注、原生表或结构PASS抵消，11.2保持部分实施。原A审计曾过宽写4未选记录全到，提交手审§3按原INIT精确SHA和21–25行独立更正，原封存/判决不回改。HTML/main19表原生内容保真，自写语义错误两面都有；首表cell诊断不等只是反引号，非渲染丢格。
+
+B原15steps/n1 sample-only完整30062585B二进制，真实默认准备12000条；8实际查询/7唯一JSON，线程/窗合法自动补齐保留，扩大窗独立。目标164/259、82/174与82/85、CPU1/0仅记录坐标、unknown保持状态未确立、权重cycles不换时间，IP-only不造完整调用链/内核函数，终稿明确不足解释停顿；两完整原生表与正文/HTML同源。原有限及整答PASS，累计原CLI/REPL尾部正例补齐最后反例边界，只关闭18.3。旧失败不倒签，不声称模型偶发误述永久消失。
+
+B受理5单元仅传unit0/1，reason和unit3/4仍有CPU/时长误述却本次未传，不冒污染；unit1把内核地址grep负断言错贴到回调，实际已传但终稿未重复，仍挂共享来源/解释适用域账。A/B各1次成文/3条INIT、0patch；新容器反馈两例均NOT_TRIGGERED，可选引用描述自然正向亦未触发，公开通过不代自然命中。B事件检索164/50与过滤82/20分开，原始日志含截断无效UTF8保字节，不修日志追绿；成本advisory210s/context122700/4次prune保留。
+
+两例恰好各一次、均OS0/源前后true，精确请求配对A36/B13、歧义0、最大重叠53.203秒，不由barrier推断。无图、附件图或图修补，HTML只源审；只读登记本批NOT_RUN，不能拿上代负控PASS补签。
+
+### 334.4 留账、ROI与可复核发布
+
+553件index SHA2b04c688bd75afcd16ac8efc144bdc235c5aaf5170f5ff4bb0bd398b4e107ae4，原A/B完整手审、root有限决定、raw失败、实际INIT/提交/全仓与进程收据全封存。旧35代14228件保原ROOT，仅物理重核最新333的347及更早链头；36代按代累计14781件不称全局去重。完整大原件只登记引用，不复制入Git；providers连synthetic配置均不读/哈希/封存。相邻代码/五文档/远端main以[publication](../../eval/results/hmc_container_shape_representative_binary_20261102_v1/publication-v1.json)核，不冒全部原件已上传。
+
+本代3组已证语义问题：A分组/执行身份混用、A深度升关系、B调查负断言适用域错绑（及未传旧状态/时长误述）；前两阻止11.2，后一不虚构为B终稿失败。未选个体3/4投递另入共享预算覆盖债，不能漏记或冒全到。另2组未触发：新容器反馈自然效果、HMC333引用描述自然正向；结果导航只有限读JSON，不能签全部格式或成本改善。旧IO硬件/集合解释、权限覆盖、图/patch、重复展示/全局预算、h2/h3/lower-cost-full、更多格式平台继续在原任务中，不被18.3关闭一并消账。
+
+51项逐ID无重漏ROI见[批汇总](../../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102.md)：共享7→有材料原合同6→原生复用11→来源/协议21→新域6；[完整手审](../../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102_manual_audit.md)分开最终失败与中间误述。下一双轨优先11.2原有限出口及共享解释的分组/来源/关系域，不再强制view或扫描问答关键词；只读负控、有材料二进制/IO持续轮换。充分事实后的偶发误述保原，不无限阻塞其它ROI；Trace投影/自动补齐、链上业务线索与合法计算不损，WAL零副作用前生产NO-GO。
