@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"path/filepath"
-	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -19,10 +17,8 @@ func runtimeMeasurementPreviewPublicationKey(source, predicate string, p types.R
 	if source == "" || !types.RuntimeMeasurementPredicateIsRegistered(predicate) {
 		return ""
 	}
-	envelope := filepath.Base(p.Source.PayloadRef)
-	query, queryOK := strings.CutPrefix(p.Source.QueryScopeID, envelope+":")
-	observation, observationOK := strings.CutPrefix(p.ObservationID, "trace_query:"+envelope)
-	if !queryOK || !observationOK || query == "" || observation == "" {
+	query, observation, valid := types.RuntimeMeasurementPublicationDisplayCoordinates(p)
+	if !valid {
 		return ""
 	}
 	copy := p

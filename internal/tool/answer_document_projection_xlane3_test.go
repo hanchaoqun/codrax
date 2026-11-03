@@ -84,6 +84,39 @@ func xlane3DonghuTwoStepObservations(t *testing.T, tids ...int) []types.Observat
 	return xlane3DonghuStepObservations(t, steps...)
 }
 
+// A step is owned by the exact fixture result receipt, not by the opaque
+// observation lookup key. Preserve this coordinate even when the producer's
+// ID grammar evolves; no production identity or board assertion is relaxed.
+func xlane3ObservationStep(record types.ObservationRecord) string {
+	switch record.SourceRef.PayloadRef {
+	case "p1-wakeup_chain", "p1-root_cause_rank":
+		return "p1"
+	case "p2-wakeup_chain", "p2-root_cause_rank":
+		return "p2"
+	default:
+		return ""
+	}
+}
+
+func TestXLANE3StepSelectionUsesExactSourceReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name, id, payload, want string
+	}{
+		{"opaque", "trace_query:publication-full-digest#root_cause_rank:1", "p1-root_cause_rank", "p1"},
+		{"legacy", "trace_query:p2-root_cause_rank#root_cause_rank:1", "p2-root_cause_rank", "p2"},
+		{"conflicting transport", "trace_query:p2-root_cause_rank#root_cause_rank:1", "p1-root_cause_rank", "p1"},
+		{"ID alone", "trace_query:p1-root_cause_rank#root_cause_rank:1", "", ""},
+		{"prefix alias", "trace_query:p1-root_cause_rank#root_cause_rank:1", "p1-root_cause_rank-other", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := types.ObservationRecord{ID: tc.id, SourceRef: types.ObservationSourceRef{PayloadRef: tc.payload}}
+			if got := xlane3ObservationStep(r); got != tc.want {
+				t.Fatalf("fixture step follows exact source receipt: got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // xlane3RenderTwoStep renders the fused two-step report through the production
 // mutation+render path and returns (markdown, projection set).
 func xlane3RenderTwoStep(t *testing.T, obs []types.ObservationRecord) (string, types.TraceCausalProjectionSet) {
@@ -119,11 +152,11 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 			continue
 		}
 		joined := strings.Join(record.RichNotes, "\n")
-		if strings.HasPrefix(record.ID, "trace_query:p1-") &&
+		if xlane3ObservationStep(record) == "p1" &&
 			strings.Contains(joined, "rank_board_target=CompThread_0-2955") {
 			sawStep1 = true
 		}
-		if strings.HasPrefix(record.ID, "trace_query:p2-") &&
+		if xlane3ObservationStep(record) == "p2" &&
 			strings.Contains(joined, "rank_board_target=logd.writer-9163") {
 			sawStep2 = true
 		}
@@ -450,19 +483,24 @@ func TestXLANE3ParamsForkPerBoardDenominator(t *testing.T) {
 // legacy face, and no per-board Σ exceeds the window.
 func TestXLANE3MixedLegacyNewFormsUnnamedBoard(t *testing.T) {
 	obs := xlane3DonghuTwoStepObservations(t, 2955, 9163)
+	strippedNotes := 0
 	for i := range obs {
-		if !strings.HasPrefix(obs[i].ID, "trace_query:p1-") {
+		if xlane3ObservationStep(obs[i]) != "p1" {
 			continue
 		}
 		kept := obs[i].RichNotes[:0]
 		for _, note := range obs[i].RichNotes {
 			if strings.HasPrefix(note, "rank_board_target=") ||
 				strings.HasPrefix(note, "rank_board_params_fingerprint=") {
+				strippedNotes++
 				continue
 			}
 			kept = append(kept, note)
 		}
 		obs[i].RichNotes = kept
+	}
+	if strippedNotes == 0 {
+		t.Fatal("legacy negative control did not actually remove first-step board identity")
 	}
 	md, _ := xlane3RenderTwoStep(t, obs)
 	if strings.Contains(md, "355.562") {
@@ -503,9 +541,9 @@ func TestXLANE3TopoForkSplitsFingerprint(t *testing.T) {
 		if !strings.Contains(record.ID, "#root_cause_rank:") {
 			continue
 		}
-		step := "p1"
-		if strings.HasPrefix(record.ID, "trace_query:p2-") {
-			step = "p2"
+		step := xlane3ObservationStep(record)
+		if step == "" {
+			t.Fatal("rank observation lost its exact fixture step receipt")
 		}
 		for _, note := range record.RichNotes {
 			if strings.HasPrefix(note, "rank_board_params_fingerprint=") {

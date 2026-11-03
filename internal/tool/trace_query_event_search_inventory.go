@@ -111,7 +111,7 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 	i.HandoffRowsOmitted = c.Emitted - len(i.Rows)
 	i.RowsComplete = c.ScopeComplete && c.EnumerationComplete && len(i.Rows) == c.MatchedTotal
 	r := types.ObservationRecord{
-		ID:     "trace_query:" + ref.QueryScopeID + "#" + types.TraceEventSearchInventoryPredicate,
+		ID:     "trace_query:" + traceQueryObservationPublicationScope(ref) + "#" + types.TraceEventSearchInventoryPredicate,
 		Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 		Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
 		ProvenanceLane: types.ObservationProvenanceArtifactSpan, ClaimAuthority: types.ObservationClaimAuthorityDirectObservation,

@@ -43,13 +43,8 @@ func qualifyRuntimeMeasurementFactIdentity(p *RuntimeMeasurementPublication, ori
 	if !complete {
 		return
 	}
-	// Remove only the exact result-envelope coordinate from producer-owned
-	// identifiers. Retain the complete query hash, recursive/frame scope and
-	// line scope; do not infer query identity from displayed values or notes.
-	envelope := filepath.Base(p.Source.PayloadRef)
-	query, ok := strings.CutPrefix(p.Source.QueryScopeID, envelope+":")
-	observation, own := strings.CutPrefix(p.ObservationID, "trace_query:"+envelope)
-	if !ok || !own || query == "" || observation == "" {
+	query, observation, valid := RuntimeMeasurementPublicationDisplayCoordinates(*p)
+	if !valid {
 		return
 	}
 	canonical := *p
@@ -79,6 +74,29 @@ func qualifyRuntimeMeasurementFactIdentity(p *RuntimeMeasurementPublication, ori
 	for i := range p.Tables {
 		p.Tables[i].nativeFactIdentity = key
 	}
+}
+
+// RuntimeMeasurementPublicationDisplayCoordinates removes only a result's
+// transport envelope for display comparison. Both consumers retain the full
+// query hash, recursive/frame and line scopes. It supplies no source freshness,
+// field equivalence, population, completion or causal authority; those gates
+// remain the caller's responsibility. Never infer identity from display text.
+func RuntimeMeasurementPublicationDisplayCoordinates(p RuntimeMeasurementPublication) (query, observation string, valid bool) {
+	envelope := filepath.Base(p.Source.PayloadRef)
+	query, queryOK := strings.CutPrefix(p.Source.QueryScopeID, envelope+":")
+	observation, own := strings.CutPrefix(p.ObservationID, "trace_query:"+envelope)
+	if !own {
+		// Only the exact new full-digest grammar supplies a local suffix.
+		// Legacy coordinates keep their existing parsing; aliases do not.
+		coordinate, versioned := strings.CutPrefix(p.ObservationID, "trace_query:publication-")
+		digest, suffix, separated := strings.Cut(coordinate, "#")
+		decoded, err := hex.DecodeString(digest)
+		if !versioned || !separated || len(digest) != 2*sha256.Size || err != nil || len(decoded) != sha256.Size || suffix == "" {
+			return "", "", false
+		}
+		observation, own = "#"+suffix, true
+	}
+	return query, observation, queryOK && own && query != "" && observation != ""
 }
 
 // RuntimeMeasurementDisplayKey links exact aliases only for presentation. It

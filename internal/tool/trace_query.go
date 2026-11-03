@@ -1041,7 +1041,8 @@ func traceQueryEvidenceAuthorityWithSource(result tracequery.Result, sourceLabel
 // The complete submitted query distinguishes filters even when two executions
 // publish identical content-addressed results in the same second. JSON excludes
 // the engine's private cancellation/instrumentation plumbing. Query line filters
-// are not the index's scan/cache bounds. Existing observation IDs stay unchanged.
+// are not the index's scan/cache bounds. This namespace also owns freshly
+// published observation IDs: equal result bytes do not mean equal queries.
 // The full payload/raw locator remains in SourceRef, not just its basename.
 func traceQueryPublicationScope(result tracequery.Result, payloadRef, rawRef, idScope string, q tracequery.Query) string {
 	encoded, err := json.Marshal(q)
@@ -1054,6 +1055,36 @@ func traceQueryPublicationScope(result tracequery.Result, payloadRef, rawRef, id
 		scope += ":" + strings.TrimSpace(idScope)
 	}
 	return fmt.Sprintf("%s:query=%x:query_lines=%d..%d", scope, queryDigest, q.LineStart, q.LineEnd)
+}
+
+// All sibling publications must mint their coordinates from the same parent
+// receipt. Row-specific provenance may be decorated later, but cannot repair
+// a coordinate hashed before the query's target/window/line scope was stamped.
+func traceQueryObservationPublicationSource(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, query ...tracequery.Query) types.ObservationSourceRef {
+	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	if len(query) > 0 {
+		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, idScope, query[0])
+		traceQueryStampParentQuerySource(&ref, result, query[0])
+	}
+	return ref
+}
+
+// Observation coordinates are opaque, bounded lookup keys, not a second copy
+// of the full source/query receipt. Hash the minting receipt (including its
+// complete query namespace and source owner) without truncation. Per-row
+// physical clock/provenance enrichment remains separate; the final full
+// receipt stays on the record. Equal display bytes never merge authority.
+// Query-less legacy publications keep their existing result-only coordinates.
+func traceQueryObservationPublicationScope(ref types.ObservationSourceRef) string {
+	if strings.TrimSpace(ref.QueryScopeID) == "" {
+		return ""
+	}
+	encoded, err := json.Marshal(ref)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("publication-%x", digest)
 }
 
 // The effective measured result owns its analysis ruler; a recursive leaf's
@@ -3317,14 +3348,14 @@ func traceQueryFullArtifactScopeCoverageObservation(
 	if view == "" {
 		return types.ObservationRecord{}, false
 	}
-	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
-	if len(query) > 0 {
-		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, "", query[0])
-	}
+	ref := traceQueryObservationPublicationSource(result, sourceLabel, payloadRef, rawRef, "", query...)
 	if ref.Kind != types.ObservationSourceRuntimeArtifact {
 		return types.ObservationRecord{}, false
 	}
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
+	if publicationScope := traceQueryObservationPublicationScope(ref); publicationScope != "" {
+		scope = publicationScope
+	}
 	return types.ObservationRecord{
 		ID:              fmt.Sprintf("trace_query:%s#runtime_artifact_scope_coverage", scope),
 		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -8451,10 +8482,9 @@ func writeTracePerfCaveats(b *strings.Builder, indent, label string, caveats []s
 // Both live accessors are defined in width_governor.go over the
 // internal/tool/width single-source table.
 
-// traceQueryObservationScope derives the precise per-result ID namespace for
-// typed rows. The stored payload reference is content-hashed and therefore
-// unique per distinct result; the view + selected window is the fallback when
-// no blob could be stored (e.g. no work directory).
+// traceQueryObservationScope identifies result content, not the query that
+// produced it. Fresh query publications use traceQueryPublicationScope on top
+// of this base; legacy/query-less callers retain this result-only namespace.
 func traceQueryObservationScope(result tracequery.Result, payloadRef, rawRef string) string {
 	if ref := strings.TrimSpace(payloadRef); ref != "" {
 		return filepath.Base(ref)
@@ -9294,14 +9324,13 @@ func traceQueryTargetWindowStatesAccount(result tracequery.Result) *tracequery.T
 
 func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time, query ...tracequery.Query) []types.ObservationRecord {
 	result = traceQueryPriorityResultForPublication(result)
-	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
-	if len(query) > 0 {
-		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, idScope, query[0])
-		traceQueryStampParentQuerySource(&ref, result, query[0])
-	}
+	ref := traceQueryObservationPublicationSource(result, sourceLabel, payloadRef, rawRef, idScope, query...)
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
 	if strings.TrimSpace(idScope) != "" {
 		scope += ":" + strings.TrimSpace(idScope)
+	}
+	if publicationScope := traceQueryObservationPublicationScope(ref); publicationScope != "" {
+		scope = publicationScope
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
