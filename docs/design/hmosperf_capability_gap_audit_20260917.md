@@ -2,7 +2,19 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-11-02 UTC，§332；本地批号20261101）：79唯一＝27实现交付＋52开放，18类仍有开放项；最新ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)。本批完整能力新增0、root明确closure=none，18.3有限及两例整答人工均FAIL。源码子能力3组：IO半开端点私有交接、互斥同口径端点小计教学、完整typed查空到逐次执行登记。7文件ddc7447768ce0309fd75282f580940c7856c84af，唯一full实际0/源前后true，98包28699顶层34279子例PASS。完整网易云实采的16实例/80量测值和3735时序行独立核对一致，仍有正文解释错误。本代365件封存，旧33代13516件保留；仅物理复核最新503件及更早链头，不冒全历史重验。相邻5文档与远端交付以[publication实际凭证](../../eval/results/hmc_scope_zero_netease_20261101_v1/publication-v1.json)为准，不预填。下一优先原生账户/调查解释的范围量尺绑定与结果导航，再轮换有材料的完整能力和只读登记负控；旧FAIL、未触发和WAL生产NO-GO保持。
+当前状态（2026-11-02本地，§336失败代）：79唯一＝28完整＋51开放；完整新增0、已交付子能力0、共享坐标提示候选1组未发布。唯一全仓97包PASS/1FAIL，原HMC279三个展示子例在整JSON查768报复制，必须新代精确复现，不改冻结断言、不归因基线或环境、不追加full求绿。两原自然例机器2/2、完整人工0/2，08.3/14.1不销；397件原件封存，旧失败与未触发保留。此次只提交审计文档，不创建成功源码publication；后继ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)与[批汇总](../../eval/parallel_selected_summary_hmc_coordinate_io_resource_20261102.md)。WAL零副作用前生产NO-GO。
+
+## 336. 原生坐标修补候选与未通过验收
+
+参考core/llm_contract.py的manifest所有权/精确字段位置及context_index来源导航，候选在原native binder拒绝后增加字段、提交坐标与当前完整候选，不代写ID/view或文本。精确相等或命名空间边界后缀只作软建议，歧义/无匹配/预算不足退原名册；原metadata完整保留，4KiB/16完整单元且显式省略。真实公开RED→GREEN、73顶层293子相关/race及完整实采交接通过，5Go源码仍候选，不把子片当完整能力或源码已交付。
+
+7588/209/15冻结后仅一个全仓：实际1，97包PASS/1FAIL/12无测试，28714顶层PASS/1FAIL、34300子PASS/3FAIL；267045 GoJSON，非JSON/重复/未终态0。HMC279三分支Contains整JSON的768报复制，暂不推定原因，失败代封存后新代确定性验证。无第二次full、无源码成功publication。
+
+原A IO[1,1.01)四组24数字及配对覆盖正确，查找窗[.9995,1.0105)不混分母，但正文把在途数升级压力/排队/IO排除，08.3有限/整答FAIL。原B完整SQLite→共享准备→一次原生查询，4事件/3组/11帧真实保留，最终512释放错为256及完整展开越权；14.1部分与增量报告协议欠项不销。A/B实际INIT投3/8、2/6调查单元，各自原生行/质量独立；未投错误不冒直接来源。新坐标提示自然未触发，原生字段正确不免解释失败，合法差额计算不判错。
+
+397件index SHA0448edcc2ef78b657be214505a3b867ea2da26ca65171e15cb112dafa64b59a0；A14/B13真实请求精确配对、无歧义/未解，最大重叠40.931秒。两日志非UTF-8原件仍保，6 INIT有效，不推provider wire；HTML源表诊断一致，不冒图/像素QA。完整网易云82838676B原件仍1query/0模型保护627.645/194.581账户，非第三例。旧37代15289件保原、38代累计15686按代非去重；仅最新508物理重核及旧链头。
+
+新高影响上下文欠项：不透明base64载体预览令预检模型错解时间×100、3帧写2，后续原生纠正且错误字面未投finalizer；应提供受信可读事实，不把预检model摘要升原生。另原手工expected的子类型name unavailable与现有NULL-ID→name NULL协议/原HMC278冲突，留版本一致性/未消费预期账，冻结后不改oracle。下一先闭全仓，再泛化预览/行引用与成文复用、只读登记负控/有材料完整验收；旧采样/IO/权限/代表/图与WAL生产NO-GO不变。详[完整批汇总](../../eval/parallel_selected_summary_hmc_coordinate_io_resource_20261102.md)和[人工汇总](../../eval/parallel_selected_summary_hmc_coordinate_io_resource_20261102_manual_audit.md)。
 
 ## 1. 范围、证据与结论口径
 
