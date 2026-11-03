@@ -2,7 +2,21 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§339，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0、共享子能力交付2组、剩余验收欠项4组。精确同源自身账户Notes保原13行引用，可选展示所有权错误定点修补；唯一全仓98包PASS。原资源身份A/完整抖音B原smoke PASS、完整人工FAIL，原03.2有限也FAIL，不倒签或增退出门槛。624件封存，详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§339批汇总](../../eval/parallel_selected_summary_hmc_business_account_native_repair_20261103.md)与[人工审计](../../eval/parallel_selected_summary_hmc_business_account_native_repair_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-03，§340失败审计，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0、子能力本批交付0、候选共享修复1组、剩余验收欠项3组。查询身份候选通过公开及完整实采定向，但冻结后唯一full97包PASS/1FAIL，3顶层/1子FAIL，源码不交付。IO原有限/整答人工FAIL，只读缺来源负控限定PASS；419件保原。本次仅文档推送，不误销、不补成功publication，详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§340汇总](../../eval/parallel_selected_summary_hmc_query_scope_io_registration_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_query_scope_io_registration_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 340. 查询身份候选的共享预算回归与原有限IO/只读负控
+
+79/28/51与原状态不变，完整新增0、源码子能力交付0。3Go/165增5删候选只解决已证producer碰撞：不同canonical query返回同一content-addressed payload，SourceRef.QueryScopeID不同而旧ID同，原冲突检查正确撤掉全部表。公开旧码RED保留；新ID归已有完整query namespace，保精确重复稳定、各自原13行账户，不放宽validator或授因果/完成权限。参考context_index按step/type/path的路径导航与llm_contract来源字段职责；不复制value覆盖、松散文本、数值容差或fingerprint门。
+
+最终相关7包388/1171、race×2三包26/64、原4候选/闭合睡眠守护3包21/141通过；完整235422121B/1696481行抖音实际3query/0外部模型，冷发布加两热查询，后两相同payload仍有不同ID、各13行账户及实际未选Finalizer说明，源前后hash不变。6份raw/payload清理前复制；初版cold/hot扫描元数据不同导致同字节前提不成立，原FAIL留档，不冒产品逻辑RED或降断言。
+
+冻结7600输入/279外部/13仓外快照，SHA36f280cd4c4a336bd39c2fd659b2da19c05a6e0b9047be46ed1f7d590329f37a后停写。唯一full09:06:49.793928Z→09:21:07.951166Z，OS1/源前后true：97包PASS/1FAIL/12无测试；28726顶层PASS/3FAIL/48SKIP、34355子PASS/1FAIL/14SKIP，267528纯JSON无重复/未终态，log SHAe4a265a226689144eb0c93a39fc289f8760aceee1bd582eb620b416040c5f716。失败分别为重叠event inventory完整提示136274B（旧130854B、自身46499B不变）、HMC333 Extract引用描述未交接、HMC269来源导航135574B超原预算。不是模型波动，不改旧断言/提高上限，不再full，候选不发布。
+
+A原自然IO15steps/n1，一真实query保四组24值/8成员/12原生表，原smoke PASS；有限/整答FAIL。正文BIO忙10/10ms却称多数空闲，受限深度升设备队列排除排队/带宽/线程等待，IRQ完成线程升直接原因，另混完整配对与窗内端点。全部正确native事实/边界已在actual INIT；5单元仅坏unit0实际投递、省9072B，未投坏unit2不得当污染。没有图/patch；HTML与MD13表（含附件）格诊断一致，不冒像素QA。原08.3仍验收中，不加新二进制/图/根因门槛。
+
+B原缺来源终态只读登记真实planner＋脚本恢复/新原生执行限定PASS。source只有真实apply；proof verified但overall unverified/missing_terminal_verify_verdict，父子各4原件/1同代final→report链接hash正确，源码/测试/HEAD未变，旧/新invocation分开。非自然controller/fullCLI、context-pack耐久未证。两例各1次，实际请求A9/B2/0歧义/重叠3.074秒；自然同字节多查询分支本批NOT_TRIGGERED，其它二进制/代表/图未运行，不复制旧绿。
+
+419件index SHA59bb4a9b322fcf9e341e5a47ce8065c5a5b89ffc2405191546843b486703802f，seal receipt SHA27f6ad02258ad8b63da697dbfa796ef4c8c1b58bba2916ff8da93277221ad25a。42代按代17687件非去重，本代只物理重核最新339624及更旧链头。当前仅推送五份失败审计文档，源码仍待下代公开复现/修复/验收；没有成功publication。剩余3组挂原ID：共享预算/引用回归、有限解释失败、自然多查询及权限/代表/图/格式协议覆盖。Trace投影/自动补齐/链上业务、原4根因/闭合睡眠与合法计算/重试不改；WAL生产NO-GO。
 
 ## 339. 同源自身账户原生复用与可选展示所有权定点反馈
 
