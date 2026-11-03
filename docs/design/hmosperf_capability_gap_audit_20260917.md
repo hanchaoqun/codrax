@@ -2,7 +2,37 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-02本地，§337）：79唯一＝28完整＋51开放；完整新增0、共享子能力1组、测试精度修复1项另计。唯一全仓98包PASS；原资源身份A机器/有限/完整人工FAIL，只读缺来源终态B限定人工PASS，新坐标提示自然未触发。489件原件封存，§336原全仓/两人工FAIL及文档推送保留，不创建其成功publication。后继优先可信可读转换预览与精确原生复用/修补交接，不追单例求绿；详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§337批汇总](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102.md)及[人工审计](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102_manual_audit.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-02本地，§338，终态11-03 UTC）：79唯一＝28完整＋51开放，勾选不变；完整新增0、共享子能力1组。7类可见原生载体复用严格解析字段与整行预算，A自然命中资源可读预览；唯一全仓98包PASS。资源二进制A及完整235422121B抖音B原smoke均PASS、完整人工均FAIL，边界时间/业务窗与状态量尺仍留账。469件封存，旧失败/未触发不倒签；详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§338批汇总](../../eval/parallel_selected_summary_hmc_native_carrier_preview_douyin_20261102.md)及[人工审计](../../eval/parallel_selected_summary_hmc_native_carrier_preview_douyin_20261102_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 338. 可读原生载体共享交接与完整抖音实采自然验收
+
+### 338.1 参考意图、公开反例与泛化实现
+
+参考core/llm_contract.py把证据的来源/字段位置与摘要框架分开，core/preprocess/context_index.py提供原件导航而不把索引当事实权威。本项目的新发现是：已有严格解析的native record在可见行展示中因没有scalar TraceEventSemantics被整体跳过，模型只见base64，自行解码会错时间与帧数；下游原生查询正确不意味着前置上下文已正确。这不是新增七套诊断器的理由，也不照搬参考的数值容差、文本子串或fingerprint作权限门。
+
+源码13c91b982ce67c680cc240610bbd283b06dd4edc，6Go/692增17删（2生产/4测试）。新共享projector复用资源/CPU严格wire owner及frame map/callstack/GPU/NAPI/EBPF既有typed字段，fresh marshal不改Event/缓存/源版本；旧scalar语义优先。内部展示JSONL的source_record/time-role明确是已可见原行的拷贝，不是事件增量、query receipt、来源准入或有序关系。精确signed/zero/unknown时间、状态/NULL/编码不丢；frame锚+GPU duration不冒执行区间，源帧深度/数量不冒完整展开。没有新增原SQL归档块解码或隐藏文件读取，不授CPU/配对/因果/完整总体权限。
+
+沿旧扫描128KiB/256行与32行/16KiB整展示上限，先预约教学/尾注/导航再选择完整行；超长行整条省略但后面小行可展示，计数只覆盖所给preview。防新族教学后追加挤破预算或裁字段/ID，不用加cap或硬扫问答避免幻觉。JSON教学首轮green误入fence的失败保原，冻结前修正，原断言不降。
+
+### 338.2 测试、冻结与完整真实材料
+
+公开RED1顶层/10子例覆盖十种载体/时间变体；最终相关7包113顶层/198子、race×2三包24/40、原因果守护3包21/141 PASS。完整235422121B/1696481行抖音原件实际1nativequery/0模型，再过原独立HMC320标量与实际Extract/Finalize消息；不是第三模型例。独立全文件整数微秒LIFO oracle只给operator，不注入模型，2611窗内闭合target markers、原父669351/self227101us及makeApplication153066/self1078us不变，header57874不混payload10266。
+
+冻结7594输入/256外部/14仓外快照，SHA e5f150278145e6c31cd29d7793dc9798522b389fc41c7f7b8755e96f29bd0a90后停写。唯一full 06:44:03.086972Z→06:58:29.559380Z，OS0/源前后true：98包PASS/12无测试、28721顶层PASS/46SKIP、34331子PASS/14SKIP，267181行纯JSON、零FAIL/重复/未终态；log SHA d458bb0ded081ff3aaa3f408dc0bb92883fb2f6f5725e68e3b70aa3068846cd5。
+
+### 338.3 原自然两例与实际上下文
+
+A完整构造SQLite53248B→共享准备→3query，原[10,10.05)4事件/3组/11帧、768/128/512正确；旧time×100/frame_count2在本次实际预检上下文及emit证据未复现，新record的10005000000ns/10.005s、ITID1/frame_count3保真。只签资源族自然覆盖，其他六族仅确定性。完整人工仍FAIL：正文两次10.055与真实边界10.050000冲突，未知符号/深度被误称确定外内层或业务调用方未采。合法896小计/已记录调用线索保留，非一律禁箭头；14.1原协议和人工债不销。
+
+B原自然题首次实际查询完整用户抖音，7query。32个主窗已发布成员inclusive/self与独立物理行oracle逐项一致，另三窗各32成员物理身份一致，不把宽producer node_count混成target-marker分母，也不加全2611展示退出门。正文将完整makeApplication[.031203,.184269)/153.066ms套用裁窗[.031203,.184158)/152.955ms的Running144.906，实际完整Running145.017；与尾段交叠0.111ms却称三自然段。self107.397与Running103.841混述。实际finalizer明示两种账户，不能把错述直接归因源缺失；原smoke PASS不代完整人工FAIL。
+
+A实际成文INIT86852/9927/164358B，仅投1/3解释单元；B97597/13901/321356B，仅投2/6。未投坏解释不冒直接污染，B正确裁窗解释也有省略；查询身份/量尺投递与整单元预算须共同优化，不推单一原因。A两selector-only原生表、自动补齐均在；B主文手写两表，连原生附表共28HTML表/1007301B Markdown，仍有同源噪音。B原表比较器21处差异逐格为Markdown代码/加粗标记，不伪造数值错列；源审不冒像素QA。两例无图/answer patch、新unknown_id/wrong_view修补未触发；B的empty_selection原拒后补选择不算该新分支命中。本代只读登记未运行，不重签旧负控。
+
+### 338.4 交付、留账与下一双轨
+
+完整新增0/累计28、已交付共享子能力1组、51开放，closure=none。两例各n1，实际唯一精确请求A12/B15、歧义0、重叠12.552秒。469件index SHA009dddbf652acf9c7576a55e05e46f7e5acc89d74f59cf261ef2952ea1eedb88；旧39代16175件保原，40代按代16644非全局去重，本批只物理重核最新337的489件和更旧链头。336原全仓/人工FAIL仍只文档推送，不补成功publication。
+
+当前验收欠项分4组：①源精确时间/调用角色与成文FAIL；②业务完整窗、查询裁窗与self/Running账户错绑FAIL；③native同源复用、完整单元/全请求预算与已选view投递；④其他carrier自然覆盖、图/patch/精确坐标修补等未触发。挂原16.4/01.3/02.4/16.5/01.2/18.4/12.5，不增稳定ID。14.1增量/累计/reset协议及expected name状态版本债、旧采样/IO/权限/代表/图、更多二进制/平台仍在原账。下一共享轨优先可公开复现的账户绑定/原生选择恢复，完整轨轮换真实材料原有限合同及只读正负终态；不追同例或把正确附表当正文免检。Trace投影/自动补齐、原4候选、闭合睡眠、链上业务与合法计算/重试不变，WAL生产NO-GO。
 
 ## 337. 原生坐标定点修补与测试精度收口、资源身份/只读负控轮换
 
