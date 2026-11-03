@@ -1745,6 +1745,14 @@ catalog query finish以实际注册view和唯一完整原生typed凭证归empty�
 实现4a402833c77350f8605c2377725d286d928ff9af共7Go文件，公开RED→GREEN、相关/race及冻结后唯一全仓98包28709顶层34289子PASS；源码子能力1组与完整能力分账。完整网易云82838676B原件再过实际query及Extract/Finalize消息回归，627.645/194.581账户不变，0模型不冒第三例。A自然8计划/2组/4选/4未选和同代tuple通过原operator，原生值正确；但已充分提供正确组/状态的上下文同时转发错误unit0，正文重分组/把额外查空称选中并顺链深度，11.2有限及整答FAIL。B原sample-only终稿保unknown、cycles和CPU记录口径、拒绝停顿归因，原有限及整答PASS，结合旧CLI/REPL尾部/窗正例只闭18.3。旧失败不倒签，79/28/51、完整新增1；上游解释错绑和新反馈/引用描述自然未覆盖留账。详见[§334汇总](../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102.md)及[手审](../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102_manual_audit.md)；553件原件与main/远端发布独立核。Trace投影/自动补齐、合法查询/重试不改，WAL生产NO-GO。
 
 
+§337将§336候选的原生completion字段定点修补作为1组共享子能力交付：只有原binder已拒绝的unknown_id/wrong_view才沿精确失败索引关联提交坐标；优先完整ID相等，其次完整命名空间边界后缀仅作建议。一个错误对应多个不同ID、没有匹配、其它错误或预算省略时，保原全名册fallback；metadata始终保全部当前坐标。最多4KiB/16完整单元，整对象省略而不截ID或候选列表。提示不得接受别名、恢复失效来源、自动替换ID/view/结论；原重试仍过原source binder，先前已受理状态失败时不变。参考core/llm_contract.py的manifest所有权及精确字段定位、context_index.py的来源导航，不照搬文本子串、±0.5%数值或fingerprint作权限门。无新的问答原文关键词硬门。
+
+§336全仓失败后另代确定性复现了旧测试的适用域错误：整份AnswerDocument JSON查768，会把合法opaque observation ID/host reasoning metadata当成复制，也漏掉其它值的内联复制。§337只在测试层改为精确native块的selector-only JSON形状与完整ID/view校验，10种不同值/内联字段/错ID或view/缺selector或目标块负控仍拒绝；原显示值、无因果边、同源恢复及源不变断言不放宽。使用私有SystemGeneratedKind区分模型块与合法native自动补充，保原模型块人口及独立lead；不是靠ID前缀或数值关键字判权。7Go/448增6删（3生产/4测试）包括上述共享修补，测试精度修复单列工程项，不冒第二个完整能力。旧§336原全仓FAIL/两人工FAIL及仅文档推送a014ec6d59987233f16df26c45b02c70494b7411保留，不创建其成功publication。
+
+最终相关6包126顶层/372子例、race×2三包68/74、完整82838676B网易云实际1nativequery/0模型及消息交接通过。冻结7589输入/337外部/17仓外快照后停写；唯一full实际0，98包PASS/12无测试、28717顶层PASS/45SKIP、34316子PASS/14SKIP，267102 GoJSON，FAIL/非JSON/重复/未终态0。两原例各n1并行，请求A11/B2精确配对、无歧义，最大重叠3.708秒。A原资源身份主列表保5操作/5计数及精确位型，但原机器/有限/完整人工FAIL：大整数误断占位、子类前后矛盾及缺测外推。B真实planner/脚本独立恢复只读负控限定PASS：proof verified而缺来源终态仍overall unverified；不冒自然controller/fullCLI。新定点completion提示两例均NOT_TRIGGERED，不签自然效果。
+
+原生event_selection曾在A完整提交被拒；仅改table→summary后出现两个summary的结构拒绝，不证明selector已通过binder。随后两次patch回落手写明细并补维度受理，形成高ROI的精确原生复用/修补交接待复现项，不能以改kind或放宽断言补救。实际INIT只投8解释单元中的0/1，未投坏解释不冒污染；原始全字段/缺测范围与正文错述分开审计。03.2不销，79/28/51、完整新增0、共享子能力1；489件原件及[批汇总](../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102.md)、[手审](../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102_manual_audit.md)保全部失败。后继优先可信可读预览和精确原生复用，不追同例求绿；Trace因果投影/自动补齐、原4候选/闭合睡眠/链上业务不变，WAL零副作用前生产NO-GO。
+
 §336为共享native completion拒绝增加字段定点坐标修补候选：失败索引、提交ID/view、当前完整候选与匹配方式共同提供；精确ID或命名空间边界后缀仅软导航，不恢复权限、不接受别名、不自动改选择或解释。最多4KiB/16完整提示单元，超预算不裁ID，歧义/缺匹配/其它错误保原全名册；metadata不丢全名册。原binder、已接受状态及因果/计算/自动补齐合同不变，公开RED与相关/race通过。
 
 本代冻结7588输入后唯一full却失败于旧HMC279三展示分支的整JSON搜索768复制断言；当前不得先推定是生产复制或ID误报。候选5Go源码暂未发布，只提交失败审计，后继新代复现且保原禁止复制合同/负控，不改冻结断言求绿。两原自然例机器PASS/人工FAIL：IO四组原生正确但正文越权排除IO；资源4事件/3组/11帧正确，正文512错256及完整展开越权。新坐标提示未自然触发，完整新增0/已交付子能力0/候选1，79/28/51不变。397件与原全仓FAIL保原，不创建成功publication。

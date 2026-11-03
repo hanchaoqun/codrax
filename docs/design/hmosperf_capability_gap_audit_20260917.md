@@ -2,7 +2,35 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-02本地，§336失败代）：79唯一＝28完整＋51开放；完整新增0、已交付子能力0、共享坐标提示候选1组未发布。唯一全仓97包PASS/1FAIL，原HMC279三个展示子例在整JSON查768报复制，必须新代精确复现，不改冻结断言、不归因基线或环境、不追加full求绿。两原自然例机器2/2、完整人工0/2，08.3/14.1不销；397件原件封存，旧失败与未触发保留。此次只提交审计文档，不创建成功源码publication；后继ROI见[实施清单](hmosperf_implementation_tasks_20260917.md)与[批汇总](../../eval/parallel_selected_summary_hmc_coordinate_io_resource_20261102.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-02本地，§337）：79唯一＝28完整＋51开放；完整新增0、共享子能力1组、测试精度修复1项另计。唯一全仓98包PASS；原资源身份A机器/有限/完整人工FAIL，只读缺来源终态B限定人工PASS，新坐标提示自然未触发。489件原件封存，§336原全仓/两人工FAIL及文档推送保留，不创建其成功publication。后继优先可信可读转换预览与精确原生复用/修补交接，不追单例求绿；详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§337批汇总](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102.md)及[人工审计](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 337. 原生坐标定点修补与测试精度收口、资源身份/只读负控轮换
+
+### 337.1 参考设计与已交付范围
+
+沿core/llm_contract.py的manifest归属和字段路径、context_index.py的可发现导航，原binder拒绝unknown_id/wrong_view后才按精确失败索引提供submitted/current完整坐标。相等或命名空间边界后缀仅导航，不签同源/同义或恢复资格；多个不同ID/无匹配/其它错误保原全名册，metadata完整名册不删。4KiB/16整单元预约、不截字段或候选列表、省略显式；不代改ID/view/结论、不自动接受别名，不扫描用户/模型原文硬门。参考的文本子串、数值容差和fingerprint不用于本项目权限门。公开query/completion失败不污染旧受理状态，原坏坐标继续拒绝、精确当前对象重新过原门。
+
+§336旧整JSON查768的检查器在新代RED暴露两类错误：合法opaque ID/host metadata误报，非768内联复制漏检。只修测试为精确native块selector-only wire/完整ID/view，十种负控拒绝所有竞争字段、错坐标及缺selector/目标；不放宽原数值/无边/重绑定/源不变断言。私有SystemGeneratedKind区分合法自动补充，模型块人口及独立lead保留，不靠ID前缀。7Go/448增6删，3生产/4测试；共享子能力1组、工程精度1项，不冒完整父任务。
+
+### 337.2 冻结、实采与独立全仓
+
+最终相关6包126顶层/372子例、race×2三包68/74 PASS；旧错误owner前提的诊断失败、race-v1源变化和原RED全部保留，不混作最终绿。完整网易云82838676B/559592行原件SHA12349db5bbdc5a4343360d9633c7d6c36f18c8be5f39fb64e78b53c9e345bfe4真实1nativequery/0模型，627.645/194.581ms及实际Extract/Finalize交接通过，独立oracle仍HMC332，不重新计算或冒第三例。
+
+冻结7589输入/337外部/17仓外快照，SHA c2fcde4a53a968b13892eab365029fa5d7516cdd0223f5737305ea260df33210后停写。唯一full实际OS0、源前后true：98包PASS/12无测试、28717顶层PASS/45SKIP、34316子PASS/14SKIP，267102 GoJSON，FAIL/非JSON/重复/未终态0；log SHA d987874562fc1789a4a7b212d9099a1513553fcfbbd8a5f78f756d1b55c59e43。旧§336封存397件、全仓FAIL与人工FAIL不倒签；其a014ec6d59987233f16df26c45b02c70494b7411是文档审计推送，不是候选源码成功发布。
+
+### 337.3 本代验收与上下文发现
+
+A原自然资源身份题15steps/n1：3原生query；10标记＝5操作/5独立计数，完整signed/hex/大整数/子类到最终列表。原机器FAIL（不由CLI0推PASS），03.2有限及完整人工FAIL：大整数被判占位、.003的子类8前后矛盾、缺测外推无竞争/硬件零、共现先后升级资源生命周期。正确列表/尾部限制不抵销。A actual INIT三条112161/8427/129340B，均有效UTF-8；原日志非UTF-8保字节，未声称provider wire。8调查单元只投0/1、省4126B，未投坏解释不冒污染；原生事实与受信摘要仍需同源范围绑定。
+
+A初答带原生event_selection table被拒，第一patch改summary后又因两个summary被拒；不同错误不证明selector已过binder。后两patch转手写10行并补维度受理，形成高ROI的公开复现/精确恢复交接待办。实际教学有event_selection，不能仅由教学+拒绝就判工具回归，更不能放宽原门。没有图，HTML源审只有附件表，图/像素QA不签。新completion定点提示两例均NOT_TRIGGERED。
+
+B原只读缺来源终态负控：真实planner两provider请求、脚本独立恢复/实际public_run_tests，新invocation与精确既存断言及source plan/commit正确；补证verified、来源缺终态仍overall unverified/missing_terminal_verify_verdict。父子各4原件/1引用，final→当前内容寻址report四字段/物理SHA均匹配。限定人工PASS，不冒自然controller/fullCLI、context-pack耐久、其它框架或完整18.5。
+
+### 337.4 留账与下一双轨
+
+79唯一/28完整/51开放，完整新增0，closure=none。两例各n1；实际请求A11/B2唯一精确配对、歧义0，最大重叠3.708秒，恢复子过程不算第三例。489件index SHA c90ba198b433a18e778ee28700adb822b78e5837fb94f1557b8002dc909469f7，旧38代15686件保原，39代按代累计16175件非全局去重；仅最新335的508和失败336的397件物理重核，更早链头不冒全部重hash。root无闭项决定、原case verdict、原生/INIT/patch、进程及全仓均封存，相邻代码/五文档/远端main另由publication确认。
+
+本代剩余验收分5组：03.2身份/解释FAIL；缺测/状态/业务关系范围FAIL；原生event_selection拒绝后手写回落（工具原因未证，待精确复现）；调查/原生投递预算与未投解释覆盖；新定点提示自然未触发。关联原01.3/12.5/16.4/16.5/18.4，不另造稳定ID。旧IO量尺/硬件/集合、采样执行/权重、权限覆盖、代表选择、图/patch、h2/h3/lower-cost-full、更多平台及资源增量协议/手工expected版本债仍在原ID。下一共享轨优先可信可读转换预览及精确原生选择/修补，完整轨轮换有材料原合同/二进制及只读终态，不为单答案加词门或无限重跑。Trace投影/自动补齐、原4候选/闭合睡眠与链上业务保留，WAL生产NO-GO。详本批[汇总](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102.md)和[独立人工审计](../../eval/parallel_selected_summary_hmc_selector_wire_identity_registration_20261102_manual_audit.md)。
 
 ## 336. 原生坐标修补候选与未通过验收
 
