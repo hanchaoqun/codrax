@@ -11675,3 +11675,34 @@ B受理5单元仅传unit0/1，reason和unit3/4仍有CPU/时长误述却本次未
 本代3组已证语义问题：A分组/执行身份混用、A深度升关系、B调查负断言适用域错绑（及未传旧状态/时长误述）；前两阻止11.2，后一不虚构为B终稿失败。未选个体3/4投递另入共享预算覆盖债，不能漏记或冒全到。另2组未触发：新容器反馈自然效果、HMC333引用描述自然正向；结果导航只有限读JSON，不能签全部格式或成本改善。旧IO硬件/集合解释、权限覆盖、图/patch、重复展示/全局预算、h2/h3/lower-cost-full、更多格式平台继续在原任务中，不被18.3关闭一并消账。
 
 51项逐ID无重漏ROI见[批汇总](../../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102.md)：共享7→有材料原合同6→原生复用11→来源/协议21→新域6；[完整手审](../../eval/parallel_selected_summary_hmc_container_shape_representative_binary_20261102_manual_audit.md)分开最终失败与中间误述。下一双轨优先11.2原有限出口及共享解释的分组/来源/关系域，不再强制view或扫描问答关键词；只读负控、有材料二进制/IO持续轮换。充分事实后的偶发误述保原，不无限阻塞其它ROI；Trace投影/自动补齐、链上业务线索与合法计算不损，WAL零副作用前生产NO-GO。
+
+
+## 335. 2026-11-02（本地）：完整代表名册交接与只读登记自然终态轮换
+
+### 335.1 计数与双轨裁定
+
+main基线0c9a98e34395aea97faf071e8de5c90bcfa84979；源码4e8927f4521792197474611e86470e5b12683b02。稳定79唯一＝28完整＋51开放（18部分、29待实施、2待验收、1验收中、1持续），本批无勾选变更，完整新增0、共享子能力1组。A原operator/11.2有限/整答均FAIL；B原自然父/子controller只读登记入口有界完整人工PASS，不关闭持续18.5，不冒新完整CLI能力。
+
+### 335.2 已证缺尾的泛化修复
+
+§334实际INIT未选个体只3/4已由原提交手审精确更正；新公共discover→选择→真实native重复查询→三阶段context先复现7/8。旧自包含完整行若全放下不改变；存在实际省略且整个精确字典可放入原预算时，完整共享来源元组和组规格，不共享query/物理身份。原member全部字段、source代次/状态、选择原因/结果/尝试次数/latest/分布和原顺序均保真。复用精确RepresentativeNavigation当前join，缺失、重复、规格原始表示冲突或覆盖计数不符不发布完整名册；整份过大退原完整单元预览、省略明确。24KiB/extra预约、原计划、source admission/重试/选择均不变。
+
+参考closure/select.py manifest所有权与纯函数、package.py独立打包的设计意图，不照搬固定5/50为用户语义、缺值补0或文本子串授权。新字典是内部context展示语法，有字段教学/完整重建/容量与旧形状兼容回归、冻结SHA pin，不扩公共工具schema/结果wire或JSON恢复权限。增加一次任务规格组与内容相似性区分的软指导，不自动改view/结论，不扫描问答词汇作硬门。4Go文件352新增（2生产/2测试），旧断言/问句/operator/oracle不改，原4候选、闭合睡眠、Trace因果投影与自动补齐保留。
+
+相关4实际包、另原operator全套7/40、race×2和因果/JSON旧合同通过。完整用户网易云82838676B/559592行、SHA12349db5bbdc5a4343360d9633c7d6c36f18c8be5f39fb64e78b53c9e345bfe4，1nativequery/0模型再核TID36434、原77708–152774行、[5969.994941,5970.622586)的627.645/194.581ms及实际消息；不冒第三例或重新全审旧oracle。冻结7585输入/251外部/15仓外快照，SHA4efa93555b15b55b80a03de8580d291d8812c317dfc26adfbb54d0e5074dc1e8后停写。唯一full OS0/前后true：98包PASS/12无测试，28712顶层PASS/45SKIP、34295子PASS/14SKIP、266998 GoJSON，FAIL/非JSON/重复/未终态0；log SHAae9ef2299065245e1a642fd0faf4ddc40e5ca11ce4c3964b8a2c7614e95e2446。
+
+### 335.3 实际成文交接、人工失败与只读终态
+
+A原50steps/n1，模型910行显式request_plan.view=event_search，经受理目标/共同数值窗/每组预算生成8选择计划2组4selected/4unselected。当前17记录/23attempt＝8声明+9资源extra、21success+2empty；15记录有尝试/2无尝试。4选中各2success，101未选a/c两not_executed，202未选b/d各1empty。9资源规格/13实际尝试、9唯一JSON不能代原resource_stack选择矩阵；唯一production tuple经冻结原operator实际1，错误cluster specification or full membership differs，原有限FAIL不改断言。
+
+新字典自然命中actual INIT2第17行：4源/2组/8成员，全部member/source/group和每个attempt分布对同代index/selection精确还原相等；4选/4未选/2组均0省略，旧缺尾分支闭环。extra独立6展示/3省略，不减9总体。9资源JSON16事件/45帧原数值字段对独立冻结SQLite oracle全核一致。终稿分组已恢复原线程×窗，不再用内容组代替；仍错把2未执行＋2empty说4未执行＋2empty、称四事件表却只提交3表，有限与整答FAIL。实际HTML5表＝3事件/跨源对齐/定位，最后表cell false仅反引号非渲染丢格；无图/patch，source-only。actual INIT3只投1/6调查单元（省6455B），unit0错将首事件非null end_ns说null、合法native_ref不签文字；终稿未重复该字段，已投上游债保原。未投旧进度/地址/CPU误述不冒已投污染；方向列帧虽加非有序链声明仍有歧义，不凭箭头字面硬判。event_search双端包含/资源右开分别保原，组标题不认证跨view端点。
+
+B原自然controller入口n1：父68636/子73558均真实provider/default skill，planner实际读当前实现和既存测试，精确test_value.ValueTest/test_increment→increment-result，无文件变更计划持久化后独立进程生产load/hydrate。新invocation native:11f56:18e466664c0eed20:1与旧/父均异，精确归属source plan-1793671040679668000-68636/commit a2260e5cf279b262cd7e6bcc4376db37a773d545。source/proof/run最终verified，中间unverified attempt仍保留，只以verified followup说明补齐，不倒改原失败。父子各7物理原件/3verify引用、final→版本report实际字段/SHA全匹配；1测试/1通过/2命令分列，HEAD/Git/文件只读、授权撤销，四上下文快照各6唯一逻辑ID且落盘幂等。有界人工PASS，不冒完整CLI/自然源码创作、负向缺来源、多来源/全部框架。
+
+原request/response A36/B9；精确唯一区间A14/B9，另2个A歧义组排除，无未解请求，最大可证重叠17.523秒；不是仅23请求或barrier推断。A一成文3条INIT，B子恢复仍同一case，无第三例追绿。6次A completion3失败/3受理保原，旧容器新反馈本轮未触发不补签；本次无其它二进制/负控/图分支验收。
+
+### 335.4 封存、后继ROI与不销账
+
+508件index SHA7d871d85ad3a3731fd11d08e48abeae3e39a10a9f237d6eceb707e3706df00e9；原A/B手审、公开RED、实际INIT/原发射/失败、独立原字段核对、root无新增闭项和全仓都保原。旧36代14781件各自ROOT不改，只物理重核最新334的553件及更早链头；37代按代累计15289件不是全局去重/全历史payload重hash。原A手审残留未用“43?”及“9次”精度在本批提交手审明确更正为57声明/23总查询/36模型请求、9资源规格/13实际尝试；原封存/FAIL不重写。大原件引用、providers不读/哈希/复制，不冒所有原件已上传。
+
+3组继续开放：任务view/选择与extra归属；状态/正文/表面覆盖；原生属性/单位/范围与调查及引用预算。旧IO硬件/集合、采样执行态/量尺、权限覆盖、图/patch、全局预算/h2/h3/lower-cost-full、更多格式平台继续在原ID，不因子片或B正向PASS销掉。51ID逐一ROI见[本批汇总](../../eval/parallel_selected_summary_hmc_representative_roster_registration_20261102.md)，[人工汇总](../../eval/parallel_selected_summary_hmc_representative_roster_registration_20261102_manual_audit.md)区分已转发/未投错误与终稿。下批完整轨轮换IO原合同或具备真实材料的二进制，代表本批不无限追题；共享轨优先已证事实交接，充分事实后的偶发误述留原不无限阻塞其它高ROI。相邻代码/五文档/main远端由[publication](../../eval/results/hmc_representative_roster_registration_20261102_v1/publication-v1.json)独立核，Trace投影/自动补齐/链上业务与原4候选/闭合睡眠不变，WAL零副作用前生产NO-GO。
