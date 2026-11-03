@@ -2,7 +2,41 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-02本地，§338，终态11-03 UTC）：79唯一＝28完整＋51开放，勾选不变；完整新增0、共享子能力1组。7类可见原生载体复用严格解析字段与整行预算，A自然命中资源可读预览；唯一全仓98包PASS。资源二进制A及完整235422121B抖音B原smoke均PASS、完整人工均FAIL，边界时间/业务窗与状态量尺仍留账。469件封存，旧失败/未触发不倒签；详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§338批汇总](../../eval/parallel_selected_summary_hmc_native_carrier_preview_douyin_20261102.md)及[人工审计](../../eval/parallel_selected_summary_hmc_native_carrier_preview_douyin_20261102_manual_audit.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-03，§339，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0、共享子能力交付2组、剩余验收欠项4组。精确同源自身账户Notes保原13行引用，可选展示所有权错误定点修补；唯一全仓98包PASS。原资源身份A/完整抖音B原smoke PASS、完整人工FAIL，原03.2有限也FAIL，不倒签或增退出门槛。624件封存，详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§339批汇总](../../eval/parallel_selected_summary_hmc_business_account_native_repair_20261103.md)与[人工审计](../../eval/parallel_selected_summary_hmc_business_account_native_repair_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 339. 同源自身账户原生复用与可选展示所有权定点反馈
+
+### 339.1 双轨、参考发现与实现边界
+
+稳定79唯一/28完整/51开放，18部分/29待实施/2待验收/1验收中/1持续；03.2按原地址/子类/计数/说明有限出口复验，不追加二进制、图、完整栈或泄漏门槛。源码949632a62f279deac998c8fa8ddf9003f83ce0e7，8Go/625增6删（4生产/4测试；旧338仅注释），两组共享能力不冒两个完整任务。原始失败与下游自然未覆盖均保留。
+
+参考span_analysis.query_spans/render_index_text、window_utils及llm_contract：源账户应自包含、字段由原producer负责、窗口需要真正求交。新发现是其SQL按相交筛选但聚合c.dur原值，不适合直接当本项目裁窗墙钟；不复制裸SUM、直子时长相减、名称前缀、容差/文本/fingerprint权限门。本项目保已有typed tree的完整子区间并集及逐账户状态，参考代码不授当前客户证据。
+
+第一组：当前records的tree账户一次索引，只在完整SourceRef、ObservationSpan、主体/对象和物理线程/完整起止/行号唯一一致时借用。负观测、未知窗、未闭合、损坏、重复、跨源/查询/窗/owner均不供自身值，不按0。完整traceBusinessTreeAccountText原样进原生表Notes，含self墙钟、独立状态、离散分段及省略/未知；原13行和ID/view/坐标完全不变，summary/table/无边事实图共用，不授新查询、采集完整性、因果或完成权限。
+
+第二组：原binder已拒且有可选requested_dimension_indices，只有去掉该字段的只读副本能正常绑定，才定位该字段并建议保当前selector/kind、合法选择与无关块。模型仍须完整发射/patch并过原门；不自动删字段/复制行/换ID或窗，真正坏selector与其它文本/因果错误不误标单字段。同步消除共享状态教学冲突：generic计时/计数不证执行态，显式native状态只说明自己的owner和区间，self墙钟不等于running、不证等待机制或根因。
+
+### 339.2 红稿、阶段职责、真实材料与冻结验证
+
+初始缺self/错诊断公开RED保留；加self行虽让新例过，却破原HMC303的13行坐标，故改为Notes、旧断言不动。新测试nil语义上下文panic、Extract错误要求每阶段全文、缺brace编译失败、过宽race及guard显式中断均保原，不把前提错误冒产品缺陷或中断冒PASS。最终相关7包356/1148，race×2三包26/64，原4候选/闭合睡眠等守护3包21/141 PASS。
+
+认真复用完整235422121B/1696481行用户抖音原件，SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef。冻前2真实nativequery/0外部模型，原完整/裁窗4账户对独立整数微秒oracle一致，实际Finalizer收到两份完整自身说明；Extractor按设计只交精确引用，不为测试复制整表。本代裁窗oracle从旧338独立全源LIFO结果做完整直子并集/整数求交，旧LIFO本代未重执行；原件前后hash不变，不注入模型。Go临时raw/payload已清理的4路径明确登记，保ToolResult/真实prompt而不冒对应临时字节也归档；自然CLI原件独立完整收集。
+
+CLI正常build/startup零模型零工具后冻结7598输入/426外部/17仓外快照，SHAf8b29f4f516bc688135f2cdfa660e02f4f82628de7165aabbb44466427173ccf，此后代码/测试/教学/helper/case/oracle停写。唯一full 08:19:57.228530Z→08:34:13.553845Z，OS0/源前后true：98包PASS/12无测试，28728顶层PASS/47SKIP、34356子PASS/14SKIP，267406纯GoJSON，无FAIL/重复/未终态；log SHA2cf54ecd931c3b318a269ea2053520939b22e028c8ae3fa7d205ec32706776f5。不是第二次全仓追绿。
+
+### 339.3 两原题、真实成文与四组仍开放欠项
+
+A原03.2自然题15steps/n1，4query/4JSON、5I/5C分开；整数/hex/子类/空值五行同源，Heap与Mmap序列及单位未知保真，smoke PASS。原有限/整答FAIL：known大整数被说占位，四已知子类被说两个，-4064表达式倒向，局部状态升CPU供给排除，局部名称缺测升整份字典缺失。一次成文3INIT86852/8800/131024B，2/4解释单元实际投递；坏unit1/3及aggregate哨兵note未传，不冒污染。手审初稿误认note已传已按actual INIT纠正，初稿/初始root保原，FAIL不变。HTML五表值保真、无图/patch；新所有权反馈未触发。
+
+B原完整抖音15steps/n1，8模型查询＋1确定性补齐、8唯一JSON；32主窗已发布节点wall按物理行/名对旧独立oracle全核，16手写主阶段的端点/inclusive/self正确。旧makeApplication裁窗错配本次未复现，完整153.066/.184269/Running145.017一致。但attach整段运行列填自身103.841（整段应143.636），S总体837/.204误套扣三段后的余集，956段累计8.714ms误当一次，另有CPU/IO排除及三业务总量概括错误，整答FAIL。2783时序行其它11格按既有显示精度逐源保真；HTML四表16格差别仅名称反引号，不是数值/渲染丢格。无图/patch。
+
+B实际INIT100509/13521/342984B，旧tree8完整账户明确同时给总/自身状态，不能将解释错说全由源缺失。completion没有native_fact_handoff，原reason整体未投，不能把未投坏“AppImage自身运行”等摘要当污染。新13行原生摘要未选择，其完整self Notes自然NOT_TRIGGERED，模型外PASS不代自然覆盖。两例实际精确请求A11/B15，歧义0、最大可证重叠24.934秒，不由barrier推定；各原smoke PASS不代人审。
+
+四组继续挂原ID：①A有限身份/计数/说明；②B主体、量尺和集合绑定；③原生自然选择/同源复用/整组及全请求预算；④新反馈/展示/图自然覆盖及轮换欠项。只读登记及其它二进制/IO/代表本批NOT_RUN，不复制旧负控或已完成18.3结论。14.1增量/累计/reset协议、旧采样/IO/权限/图等不代销。下一双轨优先可公开复现的自然账户选择/预算，原有限IO及只读负向轮换、有材料二进制按依赖推进；充分事实后的偶发误述保原，不无限同题追绿。
+
+### 339.4 封存与main发布
+
+624件index SHA28f94a97f194d640a966ada9a566d059da5cc1b2871c00cf1e7c4cce9e4ae961，root closure=none。旧40代16644保各ROOT，41代按代17268非全局去重；本批物理重核最新338的469件和更旧链头，不冒全历史payload重hash。336失败仍仅文档，不补成功publication。providers不读/哈希/复制，大原件仅外部完整引用，不进Git；本地忽略证据不冒已上传。相邻源码/五文档/clean main和远端身份由[publication](../../eval/results/hmc_business_account_native_repair_20261103_v1/publication-v1.json)另核，Trace因果投影/自动补齐、链上业务/原4候选/闭合睡眠、合法计算/重试不变，WAL生产NO-GO。
 
 ## 338. 可读原生载体共享交接与完整抖音实采自然验收
 
