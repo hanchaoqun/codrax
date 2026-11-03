@@ -2983,7 +2983,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// top-level selector the raw resolver reads; the only carve-out is a
 		// payload that is not a JSON object.
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
-		return failAnswerDocumentPatchStrictDecode(t.Name(), now, err, hints, params, dispatchSchema)
+		return failAnswerDocumentPatchStrictDecode(t.Name(), now, err, hints, params, dispatchSchema, &p)
 	}
 	// §40.44 G-emit-faces fold-in #1: resolve the optional selector
 	// immediately after the strict decode, BEFORE any staged reject or

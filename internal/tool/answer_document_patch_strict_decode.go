@@ -12,8 +12,8 @@ import (
 // failAnswerDocumentPatchStrictDecode keeps dispatch-specific repair metadata
 // inside one registered reject helper. The executor resolves the raw selector
 // before calling it, preserving the directly auditable reject-exit contract.
-func failAnswerDocumentPatchStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, schema json.RawMessage) (types.ToolResult, error) {
-	failed, decodeErr := failStrictDecode(name, now, err, hints, raw)
+func failAnswerDocumentPatchStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, schema json.RawMessage, target ...any) (types.ToolResult, error) {
+	failed, decodeErr := failStrictDecode(name, now, err, hints, raw, target...)
 	if field := extractUnknownFieldName(err); field != "" && len(hints) == 0 && failed.Repair != nil {
 		// A bare field name can also occur in unrelated patch operations.
 		// Keep the rejected JSON coordinates, never resolve it to an

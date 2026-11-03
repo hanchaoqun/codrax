@@ -9,8 +9,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte) (types.ToolResult, error) {
+func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, target ...any) (types.ToolResult, error) {
 	failed, decodeErr := strictDecodeFailure(name, now, err, hints, raw, nil, "", "", false)
+	if len(target) == 1 {
+		appendStrictDecodeContainerShapes(&failed, &decodeErr, err, raw, target[0])
+		failed.Repair = attachToolJSONSurfaceMetadata(name, failed.Repair)
+	}
 	switch name {
 	case "emit_answer_document":
 		failed = withRuntimeEventSelectionDecodeRepair(failed, err, raw, "blocks")

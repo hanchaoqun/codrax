@@ -295,7 +295,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		// a JSON object is). A valid selector riding it is staged, an invalid
 		// one disclosed + marked, through the deferred commit tail.
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
-		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints, raw)
+		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints, raw, &p)
 	}
 	// §40.44 G-emit-faces fold-in #1: resolve the optional selector
 	// immediately after the strict decode, BEFORE any reject or pre-emit

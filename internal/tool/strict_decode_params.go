@@ -25,6 +25,7 @@ func decodeStrictToolParams(name string, raw json.RawMessage, schema json.RawMes
 		// top-level parameter list (reflected, never hand-copied).
 		res, retErr := failStrictDecodeWithErrorSchema(name, time.Now(), err, hints, normalized, schema)
 		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst, hints)
+		appendStrictDecodeContainerShapes(&res, &retErr, err, normalized, dst)
 		return normalized, &res, retErr
 	}
 	return normalized, nil, nil
@@ -36,6 +37,7 @@ func decodeStrictNormalizedToolParams(name string, normalized json.RawMessage, d
 	if err := dec.Decode(dst); err != nil {
 		res, retErr := failStrictDecodeWithError(name, time.Now(), err, hints, normalized)
 		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst, hints)
+		appendStrictDecodeContainerShapes(&res, &retErr, err, normalized, dst)
 		return normalized, &res, retErr
 	}
 	return normalized, nil, nil
