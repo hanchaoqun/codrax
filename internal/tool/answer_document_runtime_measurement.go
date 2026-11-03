@@ -198,6 +198,21 @@ func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types
 		if runtimeMeasurementBindingValid(block, view) {
 			continue
 		}
+		if len(block.RequestedDimensionIndices) > 0 {
+			withoutOwnership := block
+			withoutOwnership.RequestedDimensionIndices = nil
+			if runtimeMeasurementBindingValid(withoutOwnership, view) {
+				// Diagnose the separately rejected optional claim, not the
+				// already valid native selector/kind. Nothing is auto-repaired.
+				hints = append(hints, emitFixHint{
+					Field:         fmt.Sprintf("blocks[%d].requested_dimension_indices", i),
+					ExpectedShape: "Keep the current observation_id/view and block kind. These optional indices require a complete native display population owning the current published member-set dimensions. Omit only the unsupported requested_dimension_indices, or explicitly select a current complete table that owns them. Preserve the intended event_selection and unrelated blocks; do not copy rows or change source/window to repair ownership. For a patch, replace this complete block.",
+					Reason:        "The native selector binds successfully without this optional display-ownership claim; changing its kind or observation ID does not repair this field. No prose or causal conclusion is checked.",
+					ForceHard:     true, HardSignal: preEmitHardSignalExactReceiptBinding,
+				})
+				continue
+			}
+		}
 		hint := emitFixHint{
 			Field:         fmt.Sprintf("blocks[%d].runtime_measurement", i),
 			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table; published native fixed facts and event_selection also support available summary/diagram kinds. Fixed facts require no event_selection. Omit competing text/items/columns/diagram/runtime_work_relation. Optional requested_dimension_indices must select current published member-set indices on a complete native display table. Do not copy rows to repair display ownership. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",

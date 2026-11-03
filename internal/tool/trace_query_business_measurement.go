@@ -16,6 +16,7 @@ func traceQueryBusinessMeasurementPublications(result tracequery.Result, records
 	if result.WindowStats == nil {
 		return records
 	}
+	selfAccounts := traceQueryBusinessSelfMeasurementIndex(records)
 	for i := range records {
 		r := &records[i]
 		if r.Predicate != types.TraceBusinessSpanPredicate {
@@ -26,7 +27,7 @@ func traceQueryBusinessMeasurementPublications(result tracequery.Result, records
 				span.StartTs != r.Span.StartTs || span.EndTs != r.Span.EndTs || span.StartLine != r.Span.LineStart || span.EndLine != r.Span.LineEnd {
 				continue
 			}
-			if note := traceQueryBusinessMeasurementReceipt(*r, span); note != "" {
+			if note := traceQueryBusinessMeasurementReceipt(*r, span, selfAccounts.match(*r, span)); note != "" {
 				r.RichNotes = append(r.RichNotes, note)
 				if annotation := traceQueryBusinessDiagramAnnotationNote(*r, span); annotation != "" {
 					r.RichNotes = append(r.RichNotes, annotation)
@@ -39,7 +40,7 @@ func traceQueryBusinessMeasurementPublications(result tracequery.Result, records
 	return records
 }
 
-func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span tracequery.TraceSpanSummary) string {
+func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span tracequery.TraceSpanSummary, self *tracequery.TraceMarkerTreeNode) string {
 	start, end, known := types.TraceObservationContinuousQueryWindow(r.SourceRef)
 	states := span.SchedulerStates
 	if !known || span.Kind != "sync" || span.StartTs < start || span.EndTs > end ||
@@ -71,6 +72,7 @@ func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span traceq
 	if span.ActualEndTs > span.ActualStartTs {
 		table.Notes = append(table.Notes, fmt.Sprintf("原始配对业务区间 [%s, %s) 秒，完整耗时 %s ms；裁切时不把完整耗时计入当前业务区间。", traceQueryDisplaySeconds(span.ActualStartTs), traceQueryDisplaySeconds(span.ActualEndTs), strconv.FormatFloat(span.ActualDurationMs, 'g', 9, 64)))
 	}
+	appendTraceBusinessSelfMeasurement(&table, self)
 	table.Notes = append(table.Notes, states.Caveats...)
 	p := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef, Tables: []types.RuntimeMeasurementTable{table}}
 	raw, err := json.Marshal(p)

@@ -46,9 +46,9 @@ func TestHMC338ReferenceContextFullDouyinTrace(t *testing.T) {
 	}
 	ctx.Mutable.AppendDispatchToolResult(result)
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
-	// A business-span state table is inclusive-only. The independent self
-	// ruler belongs to the complete instance's original BusinessTree account,
-	// not an invented extra row of that state table.
+	// The original inclusive ruler and independent self ruler still belong to
+	// the producer's BusinessTree account. HMC339 can join that exact account
+	// into native display; the original independent assertions stay unchanged.
 	var payloadRef string
 	for _, observation := range result.Observations {
 		if observation.SourceRef.PayloadRef != "" {
