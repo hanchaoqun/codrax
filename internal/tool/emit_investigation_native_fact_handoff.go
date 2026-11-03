@@ -25,7 +25,8 @@ func completionNativeFactHandoffSelection(ctx *types.BusContext, p *completionNa
 		return nil, nil
 	}
 	fail := func(issues ...nativeFactHandoffViolation) (*types.InvestigationNativeFactHandoff, error) {
-		return nil, managedDeliveryNativeHandoffError{required: required, violations: issues, choices: NativeFactHandoffChoices(ctx), displayChoices: NativeFactAnswerDisplayChoices(ctx)}
+		choices := NativeFactHandoffChoices(ctx)
+		return nil, managedDeliveryNativeHandoffError{required: required, violations: issues, choices: choices, displayChoices: NativeFactAnswerDisplayChoices(ctx), coordinates: nativeFactHandoffCoordinateRepairs(p.RuntimeMeasurements, issues, choices)}
 	}
 	// Presence is not content: omitted legacy text is valid when units carry
 	// the interpretation, but an explicitly wrong scalar must not disappear

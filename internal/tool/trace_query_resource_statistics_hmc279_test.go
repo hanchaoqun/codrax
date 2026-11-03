@@ -420,6 +420,23 @@ func TestHMC279ResourceStatisticsPublicSurfaces(t *testing.T) {
 				t.Fatal(out.Summary)
 			}
 			doc := bus.Mutable.AnswerDocumentV2()
+			var modelBlocks []types.AnswerBlock
+			for _, b := range doc.Blocks {
+				if b.SystemGeneratedKind == "" {
+					modelBlocks = append(modelBlocks, b)
+				} else if b.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts || b.RuntimeMeasurement == nil {
+					t.Fatal("unexpected host supplement ownership", b.ID, b.SystemGeneratedKind)
+				}
+			}
+			if len(modelBlocks) != len(blocks) {
+				t.Fatal("serialization changed the model-owned block population")
+			}
+			if kind != "summary" {
+				lead := modelBlocks[0]
+				if lead.ID != "lead" || lead.Kind != types.BlockSummary || lead.Text != "以下为资源事件统计。" || lead.Title != "" || len(lead.Items) != 0 || len(lead.Columns) != 0 || lead.Diagram != nil || lead.RuntimeMeasurement != nil {
+					t.Fatal("native presentation changed the separate model-authored lead")
+				}
+			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "zh"))
 			for _, want := range []string{"AllocEvent", "FreeEvent", "768", "512", "bytes", "事件流量", "不是净存量", "线程ID=101", "gallery-main"} {
 				if !strings.Contains(visible, want) {
@@ -430,8 +447,15 @@ func TestHMC279ResourceStatisticsPublicSurfaces(t *testing.T) {
 				t.Fatal("event groups gained an ordered/causal edge")
 			}
 			wire, _ := json.Marshal(doc)
-			if strings.Contains(string(wire), "768") {
-				t.Fatal("native cells copied into model document")
+			if err := nativeSelectorSerializationHMC337(wire, "statistics", types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}); err != nil {
+				t.Fatal(err)
+			}
+			for _, b := range doc.Blocks {
+				if b.RuntimeMeasurement != nil {
+					if err := nativeSelectorSerializationHMC337(wire, b.ID, *b.RuntimeMeasurement); err != nil {
+						t.Fatal("native or automatic fact block serialized copied payload", err)
+					}
+				}
 			}
 			var restored types.AnswerDocumentV2
 			if json.Unmarshal(wire, &restored) != nil || !types.RebindRuntimeAnswerReceipts(&restored, view) {

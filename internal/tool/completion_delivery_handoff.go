@@ -75,6 +75,7 @@ type managedDeliveryNativeHandoffError struct {
 	violations     []nativeFactHandoffViolation
 	choices        []types.AnswerRuntimeMeasurementReceipt
 	displayChoices []types.AnswerRuntimeMeasurementReceipt
+	coordinates    nativeFactCoordinateRepairs
 }
 
 func (e managedDeliveryNativeHandoffError) hint() string {
@@ -87,11 +88,17 @@ func (e managedDeliveryNativeHandoffError) hint() string {
 	} else {
 		b.WriteString(optionalNativeFactHandoffTeaching)
 	}
-	if len(e.choices) > 0 {
+	if len(e.coordinates.Entries) > 0 || e.coordinates.Omitted > 0 {
+		coordinates, _ := json.Marshal(e.coordinates)
+		b.WriteString(" Field-local current coordinates (advice only; not aliases or an automatic replacement): ")
+		b.Write(coordinates)
+		b.WriteString(" Select only task-applicable whole current objects after checking their source and view; ambiguous or absent matches do not prove identity. Retry is validated by the unchanged current source contract.")
+	}
+	if len(e.choices) > 0 && !e.coordinates.focused() {
 		choices, _ := json.Marshal(e.choices)
 		b.WriteString(" Copy selected whole objects from these current pairs; do not reconstruct IDs, mix views, or copy every pair unless relevant (select 1–16 unique pairs): ")
 		b.Write(choices)
-	} else {
+	} else if len(e.choices) == 0 {
 		b.WriteString(" No eligible native measurement pairs are currently available; do not invent a replacement. Retain independent analysis through the legacy reason path when the handoff is optional.")
 	}
 	for _, issue := range e.violations {
@@ -120,12 +127,17 @@ func managedDeliveryNativeHandoffRepair(err error) *types.ToolRepair {
 	}
 	choices, _ := json.Marshal(e.choices)
 	violations, _ := json.Marshal(e.violations)
+	metadata := map[string]string{"current_runtime_measurements": string(choices), "native_fact_handoff_violations": string(violations)}
+	if len(e.coordinates.Entries) > 0 || e.coordinates.Omitted > 0 {
+		coordinates, _ := json.Marshal(e.coordinates)
+		metadata["native_fact_coordinate_repairs"] = string(coordinates)
+	}
 	fields := make([]string, 0, len(e.violations))
 	for _, issue := range e.violations {
 		fields = append(fields, issue.Field)
 	}
 	return attachToolJSONSurfaceMetadata("emit_investigation_complete", &types.ToolRepair{
 		Code: code, Hint: e.hint(), Fields: fields,
-		Metadata: map[string]string{"current_runtime_measurements": string(choices), "native_fact_handoff_violations": string(violations)},
+		Metadata: metadata,
 	})
 }
