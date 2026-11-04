@@ -2,7 +2,33 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§343，main；执行UTC已至11-04）：79唯一＝28完整＋51开放，勾选不变；完整新增0、交付2子能力/1共享组，剩余验收欠项3组、未触发单列。源码9758d3628b7aa27b0687c4bb912985949d2cb4b4补全线程/目标/展示库存的同源交接，唯一full98包PASS、零FAIL；完整抖音自然收到新事实而整答仍人工FAIL，只读缺来源终态负控限定PASS、不冒自然CLI。624件保原，旧失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§343汇总](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-03，§344失败代，main；执行UTC11-04）：79唯一＝28完整＋51开放、勾选不变；完整新增0、交付子能力0、共享候选2子能力/1组。运行时搜索来源及源码消费者隔离公开RED→GREEN、相关/race与完整235MB用户材料模型外交接通过；两例在模型前被工装路径别名检查挡住，真实请求/工具/查询0，不算真实验收。唯一full正式98包、28745顶层/34422子PASS、零FAIL；554件保原封存，不生成成功publication。旧失败/未触发不销，详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§344汇总](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103_manual_audit.md)。WAL生产NO-GO。
+
+## 344. 运行时搜索来源候选、源码消费者隔离与模型前工装失败
+
+基线f1a0cf5508f9798eff3024111f628ad09462fdb8，main。79唯一/28完整/51开放及原状态/勾选不变；完整新增0、正式交付子能力0，候选2子能力/1共享组，不提前提交源码。
+
+### 344.1 已证系统反例与候选边界
+
+真实query发布JSON/TXT后经各grep后端/文件列表/零命中，旧PathDiscovery默认source导致ledger与Known Facts标current_source、零命中repo_negative_search。新InputOrigin在实际成功的显式单文件搜索后复用read_file输入角色分类；不由匹配内容、问题/答案关键词或导航文字判断。runtime搜索仅display_only，不伪造read_file连续行范围/全采集/零样本/原生量测。普通源码/目录/旧缺字段保持原合同，不猜异构目录统一来源。
+
+第二个公共反例证明仅改ledger不足：真实runtime零命中仍被附到另一已验证代码未命中行的源码范围说明。候选加单一RepositoryInput分类供预读关闭、源码发现、完成诊断与源码负范围消费者，并让retry接已有typed runtime信号。SourceRef/模式/计数/零命中和原件保留，不删除业务事实、提高来源/完成/因果权。输入角色不是读取/枚举/缺失权限。参考context_index的原件/导航分离、llm_contract成员字段适用域，不照搬step/type覆值、缺值补0、数值容差/文本/fingerprint门。
+
+### 344.2 冻前与完整用户材料
+
+最终相关8包295顶层/526子、race×2四包156/248、原4根因/闭合睡眠守护四包21/141及正常build/startup零模型零工具PASS。整件235422121B/1696481行抖音，SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef，1nativequery/2grep/0模型走主/子ParseOutput与actual Finalizer，保25139/2611/32及原完整账户，raw/payload/实际消息留存。政策仍soft的中间失败、中文词不在JSON的测试前提失败各自保原，不称它们为客户事故或降断言。
+
+冻结7613输入/459外部/25快照，SHA2cf5234464028765eeb95bd6f304d8687f2656bcd54460c224deb4c75d9906e1后停写源码/测试/教学/helper/case/oracle。唯一full UTC11-04 02:31:00.048325→02:45:40.641876，正式OS0/源前后true：98包PASS/12无测试，28745顶层PASS/50SKIP、34422子PASS/14SKIP，267778纯JSON，零FAIL/非JSON/重复/未终态；log SHA f03f063cc45b6e2cfb4bc94768682fa513053553dd24e6f8ec33e6d288d042c7。554件封存index SHA6a86e4bd182a6664b2e0f3f5513028b90a18b408118eedea268f34cb02940c70，root closure=none；失败不冒成功publication。
+
+### 344.3 两次尝试不等于真实模型评测
+
+原A named ZIP题与15步未变，独立参考parser实际重跑12000/1393/164/259及两CPU各82记录/权重85、174；3,146,632B运输ZIP包完整30,062,585B真实PERFILE2成员，不是新设备ZIP。冻结helper只File.realpath实际参数，却拿未canonical的/var/folders预期路径比较；/private/var/folders是同一inode/字节，却抛attachment changed。A未写ready/exec、产品CLI未启动，外层OS0仅说明runner输出了原smoke FAIL，不是产品成功。B只有ready、未exec即被父SIGTERM取消，原登记目录不存在，NOT_RUN。
+
+实际请求A0/B0、无重叠、无工具/查询/INIT/正文/图，旧§343负控或§262正向PASS不代签。失败输出/栈/原verdict及空日志原字节保留，不创建伪造B原生工件。此代不能称两例真实验收完成，源码不交付、不回签任何旧解释FAIL。保持冻结，在新代对原件/实参对称canonical、保原参数及精确文件/字节约束，加入实际参数形状的零模型预读后重启原两例，不修改case或放宽来源门。
+
+### 344.4 留账与下一双轨
+
+剩余4组挂原51ID：本代工装准入；整答解释（含旧采样/IO/资源）；同源完整内容体与独立查询凭证/整组预算；代表/权限/图/格式平台及自然只读终态未触发。完整ROI及原件见[汇总](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103.md)/[手审](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103_manual_audit.md)。生产候选保持在main未提交，新代先闭工装，不重复计子能力或完整能力。Trace投影/原4根因/闭合睡眠/链上业务/自动补齐、合法重试计算保原；WAL零副作用前生产NO-GO。
 
 ## 343. 库存主体与展示范围分离、同源成文交接及只读负向终态
 
