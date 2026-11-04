@@ -26,48 +26,11 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	if predicate == TraceEventSearchInventoryPredicate || predicate == RuntimeSamplingMeasurementPredicate || predicate == RuntimeResourceMeasurementPredicate || predicate == "packet_inventory_observation" || predicate == "packet_flows_observation" {
-		return true
-	}
-	return predicate == TraceBusinessSpanPredicate || predicate == "trace_span_members_observation" || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
+	return runtimeMeasurementProducerContractFor(predicate).kind != runtimeMeasurementProducerUnknown
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
-	if predicate == "packet_inventory_observation" || predicate == "packet_flows_observation" {
-		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
-	}
-	if predicate == RuntimeResourceMeasurementPredicate {
-		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
-	}
-	if predicate == RuntimeSamplingMeasurementPredicate {
-		return view == RuntimeMeasurementSummary || view == RuntimeMeasurementDistribution
-	}
-	if predicate == TraceEventSearchInventoryPredicate {
-		return view == RuntimeMeasurementMembers
-	}
-	if !RuntimeMeasurementPredicateIsRegistered(predicate) {
-		return false
-	}
-	if predicate == TraceBusinessSpanPredicate {
-		return view == RuntimeMeasurementSummary
-	}
-	if predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" {
-		return view == RuntimeMeasurementTimeline
-	}
-	if predicate == "unpositioned_measurements_observation" || predicate == "trace_span_members_observation" {
-		return view == RuntimeMeasurementMembers
-	}
-	if view == RuntimeMeasurementSummary || view == RuntimeMeasurementTimeline {
-		return true
-	}
-	if predicate == "scheduler_concurrency" {
-		return view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
-	}
-	if predicate == "process_measurements_observation" || predicate == "measurements_observation" {
-		return view == RuntimeMeasurementMembers
-	}
-	return predicate == "io_inflight" && view == RuntimeMeasurementMembers ||
-		(predicate == "io_activity" || predicate == "cpu_state_frequency_observation" || predicate == "preferred_frame_rate_observation") && view == RuntimeMeasurementDistribution
+	return runtimeMeasurementProducerContractFor(predicate).allows(view)
 }
 
 // DecodeRuntimeMeasurementPublication validates a complete, uniquely published

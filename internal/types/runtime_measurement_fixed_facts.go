@@ -24,9 +24,8 @@ func qualifyCurrentNativeMeasurementDisplay(p *RuntimeMeasurementPublication, pr
 }
 
 func nativeMeasurementGenericDisplayPredicate(predicate string) bool {
-	return RuntimeMeasurementPredicateIsRegistered(predicate) && !rawMeasurementPredicate(predicate) &&
-		predicate != RuntimeSamplingMeasurementPredicate && predicate != RuntimeResourceMeasurementPredicate &&
-		predicate != TraceEventSearchInventoryPredicate
+	kind := runtimeMeasurementProducerContractFor(predicate).kind
+	return kind == runtimeMeasurementProducerInterval || kind == runtimeMeasurementProducerAggregate
 }
 
 func qualifyNativeMeasurementFacts(c *RuntimeMeasurementContract, publications []RuntimeMeasurementPublication) {

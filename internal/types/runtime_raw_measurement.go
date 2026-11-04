@@ -32,7 +32,7 @@ type runtimeMeasurementQueryWindowProof struct {
 }
 
 func rawMeasurementPredicate(predicate string) bool {
-	return predicate == "measurements_observation" || predicate == "process_measurements_observation" || predicate == "unpositioned_measurements_observation" || predicate == "packet_inventory_observation" || predicate == "packet_flows_observation"
+	return runtimeMeasurementProducerContractFor(predicate).kind == runtimeMeasurementProducerRaw
 }
 
 // PublishRuntimeRawMeasurement is called by the native raw-record producers
@@ -64,9 +64,7 @@ func PublishRuntimeMeasurementQueryWindow(r ObservationRecord, start, end float6
 	if r.runtimeRawMeasurementPublication != nil || r.Role != AnswerAggregateRoleSupportingCoverage {
 		return r
 	}
-	switch r.Predicate {
-	case TraceBusinessSpanPredicate, "io_inflight", "io_activity", "thread_timeline_observation", "cpu_frequency_timeline_observation":
-	default:
+	if runtimeMeasurementProducerContractFor(r.Predicate).kind != runtimeMeasurementProducerInterval {
 		return r
 	}
 	a, b, known := TraceObservationContinuousQueryWindow(r.SourceRef)
