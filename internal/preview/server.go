@@ -773,6 +773,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
   .trace-audit-overflow { display: revert !important; }
   .trace-audit-toggle { display: none !important; }
 }
+` + reportTOCCSS + `
 </style>
 </head>
 <body>
@@ -865,6 +866,7 @@ function escapeHTML(value) {
     attachToggle(section, hidden, groups.length);
   });
 })();
+` + reportTOCScript + `
 if (window.mermaid) {
   window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
   document.querySelectorAll(".mermaid").forEach(function (node, index) {
