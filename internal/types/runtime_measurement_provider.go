@@ -29,7 +29,7 @@ func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
 	if predicate == TraceEventSearchInventoryPredicate || predicate == RuntimeSamplingMeasurementPredicate || predicate == RuntimeResourceMeasurementPredicate || predicate == "packet_inventory_observation" || predicate == "packet_flows_observation" {
 		return true
 	}
-	return predicate == TraceBusinessSpanPredicate || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
+	return predicate == TraceBusinessSpanPredicate || predicate == "trace_span_members_observation" || predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" || predicate == "unpositioned_measurements_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
@@ -54,7 +54,7 @@ func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasure
 	if predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" {
 		return view == RuntimeMeasurementTimeline
 	}
-	if predicate == "unpositioned_measurements_observation" {
+	if predicate == "unpositioned_measurements_observation" || predicate == "trace_span_members_observation" {
 		return view == RuntimeMeasurementMembers
 	}
 	if view == RuntimeMeasurementSummary || view == RuntimeMeasurementTimeline {

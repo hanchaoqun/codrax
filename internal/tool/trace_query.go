@@ -10602,6 +10602,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		out = append(out, traceQueryTypedIOActivityObservations(result.WindowStats.IOActivity, ref, scope, at)...)
 		out = append(out, traceQueryTypedSchedulerConcurrencyObservations(result.WindowStats.SchedulerConcurrency, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
+		out = append(out, traceQuerySpanMemberMeasurementObservations(result, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessTreeObservations(result.WindowStats.BusinessTree, ref, scope, at)...)
 	}
