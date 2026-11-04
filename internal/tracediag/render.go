@@ -851,6 +851,7 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 		return
 	case reflect.TypeOf(tracequery.SchedulerConcurrencyMember{}), reflect.TypeOf(tracequery.SchedulerConcurrencyDistribution{}),
 		reflect.TypeOf(tracequery.SchedulerConcurrencyDepthDuration{}), reflect.TypeOf(tracequery.SchedulerConcurrencyBucket{}),
+		reflect.TypeOf(tracequery.TraceMarkerTreePopulation{}), reflect.TypeOf(tracequery.TraceMarkerTreeTargetPopulation{}),
 		reflect.TypeOf(types.TraceSchedulerStateAccounting{}):
 		// This closed family shares the exact required-zero/optional-nil DTO
 		// projection; no rounded timestamp or fabricated unavailable value.

@@ -53,7 +53,9 @@ func TestBusinessTreeNestedFieldDisposition(t *testing.T) {
 		typ  reflect.Type
 		want string
 	}{
-		{reflect.TypeOf(tracequery.TraceMarkerTreeStats{}), "Window|tracequery.TraceMarkerTreeWindow|window;WindowUnavailableReason|string|window_unavailable_reason,omitempty;NodeCount|int|node_count;Nodes|[]tracequery.TraceMarkerTreeNode|nodes,omitempty;OmittedNodes|int|omitted_nodes;Coverage|string|coverage;Caveats|[]string|caveats,omitempty"},
+		{reflect.TypeOf(tracequery.TraceMarkerTreeStats{}), "Window|tracequery.TraceMarkerTreeWindow|window;WindowUnavailableReason|string|window_unavailable_reason,omitempty;NodeCount|int|node_count;Nodes|[]tracequery.TraceMarkerTreeNode|nodes,omitempty;OmittedNodes|int|omitted_nodes;Coverage|string|coverage;Caveats|[]string|caveats,omitempty;Population|*tracequery.TraceMarkerTreePopulation|population,omitempty"},
+		{reflect.TypeOf(tracequery.TraceMarkerTreePopulation{}), "Scope|string|scope;DisplayedNodes|int|displayed_nodes;Target|*tracequery.TraceMarkerTreeTargetPopulation|target,omitempty"},
+		{reflect.TypeOf(tracequery.TraceMarkerTreeTargetPopulation{}), "TID|int|tid;NodeCount|int|node_count;DisplayedNodes|int|displayed_nodes;OmittedNodes|int|omitted_nodes"},
 		{reflect.TypeOf(tracequery.TraceMarkerTreeWindow{}), "StartTs|float64|start_ts;EndTs|float64|end_ts"},
 		{reflect.TypeOf(tracequery.TraceMarkerTreeNode{}), "ID|string|id;ParentID|string|parent_id,omitempty;ParentStatus|string|parent_status;SourcePath|string|source_path;Thread|tracequery.ThreadRef|thread;Name|string|name;StartLine|int|start_line;EndLine|int|end_line,omitempty;ActualStartTs|float64|actual_start_ts;ActualEndTs|*float64|actual_end_ts,omitempty;Closure|string|closure;DirectChildCount|int|direct_child_count;Inclusive|*tracequery.TraceMarkerTreeAccount|inclusive,omitempty;Self|*tracequery.TraceMarkerTreeAccount|self,omitempty"},
 		{reflect.TypeOf(tracequery.TraceMarkerTreeAccount{}), "DurationMs|float64|duration_ms;Segments|[]tracequery.TraceMarkerTreeWindow|segments,omitempty;OmittedSegments|int|omitted_segments;States|*tracequery.TraceMarkerTreeStates|states,omitempty"},
@@ -69,6 +71,30 @@ func TestBusinessTreeNestedFieldDisposition(t *testing.T) {
 			if policySkipsDetailField(&nonEventDetailPolicy, tc.typ, tc.typ.Field(i).Name) {
 				t.Errorf("tree field must retain its detail owner: %s.%s", tc.typ, tc.typ.Field(i).Name)
 			}
+		}
+	}
+}
+
+func TestHMC343BusinessPopulationDetailPreservesKnownZeroAndUnknown(t *testing.T) {
+	for _, target := range []*tracequery.TraceMarkerTreeTargetPopulation{nil, {TID: 99}} {
+		p := tracequery.TraceMarkerTreePopulation{Scope: tracequery.TraceMarkerTreePopulationAllEmitters, DisplayedNodes: 32, Target: target}
+		before, _ := json.Marshal(p)
+		var lines []string
+		walkDetailWithPolicy(reflect.ValueOf(p), "business_tree.population", func(line string) { lines = append(lines, line) }, 0, &nonEventDetailPolicy)
+		report := strings.Join(lines, "\n")
+		if !strings.Contains(report, "scope=all_observed_emitters displayed_nodes=32") {
+			t.Fatal(report)
+		}
+		if target == nil {
+			if strings.Contains(report, ".target:") {
+				t.Fatal("unknown target became measured zero")
+			}
+		} else if !strings.Contains(report, "business_tree.population.target: tid=99 node_count=0 displayed_nodes=0 omitted_nodes=0") {
+			t.Fatal("required zero census fields disappeared: " + report)
+		}
+		after, _ := json.Marshal(p)
+		if !bytes.Equal(before, after) {
+			t.Fatal("renderer changed census")
 		}
 	}
 }
@@ -94,7 +120,7 @@ func TestBusinessTreeDetailPreservesNativePrecisionAndMeasurements(t *testing.T)
 	}
 	before, _ := json.Marshal(res)
 	report := strings.Join(renderStepBody(&Step{View: "window_stats", effMaxLines: 1000}, stepOutcome{result: &res}).lines, "\n")
-	for _, want := range []string{"business_tree: 业务层级 node_count=2 omitted_nodes=0", "business_tree.window: start_ts=0 end_ts=0.00000001", "actual_start_ts=0.000000001 actual_end_ts=0.000000004", "duration_ms=0.000003", "duration_ms=0.000002", "start_ts=0.000000003 end_ts=0.000000004", "runnable_ms=0", "sleep_io_wait_ms=0", "parent_id="} {
+	for _, want := range []string{"business_tree: 业务层级 node_count=2 omitted_nodes=0", "business_tree.window: start_ts=0 end_ts=0.00000001", "business_tree.population: scope=all_observed_emitters displayed_nodes=2", "actual_start_ts=0.000000001 actual_end_ts=0.000000004", "duration_ms=0.000003", "duration_ms=0.000002", "start_ts=0.000000003 end_ts=0.000000004", "runnable_ms=0", "sleep_io_wait_ms=0", "parent_id="} {
 		if !strings.Contains(report, want) {
 			t.Errorf("lost native measurement/identity %q:\n%s", want, report)
 		}

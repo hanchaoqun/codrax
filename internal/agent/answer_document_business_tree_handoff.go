@@ -153,17 +153,25 @@ func answerDocBusinessQueryInstanceKey(rows []answerDocBusinessAccount) string {
 
 func renderAnswerDocBusinessAccountPlan(plan answerDocBusinessAccountPlan) string {
 	var b strings.Builder
+	populations := map[string]string{}
 	for i, a := range plan.accounts {
 		r, fact := a.record, a.fact
 		if i == 0 {
 			b.WriteString("### 已观测同步业务层级 / Observed synchronous work nesting\n\n")
-			b.WriteString("- 以下为真实同源同线程同步打点的父子关系，不是唤醒因果链。原生为全线程观察库存，不是目标过滤结果；下列按各来源与查询公平分配完整账户，组内优先保留与查询线程及完整起止时刻精确对应的唯一实例，再优先展示该线程已测总区间较大的账户；没有唯一实例时保留已证最外层、原始起始行顺序。排序仅分配展示预算，不改变用户所问主体或因果身份。按用户所问线程解释，其它线程只作背景。总耗时包含子层，自身耗时扣除完整直接子区间并集，按各条记录的查询范围与已配对区间计量；不要把父子总耗时相加，也不要从展示省略后的子项重算自身。实例身份不能用名称替代；跨线程或邻近业务不能猜父子。\n")
+			b.WriteString("- 以下为真实同源同线程同步打点的父子关系，不是唤醒因果链。库存口径见每组 business_population，目标展示优先级不等于目标过滤；下列按各来源与查询公平分配完整账户，组内优先保留与查询线程及完整起止时刻精确对应的唯一实例，再优先展示该线程已测总区间较大的账户；没有唯一实例时保留已证最外层、原始起始行顺序。排序仅分配展示预算，不改变用户所问主体或因果身份。按用户所问线程解释，其它线程只作背景。总耗时包含子层，自身耗时扣除完整直接子区间并集，按各条记录的查询范围与已配对区间计量；不要把父子总耗时相加，也不要从展示省略后的子项重算自身。实例身份不能用名称替代；跨线程或邻近业务不能猜父子。\n")
 			b.WriteString("- 状态按每个业务总区间/自身离散区间分别求交；未知不是零，睡眠中IO等待为睡眠包含项。业务耗时不是CPU执行时间、可消除量或根因贡献。父子图须区分缺失父/未闭合/展示省略，链上根因仍需独立唤醒与等待证据。Use the requested answer language and reader-facing business labels, not internal IDs/status codes; retain IDs only for unambiguous evidence references.\n")
 			b.WriteString("- 同源、同线程、同一查询范围及单位下，已证互斥自身分段及其同状态交集可合计；小计只覆盖实际参与的分段，省略或未知不能补零或外推全集。此规则针对业务时间，不把采样权重换成毫秒，也不增加因果权限。\n")
 			b.WriteString("- 每条总量、自身量、状态与窗口共同引用同一账户，不把另一窗口的自身量接到本条总量上。账户展示独立于测量表预览，不使被省略的表行或父子成员变为完整。\n")
 		}
-		fmt.Fprintf(&b, "- %s；%s；该查询观察实例=%d、原生未展示=%d；observation_id=%q；physical_source=%q；query_index=%q；query_scope=%q；payload=%q；support=%q\n",
-			tool.TraceBusinessTreeNodeText(fact.Node), tool.TraceBusinessTreeWindowText(fact), fact.NodeCount, fact.OmittedNodes,
+		populationKey, _ := json.Marshal([]any{a.group, fact.NodeCount, fact.OmittedNodes, fact.Population})
+		populationRef := populations[string(populationKey)]
+		if populationRef == "" {
+			populationRef = fmt.Sprintf("business-population-%d", len(populations)+1)
+			populations[string(populationKey)] = populationRef
+			fmt.Fprintf(&b, "- business_population %s: %s\n", populationRef, tool.TraceBusinessTreePopulationText(fact))
+		}
+		fmt.Fprintf(&b, "- %s；%s；population_ref=%s；observation_id=%q；physical_source=%q；query_index=%q；query_scope=%q；payload=%q；support=%q\n",
+			tool.TraceBusinessTreeNodeText(fact.Node), tool.TraceBusinessTreeWindowText(fact), populationRef,
 			r.ID, fact.Node.SourcePath, r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef, strings.Join(r.SupportRefs, "; "))
 	}
 	if shown := len(plan.accounts); shown > 0 {

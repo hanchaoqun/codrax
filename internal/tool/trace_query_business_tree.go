@@ -13,14 +13,15 @@ import (
 // independent omission layers. Line coordinates use the query index space;
 // physical source-local citations come from the common SupportRefs mapper.
 type TraceBusinessTreeFact struct {
-	IndexPath               string                           `json:"index_path"`
-	WindowUnavailableReason string                           `json:"window_unavailable_reason,omitempty"`
-	Window                  tracequery.TraceMarkerTreeWindow `json:"window"`
-	NodeCount               int                              `json:"node_count"`
-	OmittedNodes            int                              `json:"omitted_nodes"`
-	Coverage                string                           `json:"coverage"`
-	Caveats                 []string                         `json:"caveats,omitempty"`
-	Node                    tracequery.TraceMarkerTreeNode   `json:"node"`
+	IndexPath               string                                `json:"index_path"`
+	WindowUnavailableReason string                                `json:"window_unavailable_reason,omitempty"`
+	Window                  tracequery.TraceMarkerTreeWindow      `json:"window"`
+	NodeCount               int                                   `json:"node_count"`
+	OmittedNodes            int                                   `json:"omitted_nodes"`
+	Coverage                string                                `json:"coverage"`
+	Caveats                 []string                              `json:"caveats,omitempty"`
+	Node                    tracequery.TraceMarkerTreeNode        `json:"node"`
+	Population              *tracequery.TraceMarkerTreePopulation `json:"population,omitempty"`
 }
 
 func traceQueryTypedBusinessTreeObservations(tree *tracequery.TraceMarkerTreeStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
@@ -30,7 +31,7 @@ func traceQueryTypedBusinessTreeObservations(tree *tracequery.TraceMarkerTreeSta
 	var out []types.ObservationRecord
 	for _, node := range tree.Nodes {
 		fact := TraceBusinessTreeFact{IndexPath: ref.Path, Window: tree.Window, WindowUnavailableReason: tree.WindowUnavailableReason,
-			NodeCount: tree.NodeCount, OmittedNodes: tree.OmittedNodes, Coverage: tree.Coverage, Caveats: tree.Caveats, Node: node}
+			NodeCount: tree.NodeCount, OmittedNodes: tree.OmittedNodes, Coverage: tree.Coverage, Caveats: tree.Caveats, Node: node, Population: tree.Population}
 		data, err := json.Marshal(fact)
 		if err != nil || node.ID == "" || node.SourcePath == "" || node.Thread.PID <= 0 || node.StartLine <= 0 {
 			continue
@@ -83,6 +84,22 @@ func DecodeTraceBusinessTreeFact(record types.ObservationRecord) (TraceBusinessT
 				fact.Window.StartTs == record.SourceRef.QueryWindowStartTs && fact.Window.EndTs == record.SourceRef.QueryWindowEndTs
 			if fact.WindowUnavailableReason == "line_selected_time_window_undetermined" {
 				windowMatches = !record.SourceRef.QueryWindowKnown && record.SourceRef.QueryLineRangeKnown
+			}
+			if fact.Population != nil {
+				target := fact.Population.Target
+				targetPID := record.SourceRef.QueryTargetPID
+				if targetPID <= 0 && record.SourceRef.QueryTargetScope == "thread" {
+					// SourceRef preserves the original selector, whereas the
+					// engine normalizes accepted "name-TID" spellings. Reuse
+					// that exact parser, never suffix scanning or name matching.
+					if pid, _, valid := tracequery.ParseThreadSelectorIdentity(record.SourceRef.QueryTargetThread); valid {
+						targetPID = pid
+					}
+				}
+				threadSelected := record.SourceRef.QueryTargetScope == "thread" && targetPID > 0
+				if threadSelected != (target != nil) || target != nil && target.TID != targetPID {
+					return fact, false
+				}
 			}
 			return fact, traceBusinessTreeFactValid(fact) && physicalSupport && fact.IndexPath == record.SourceRef.Path && n.Name == record.Object &&
 				traceThreadLabel(n.Thread) == record.Subject && n.StartLine == record.Span.LineStart &&
@@ -166,9 +183,28 @@ func writeTraceBusinessTree(b *strings.Builder, tree *tracequery.TraceMarkerTree
 	shown := min(limit, len(tree.Nodes))
 	fmt.Fprintf(b, "- 同步业务层级：%s；保留全线程观察库存；明确指定物理线程时优先展示该线程的已计量总耗时较长账户，其余按起始行展示；未指定线程时按起始行展示。这只是展示优先级，不是目标过滤、因果贡献或完整成员排名；观察到 %d 个实例，本摘要展示 %d；原生未展示 %d、摘要另省略 %d。总耗时含子层；自身耗时排除完整直接子区间并集。不是唤醒链或根因树。\n",
 		TraceBusinessTreeWindowText(TraceBusinessTreeFact{Window: tree.Window, WindowUnavailableReason: tree.WindowUnavailableReason}), tree.NodeCount, shown, tree.OmittedNodes, len(tree.Nodes)-shown)
+	fmt.Fprintf(b, "  %s\n", TraceBusinessTreePopulationText(TraceBusinessTreeFact{NodeCount: tree.NodeCount, OmittedNodes: tree.OmittedNodes, Population: tree.Population}))
 	for _, n := range tree.Nodes[:shown] {
 		fmt.Fprintf(b, "  - %s；来源=%q；索引行=%d..%d\n", TraceBusinessTreeNodeText(n), n.SourcePath, n.StartLine, n.EndLine)
 	}
+}
+
+// One source-owned formatter is shared by the tool preview and final writing
+// context. Never derive the target census from the displayed rows.
+func TraceBusinessTreePopulationText(f TraceBusinessTreeFact) string {
+	if f.Population == nil {
+		return fmt.Sprintf("库存总数=%d、原生未展示=%d；旧载体未声明库存主体口径，目标线程实例数未知，不由展示行推算。", f.NodeCount, f.OmittedNodes)
+	}
+	if !f.Population.ValidCounts(f.NodeCount, f.OmittedNodes) {
+		return "库存主体计数未通过校验，不提供目标线程总数。"
+	}
+	text := fmt.Sprintf("全线程观察库存=%d、原生展示=%d、原生未展示=%d", f.NodeCount, f.Population.DisplayedNodes, f.OmittedNodes)
+	if target := f.Population.Target; target != nil {
+		text += fmt.Sprintf("；目标线程 TID=%d 的观察库存=%d、原生展示=%d、原生未展示=%d", target.TID, target.NodeCount, target.DisplayedNodes, target.OmittedNodes)
+	} else {
+		text += "；未指定唯一物理线程，不提供目标线程总数"
+	}
+	return text + "。库存可含未闭合的上下文，不等于窗内已闭合片段数、活跃任务数或完整采集；本条自身/总耗时只属于该物理实例。"
 }
 
 func TraceBusinessTreeWindowText(f TraceBusinessTreeFact) string {

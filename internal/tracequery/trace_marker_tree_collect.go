@@ -167,6 +167,7 @@ func (c *traceMarkerTreeCollector) build(idx *Index, q Query, schedulerSafe bool
 		return TraceMarkerTreeDisplayLess(out.Nodes[i], out.Nodes[j], targetPID)
 	})
 	out.NodeCount = len(out.Nodes)
+	out.Population = traceMarkerTreePopulation(out.Nodes, targetPID, TraceMarkerTreeNodeLimit)
 	if len(out.Nodes) > TraceMarkerTreeNodeLimit {
 		out.OmittedNodes = len(out.Nodes) - TraceMarkerTreeNodeLimit
 		out.Nodes = out.Nodes[:TraceMarkerTreeNodeLimit]

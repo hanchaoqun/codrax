@@ -8,12 +8,13 @@ type TraceMarkerTreeStats struct {
 	// A line-only query has no determined continuous time window. Its nodes
 	// still own exact physical/query-clipped interval sets, but zero query
 	// placeholders must not be presented as real clock endpoints.
-	WindowUnavailableReason string                `json:"window_unavailable_reason,omitempty"`
-	NodeCount               int                   `json:"node_count"`
-	Nodes                   []TraceMarkerTreeNode `json:"nodes,omitempty"`
-	OmittedNodes            int                   `json:"omitted_nodes"`
-	Coverage                string                `json:"coverage"`
-	Caveats                 []string              `json:"caveats,omitempty"`
+	WindowUnavailableReason string                     `json:"window_unavailable_reason,omitempty"`
+	NodeCount               int                        `json:"node_count"`
+	Nodes                   []TraceMarkerTreeNode      `json:"nodes,omitempty"`
+	OmittedNodes            int                        `json:"omitted_nodes"`
+	Coverage                string                     `json:"coverage"`
+	Caveats                 []string                   `json:"caveats,omitempty"`
+	Population              *TraceMarkerTreePopulation `json:"population,omitempty"`
 }
 
 // Marker windows contain determined physical/query-clipped endpoints. Both

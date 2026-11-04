@@ -32,6 +32,7 @@ func renderBusinessTreeDetail(value any, path string, emit func(string), depth i
 			emit(fmt.Sprintf("  %s.window: start_ts=%s end_ts=%s", path, businessTreeNumber(item.Window.StartTs), businessTreeNumber(item.Window.EndTs)))
 		}
 		walkDetailWithPolicy(reflect.ValueOf(item.Caveats), path+".caveats", emit, depth+1, policy)
+		walkDetailWithPolicy(reflect.ValueOf(item.Population), path+".population", emit, depth+1, policy)
 		walkDetailWithPolicy(reflect.ValueOf(item.Nodes), path+".nodes", emit, depth+1, policy)
 	case tracequery.TraceMarkerTreeNode:
 		parent := "前序层级未知"

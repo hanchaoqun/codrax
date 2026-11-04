@@ -13,8 +13,14 @@ func traceBusinessTreeFactValid(f TraceBusinessTreeFact) bool {
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 	if n.ID == "" || f.IndexPath == "" || n.Thread.PID <= 0 || n.StartLine <= 0 || n.SourcePath == "" ||
 		!finite(n.ActualStartTs) || !finite(f.Window.StartTs) || !finite(f.Window.EndTs) || f.Window.EndTs < f.Window.StartTs ||
-		f.NodeCount <= 0 || f.OmittedNodes < 0 || f.OmittedNodes >= f.NodeCount || n.DirectChildCount < 0 {
+		f.NodeCount <= 0 || f.OmittedNodes < 0 || f.OmittedNodes >= f.NodeCount || n.DirectChildCount < 0 || !f.Population.ValidCounts(f.NodeCount, f.OmittedNodes) {
 		return false
+	}
+	if f.Population != nil && f.Population.Target != nil {
+		target := f.Population.Target
+		if n.Thread.PID == target.TID && target.DisplayedNodes == 0 || n.Thread.PID != target.TID && f.Population.DisplayedNodes == target.DisplayedNodes {
+			return false
+		}
 	}
 	switch n.ParentStatus {
 	case "observed_parent":
