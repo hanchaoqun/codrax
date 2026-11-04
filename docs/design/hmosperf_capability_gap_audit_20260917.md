@@ -2,7 +2,31 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§345发布批，main；执行UTC11-04）：79唯一＝28完整＋51开放，勾选不变；完整新增0、交付2子能力/1共享组，源码b58b10b8aefcd6c11d7e46e49907b4189317a7f5。新代先修输入身份工装，原两例各一次真实并行：机器2/2、完整人工1/2；A时间位置误述FAIL，B自然只读登记/独立恢复限定PASS，搜索来源新自然分支未触发。唯一full98包28745顶层/34422子PASS、零FAIL，555件封存；旧§344零模型失败及所有旧债保原，详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§345汇总](../../eval/parallel_selected_summary_hmc_runtime_search_alias_zip_registration_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_runtime_search_alias_zip_registration_20261103_manual_audit.md)，远端同代独立核。WAL生产NO-GO。
+当前状态（2026-11-03，§346发布批，main；执行UTC11-04）：79唯一＝28完整＋51开放，原状态/勾选不变；完整新增0，交付2子能力/1共享组，源码8124fec5ba557afdec180caa6da7962872446d30。原两例各一次真实并行，机器1/2、完整人工0/2；新数据/独立覆盖交接在完整抖音自然触发，IO有限解释及整答离散区间/状态越权不销。唯一full98包28748顶层/34432子PASS、零FAIL，500件封存；旧失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§346汇总/51项ROI](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103_manual_audit.md)，远端同代独立核。WAL生产NO-GO。
+
+## 346. 同源数据与完整覆盖分离、原有限IO及完整用户实采
+
+main基线562f8ce5f4a779ed4f01a0b05027ba4719f25a29，源码8124fec5ba557afdec180caa6da7962872446d30，4Go/419增12删（2生产/2测试）。完整能力交付总数28、新增0；已交付子能力2（1共享组）；剩余验收缺陷按4组挂原51ID，不拆成新稳定任务。
+
+### 346.1 公开反例与设计取舍
+
+同一原件/线程/查询窗的window_stats和thread_timeline返回同值的2783行状态，但各自索引padding不同，完整Notes不同。公开旧码实际query→context→finalizer RED证明不能直接合整publication/Notes，也不应重复数据体挤占预算。沿既有§302严格内容字典加独立数据存储键：保全部retained rows、顺序、列/单位、总体、目标、窗/钟、物理源代次；仅完整Notes在数据键外，由各严格内容完整保留。不同完整内容且整表精确见证才启用；历史同内容/同query路径、私有当前来源和原绑定门不变。定义先于引用、未写完不提交字典或借完整收据；数据相同不合并query、分母、关系或完成权限。
+
+参考context_index路径导航与value分离、llm_contract逐成员字段回查及原件memoization；不照搬同step/type覆value、容差/文本/fingerprint门。另核io_ops的两种“concurrency”：前者数与桶重叠的请求，后者聚合发起桶且启发过滤，两者都不是本项目完整配对区间的精确在途积分，更不是设备物理队列。统计器与合法同层小计保留，不改正确值迎合正文。
+
+### 346.2 验证、冻结与真实材料
+
+最终相关8包120顶层/438子、race×2四包62/214、原4根因/闭合睡眠四包21/141通过；标准CLI build/startup零模型零工具、真实runner双侧15项参数检查通过。中间新测试字段编译错及错期待同次收据自愈均保原，前者改用已有ClockAlignment、后者修新测试前提，原生产AND收据和旧断言未动。完整235422121B/1696481行抖音经2query/0模型→204745B actual Finalizer，1数据体/2独立内容/2凭证、4行预览/2783保留/2779省略及各完整索引覆盖说明保真，原raw/payload在临时清理前复制；不冒第三例、独立调度或因果oracle。
+
+冻结7615仓库/311外部/15仓外快照，SHAfa4d04bd9b40612616f3fd6b2e37cedec4d0491a4cb3d3413b4aaf2ef5b65727后停写源码/测试/教学/helper/case/oracle。唯一full UTC11-04 07:20:06.715333→07:34:21.537285，OS0/源前后true：98包PASS/12无测试，28748顶层PASS/51SKIP、34432子PASS/14SKIP；267835纯JSON，零FAIL/非JSON/重复/未终态，log SHA61c58ef277d5d2c31a1f9ada1adfb4bfd9f852e30af771071d40121a57aa419d。500件原件封存，index SHA4ccc85d0b0f4dfd2b330de80d522537de0ed9cd21fd254c89a1697ecda01ba09、seal SHA059b431d9b81224904823ce2c3787d6b8efdcb1da525240f694764b4be8a4306；48代按代21318件非全局去重。本代只物理重核345的555件、失败344的554件和更早链头，不冒全部历史payload重hash。
+
+### 346.3 原两例、人工结论与下一ROI
+
+A原IO自然题15步/n1：2query/2JSON、四组24值、8成员/13段及15表HTML保真；原smoke缺配对歧义中文说明FAIL，原有限/完整人工FAIL。正文把partial配对深度升设备无积压、RQ/BIO断同一批IO、4相交配对套6窗内发起子集。实际仅投6个解释单元中unit0，内含设备排队越权；省略单元不冒污染。进程OS0曾被口头误称机器通过，核原verdict即更正；完整能力不销、原问/退出/断言不改。
+
+B原完整抖音15步/n1：4query声明/3唯一JSON，3份完整query凭证自然复用1时序数据体、16严格内容保各覆盖，actual INIT275884B。32原生节点的起止/总/自身/直子对旧整源oracle160项零差；来源搜索2正命中自然保runtime，不回签§345未触发或其它分支。原smoke PASS，完整人工FAIL：11段类校验实际与dex区间逐段交集0，包络不能当重叠；D未标IO不能叫真实IO阻塞。正确原生事实/边界已到场；legacy错误reason未投，不冒污染。完整MD969348B仍重复2份2783行timeline和阶段表，跨最终输出去重/整组预算未闭。HTML诊断false只2处反引号差异，保原；“毫秒级”宽松描述不新增硬FAIL，审计初稿/纠错并存。
+
+精确请求A11/B19、0歧义、最大真实重叠13.004秒；机器1/2、完整人工0/2、closure=none。4组：IO有限解释；区间集合/包络与状态机制适用域；完整输出/全局预算；只读登记、二进制、代表/图/权限及更多协议平台验收。下一缺陷轨按泛化区间集合/原生解释边界与整组预算推进，不加VerifyClass/type特例或文本门；完整轨轮换有材料二进制和只读正负终态，本轮NOT_RUN不代签。Trace因果投影/自动补齐、原4根因/闭合睡眠/链上业务及合法计算重试保留；WAL未零副作用前不接生产。
 
 ## 345. 原件身份工装纠错、运行时搜索来源隔离与两原例真实复验
 
