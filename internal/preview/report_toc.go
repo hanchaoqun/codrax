@@ -1,11 +1,11 @@
 package preview
 
-// Build the outline from rendered H1 headings so report chapters and
+// Build the outline from rendered H1/H2 headings so report chapters and
 // Goldmark's existing (including duplicate-title) anchors stay in sync.
 const reportTOCScript = `
 (function installReportTOC() {
   var main = document.querySelector("main");
-  var headings = Array.prototype.slice.call(main.querySelectorAll("h1"));
+  var headings = Array.prototype.slice.call(main.querySelectorAll("h1, h2"));
   if (!headings.length) return;
   var zh = (document.documentElement.lang || "").toLowerCase().indexOf("zh") === 0;
   var nav = document.createElement("nav");
@@ -23,6 +23,7 @@ const reportTOCScript = `
       heading.id = id;
     }
     var item = document.createElement("li");
+    if (heading.tagName === "H2") item.className = "report-toc-child";
     var link = document.createElement("a");
     link.href = "#" + encodeURIComponent(heading.id);
     link.textContent = heading.textContent;
@@ -66,6 +67,7 @@ const reportTOCCSS = `
 .report-toc-title { font-weight: 700; margin-bottom: 12px; }
 .report-toc ol { list-style: none; padding: 0; margin: 0; }
 .report-toc li { margin: 4px 0; }
+.report-toc li.report-toc-child { padding-left: 12px; }
 .report-toc a { display: block; padding: 4px 6px; color: var(--muted); border-radius: 4px; overflow-wrap: anywhere; }
 .report-toc a:hover, .report-toc a:focus-visible { color: var(--link); background: var(--code); }
 main :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: 24px; }
