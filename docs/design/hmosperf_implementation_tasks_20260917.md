@@ -1,6 +1,6 @@
 # HarmonyOS 能力差距实施任务清单
 
-日期：2026-09-17，状态更新至2026-11-03（§344失败代，main；执行UTC11-04）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0、已交付子能力0、共享候选2子能力/1组：运行时搜索输入来源及跨层源码消费者隔离。公开RED、相关/race/完整235MB用户ftrace模型外交接通过；两例在模型前因工装路径别名比较失败，实际模型/工具/查询0，不冒产品或答案验收。唯一full正式98包、28745顶层/34422子PASS、零FAIL；554件保原封存。候选未交付，旧失败不销账。详[§344汇总/51项ROI](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103.md)与[手审](../../eval/parallel_selected_summary_hmc_runtime_search_zip_registration_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+日期：2026-09-17，状态更新至2026-11-03（§345发布批，main；执行UTC11-04）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0，交付2项子能力/1共享组，源码b58b10b8aefcd6c11d7e46e49907b4189317a7f5；§344工装失败原件保留。新代修正路径身份对称校验并经实际runner零模型预检，原两例各一次真实并行：机器2/2，完整人工1/2（A时间位置误述FAIL、B自然只读登记恢复限定PASS）；搜索来源新自然分支NOT_TRIGGERED，不追第三例。相关/race、整件235MB用户ftrace及冻结后唯一full98包28745顶层/34422子PASS、零FAIL；555件保原封存。详[§345汇总/51项ROI](../../eval/parallel_selected_summary_hmc_runtime_search_alias_zip_registration_20261103.md)与[手审](../../eval/parallel_selected_summary_hmc_runtime_search_alias_zip_registration_20261103_manual_audit.md)，最终main/远端以独立publication为准。WAL零副作用前生产NO-GO。
 
 ## 1. 范围、状态和交付规则
 
@@ -16,7 +16,17 @@
 
 ## 2. 执行队列
 
-### 2026-11-03 当前失败代：搜索来源候选与模型前工装别名失败（§344，main，51开放）
+### 2026-11-03 当前发布批：搜索来源隔离、精确输入与原两例复验（§345，main，51开放）
+
+- 79/28/51及原勾选不变；完整新增0，§344同字节候选本代以b58b10b8aefcd6c11d7e46e49907b4189317a7f5交付，16Go/394增26删（11生产/5测试），2子能力/1共享组：实际输入角色→ledger/Known Facts一致；源码专用预读/发现/完成诊断/负范围消费者隔离，retry保typed runtime。无新增产品关键词门、无连续读/枚举/完成/因果提权；普通源码/目录/旧缺字段仍兼容。
+- 工装只在新代对actual/expected两边canonical并核同一原件，原始argv保留。实际eval/run.sh参数捕获＋10项零模型正负控通过：/var与/private/var接受，同字节异文件、错文件、改题、改15步、重复附件与write路由拒绝；B原环境/入口通过。旧§344零模型FAIL不回签，其5文档020343f19单独推送，554件原始失败保原、无成功publication。
+- 本代相关8包295顶层/526子、race×2四包156/248、原因果四包21/141及零模型build/startup通过；完整235422121B抖音1nativequery/2grep/0模型到actual Finalizer再验，25139/2611/32不变、两搜索Known Facts均runtime，204404B实际消息保留；不冒第三例或独立调度oracle。
+- 冻结7613输入/374外部/25仓外快照，SHA935a4faeb57dc87913be9a1e46f1bc26ac4cc4ad863b85c51fda75921657b861，UTC11-04 02:56:49.272757后源码/测试/教学/helper/case/oracle停写；唯一full 02:56:51.493132→03:10:56.166609正式OS0/源前后true，98包PASS/12无测试，28745顶层PASS/50SKIP、34422子PASS/14SKIP，267780纯JSON，零FAIL/非JSON/重复/未终态。log SHAb972f42459054e8450801e37ef107e0478c94e230212e1c7a75896f16df0a93a。555件index SHA8bee744c81fb436d2fdf8310b44d8093ad3272007809ba1fce1502dec065a883，root closure=none；源码/5文档相邻main及远端同代独立核。
+- 原ZIP二进制A15步/n1真实6查询、9声明/9参数不相加，164/259及两热点/两CPU/unknown/cycles/单IP帧/40预览与完整总体正确，运输/原生取数限定PASS；整答第8行将1.524375ms记录包络宽度写成窗口起始约1.5ms，而真实相对起点64.088122–65.612497ms，人工FAIL。正确时间/状态已到INIT，暂留语义债，不再无限追充分事实后的误述。无grep，新来源自然覆盖NOT_TRIGGERED；无必需图不加退出门。
+- B真实planner及parent/独立child controller正向只读终态限定PASS，不冒fullCLI/代码创作。source/proof/run verified及新invocation、零源码/测试/HEAD变化有原件；current1断言/2命令、三工作流报告各2命令与旧operator执行分列；7原件/3不同报告/2真实WriteFinalReport及各2链接matched，6逻辑pack恢复/两次往返守恒。materialization仍apply_checkpoint_missing，旧中间unverified报告保留，不拿当前绿改签历史。
+- 原请求精确A9/B10、歧义0、最大真实重叠25.425s；恰好两例各一次。剩余3组按原51ID/7、6、11、21、6 ROI：同源内容体/独立查询凭证/整组预算P0；旧及本轮时间/状态/IO/资源/栈解释；代表/权限/图/更多真格式平台、搜索自然覆盖及完整只读CLI等未触发验收。已证系统缺口优先，旧充分证据误述独立留账，Trace投影/自动补齐/原4根因/闭合睡眠/链上业务/合法重试计算均保留。
+
+### 2026-11-03 历史失败代：搜索来源候选与模型前工装别名失败（§344，main，51开放）
 
 - 79/28/51及原勾选/状态不变；完整新增0、正式交付子能力0、候选2子能力/1共享组。公开真实query JSON/TXT→grep先复现current_source/零命中repo_negative_search误标，再复现运行时零命中借用无关已验证源码未命中行。producer复用read_file输入分类、记录InputOrigin，ledger/Known Facts同源；统一RepositoryInput供分类预读/源码发现/完成诊断/负范围展示，retry接精确运行时信号。不是从模型原文猜原因。
 - 原输入角色、成功/零命中、模式/计数及原件保留，搜索不伪造连续读取范围、采样零结果、完整成员/完成或因果权限；普通源码/目录及旧缺origin兼容。对照context_index/llm_contract的原件/导航分离和字段适用域，不照搬覆值、容差/文本/fingerprint硬门。独立内容体/查询凭证复用及整组预算仍P0，不冒本代已交付。
