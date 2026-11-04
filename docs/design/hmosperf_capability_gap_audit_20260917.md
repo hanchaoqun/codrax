@@ -2,7 +2,39 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§348，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码c6715c27d6c3192e99cbd838913e8ea07b2c48c7；生产者单一合同闭环新域端点漏传，旧独立权限不扩大。两原例各n1真实并行，机器2/2、完整主审0/2；整件网易云原生数值/端点正确，正文层级/状态仍失败；sample-only正常准备和取数有限PASS，未知采样执行态误述继续留账。唯一full98包28756顶层/34534子PASS、零FAIL，521件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§348汇总/51项ROI](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104_manual_audit.md)。旧失败/未触发不回签，main远端同代另核，WAL生产NO-GO。
+当前状态（2026-11-04，§349，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码551e94a48d43c8c67999ce2cba0926d39c988ccf；精确查询目标默认业务展示不再混入其它线程，背景事实/显式选择与独立权限保留。两原例各n1真实并行，机器2/2、root有限完整主审1/2；只读自然控制器/独立恢复/新执行/同代报告PASS，完整网易云全集外推仍FAIL。唯一full98包28760顶层/34562子PASS、零FAIL，517件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§349汇总/51项ROI](../../eval/parallel_selected_summary_hmc_target_business_defaults_registration_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_target_business_defaults_registration_20261104_manual_audit.md)。重复业务账户预算及最终时序表重复优先修，旧采样/IO、权限/代表/二进制覆盖不销；WAL生产NO-GO。
+
+## 349. 查询目标默认展示、完整实采与只读自然终态
+
+main基线a268f17f70555cd9423ec0b88b0d38346a511f82，源码551e94a48d43c8c67999ce2cba0926d39c988ccf，6Go/343增7删（2生产/4测试）。79/28/51及18部分/29待实施/2待验收/1验收中/1持续不变；完整新增0、子能力1共享组，只读轮换PASS属于已有有限入口复验，不重复计算完整交付。
+
+### 349.1 公开反例、参考意图与泛化修复
+
+宽window_stats按设计保留全线程span，业务publisher却无条件DefaultPresentation=true；精确TID查询因而自动把背景业务表升级主展示。公开原生query→actual Finalizer→emit摘要/表/无边事实图三处RED，不靠模型问答关键词。抽取引擎既有TraceSpanMatchesTarget身份规则让publisher共用：正TID按原线程身份、显式process按原TGID或marker PID成员；不将这些轴混成同一PID。
+
+仅改变默认布局，宽/未知/仅命名未解析目标保持保守旧意图；原窗口、查询全部span/状态/数值、当前来源/Notes/完整性、显式背景选择、原生/因果/完成资格不变，未扩大window_stats的process API。参考span_analysis.py精确thread.tid→itid及交集查询，采用其物理身份设计，不搬原dur总量为裁窗值、首窗口/名字前缀或固定业务。无prompt/schema新增，不放宽旧断言。
+
+### 349.2 完整实物、测试及冻结
+
+最终相关五包61顶层/163子、race×2四包22/60、原4根因及闭合睡眠四包21/141 PASS；完整网易云82838676B/559592行、SHA12349db5bbdc5a4343360d9633c7d6c36f18c8be5f39fb64e78b53c9e345bfe4，公开双query/0模型保8业务事实表/1目标默认、11成员表及原因果投影。首RED真实命中三surface；首次新green因错误假设部分comm匹配/支持process统计而FAIL，原日志保留，仅校正新增前提，旧断言未改。
+
+冻结7628输入/287外部/16仓外快照，SHA92dafb88465f264efe424c7a0da96a3be547edaa47e40e1aca3598daabb62697后源码/测试/教学/helper/case/oracle停写。唯一full UTC10:54:03.005878→11:08:14.954836，OS0、源前后true：98包PASS/12无测试、28760顶层PASS/54SKIP、34562子PASS/14SKIP，268330纯JSON，零FAIL/重复/未终态；log SHA53bb6c6cc6bdd554b36c4200a972b015c5c97b3a0fba49f5017e0992b76ac168。
+
+### 349.3 两例主审、真实上下文与系统后继缺口
+
+A原网易云15steps/n1，8query声明/7唯一JSON，所有8业务selector保留、实际最终仅目标1组默认业务表，修复自然命中。数表627.645/self194.581及原生S/R/D正确；整答FAIL：内attach被称全线程“唯一”self睡眠过半，32原生节点至少7例反证；自身睡眠70.312/200.474ms仍被概括几乎全部在子阶段。新最终成员selector/图未选，不代签自然覆盖。
+
+实际315022B INIT中两个独立query的16账户行仅8物理实例，重复消耗预算；其它已测主阶段被挤出。Resources自身16.804/33.304未传，不声称32节点状态全到场；现有省略披露不授权“唯一”。下一P0修完整账户内容的共享展示与逐query来源/窗口/库存/权限分离，不能按名字合并或抬预算。MD1218064B/HTML4688065B含两份完全相同3735行时序，最终跨块复用与整组预算独立开放。新两组坏handoff全文及旧reason未见完整转发，不冒直接污染。
+
+B原TestNativeRegistrationLiveNaturalControllerTerminal、12步planner/20m/n1：真实planner、父controller和独立恢复子controller，有限人工PASS。source plan/commit、exact assertion_ref展开suite/id、1个新原生执行及grant撤销通过；源码/测试/Git不改，context-pack五种视图各6包往返。父/子各7件原件（5ChangeReport文件/2真正WriteFinalReport）、2条最终report链接字节/哈希/计划均一致，旧报告不覆盖。当前verification1测试/2命令与cumulative proof2测试/4命令分列，后者不当新执行数。来源weak定位诚实保留；非fullCLI/模型写源码/全框架验收，缺来源负控本轮不重复签。
+
+机器2/2、有限完整人工1/2。精确已配对A10/B10、A另7歧义区排除，最大真实重叠12.713秒，不以barrier或邻近logger行猜配对；2行非UTF-8/1条内联声明解析失败保原，实际completion参数blob均可解析，不能混为产品失败。没有第三次模型重跑或第二次full。
+
+### 349.4 封存、交付与全部51项
+
+517件index SHAd6134f2e0127f76a30d60b8dcf53c96c37cfd5d6c4ac10018c9494d8d511cf30、seal SHA141aeadc3836d24507c388d905d6b19a8085c42004c6de6de6c7458b2727f701，root closure=none。前50代22407＋本代＝51代22924件，按代非全局去重；本轮物理重核348521件和失败344554件，其余48代仅链头。原件大文件只引用、providers不读/哈希/复制，失败历史不回签publication。
+
+全部51项按7/6/11/21/6 ROI见[汇总](../../eval/parallel_selected_summary_hmc_target_business_defaults_registration_20261104.md)；剩余4组是成文适用域、共享账户/最终输出预算、现有材料及自然分支覆盖、其它协议平台/WAL。旧采样/IO误述保原不无限追同题。Trace投影/自动补齐、原4根因、闭合睡眠和链上业务线索不损；源码与5文档/main远端同代另由publication核验，WAL生产NO-GO。
 
 ## 348. 生产者声明与端点单一合同、完整实采及二进制轮换
 
