@@ -2,7 +2,43 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§347发布批，main）：79唯一＝28完整＋51开放，原状态/勾选不变；完整新增0，交付1子能力/1共享组，源码c62f39aeb63ec27028f538a9dafd2f016165c423。两原例各n1真实并行，机器2/2、主审1/2；完整抖音的逐成员原生交接自然触发，整答层级/状态失败，新表图最终选择未触发；只读缺来源终态负控有限PASS，不冒完整CLI或自然controller。唯一full98包28752顶层/34446子PASS、零FAIL，568件封存。新展示域端点标题登记欠项及旧采样/IO/权限/二进制欠项不销。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§347汇总/51项ROI](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104_manual_audit.md)，远端同代独立核。WAL生产NO-GO。
+当前状态（2026-11-04，§348，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码c6715c27d6c3192e99cbd838913e8ea07b2c48c7；生产者单一合同闭环新域端点漏传，旧独立权限不扩大。两原例各n1真实并行，机器2/2、完整主审0/2；整件网易云原生数值/端点正确，正文层级/状态仍失败；sample-only正常准备和取数有限PASS，未知采样执行态误述继续留账。唯一full98包28756顶层/34534子PASS、零FAIL，521件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§348汇总/51项ROI](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104_manual_audit.md)。旧失败/未触发不回签，main远端同代另核，WAL生产NO-GO。
+
+## 348. 生产者声明与端点单一合同、完整实采及二进制轮换
+
+main基线f862e3351b9f3ec04cc1ba9c9ede48d4c230008f，源码c6715c27d6c3192e99cbd838913e8ea07b2c48c7，7Go/434增46删（4生产/3测试）。79/28/51、18部分/29待实施/2待验收/1验收中/1持续不变；完整新增0、子能力1共享组，不把四处路由替换算四个完整交付。
+
+### 348.1 精确公开反例与泛化实现
+
+§347成员行及Notes已半开正确，但原生publisher的另一份谓词名单遗漏该域，标题只能unknown。公开actual query→source-bound facts→Finalizer→完整emit摘要/表/无边事实图RED确认此接缝。私有17条声明统一predicate/view/发布族及区间端点opt-in，新增生产者须显式选族；全矩阵与去重/未知view/精确枚举回归防名单漂移，不给某业务名或模型措辞加特例。
+
+原始来源代次/精确查询/整表内容/Notes、sampling/resource/event专用资格、raw和generic分界、JSON复原清权、MemberSet/DisplayPopulation和根因/完成资格由各原owner保留。声明仅路由，篡改行、单位、view、payload、query或窗口不能借Finalize重获端点。private见证不可重新签另一端点，历史缺见证仍未知，不放宽旧断言。
+
+参考registry集中元数据、配置冲突fail-fast与声明校验的意图；它仍有result_schema类型TODO，不能把注册中心当所有语义证明。本仓用闭合typed族和独立矩阵补本地演进约束。llm_contract的精确行列地址职责可复用，但数值容差/文本/fingerprint门不搬；binary parser按CPU、TID、timestamp、period分列，不能把cycles或未知sample_kind当耗时/执行态。没有新增JSON提示或问答关键词硬门。
+
+### 348.2 原件、公开接缝与冻结后唯一full
+
+终版相关四包308顶层/622子、race×2三包44/440、原4根因/闭合睡眠四包21/141 PASS；标准CLI及startup零模型零工具、15项真实runner实参检查通过。最初新测试双summary、线程标签格式、错误包路径等工装错误与原RED/GREEN收据全保原，不改旧断言。终版源与全部Go清单在相关/race/构建后精确核对。
+
+完整用户网易云82838676B/559592行，SHA12349db5bbdc5a4343360d9633c7d6c36f18c8be5f39fb64e78b53c9e345bfe4；公开双query保11组16成员并逐原始B/E行核身份/时点，因果投影不变。live32业务节点再做全文件LIFO微秒复核，含全部直接子并集扣除，0差异；既存独立调度oracle核根627.645/self194.581/Running412.174/Runnable11.069/S200.474/D3.928ms，不冒本轮重算调度。
+
+原sample-only 30062585B、SHAda713af8c490d00fffa49b7c4274b93037b9171a4a73e05500d64d071232c632，本轮独立参考解析器12000全记录/窗1393/目标164/period259，CPU0/1各82与85/174分列，ns首末包络保原。两个oracle只供operator，不进模型。
+
+冻结7624输入/332外部/15仓外快照，SHA74e5d0a05e050b81c397494d0c1c285421fa6b86e15effb243e6efaef037623b后代码/测试/教学/helper/case/oracle停写。唯一full UTC10:06:12.462440→10:20:48.921409，OS0/源前后true：98包PASS/12无测试，28756顶层PASS/53SKIP、34534子PASS/14SKIP、268285纯JSON，零FAIL/重复/未终态。log SHA1baed618d02a7e2e71354ec293c05404c5547fe483d84b1ef688aaca68c443e7。
+
+### 348.3 两例原始验收与上下文审计
+
+原A/B各n1/15steps，精确请求A16/B7、0歧义、最大真实重叠33.115s，机器2/2、完整人工0/2。A仅3原生query/3JSON、17总声明；11个新selector实际INIT窗口全半开正确，最终未选新原生表图，覆盖NOT_TRIGGERED。原生层级与self保真，终稿仍将嵌套attach睡眠相加、把含睡眠self称纯执行、过度禁止合法不交账户加法。实际INIT296989B拥有正确父ID/状态/账户，上游错reason6660B及关键错行本次未投，不能冒旧摘要已污染。背景线程JIT/VerifyClass未升主因保留。
+
+B 6原生query/6JSON、9总声明，正常完整原件准备与自然取数有限PASS，原件/11596B bundle/14549907B预览大小不混。目标164/259、两热点82与174/85、独立包络和记录CPU正确；终稿仍把sample_kind=unknown讲成确定on-CPU，且把停顿本质局限off-CPU，完整FAIL。受理6单元只投0/1，unit2桶界错包络和unit5 CPU时间误述未投，实际警告在场，不误算污染。已闭18.3不重复交付；其它二进制格式/平台、只读正负自然终态本轮NOT_RUN。
+
+A HTML3764746B/完整MD635601B、14表含3735条完整时序；B HTML2795995B/MD13875B、4表中同一热点表重复两份。源码单元诊断一致均无图/像素QA，不冒最终整组预算、同源去重或图patch完成。证据充足的模型误述保原不追第三例，下一共享ROI是原生事实复用/整组预算，能力轨继续有材料二进制与只读登记轮换。
+
+### 348.4 原件封存与剩余51项
+
+521件index SHAeddba9aa6204d4b24b397e02d67af3ee3a34ccc65a9a42f150dee73f0ed480af、seal SHA390d96a0b9b12cfb784989425b0570dfa3548e1dd366546875736cec22508bbc，root closure none。累计50代22407件按代非全局去重；只物理重核前代347568件及失败344554件，另47代为链头，失败历史不补成功publication。大原件只带SHA/大小外部引用，providers不读/哈希/复制。
+
+端点工程接缝闭环不减51父任务。剩余4组：原生/成文适用域和合法运算；完整输出复用/跨块整组预算；只读、二进制、代表/权限/图与协议平台覆盖；其余新域及WAL零副作用证据。全51ID按7/6/11/21/6 ROI见[汇总](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104.md)，原失败及未触发在[手审](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104_manual_audit.md)分列。相邻源码/5文档/main远端以独立publication核验；Trace投影/自动补齐、原4根因/闭合睡眠、链上业务及合法计算重试均保留，WAL生产NO-GO。
 
 ## 347. 离散区间成员原生交接、完整用户实采及只读登记负向终态
 

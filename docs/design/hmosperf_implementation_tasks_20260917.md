@@ -1,6 +1,6 @@
 # HarmonyOS 能力差距实施任务清单
 
-日期：2026-09-17，状态更新至2026-11-04（§347发布批，main）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0，交付1项子能力/1共享组，源码c62f39aeb63ec27028f538a9dafd2f016165c423：逐成员原生区间到共享成文上下文。两原例各n1真实并行，机器2/2、主审1/2；缺来源终态的只读负控有限PASS，不冒自然controller/fullCLI；完整抖音5组新事实自然触发，正文层级/状态解释仍FAIL，新表图最终选择未触发。新展示域端点标题登记欠项挂01.3/16.4/18.4；旧采样、IO、权限和二进制剩余项不销。唯一full98包28752顶层/34446子PASS、零FAIL，568件保原封存。详[§347汇总/全部51项ROI](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104.md)与[手审](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104_manual_audit.md)，最终main/远端以独立publication为准。旧失败不回签，WAL零副作用前生产NO-GO。
+日期：2026-09-17，状态更新至2026-11-04（§348，main）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0，交付1子能力/1共享组，源码c6715c27d6c3192e99cbd838913e8ea07b2c48c7：生产者注册/视图/发布族/端点单一合同，闭环§347源窗端点遗漏，不扩因果或完成权限。原整件网易云与sample-only各n1真实并行，机器2/2、完整主审0/2；原生字段正确，嵌套相加/纯执行/未知采样执行态误述继续留账，新表图最终选择未触发。唯一full98包28756顶层/34534子PASS、零FAIL，521件保原封存。详[§348汇总/51项ROI](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104_manual_audit.md)，最终main/远端以独立publication为准。旧采样、IO、权限、只读及二进制剩余项不销；WAL零副作用前生产NO-GO。
 
 ## 1. 范围、状态和交付规则
 
@@ -16,7 +16,17 @@
 
 ## 2. 执行队列
 
-### 2026-11-03 当前发布批：同源数据与独立覆盖、原有限IO及整件实采（§346，main，51开放）
+### 2026-11-04 当前批：生产者单一合同、完整网易云与sample-only轮换（§348，main，51开放）
+
+- 原79稳定ID逐一核对无重漏；28完整、51开放及原状态不变，完整新增0、子能力1共享组。源码c6715c27d6c3192e99cbd838913e8ea07b2c48c7，7Go/434增46删（4生产/3测试），后续仍只在main。
+- 公开实际query→Finalizer→emit摘要/表/事实图复现：新成员域已可展示，却被独立端点名单漏掉。17个现有生产者的注册、view和interval/aggregate/raw/event/sampling/resource族归一；只补既有私有端点见证，不改变来源、整表、专用域、完整成员或因果/完成门。未知/历史JSON不借声明恢复权限，不扫问答关键词。
+- 参考registry的元数据单点/冲突校验、llm_contract逐行列地址职责；采用精确typed声明，不搬容差、文本/fingerprint硬门。参考binary parser的CPU/TID/time/period分列，不由event名推执行态；旧断言、Trace投影、原4根因、闭合睡眠和自动补齐保持。
+- 终版相关四包308顶层/622子、race×2三包44/440、原因果四包21/141 PASS。整件网易云82838676B/559592行公开双query核11组16成员原始B/E；live32业务节点独立微秒LIFO核边界/inclusive/self/全部直接子数0差异。sample-only完整30062585B独立解析12000/窗1393/目标164/权重259；都非模型oracle输入。
+- 冻结7624输入/332外部/15仓外快照后停写；唯一full UTC10:06:12.462440→10:20:48.921409，OS0/源前后true：98包PASS/12无测试、28756顶层PASS/53SKIP、34534子PASS/14SKIP、268285纯JSON，FAIL/重复/未终态0。
+- 原A/B各n1/15steps，精确请求A16/B7、歧义0、最大真实重叠33.115s；机器2/2、完整主审0/2。A端点标题在11个新selector自然恢复，但未选新最终表图；正文嵌套睡眠相加、self误称纯执行、合法账户加法受过度否定。B自然正常二进制准备/完整查询有限PASS，终稿仍以未知采样断言on/off-CPU，已闭18.3不重复交付。上游坏reason/未投unit不冒污染，旧模型误述保原不追第三例。
+- 521件index SHAeddba9aa6204d4b24b397e02d67af3ee3a34ccc65a9a42f150dee73f0ed480af。剩余4组挂原ID：事实适用域/合法运算到正文；完整输出去重与整组预算；有材料二进制/只读自然正负终态及代表/权限/图覆盖；其余协议/新域与WAL。全部51项按7/6/11/21/6 ROI见[汇总](../../eval/parallel_selected_summary_hmc_producer_contract_netease_binary_20261104.md)，有限PASS/NOT_TRIGGERED不销稳定父项，旧失败不回签。WAL生产NO-GO。
+
+### 2026-11-03 历史发布批：同源数据与独立覆盖、原有限IO及整件实采（§346，main，51开放）
 
 - 逐ID核账79/28/51及原状态/勾选不变；完整新增0，交付2子能力/1共享组，4Go/419增12删（2生产/2测试），源码8124fec5ba557afdec180caa6da7962872446d30。公开旧码RED证明同值时序因完整Notes的索引padding不同而重复投递；在既有§302严格内容字典下另分数据体，完整保留行/顺序/单位/总体/源代次/目标/窗，只有Notes不进入数据存储键。每selector的完整Notes、查询SourceRef、原生绑定和权限仍独立；旧同内容/同query路线及同次成文保守不完整收据不改。
 - 原题/预算/断言/oracle不改。最终相关8包120顶层/438子、race×2四包62/214、原4根因/闭合睡眠四包21/141 PASS，标准CLI build/startup零模型零工具PASS；真实runner双侧参数15项零模型检查通过。完整235422121B/1696481行用户抖音2query/0模型→actual Finalizer：两份2783行数据只留一份4行预览、各2779省略，完整覆盖范围独立，204745B消息及raw/payload清理前保留；非独立调度oracle。
