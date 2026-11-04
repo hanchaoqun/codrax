@@ -5696,7 +5696,7 @@ func analyzerPrescanResultHasSameBatchSignal(result types.ToolResult) bool {
 	switch result.ToolName {
 	case "grep":
 		discovery := result.PathDiscovery
-		return discovery != nil &&
+		return discovery.RepositoryInput() &&
 			discovery.Kind == types.ToolPathDiscoveryKindGrep &&
 			discovery.FilesOnly &&
 			!discovery.NoMatches &&

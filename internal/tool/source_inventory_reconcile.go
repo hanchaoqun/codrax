@@ -845,7 +845,7 @@ func SourceInventoryDiscoveryHintFromToolHistory(results []types.ToolResult) str
 }
 
 func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result types.ToolResult, params json.RawMessage) (sourceInventoryDiscoveryObservation, bool) {
-	if !result.Success {
+	if !result.Success || result.PathDiscovery != nil && !result.PathDiscovery.RepositoryInput() {
 		return sourceInventoryDiscoveryObservation{}, false
 	}
 	toolName := types.CanonicalToolName(result.ToolName)
@@ -929,7 +929,7 @@ func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result t
 }
 
 func sourceInventoryDiscoveryObservationFromHistory(result types.ToolResult) (sourceInventoryDiscoveryObservation, bool) {
-	if !result.Success {
+	if !result.Success || result.PathDiscovery != nil && !result.PathDiscovery.RepositoryInput() {
 		return sourceInventoryDiscoveryObservation{}, false
 	}
 	toolName := types.CanonicalToolName(result.ToolName)

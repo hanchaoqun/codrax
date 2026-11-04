@@ -2179,7 +2179,17 @@ func (t *GrepTool) Parameters() json.RawMessage {
 
 func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
 	var navigation types.ToolArtifactReadNavigation
-	defer func() { finishArtifactReadNavigation(ctx, navigation, &out) }()
+	var runtimeInput bool
+	defer func() {
+		if out.Success && out.PathDiscovery != nil && runtimeInput {
+			// Every successful backend shares the actual resolved input role.
+			// Do not turn scattered matches into read_file range coverage.
+			discovery := *out.PathDiscovery
+			discovery.InputOrigin = types.AnswerEvidenceOriginRuntimeArtifact
+			out.PathDiscovery = &discovery
+		}
+		finishArtifactReadNavigation(ctx, navigation, &out)
+	}()
 	var p grepToolParams
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
@@ -2256,6 +2266,10 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	}
 	if searchPathIsFile {
 		navigation = prepareArtifactReadNavigation(ctx, searchPath)
+		// Reuse the reader's input classification, not navigation advice,
+		// filename text in a match, or a model-provided origin. No read
+		// marker is attached: grep observes a pattern result, not a page.
+		runtimeInput = readFileRuntimeArtifactMarker(ctx, p.Path, searchPath, "", 0, 0, 0) != nil
 	}
 	lineWindow := p.LineStart > 0 || p.LineEnd > 0
 	if p.LineStart < 0 || p.LineEnd < 0 {

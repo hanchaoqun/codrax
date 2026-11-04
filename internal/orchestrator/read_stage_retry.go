@@ -562,6 +562,9 @@ func toolResultCarriesRuntimeArtifactSignal(result types.ToolResult) bool {
 	if strings.TrimSpace(result.ToolName) == "trace_query" {
 		return true
 	}
+	if result.RuntimeArtifactRead != nil || result.PathDiscovery != nil && result.PathDiscovery.InputOrigin == types.AnswerEvidenceOriginRuntimeArtifact {
+		return true
+	}
 	for _, record := range result.Observations {
 		if record.Origin == types.AnswerEvidenceOriginRuntimeArtifact ||
 			record.SourceRef.Kind == types.ObservationSourceRuntimeArtifact {

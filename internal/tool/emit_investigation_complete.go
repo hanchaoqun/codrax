@@ -8789,7 +8789,7 @@ func completionToolResultsHavePathFilteredGrepNoMatch(results []types.ToolResult
 			continue
 		}
 		pd := result.PathDiscovery
-		if pd == nil || pd.Kind != types.ToolPathDiscoveryKindGrep || !pd.NoMatches {
+		if !pd.RepositoryInput() || pd.Kind != types.ToolPathDiscoveryKindGrep || !pd.NoMatches {
 			continue
 		}
 		if strings.TrimSpace(pd.Include) == "" && strings.TrimSpace(pd.FileType) == "" {

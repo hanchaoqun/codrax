@@ -8558,7 +8558,7 @@ func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.Reque
 		}
 		switch types.CanonicalToolName(result.ToolName) {
 		case "grep":
-			if result.PathDiscovery == nil ||
+			if !result.PathDiscovery.RepositoryInput() ||
 				result.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
 				!result.PathDiscovery.FilesOnly {
 				continue

@@ -2334,16 +2334,30 @@ func observationRecordForPathDiscovery(index int, result ToolResult, discovery T
 	if discovery.NoMatches {
 		origin = AnswerEvidenceOriginRepoNegativeSearch
 	}
+	switch discovery.InputOrigin {
+	case AnswerEvidenceOriginUnknown, AnswerEvidenceOriginCurrentSource:
+		// Existing repository/directory discovery remains byte-compatible.
+	case AnswerEvidenceOriginRuntimeArtifact:
+		// Zero matches in a result page/log are not a negative repo search.
+		// Nor does a search prove a contiguous page read or native facts.
+		origin = AnswerEvidenceOriginRuntimeArtifact
+	default:
+		return ObservationRecord{}, false
+	}
 	role := AnswerAggregateRoleSupportingCoverage
+	policy := AnswerClaimBindingGroundingPolicy(origin, role)
+	if origin == AnswerEvidenceOriginRuntimeArtifact {
+		policy = ClaimGroundingDisplayOnly
+	}
 	count := discovery.ResultCount
 	record := ObservationRecord{
 		ID:              fmt.Sprintf("tool:%d#path_discovery", index),
 		Origin:          origin,
 		Producer:        strings.TrimSpace(result.ToolName),
 		Role:            role,
-		GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+		GroundingPolicy: policy,
 		SourceRef: ObservationSourceRef{
-			Kind:       ObservationSourceCurrentSource,
+			Kind:       ObservationSourceKindForOrigin(origin),
 			Path:       strings.TrimSpace(discovery.Path),
 			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
 			RawRef:     strings.TrimSpace(result.RawRef),

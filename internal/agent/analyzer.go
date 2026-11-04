@@ -1506,7 +1506,7 @@ func analyzerGrepPrescanReady(result types.ToolResult) bool {
 		return false
 	}
 	discovery := result.PathDiscovery
-	if discovery == nil ||
+	if !discovery.RepositoryInput() ||
 		discovery.Kind != types.ToolPathDiscoveryKindGrep ||
 		!discovery.FilesOnly ||
 		discovery.NoMatches ||

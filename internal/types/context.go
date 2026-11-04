@@ -7943,20 +7943,31 @@ const (
 // tool-computed outcomes; rendered summaries remain user-visible prose and
 // must not be parsed by hard gates to recover these fields.
 type ToolPathDiscovery struct {
-	Kind                    string   `json:"kind,omitempty"`
-	Pattern                 string   `json:"pattern,omitempty"`
-	MatchMode               string   `json:"match_mode,omitempty"`
-	LiteralRegexSyntaxHint  bool     `json:"literal_regex_syntax_hint,omitempty"`
-	Path                    string   `json:"path,omitempty"`
-	Recursive               bool     `json:"recursive,omitempty"`
-	Include                 string   `json:"include,omitempty"`
-	FileType                string   `json:"file_type,omitempty"`
-	FilesOnly               bool     `json:"files_only,omitempty"`
-	IncludeAuxiliary        bool     `json:"include_auxiliary,omitempty"`
-	NoMatches               bool     `json:"no_matches,omitempty"`
-	ResultCount             int      `json:"result_count,omitempty"`
-	CandidateFiles          []string `json:"candidate_files,omitempty"`
-	CandidateFilesTruncated bool     `json:"candidate_files_truncated,omitempty"`
+	// InputOrigin describes the producer-resolved search input, not the
+	// contents matched by the pattern. Empty keeps the legacy repository
+	// discovery contract. Runtime searches never prove repository absence.
+	InputOrigin             AnswerEvidenceOrigin `json:"input_origin,omitempty"`
+	Kind                    string               `json:"kind,omitempty"`
+	Pattern                 string               `json:"pattern,omitempty"`
+	MatchMode               string               `json:"match_mode,omitempty"`
+	LiteralRegexSyntaxHint  bool                 `json:"literal_regex_syntax_hint,omitempty"`
+	Path                    string               `json:"path,omitempty"`
+	Recursive               bool                 `json:"recursive,omitempty"`
+	Include                 string               `json:"include,omitempty"`
+	FileType                string               `json:"file_type,omitempty"`
+	FilesOnly               bool                 `json:"files_only,omitempty"`
+	IncludeAuxiliary        bool                 `json:"include_auxiliary,omitempty"`
+	NoMatches               bool                 `json:"no_matches,omitempty"`
+	ResultCount             int                  `json:"result_count,omitempty"`
+	CandidateFiles          []string             `json:"candidate_files,omitempty"`
+	CandidateFilesTruncated bool                 `json:"candidate_files_truncated,omitempty"`
+}
+
+// RepositoryInput is input-role classification only, not read, enumeration,
+// or absence authority. Missing metadata preserves old repository discovery;
+// explicit runtime/unsupported origins cannot enter repository consumers.
+func (d *ToolPathDiscovery) RepositoryInput() bool {
+	return d != nil && (d.InputOrigin == AnswerEvidenceOriginUnknown || d.InputOrigin == AnswerEvidenceOriginCurrentSource)
 }
 
 // ToolCommandMeasurement is the typed scalar/count measurement surface for

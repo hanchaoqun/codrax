@@ -21147,7 +21147,7 @@ func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) 
 		}
 		switch r.ToolName {
 		case "grep":
-			if r.PathDiscovery == nil || r.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep {
+			if !r.PathDiscovery.RepositoryInput() || r.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep {
 				continue
 			}
 			for _, raw := range r.PathDiscovery.CandidateFiles {
@@ -21273,7 +21273,7 @@ func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, 
 			}
 
 		case "grep":
-			if r.PathDiscovery == nil ||
+			if !r.PathDiscovery.RepositoryInput() ||
 				r.PathDiscovery.Kind != types.ToolPathDiscoveryKindGrep ||
 				r.PathDiscovery.FilesOnly {
 				continue

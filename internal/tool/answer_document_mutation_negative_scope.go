@@ -160,7 +160,7 @@ func currentSourceNegativeScopeAuthorityRows(ctx *types.BusContext) []currentSou
 	}
 	for _, result := range ctx.ToolResults {
 		discovery := result.PathDiscovery
-		if !result.Success || discovery == nil ||
+		if !result.Success || !discovery.RepositoryInput() ||
 			discovery.Kind != types.ToolPathDiscoveryKindGrep ||
 			!discovery.NoMatches || discovery.ResultCount != 0 ||
 			strings.TrimSpace(discovery.Pattern) == "" ||
