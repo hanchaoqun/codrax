@@ -55,7 +55,7 @@ func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span traceq
 	}
 	coverage := map[string]string{"complete": "完整", "partial": "部分，未覆盖部分未知", "unavailable": "不可用，未知不是零"}[states.Coverage]
 	table := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementSummary,
-		Label: "业务区间量测 — " + span.Name, DefaultPresentation: true, Columns: []string{"量测", "原生观测值"},
+		Label: "业务区间量测 — " + span.Name, DefaultPresentation: traceQueryBusinessDefaultPresentation(r.SourceRef, span), Columns: []string{"量测", "原生观测值"},
 		Rows: [][]string{
 			{"业务", span.Name}, {"执行线程", r.Subject},
 			{"业务区间开始（秒，含）", traceQueryDisplaySeconds(span.StartTs)}, {"业务区间结束（秒，不含）", traceQueryDisplaySeconds(span.EndTs)},
@@ -80,4 +80,20 @@ func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span traceq
 		return ""
 	}
 	return types.TraceNoteKeyRuntimeMeasurement + "=" + string(raw)
+}
+
+// A broad native result intentionally retains other threads' business spans.
+// An exact query target guides only their default layout, never their facts,
+// availability, causal seat or an explicit selection. Do not infer a numeric
+// target from a name, row text, business label or a process/thread ID collision.
+func traceQueryBusinessDefaultPresentation(ref types.ObservationSourceRef, span tracequery.TraceSpanSummary) bool {
+	if ref.QueryTargetPID <= 0 {
+		return true // Broad and unresolved/name-only requests keep their old intent.
+	}
+	switch ref.QueryTargetScope {
+	case "", tracequery.TargetScopeThread, tracequery.TargetScopeProcess:
+		return tracequery.TraceSpanMatchesTarget(span, tracequery.ThreadRef{PID: ref.QueryTargetPID}, tracequery.Query{PID: ref.QueryTargetPID, TargetScope: ref.QueryTargetScope})
+	default:
+		return true // Unknown legacy metadata cannot invent a target restriction.
+	}
 }

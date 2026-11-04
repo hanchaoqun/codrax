@@ -11314,6 +11314,24 @@ func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) boo
 	if q.SpanName != "" && !strings.Contains(strings.ToLower(span.Name), strings.ToLower(strings.TrimSpace(q.SpanName))) {
 		return false
 	}
+	if !TraceSpanMatchesTarget(span, target, q) {
+		return false
+	}
+	if q.TimeStart > 0 && span.EndTs < q.TimeStart {
+		return false
+	}
+	if q.TimeEnd > 0 && span.StartTs > q.TimeEnd {
+		return false
+	}
+	return true
+}
+
+// TraceSpanMatchesTarget shares the engine's existing target membership rule
+// with native presentation. This matches identity only: not time, name,
+// dependency, current-source authority, or a cause. Callers supplying a name
+// retain the engine's ordinary query behavior; exact display intent uses only
+// an already known numeric scheduler TID or explicit process scope.
+func TraceSpanMatchesTarget(span TraceSpanSummary, target ThreadRef, q Query) bool {
 	if q.TargetScope == TargetScopeProcess {
 		if _, ok := traceSpanProcessMembershipSource(span, q.PID); !ok {
 			return false
@@ -11322,12 +11340,6 @@ func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) boo
 		if !threadMatches(target, span.Thread.PID, span.Thread.Comm) {
 			return false
 		}
-	}
-	if q.TimeStart > 0 && span.EndTs < q.TimeStart {
-		return false
-	}
-	if q.TimeEnd > 0 && span.StartTs > q.TimeEnd {
-		return false
 	}
 	return true
 }
