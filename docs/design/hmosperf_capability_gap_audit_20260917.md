@@ -2,7 +2,39 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§342，main）：79唯一＝28完整＋51开放，勾选不变；完整新增0，交付3子能力/1共享组、工装精度1项，剩余验收欠项3组。源码949ff3e01eb3557032bfd64ce5746056c3222e68统一完整凭证/紧凑定位/展示及scope sibling父初始化，原四失败与唯一full98包PASS、零FAIL；两例原smoke PASS，但资源身份原有限/整答、完整抖音整答仍人工FAIL，未销任务。519件保原，旧340/341失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§342汇总](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_parent_scope_coordinate_douyin_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+当前状态（2026-11-03，§343，main；执行UTC已至11-04）：79唯一＝28完整＋51开放，勾选不变；完整新增0、交付2子能力/1共享组，剩余验收欠项3组、未触发单列。源码9758d3628b7aa27b0687c4bb912985949d2cb4b4补全线程/目标/展示库存的同源交接，唯一full98包PASS、零FAIL；完整抖音自然收到新事实而整答仍人工FAIL，只读缺来源终态负控限定PASS、不冒自然CLI。624件保原，旧失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§343汇总](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103_manual_audit.md)。WAL零副作用前生产NO-GO。
+
+## 343. 库存主体与展示范围分离、同源成文交接及只读负向终态
+
+main基线08d1defbbc23bb0f402914482115b238425d4d9e，源码9758d3628b7aa27b0687c4bb912985949d2cb4b4，13Go/499增21删（8生产/5测试）。核账79唯一/28完整/51开放、18部分/29待实施/2待验收/1验收中/1持续不变；完整新增0，交付2子能力/1共享组，root closure none。旧340/341失败不补publication，旧18.3有限关闭不重复计交付。
+
+### 343.1 已证适用域缺口与泛化方案
+
+§342原生business_tree的25139是全线程库存，32节点全部恰为目标；目标旧完整整数账2611没有typed库存交接，容易把展示优先级当过滤/分母。新population在原32节点截断前计量，发布all_observed_emitters及可选物理TID的库存、展示、未展示；名字/进程不猜目标，合法0与nil未知独立。consumer校验精确整数及SourceRef，沿原selector语法适配name-TID/纯数字/name (TID)，不从原问/输出扫描关键词或按名称猜线程。
+
+工具预览与实际Finalizer共享库存说明；逐源/query先定义再引用，不每账户重复计数，不合并不同查询。JSON字段显式分类、脚本renderer保必需0和可选nil。旧全库存、32上限、inclusive/self/state/分段/原始物理端点行及完整SourceRef均保持，库存不授完整成员/完成/因果。参考context_index的自包含路径导航、llm_contract的字段职责和先定义后引用；不照搬同step/type覆值、缺值补0、固定5/50或噪声门。
+
+公开RED后修复，初始field disposition遗漏、fixture偷偷继承目标及related暴露的合法name-TID兼容回归全部保原；最终修共用解析器，不放宽旧断言。两份2783行timeline内容虽相同，索引padding为.25s/.5s、覆盖Notes不同，不能以值同合并整publication。后继应分离完整内容体与独立查询凭证、跨块整组预算；本代只交库存定义复用，不冒通用去重完成。
+
+### 343.2 冻前验证、完整实采与唯一full
+
+最终相关7包236顶层/678子、race×2四包56/110、原4根因/闭合睡眠守护四包21/141 PASS；正常CLI build/startup零模型零工具。完整235422121B/1696481行用户抖音、SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef，模型外1native query/0模型验证全库存25139/目标2611/展示32/目标省2579与actual Finalizer一致；旧338整数oracle只复用，raw/payload清理前保存，不冒独立状态/因果oracle。
+
+冻结7608输入/441外部/22快照、SHAa9ee77a1323a622383f4815b99b28abb41e9e939feb182b2ccb40e583158f393后源码/测试/教学/helper/case/oracle停写。唯一full UTC11-04 01:25:54.590734→01:40:03.911392，OS0/源前后true：98包PASS/12无测试、28739顶层PASS/49SKIP、34414子PASS/14SKIP，267717纯JSON，零FAIL/非JSON/重复/未终态。log SHA352f042ca9b93bcab696dca1ee838551d98225edbb5ba1eb38432ff314b77564，不追跑第二次全仓。
+
+### 343.3 两例各n1与独立人工判决
+
+A原完整抖音15步：6query声明/5唯一JSON，20声明/20参数可解析，exec导航被明确拒绝不冒成功。原smoke PASS；新库存自然进入actual INIT03，16完整账户及省略分列。32节点对旧整源整数wall/端点/层级账256项零差异，原生16阶段及2783状态账保真；完整人工仍FAIL：低runnable排除CPU竞争、时序列表倒序、32保留节点错套1429直接子集合、非零running说全睡眠、有子节点称叶子。正确尾注/表格不抵销正文，原03.2/IO/采样欠项不因此销账。
+
+实际三INIT100509/14102/314046B含提取换行，不冒provider wire/token成本。两次completion提交旧aggregate/reason而未提交native_fact_handoff；初版手审误称旧reason直接转发，经3396/3663B逐字及JSON转义对三段INIT六组核对均不存在，现撤回污染因果判断。初版及更正原件同时留存；最终相似误述应记为充分原生事实到场后的解释FAIL。query产物grep在KnownFacts泛标current_source而read_file为runtime_artifact，是后续共享来源分类线索，尚不证明造成源码义务或本例错误。MD965741B/HTML4269117B、12表cell诊断一致，重复16阶段与两份2783行时序列共享P0；无图/patch/像素QA。
+
+B原只读登记缺来源终态：真实planner＋脚本controller＋公共执行＋独立恢复限定PASS，源/测试/HEAD不变。新invocation不复用旧执行；1断言/2命令/4义务分列，来源仅apply、proof verified而overall unverified/missing_terminal_verify_verdict，实际WriteFinalReport及同代final→report一致，父子4原件均保。非自然controller/fullCLI，context-pack耐久false，不冒整项闭环。两例精确唯一区间A14/B2、零歧义，真实重叠3.895秒；每例一次，不追加第三例追绿。
+
+### 343.4 封存、3组欠项与后继ROI
+
+624件index SHAdb1e52056a6fce2745674515dd63e5ae90c0399d4f8218c4d1983c0e242cc409，seal SHA18ef923af80c7392a3d60184ac1c5c8e93420c90a8df3a81c7a865d3336425a4；45代按代19709件非全局去重，只物理重核最新342的519件及更早43代链头。大原件仅引用，providers含synthetic不读/哈希/复制，不冒全部本地原件上传。源码与五文档相邻提交及远端main由publication另核。
+
+3组仍挂原51ID：整答范围/时序/状态/机制（含旧资源/采样/IO）；完整内容体与独立凭证复用/整组预算/运行时来源分类；代表/权限/图/真实格式平台和自然只读CLI的未触发验收。下一双轨优先第二组系统面，完整轨轮换实物二进制、原有限IO/资源及自然只读正负终态；不无限追充分事实后的偶发误述。所有51ID按7/6/11/21/6 ROI见[批汇总](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103.md)，[逐层手审](../../eval/parallel_selected_summary_hmc_population_readonly_douyin_20261103_manual_audit.md)保失败/未触发界限。Trace投影/自动补齐/原4根因/闭合睡眠/链上业务、合法计算重试保持，WAL零副作用前生产NO-GO。
 
 ## 342. 完整父凭证、精确坐标见证与原有限资源/完整用户实采
 
