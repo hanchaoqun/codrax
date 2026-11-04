@@ -16,11 +16,25 @@ import (
 // small preview that happens to fit. Scope, target and physical generation
 // must also agree. No query authority is derived from equal display bytes.
 func runtimeMeasurementContentKey(source, predicate string, p types.RuntimeMeasurementPublication, table types.RuntimeMeasurementTable) string {
+	return runtimeMeasurementDisplayBodyKey(source, predicate, p, table, false)
+}
+
+// This second display key shares only data storage. Complete notes still
+// belong to the strict content key, and every selector keeps its own receipt.
+// In particular, equal rows do not equate different query scopes or units.
+func runtimeMeasurementDataKey(source, predicate string, p types.RuntimeMeasurementPublication, table types.RuntimeMeasurementTable) string {
+	return runtimeMeasurementDisplayBodyKey(source, predicate, p, table, true)
+}
+
+func runtimeMeasurementDisplayBodyKey(source, predicate string, p types.RuntimeMeasurementPublication, table types.RuntimeMeasurementTable, dataOnly bool) string {
 	if source == "" || !types.RuntimeMeasurementPredicateIsRegistered(predicate) || !table.IsValid() || table.ObservationID != p.ObservationID || table.HasNativeSamplingFacts() || table.EventData != nil {
 		return ""
 	}
 	copy := table.Clone()
 	copy.ObservationID = ""
+	if dataOnly {
+		copy.Notes = nil
+	}
 	if copy.DisplayPopulation != nil {
 		if copy.DisplayPopulation.QueryScopeID != p.Source.QueryScopeID {
 			return ""
@@ -34,12 +48,23 @@ func runtimeMeasurementContentKey(source, predicate string, p types.RuntimeMeasu
 		return ""
 	}
 	digest := sha256.Sum256(raw)
+	if dataOnly {
+		return "measurement-data:" + hex.EncodeToString(digest[:])
+	}
 	return "measurement-content:" + hex.EncodeToString(digest[:])
 }
 
 type runtimeMeasurementContentWitness struct {
-	key   string
-	query string
+	key     string
+	dataKey string
+	query   string
+}
+
+func (w runtimeMeasurementContentWitness) budgetKey() string {
+	if w.dataKey != "" {
+		return w.dataKey
+	}
+	return w.key
 }
 
 // Only the current private native source and the exact unmodified contract
@@ -75,7 +100,7 @@ func runtimeMeasurementContentWitnesses(ctx *types.AgentContext, tables []types.
 				for _, table := range p.Tables {
 					selector := samplingFactViewKey{table.ObservationID, table.View}
 					raw, _ := json.Marshal(table)
-					candidate := witness{runtimeMeasurementContentWitness{runtimeMeasurementContentKey(source, record.Predicate, p, table), string(query)}, string(raw)}
+					candidate := witness{runtimeMeasurementContentWitness{key: runtimeMeasurementContentKey(source, record.Predicate, p, table), dataKey: runtimeMeasurementDataKey(source, record.Predicate, p, table), query: string(query)}, string(raw)}
 					if prior, found := witnesses[selector]; found && prior != candidate {
 						conflicts[selector] = true
 					}
@@ -85,6 +110,7 @@ func runtimeMeasurementContentWitnesses(ctx *types.AgentContext, tables []types.
 		}
 	}
 	groups := map[string]map[string]bool{}
+	dataGroups := map[string]map[string]bool{}
 	for i, table := range tables {
 		selector := samplingFactViewKey{table.ObservationID, table.View}
 		w := witnesses[selector]
@@ -97,8 +123,20 @@ func runtimeMeasurementContentWitnesses(ctx *types.AgentContext, tables []types.
 			groups[w.key] = map[string]bool{}
 		}
 		groups[w.key][previewKeys[i]] = true
+		if w.dataKey != "" {
+			if dataGroups[w.dataKey] == nil {
+				dataGroups[w.dataKey] = map[string]bool{}
+			}
+			dataGroups[w.dataKey][w.key] = true
+		}
 	}
 	for i, w := range out {
+		// Different complete note lists require separate content records. Only
+		// their independently qualified, whole retained data may share storage.
+		if w.dataKey != "" && len(dataGroups[w.dataKey]) > 1 {
+			continue
+		}
+		out[i].dataKey = ""
 		// Existing same-query preview aliases keep their stricter contract.
 		// Only a genuinely different publication identity needs this layer.
 		if len(groups[w.key]) < 2 {
@@ -115,6 +153,7 @@ type runtimeMeasurementContentPreview struct {
 
 type runtimeMeasurementContentDictionary struct {
 	bodies  map[string]runtimeMeasurementContentPreview
+	data    map[string]runtimeMeasurementContentPreview
 	queries map[string]string
 }
 
@@ -124,16 +163,20 @@ type runtimeMeasurementContentDictionary struct {
 // not borrowed from the first table even when every display byte agrees.
 func (d *runtimeMeasurementContentDictionary) write(b *strings.Builder, w runtimeMeasurementContentWitness, table types.RuntimeMeasurementTable, count int, sourceTitle, dimensions string, notes runtimeMeasurementNoteNavigation, publication *answerDocNativePresentationReceipt) (bool, int, int) {
 	prior, exists := d.bodies[w.key]
+	data, dataExists := d.data[w.dataKey]
 	if exists {
 		count = prior.rows
+	} else if w.dataKey != "" && dataExists {
+		count = data.rows
 	}
 	contentRef := prior.ref
+	dataRef := data.ref
 	var body string
 	var pendingNotes runtimeMeasurementNoteNavigation
 	if !exists {
 		contentRef = fmt.Sprintf("measurement-content-%d", len(d.bodies)+1)
-		// The full note list is part of the body key, but identical note bytes
-		// across its summary/members/timeline views need only one definition.
+		// The full note list remains part of the strict body key. Identical
+		// data can be interned separately, without borrowing any other's notes.
 		// Work on a tentative dictionary until all writes fit their budgets.
 		pendingNotes = runtimeMeasurementNoteNavigation{}
 		for note, ref := range notes {
@@ -141,10 +184,23 @@ func (d *runtimeMeasurementContentDictionary) write(b *strings.Builder, w runtim
 		}
 		var definitions strings.Builder
 		noteRefs := pendingNotes.references(&definitions, table.Notes)
-		payload, _ := json.Marshal(struct {
-			Preview  measurementHandoffPreview `json:"preview"`
-			NoteRefs json.RawMessage           `json:"note_refs"`
-		}{runtimeMeasurementHandoffPreview(table, count), json.RawMessage(noteRefs)})
+		var payload []byte
+		if w.dataKey == "" {
+			payload, _ = json.Marshal(struct {
+				Preview  measurementHandoffPreview `json:"preview"`
+				NoteRefs json.RawMessage           `json:"note_refs"`
+			}{runtimeMeasurementHandoffPreview(table, count), json.RawMessage(noteRefs)})
+		} else {
+			if !dataExists {
+				dataRef = fmt.Sprintf("measurement-data-%d", len(d.data)+1)
+				raw, _ := json.Marshal(runtimeMeasurementHandoffPreview(table, count))
+				fmt.Fprintf(&definitions, "- native_measurement_data %s=%s\n", dataRef, raw)
+			}
+			payload, _ = json.Marshal(struct {
+				DataRef  string          `json:"data_ref"`
+				NoteRefs json.RawMessage `json:"note_refs"`
+			}{dataRef, json.RawMessage(noteRefs)})
+		}
 		body = definitions.String() + fmt.Sprintf("- native_measurement_content %s=%s\n", contentRef, payload)
 	}
 	queryRef := d.queries[w.query]
@@ -182,13 +238,19 @@ func (d *runtimeMeasurementContentDictionary) write(b *strings.Builder, w runtim
 		d.queries = map[string]string{}
 	}
 	d.bodies[w.key] = runtimeMeasurementContentPreview{contentRef, count}
+	if w.dataKey != "" && !dataExists {
+		if d.data == nil {
+			d.data = map[string]runtimeMeasurementContentPreview{}
+		}
+		d.data[w.dataKey] = runtimeMeasurementContentPreview{dataRef, count}
+	}
 	d.queries[w.query] = queryRef
 	for note, ref := range pendingNotes {
 		notes[note] = ref
 	}
 	publication.observeMeasurementViewDetails(table, count == len(table.Rows), true)
 	newRows := 0
-	if !exists {
+	if !exists && (w.dataKey == "" || !dataExists) {
 		newRows = count
 	}
 	return true, count, newRows

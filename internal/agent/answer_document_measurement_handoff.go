@@ -37,7 +37,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	contentShared := false
 	for i, witness := range contentWitnesses {
 		if witness.key != "" {
-			budgetKeys[i] = witness.key
+			budgetKeys[i] = witness.budgetKey()
 			contentShared = true
 		}
 	}
@@ -49,7 +49,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext, publicati
 	b.WriteString(renderAcceptedNativeAnswerDisplay(ctx, view))
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
 	if contentShared {
-		b.WriteString("- Content dictionary: native_measurement_content stores one exact display preview and complete producer notes via note_refs to native_measurement_note. Each content_ref uses only those displayed rows and source_row_indices; it does not make a partial preview complete. query_receipt resolves that selector's own full native source/query coordinates; its source_title and population metadata stay independent. Equal display bytes never merge queries, denominators, permissions, causal relations or completion. Select the original observation_id/view, not a dictionary ID.\n")
+		b.WriteString("- Content dictionary: native_measurement_content stores an exact display preview or data_ref to native_measurement_data, plus its own complete producer notes via note_refs to native_measurement_note. Shared data stores only those displayed rows and source_row_indices; it does not make a partial preview complete or share another query's coverage notes. query_receipt resolves that selector's own full native source/query coordinates; its source_title and population metadata stay independent. Equal display bytes never merge queries, denominators, permissions, causal relations or completion. Select the original observation_id/view, not a dictionary ID.\n")
 	}
 	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
 		fmt.Fprintf(&b, "- Complete native record tables can carry requested member-set display dimensions %v. Bind only the indices actually answered with block-level requested_dimension_indices beside runtime_measurement. One table can carry several dimensions (for example the event roster and its per-row identities); do not retype rows. For an automatically shown table, add an exact model selector with those indices; it replaces the duplicate default display. This is display ownership only, not source-code, causal or investigation-completion evidence.\n", indices)
