@@ -2,7 +2,41 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-03，§346发布批，main；执行UTC11-04）：79唯一＝28完整＋51开放，原状态/勾选不变；完整新增0，交付2子能力/1共享组，源码8124fec5ba557afdec180caa6da7962872446d30。原两例各一次真实并行，机器1/2、完整人工0/2；新数据/独立覆盖交接在完整抖音自然触发，IO有限解释及整答离散区间/状态越权不销。唯一full98包28748顶层/34432子PASS、零FAIL，500件封存；旧失败不回签。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§346汇总/51项ROI](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103.md)及[手审](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103_manual_audit.md)，远端同代独立核。WAL生产NO-GO。
+当前状态（2026-11-04，§347发布批，main）：79唯一＝28完整＋51开放，原状态/勾选不变；完整新增0，交付1子能力/1共享组，源码c62f39aeb63ec27028f538a9dafd2f016165c423。两原例各n1真实并行，机器2/2、主审1/2；完整抖音的逐成员原生交接自然触发，整答层级/状态失败，新表图最终选择未触发；只读缺来源终态负控有限PASS，不冒完整CLI或自然controller。唯一full98包28752顶层/34446子PASS、零FAIL，568件封存。新展示域端点标题登记欠项及旧采样/IO/权限/二进制欠项不销。详[实施清单](hmosperf_implementation_tasks_20260917.md)、[§347汇总/51项ROI](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104_manual_audit.md)，远端同代独立核。WAL生产NO-GO。
+
+## 347. 离散区间成员原生交接、完整用户实采及只读登记负向终态
+
+从干净4e8e2bc4c继续，冻结前发现远端HTML目录功能3笔提交，安全快进至bf6872ec3b7ac61d51742d987c3ffc1a7d3d87f0后重新检查、构建与实采回归；不丢他人修改，不新建分支。源码c62f39aeb63ec27028f538a9dafd2f016165c423，6Go/398增2删（3生产/3测试）。79唯一/28完整/51开放、18部分/29待实施/2待验收/1验收中/1持续不变；完整新增0、已交付子能力1共享组。
+
+### 347.1 公开缺口、参考意图与有界实现
+
+§346的原生查询保留逐成员起止，成文语义摘要却只带成员耗时/源行及family包络。公开旧码实际query→当前来源合同→actual Finalizer RED复现没有可选成员坐标；不是给VerifyClass加特例提示。新谓词只发布既有engine family的保留成员，复用原折叠器，不重写解析、裁切、并集、因果身份或排序。
+
+每行保原业务名、线程、宿主进程/打点声明进程、半开量测端点、窗口内耗时、完整原始配对端点/耗时和源行。原生行序不改，重叠不去重/相加，0起点合法；源/完整ThreadRef/端点/时长或隐藏尾部有矛盾则整组不发新展示，原有事实不丢。只接单物理源、已知连续查询窗，64KiB整组上限，不伪造部分完整性。members-only，保留当前私有来源资格，不授MemberSet/DisplayPopulation、完成或因果许可；默认不强制把全部明细塞进答案。表、摘要和无边事实图沿既有selector绑定同一完整原表，不加自由文本关键词门或第二套JSON。
+
+参考window_utils的半开区间裁切/状态行保真；span_analysis按交集选span却返回原始ts/dur，不能把它直接当裁切量测。本仓分列原始配对与窗口内量测、逐成员集合与包络；context_index的完整产物/导航分离可复用，覆值、猜分母和文本门不搬。公开正反覆盖离散/重叠/裁切/0起点、外源/不同进程/坏尾部/NaN/重复配对及视图边界；旧断言、原4根因与闭合睡眠合同未放宽。
+
+### 347.2 冻前、完整ftrace与唯一full
+
+同步后相关5包88顶层/426子、race×2三包36/264、原因果四包21/141 PASS；标准CLI和原orchestrator testbin构建/startup零模型零工具PASS，8项真实runner实参正负检查PASS。之前各次RED/GREEN、同步前检查、标尺执行器并行新增测试造成的整仓source_unchanged=false及主审计数草稿均保原；标尺自身对完整ftrace前后SHA/身份检查通过，不拿旧整仓收据代当前版本。
+
+完整235422121B/1696481行抖音，SHA93b45bcca5c9e9b415478d81e176b633d70886328c49731b5258c806695de1ef。独立B/E整数微秒标尺本轮重算2611个目标闭合区间；32原生业务节点160项边界/inclusive/self/直接子数无差异，新11个目标保留成员端点/源行精确匹配，与独立dex区间逐段交集0。两次native query/0模型的actual adapter回归原raw/payload清理前保存，不冒独立调度/因果oracle。
+
+冻结7620输入/399外部/15仓外快照，SHA9a31647a5c548be3eb254cfa147b494af70a834124a42b4aa9c7517b9ea29a5a后停写。唯一full UTC08:44:49.346030→08:59:08.674367，OS0/源前后true：98包PASS/12无测试、28752顶层PASS/52SKIP、34446子PASS/14SKIP，267912纯JSON，零FAIL/重复/未终态；log SHAa967d5ac70456e922c6a99f2d598cdad8917e8742baaf4c51e0ebe1c07815ba8。
+
+### 347.3 两原例及未销账范围
+
+A原整件抖音15steps/n1，6query声明/6唯一JSON；Known Facts重复window_stats不是第7次执行。新5组16成员、目标11行全量进入actual INIT，调查handoff自然选择新成员表；最终model未选新成员表/图，载体自然验收NOT_TRIGGERED。原smoke PASS、完整人工FAIL：仅1段34.327ms在attachBaseContext，另10段14.618ms在其前，正文却整组塞进该子层和顶层self；未展示self分段误作未扣直接子业务，837段S与868段全等待混分母、D与IO混子集，设备IO排除越权继续。实际转发第二份解释的[0,1,2]，省1679B；unit4坏文和第一份拒收稿未投递，不冒污染。464074B实际INIT/962589B完整MD仍有两份2783行表与阶段表重复；HTML12表源码单元一致，无图/像素QA，不冒全局预算完成。
+
+B原TestNativeRegistrationLiveRestoredMissingTerminalReceipt各n1，real planner/脚本恢复controller/独立子进程，不是完整CLI/自然controller。精确PTO、新旧invocation不同、原HEAD/空diff/status、1断言/2命令（语法预检＋测试）和真实final/report同代链接均核；source缺controller验证终态时proof可以passed，workflow及final completion仍unverified/missing_terminal_verify_verdict。原机器及有限人工PASS，不复用旧正控或签18.5全部完成。A18/B2精确请求、零歧义、最大真实重叠2.911s；机器2/2、主审1/2，稳定closure none。
+
+### 347.4 新合同欠项与全表ROI
+
+新谓词尚未列入runtime_raw_measurement.go的端点私有见证闭集，统一源窗标题保守显示endpoint inclusion unavailable，成员列/Notes仍正确半开。此精确工程接缝挂01.3/16.4/18.4，不能冒统一时间标题完成，也不在冻结后补白名单。下一共享切口应统一展示域view/范围/端点trait登记与演进测试，保私有来源、旧缺见证未知及精确拒绝；不要按一句模型错误追加关键词门。
+
+剩余4组：展示域合同/端点覆盖；集合/层级/状态及调查解释；完整输出复用/跨块预算；只读、二进制、代表/图/权限及协议平台。全部51项ROI见本批汇总，不拆新父ID；旧采样/IO解释证据充分的偶发误述继续留账，轮换推进有材料二进制与只读正负终态，不重复把已验sample-only有限能力算新交付。WAL零副作用前生产NO-GO。
+
+568件保原封存，index SHA7a4c6a8f86632b7f92b4f54f1f3ce3367033f31ca84a44571550144a95c590a4，seal SHA91ce7a9f9b13700e8dcc836629514c7decf004d9d2fd110133d1b8d109e3b136。累计49代21886件按代保留，非全局去重；本代物理重验前代346的500件及失败344的554件，另46代仅链头，不冒全量重哈。详[汇总](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104_manual_audit.md)。最终main/远端相邻源码与5文档另由publication核验。
 
 ## 346. 同源数据与完整覆盖分离、原有限IO及完整用户实采
 

@@ -1,6 +1,6 @@
 # HarmonyOS 能力差距实施任务清单
 
-日期：2026-09-17，状态更新至2026-11-03（§346发布批，main；执行UTC11-04）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0，交付2项子能力/1共享组，源码8124fec5ba557afdec180caa6da7962872446d30：同源数据复用与独立覆盖/查询凭证交接。两原例各一次真实并行，机器1/2、完整人工0/2；IO原有限合同仍FAIL，整件抖音自然触发新数据复用，正文离散区间/状态解释仍FAIL。唯一full98包28748顶层/34432子PASS、零FAIL，500件保原封存。详[§346汇总/全部51项ROI](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103.md)与[手审](../../eval/parallel_selected_summary_hmc_native_data_coverage_io_douyin_20261103_manual_audit.md)，最终main/远端以独立publication为准。旧失败不回签，WAL零副作用前生产NO-GO。
+日期：2026-09-17，状态更新至2026-11-04（§347发布批，main）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0，交付1项子能力/1共享组，源码c62f39aeb63ec27028f538a9dafd2f016165c423：逐成员原生区间到共享成文上下文。两原例各n1真实并行，机器2/2、主审1/2；缺来源终态的只读负控有限PASS，不冒自然controller/fullCLI；完整抖音5组新事实自然触发，正文层级/状态解释仍FAIL，新表图最终选择未触发。新展示域端点标题登记欠项挂01.3/16.4/18.4；旧采样、IO、权限和二进制剩余项不销。唯一full98包28752顶层/34446子PASS、零FAIL，568件保原封存。详[§347汇总/全部51项ROI](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104.md)与[手审](../../eval/parallel_selected_summary_hmc_span_members_readonly_negative_20261104_manual_audit.md)，最终main/远端以独立publication为准。旧失败不回签，WAL零副作用前生产NO-GO。
 
 ## 1. 范围、状态和交付规则
 
