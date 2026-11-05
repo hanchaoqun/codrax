@@ -23,11 +23,13 @@ const answerDocBusinessAccountLimit = 16
 // particular, full-instance self and query-clipped self cannot borrow each
 // other's inclusive duration, states, or segment completeness.
 type answerDocBusinessAccount struct {
-	record types.ObservationRecord
-	fact   tool.TraceBusinessTreeFact
-	key    string
-	group  string
-	spanID string // only the independently validated complete-table lane
+	record  types.ObservationRecord
+	fact    tool.TraceBusinessTreeFact
+	key     string
+	group   string
+	spanID  string // only the independently validated complete-table lane
+	novelty string // soft slot preference only; never a publication identity
+	source  string // dispatch-local private physical generation, if revalidated
 }
 
 type answerDocBusinessAccountPlan struct {
@@ -40,6 +42,7 @@ type answerDocBusinessAccountPlan struct {
 
 func planAnswerDocBusinessTreeFacts(ctx *types.AgentContext, ledger types.ObservationLedger) answerDocBusinessAccountPlan {
 	var accounts []answerDocBusinessAccount
+	sources := answerDocBusinessAccountSources(ctx)
 	for _, r := range ledger.Records {
 		fact, ok := tool.DecodeTraceBusinessTreeFact(r)
 		if !ok {
@@ -49,7 +52,7 @@ func planAnswerDocBusinessTreeFacts(ctx *types.AgentContext, ledger types.Observ
 		if !qualified || profile.HasExplicitTimeWindows() && (fact.WindowUnavailableReason != "" || !profile.ContainsExplicitTimeWindow(fact.Window.StartTs, fact.Window.EndTs)) {
 			continue
 		}
-		accounts = append(accounts, answerDocBusinessAccount{record: r, fact: fact})
+		accounts = append(accounts, answerDocBusinessAccount{record: r, fact: fact, source: sources[traceEventPublicationRecordKey(r)]})
 	}
 	return selectAnswerDocBusinessAccounts(accounts)
 }
@@ -74,6 +77,7 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 		seen[a.key] = true
 		group, _ := json.Marshal([]any{query, a.fact.Node.SourcePath, a.fact.Window, a.fact.WindowUnavailableReason})
 		a.group = string(group)
+		a.novelty = answerDocBusinessAccountNoveltyKey(a)
 		groups[a.group] = append(groups[a.group], a)
 		plan.accepted++
 	}
@@ -108,15 +112,34 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 	sort.Strings(keys)
 	plan.groups = len(keys)
 	shownGroups := map[string]bool{}
+	shownContent := map[string]bool{}
 	for round := 0; len(plan.accounts) < answerDocBusinessAccountLimit; round++ {
 		progress := false
 		for _, key := range keys {
-			if round >= len(groups[key]) || len(plan.accounts) == answerDocBusinessAccountLimit {
+			rows := groups[key]
+			if len(rows) == 0 || len(plan.accounts) == answerDocBusinessAccountLimit {
 				continue
 			}
-			a := groups[key][round]
+			// Every query still gets its own first complete owner/root. On
+			// later rounds prefer additional information before another
+			// query's copy. Equal content never merges either record, and
+			// duplicate copies remain eligible when no new content remains.
+			index := 0
+			if round > 0 {
+				for i, a := range rows {
+					if a.novelty == "" || !shownContent[a.novelty] {
+						index = i
+						break
+					}
+				}
+			}
+			a := rows[index]
+			groups[key] = append(rows[:index], rows[index+1:]...)
 			plan.accounts = append(plan.accounts, a)
 			plan.published[a.key] = true
+			if a.novelty != "" {
+				shownContent[a.novelty] = true
+			}
 			shownGroups[key] = true
 			progress = true
 		}
