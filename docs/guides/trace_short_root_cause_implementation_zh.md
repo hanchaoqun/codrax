@@ -213,6 +213,8 @@ JSON Schema 限制字段、类型和根因类别
 
 被拒的选择器不会静默丢弃：工具结果携带 typed `optional_carrier_outcomes` 行（`carrier` / `status` / `reason` / `hint`），摘要面追加一行精确原因与可选 `candidate_id` 清单，模型在下一次 `emit_answer_document_patch` 用 `replace_trace_root_causes` 修正；patch 中无效的替换保留上一次已接受的选择（`status=retained_previous`）并同样披露。披露落在该次调用返回的任何结果上——答案被接受、被结构性拒绝（含 patch 在持久化之前的拒绝）都一样；被拒绝的选择器此后会在 `.root-causes.json` 里以 `model_root_cause_selection_rejected` 与「从未选择」区分开。
 
+正文已接受但根因选择缺失或被拒时，复用现有一次 post-emit advisory 修正机会。该轮优先仅暴露 `emit_answer_document_patch`，避免同时发送完整重写和局部补丁的重复大型 schema，导致模型尚未收到修正反馈就超过既有请求字节预算。预算、可选提交约定和原正文保留规则不变；保留显式完整重写逃生分支，缺少 patch 工具时不移除唯一可调用工具。程序不猜测或自动纠正 candidate_id，不改变模型的根因选择和因果等级。
+
 模型输入只包含 `candidate_id`。程序从冻结候选生成其余字段：
 
 - `rank` 按模型选择的数组顺序生成；
