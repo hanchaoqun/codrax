@@ -10,6 +10,10 @@ import (
 // The accepted document owns a deep-copied table, so rendering never reads a
 // mutable artifact, parses prose, recalculates a value, or chooses a member.
 func renderV2RuntimeMeasurementTable(b *strings.Builder, block types.AnswerBlock, lang answerDocLang) {
+	renderV2RuntimeMeasurementData(b, block, lang, nativeMeasurementDataPlacement{})
+}
+
+func renderV2RuntimeMeasurementData(b *strings.Builder, block types.AnswerBlock, lang answerDocLang, placement nativeMeasurementDataPlacement) {
 	if block.RuntimeMeasurement == nil || !block.RuntimeMeasurement.IsBound() {
 		if lang == answerDocLangZH {
 			b.WriteString("测量表未绑定到当前证据，无法展示可信数值。\n\n")
@@ -39,14 +43,29 @@ func renderV2RuntimeMeasurementTable(b *strings.Builder, block types.AnswerBlock
 		}
 		b.WriteByte('\n')
 	}
-	writeRow(table.Columns)
-	separators := make([]string, len(table.Columns))
-	for i := range separators {
-		separators[i] = "---"
-	}
-	writeRow(separators)
-	for _, row := range table.Rows {
-		writeRow(row)
+	if placement.reference {
+		if lang == answerDocLangZH {
+			fmt.Fprintf(b, "数据行见上方**数据表 %d**。这里只复用显示；本次查询的来源、范围和下列说明仍独立保留，不合并总体或证据权限。\n", placement.number)
+		} else {
+			fmt.Fprintf(b, "Data rows are shown in **Data table %d** above. Only their display is reused; this query retains its own source, scope and notes below, without merging populations or evidence rights.\n", placement.number)
+		}
+	} else {
+		if placement.number > 0 {
+			if lang == answerDocLangZH {
+				fmt.Fprintf(b, "**数据表 %d**\n\n", placement.number)
+			} else {
+				fmt.Fprintf(b, "**Data table %d**\n\n", placement.number)
+			}
+		}
+		writeRow(table.Columns)
+		separators := make([]string, len(table.Columns))
+		for i := range separators {
+			separators[i] = "---"
+		}
+		writeRow(separators)
+		for _, row := range table.Rows {
+			writeRow(row)
+		}
 	}
 	b.WriteByte('\n')
 	for _, note := range table.Notes {

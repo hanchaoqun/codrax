@@ -18,6 +18,7 @@ func qualifyRuntimeMeasurementFactIdentity(p *RuntimeMeasurementPublication, ori
 	}
 	for i := range p.Tables {
 		p.Tables[i].nativeFactIdentity = ""
+		p.Tables[i].nativeDisplayDataIdentity = ""
 	}
 	if original == "" {
 		return

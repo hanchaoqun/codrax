@@ -46,6 +46,11 @@ func FinalizeRuntimeMeasurementFactIdentity(r ObservationRecord) ObservationReco
 }
 
 func qualifyRuntimeMeasurementEquivalentFact(p *RuntimeMeasurementPublication, r ObservationRecord, original string, replay TraceQueryWindowReplayRef) {
+	if p != nil {
+		for i := range p.Tables {
+			p.Tables[i].nativeDisplayDataIdentity = ""
+		}
+	}
 	w := r.runtimeMeasurementFactIdentity
 	if p == nil || w == nil || original == "" || w.native == "" || w.record != runtimeSamplingDigest(r) ||
 		w.projection != runtimeRawProjectionDigest(r, *p) || len(p.Tables) != 1 {
@@ -71,6 +76,15 @@ func qualifyRuntimeMeasurementEquivalentFact(p *RuntimeMeasurementPublication, r
 	canonical.Tables = []RuntimeMeasurementTable{p.Tables[0].Clone()}
 	canonical.Tables[0].ObservationID = ""
 	p.Tables[0].nativeFactIdentity = "measurement:" + runtimeSamplingDigest(struct {
+		Original, Generation, Native, Predicate string
+		Publication                             RuntimeMeasurementPublication
+	}{original, ref.identity.CacheToken(), w.native, r.Predicate, canonical})
+	// Retain the existing whole-publication identity above. A second,
+	// display-only key shares just data rows; each original table still owns
+	// all its notes. Full native precision and every other public field remain
+	// exact, so matching formatted prefixes or rounded values cannot qualify.
+	canonical.Tables[0].Notes = nil
+	p.Tables[0].nativeDisplayDataIdentity = runtimeSamplingDigest(struct {
 		Original, Generation, Native, Predicate string
 		Publication                             RuntimeMeasurementPublication
 	}{original, ref.identity.CacheToken(), w.native, r.Predicate, canonical})

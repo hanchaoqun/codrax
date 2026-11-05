@@ -43,6 +43,7 @@ func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) type
 	docLang := normalizeAnswerDocLang(lang)
 	structuredDiagramBodies := answerDocumentStructuredDiagramBodyKeys(doc)
 	duplicatedSectionItems := answerDocumentDuplicatedSectionItemBlocks(doc)
+	nativeDataReuse := answerDocumentNativeDataReuse(doc)
 	var b strings.Builder
 	var primary strings.Builder
 
@@ -50,13 +51,13 @@ func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) type
 	primary.WriteString(b.String())
 	renderedScopeDisclosures := map[types.ScopeDisclosureKind]bool{}
 	var renderedConceptualReceipts []*types.AnswerConceptualTerminalResolutionReceipt
-	for _, blk := range doc.Blocks {
+	for index, blk := range doc.Blocks {
 		start := b.Len()
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
 		if duplicatedSectionItems[strings.TrimSpace(blk.ID)] {
 			blk.Items = nil
 		}
-		renderAnswerDocV2Block(&b, blk, doc, docLang)
+		renderAnswerDocV2BlockWithNativeData(&b, blk, doc, docLang, nativeDataReuse[index])
 		renderedConceptualReceipts = renderV2ConceptualTerminalResolutionReceiptOnce(&b, blk, docLang, renderedConceptualReceipts)
 		renderAnswerDocV2ScopeDisclosure(&b, blk.ScopeDisclosure, docLang, renderedScopeDisclosures)
 		if blk.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown {
@@ -184,6 +185,10 @@ func RenderAnswerDocumentWithAttachmentSurfaces(doc *types.AnswerDocumentV2, att
 // every block has a valid kind, so this branch is a defensive
 // no-op only.
 func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	renderAnswerDocV2BlockWithNativeData(b, blk, doc, lang, nativeMeasurementDataPlacement{})
+}
+
+func renderAnswerDocV2BlockWithNativeData(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang, placement nativeMeasurementDataPlacement) {
 	if renderV2RuntimeEventMeasurement(b, blk, lang) {
 		return
 	}
@@ -201,7 +206,11 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	case types.BlockDecision:
 		renderV2BlockDecision(b, blk, doc, lang)
 	case types.BlockTable:
-		renderV2BlockTable(b, blk, doc, lang)
+		if placement.number > 0 {
+			renderV2RuntimeMeasurementData(b, blk, lang, placement)
+		} else {
+			renderV2BlockTable(b, blk, doc, lang)
+		}
 	case types.BlockDiagram:
 		renderV2BlockDiagram(b, blk, lang)
 	case types.BlockCaveat:

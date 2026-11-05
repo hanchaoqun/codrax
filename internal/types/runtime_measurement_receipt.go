@@ -54,6 +54,7 @@ type RuntimeMeasurementTable struct {
 	// Exact whole-publication display identity, qualified by a current private
 	// source receipt. Never serialized or used as member/completion authority.
 	nativeFactIdentity           string
+	nativeDisplayDataIdentity    string
 	nativeSamplingFactsDigest    string
 	nativeResourceFactsDigest    string
 	nativeRawFactsDigest         string

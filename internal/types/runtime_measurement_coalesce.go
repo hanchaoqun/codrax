@@ -18,6 +18,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 	conflicting := make(map[string]bool)
 	displayWitnesses := make(map[string][]bool, len(publications))
 	factIdentities := make(map[string][]string, len(publications))
+	dataIdentities := make(map[string][]string, len(publications))
 	rawFactWitnesses := make(map[string][]bool, len(publications))
 	for i, publication := range publications {
 		key := publication.ObservationID
@@ -38,6 +39,11 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 					} else if table.nativeFactIdentity != "" {
 						factIdentities[key][j] = table.nativeFactIdentity
 					}
+					if prior := dataIdentities[key][j]; prior != "" && table.nativeDisplayDataIdentity != "" && prior != table.nativeDisplayDataIdentity {
+						conflicting[key] = true
+					} else if table.nativeDisplayDataIdentity != "" {
+						dataIdentities[key][j] = table.nativeDisplayDataIdentity
+					}
 				}
 			}
 			continue
@@ -45,11 +51,13 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 		first[key], encoded[key] = i, string(raw)
 		displayWitnesses[key] = make([]bool, len(publication.Tables))
 		factIdentities[key] = make([]string, len(publication.Tables))
+		dataIdentities[key] = make([]string, len(publication.Tables))
 		rawFactWitnesses[key] = make([]bool, len(publication.Tables))
 		for j, table := range publication.Tables {
 			rawFactWitnesses[key][j] = table.HasNativeRawFacts()
 			displayWitnesses[key][j] = table.nativeTraceDisplayPopulation
 			factIdentities[key][j] = table.nativeFactIdentity
+			dataIdentities[key][j] = table.nativeDisplayDataIdentity
 		}
 	}
 	var out []RuntimeMeasurementTable
@@ -59,6 +67,7 @@ func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPub
 				retained := table.Clone()
 				retained.nativeTraceDisplayPopulation = displayWitnesses[publication.ObservationID][j]
 				retained.nativeFactIdentity = factIdentities[publication.ObservationID][j]
+				retained.nativeDisplayDataIdentity = dataIdentities[publication.ObservationID][j]
 				if rawFactWitnesses[publication.ObservationID][j] {
 					sealRuntimeRawFactTable(&retained)
 				}
@@ -82,11 +91,13 @@ func runtimeMeasurementPublicationFactsEqual(a, b RuntimeMeasurementPublication)
 	for i := range a.Tables {
 		a.Tables[i].nativeTraceDisplayPopulation = false
 		a.Tables[i].nativeFactIdentity = ""
+		a.Tables[i].nativeDisplayDataIdentity = ""
 		a.Tables[i].nativeRawFactsDigest = ""
 	}
 	for i := range b.Tables {
 		b.Tables[i].nativeTraceDisplayPopulation = false
 		b.Tables[i].nativeFactIdentity = ""
+		b.Tables[i].nativeDisplayDataIdentity = ""
 		b.Tables[i].nativeRawFactsDigest = ""
 	}
 	return reflect.DeepEqual(a, b)
