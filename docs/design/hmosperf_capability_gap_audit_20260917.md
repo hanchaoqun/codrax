@@ -2,7 +2,17 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§351，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、源码子能力1共享组，源码a10e9ea14edbf385aba6ef1eab7ec4ffa7f70b42；当前原生完整时序的显示数据可复用，各query来源/说明/总体/权限独立。完整实采零模型公开接缝通过；自然元宝/资源身份机器2/2、完整人工0/2，03.2有限及自然重复展示目标仍FAIL。唯一full98包28765顶层/34595子PASS、零FAIL，686件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§351汇总/51项ROI](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104_manual_audit.md)。新P0是缺频率回退限定未随数值进入实际成文上下文；其它解释/自然复用及旧采样/IO、权限/代表/二进制/只读覆盖不销，WAL生产NO-GO。
+当前状态（2026-11-04，§352失败代，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、正式源码子能力0，计算限定共享候选1组延期。唯一full含2顶层/1子FAIL，709件证据封存，不发布候选源码。两例真实并行各一次：资源smoke PASS/人工FAIL；只读负向进程FAIL/恢复目标未触发；计算限定自然分支未触发。详[清单](hmosperf_implementation_tasks_20260917.md)、[§352汇总/全51项ROI](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104_manual_audit.md)。下一代先修含锁拷贝和字段分类，不回签本代；旧采样/IO、权限/代表/图、二进制和只读欠项保留，WAL生产NO-GO。
+
+## 352. 计算限定共享候选失败，禁止用定向通过覆盖全仓失败
+
+main基线9ee94848f57928716b998d24a82950ac2c3dc33c，18Go候选（13生产/5测试），正式交付0。参考freq_postprocess_ops的freq_compute_load与by_thread YAML、chip_config的归一化设计：1024×f/fmax是模型，不是实测IPC/GB6/指令；缺芯片配置的参考零返回不移植为硬件零。候选在共享ObservationRecord上保完整方法、可用性、逐CPU真实支配频点覆盖和原caveats，compact/checkpoint/成文/语义复核不靠可选Notes裁剪；保原数值与合法估算，不授物理/根因权。
+
+公开RED→定向及race绿，完整网易云82.8MB/元宝63.7MB实际查询到成文保原数值/因果；状态任务不必选无关计算行。新测试初始浮点/转义/选行前提错误原件保留，仅校新前提。冻结7644输入/551外部/29快照后唯一full OS1/源前后true，96包PASS/2FAIL/12无测试、28770顶层PASS/2FAIL、34597子PASS/1FAIL；新增整件测试复制sync.Mutex、ValueContext未入旧保留字段分类，两针必须下一代修而非降断言。
+
+原资源/原只读负向恰好两例各n1，实际请求A9/B6、0歧义、7重叠对/最大4.197s。A字段保真仍把合法原值称越界/哨兵，03.2和整答FAIL；未查询算力，新自然分支NOT_TRIGGERED。B合法拒绝空path后第二dispatch安装零变更登记，旧harness单dispatch前提先FAIL；目标receipt缺失，恢复缺来源终态NOT_TRIGGERED，不能签负向PASS。现有重试/授权撤销边界未因此证明失效。
+
+709件index SHA93b6d2cf2a26dbfd431ec3073428e3f5ae68a96c151468e9cd9676c2f5e9c89c，seal SHA1b7c4be08906c08484d34c3cc62824db07887371aaa5f4573c0d73ed0aa83a67；累计54代24940件按代非全局去重。早期root决定尚未写第二字段分类失败，原件不覆盖，以最终raw/stats补全。五文档仅登记失败，不生成成功publication；源码留main未提交候选，下一代既有ShallowClone与显式native-core字段分类修复后重新冻结验收。79/28/51无变，ROI仍7/6/11/21/6，Trace投影/自动补齐/原4根因/闭合睡眠和合法计算重试保留，WAL生产NO-GO。
 
 ## 351. 原生显示数据与独立说明、完整实采及资源身份轮换
 

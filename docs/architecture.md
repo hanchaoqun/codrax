@@ -7,6 +7,8 @@ codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
+**§352候选未交付（2026-11-04）**：计算值与方法/缺测/回退限定的共享交接仍在验收，不能把下面既有§351已交付能力或定向绿灯当作新候选已上线。新ValueContext旨在保持完整数值语义，并随ledger、compact、checkpoint、成文和语义复核整条流转；不授来源、物理关系或根因权限，不改变原算力数值。唯一full因新增测试含锁拷贝与新增字段缺保留分类而FAIL；下一代使用既有ShallowClone并明确native-core字段所有权后重新验收，不放宽两针。原资源身份人工FAIL、只读恢复负向未触发及自然计算限定未触发均保留。详[§352失败汇总](../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)。原79/28/51、Trace投影/自动补齐、合法估算/重试和WAL生产NO-GO不变。
+
 ## 目录
 
 - [1. 概述与设计哲学](#1-概述与设计哲学)

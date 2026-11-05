@@ -1,6 +1,6 @@
 # HarmonyOS 能力差距实施任务清单
 
-日期：2026-09-17，状态更新至2026-11-04（§351，main）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0、交付1有界源码子能力/共享组，源码a10e9ea14edbf385aba6ef1eab7ec4ffa7f70b42：原生完整时序的显示数据与独立查询说明分离，原整发布身份、来源/总体/因果权不合并。完整网易云/元宝双query公开接缝通过；自然元宝/资源身份各n1并行，机器2/2、完整人工0/2，03.2有限及自然重复展示目标仍FAIL。唯一full98包28765顶层/34595子PASS、零FAIL，686件保原封存。详[§351汇总/51项ROI](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104_manual_audit.md)。新P0是缺频率回退限定未随数值进入实际成文上下文；其它解释/自然复用及旧采样/IO、权限/代表/二进制/只读覆盖不销。最终main/远端以独立publication为准，WAL生产NO-GO。
+日期：2026-09-17，状态更新至2026-11-04（§352失败代，main）。79唯一＝28完整＋51开放（18部分/29待实施/2待验收/1验收中/1持续），勾选不变。完整新增0、正式源码子能力0，1共享候选组延期：计算值与模型/回退/缺测限定同源交接。唯一full有2顶层/1子失败，禁止发布候选；709件失败证据封存。原资源身份smoke PASS/有限人工FAIL，只读缺来源终态测试进程FAIL且目标终态未触发，新限定自然分支未触发，均不销账。详[§352汇总及全51项ROI](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104_manual_audit.md)。下一代先用既有ShallowClone修含锁拷贝、补新增字段的保留分类，再直接验自然算力问题并轮换真实二进制；旧采样/IO、权限/代表/图及只读欠项保留，WAL生产NO-GO。
 
 ## 1. 范围、状态和交付规则
 
@@ -16,7 +16,16 @@
 
 ## 2. 执行队列
 
-### 2026-11-04 当前批：原生显示数据复用、完整实采与资源身份轮换（§351，main，51开放）
+### 2026-11-04 当前失败代：计算限定交接、资源身份与只读负向轮换（§352，main，51开放）
+
+- 核79稳定ID无重漏，28完整/51开放和所有原状态不变；完整新增0、正式源码子能力0、候选1共享组。main基线9ee94848f57928716b998d24a82950ac2c3dc33c；18Go候选（13生产/5测试）未提交，仅发布本批五文档，不生成成功publication。
+- 公开旧码RED证明compute_supply_balance数值到场却丢原生限定。候选通过共享ValueContext保方法/可用性/逐CPU真实频率覆盖及全部原caveats，不改原数值；缺频率回退不是硬件满供给或实测零损失。ledger、compact、checkpoint、成文预算和语义复核整条保完整限定；超预算整条不选，不裁成无条件数值，不授来源/总体/物理或因果权。
+- 参考freq_compute_load/by_thread与chip_config的1024×f/fmax是归一化模型而非测得IPC/GB6/指令；不搬缺chip返回0为硬件零。完整网易云82838676B及元宝63659046B公开查询/actual Finalizer保原数值与原因果投影，状态任务未选计算行仍不强推。新测试的浮点字符串、JSON转义和状态任务必选计算的错误前提均保原，仅修新前提，不放宽旧断言。
+- 终版相关5包200顶层/166子、race×2五包26/44、原因果四包21/141、完整双实采1/2 PASS。冻结7644输入/551外部/29快照SHAcae2fbb2393ab17c998e90ba61cc96b9f3ff114a61701b8734ecef39b3c0d807后停写。唯一full UTC06:52:03.064654→07:06:27.448804，OS1/源前后true：96包PASS/2FAIL/12无测试，28770顶层PASS/2FAIL、34597子PASS/1FAIL，268551纯JSON、重复/未终态0。新测试复制含锁AgentContext、ValueContext遗漏旧保留字段分类两针均真实FAIL；不以定向绿代全仓绿，下一代修复。
+- 恰好两例各一次，精确请求A9/B6、歧义0、7重叠对/最大4.197s。A原资源smoke PASS但03.2有限/完整人工FAIL：5操作/5快照和位型正确，仍把合法原值称越界/哨兵；未查询算力，新增限定自然NOT_TRIGGERED。B原只读负向测试进程FAIL/目标receipt缺失：合法拒绝空path后自然第二次planner成功安装零变更计划，旧harness的单dispatch前提先失败，恢复负向终态未触发，不冒预期负例PASS，不改冻结断言。
+- 709件index SHA93b6d2cf2a26dbfd431ec3073428e3f5ae68a96c151468e9cd9676c2f5e9c89c，累计54代24940件按代非全局去重；完整新增0/正式子能力0/原51开放。全仓最终统计比早期root决定多揭示字段分类针，最终raw/统计为准，早期原件不重写。先修确定性接缝并自然覆盖计算限定，能力轨轮换有材料二进制；旧充分事实误述不无限阻塞。Trace投影/自动补齐、原4根因/闭合睡眠、链上业务、合法计算重试保持，WAL生产NO-GO。
+
+### 2026-11-04 历史发布批：原生显示数据复用、完整实采与资源身份轮换（§351，main，51开放）
 
 - 核79稳定ID无重漏，28完整/51开放与全部原状态不变；完整新增0、源码子能力1共享组。实现a10e9ea14edbf385aba6ef1eab7ec4ffa7f70b42，11Go/431增11删（8生产/3测试），仅main。前350已正常Git推送并核publication，旧FAIL不回签。
 - 公开旧码RED证明同一完整时序的不同查询Notes阻止整发布复用。保旧nativeFactIdentity，旁加显示数据key；当前私有源代次和完整原生精度/端点、表/源/target/窗/钟/行保持精确，仅Notes逐查询独立保留。只允许system完整表引用前一完整体，保每个block/receipt/来源标题/全部Notes；不抑制模型表、不合总体权限，不重读工件或改ledger/投影，不加prompt/schema/问答关键词门。
