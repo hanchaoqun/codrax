@@ -7,7 +7,11 @@ codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
-**§354代表选择有限交付与只读登记验收分账（2026-11-05）**：既有生产实现经原自然题真实验收，线程/窗口/每组预算贯通8计划、2组、4选/4未选及同代索引和名册；正文、进度表和导航一致。按最初HMC-11.2软排序/独立覆盖/未选安全合同完成该项，累计29完整/50开放；不把原生栈深度写成调用箭头的整答FAIL销掉，也不暗加新聚类/回写/WAL义务。只读缺来源终态真实恢复执行PASS，proof成功但整体仍unverified；真实重试分支未触发，旧§352失败保原。
+**§355单次上下文内完整事实行复用（2026-11-05）**：源码d81067e8d8e98318003831db025eaf41ab4a01c0，5Go（4生产/1测试）、248增12删。公开实际query→Finalizer复现IO完整行被专用账户和请求事实段重复发送；仅在同一次受保护ledger渲染中，以完整public typed record及原渲染行精确相等复用。完整定义先写，后续引用仍带源/query-result定位，每段原scope/owner/量尺说明不变；未知窗、不同源/query/payload/值/Notes/生产者不得借用。引用不持久化、不授来源/总体/因果/完成权，不改ledger、模型schema或私有表资格。局部账户17513→16914B、省599B（未扣新增引用说明），不冒全提示/token降幅，不继续局部微调。
+
+唯一冻结全仓98包28780顶层/34627子PASS，零FAIL；完整网易云82.8MB/元宝63.7MB实际query→Finalizer保原数值/因果投影。原IO自然题及sample-only真实30MB原件各n1，机器2/2、整答人工0/2：IO四组24数正确但低深度被升硬件无积压/排除卡顿；采样164/259、独立分母/CPU记录位置/完整单帧正确，未知状态仍被写成执行过。自然新引用均NOT_TRIGGERED，不借公开绿销账，08.3仍验收中；完整新增0、子能力1、29完整/50开放。513件保原，见[§355汇总/全50项ROI](../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105.md)/[完整手审与配对纠正](../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105_manual_audit.md)。保留合法算术/重试、Trace投影/自动补齐、原4根因/闭合睡眠及WAL生产NO-GO；旧重复查询、完整输出复用/预算和只读剩余矩阵继续开放。
+
+**§354代表选择有限交付与只读登记验收分账（2026-11-05，历史）**：既有生产实现经原自然题真实验收，线程/窗口/每组预算贯通8计划、2组、4选/4未选及同代索引和名册；正文、进度表和导航一致。按最初HMC-11.2软排序/独立覆盖/未选安全合同完成该项，累计29完整/50开放；不把原生栈深度写成调用箭头的整答FAIL销掉，也不暗加新聚类/回写/WAL义务。只读缺来源终态真实恢复执行PASS，proof成功但整体仍unverified；真实重试分支未触发，旧§352失败保原。
 
 源码f88efa385a753780af7c67f19fc13cf6227ac7c3仅3个Go测试文件、216增2删，无生产改动：新独立retry-audited入口逐次记规划尝试、只准一个最终零变更登记，旧单dispatch入口/断言保留，恢复/原件/新执行/缺来源终态门不变。公开普通/自动补齐复用诊断原本已绿，不伪称新生产修复。相关/race/原因果及完整网易云82.8MB/元宝63.7MBquery→Finalizer通过；冻结后唯一full98包28777顶层/34606子PASS、零FAIL，476件保原。详[§354汇总/全50项ROI](../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105.md)/[分轨手审](../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105_manual_audit.md)。旧采样/IO、权限/图、自然同源复用与数值限定覆盖仍开放；Trace投影/自动补齐、原4根因/闭合睡眠、合法计算/重试及WAL生产NO-GO保持。
 

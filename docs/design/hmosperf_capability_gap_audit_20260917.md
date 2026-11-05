@@ -2,7 +2,21 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-05，§354，main）：79唯一＝29完整＋50开放；仅HMC-11.2按原有限选择合同完成，其它勾选不变。新增完整能力1、测试工装子能力1、生产源码改动0；f88efa385a753780af7c67f19fc13cf6227ac7c3保旧入口，分开规划尝试与成功登记。原代表自然题/只读缺来源负向各一次真实并行，机器2/2；代表选择有限人工PASS但整答栈关系误述仍FAIL，B有限负向PASS但真实重试未触发，不冒全CLI/自然controller或父项完成。唯一full98包28777顶层/34606子PASS、零FAIL，476件保原。详[清单](hmosperf_implementation_tasks_20260917.md)、[§354汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105_manual_audit.md)。旧采样/IO、权限/图、数值限定自然覆盖及同源复用欠项保留，WAL生产NO-GO。
+当前状态（2026-11-05，§355，main）：79唯一＝29完整＋50开放，checkbox不变；本批完整新增0、已交付子能力1（同次上下文完整行精确复用）。源码d81067e8d8e98318003831db025eaf41ab4a01c0；冻结后唯一full98包28780顶层/34627子PASS、零FAIL，513件保原。原IO与真实sample-only各一次真实并行，机器2/2但完整人工0/2；新自然引用均未触发，不代08.3或二进制父项完成。详[清单](hmosperf_implementation_tasks_20260917.md)、[§355汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105_manual_audit.md)。旧采样/IO/栈、权限/图、重复查询/完整输出预算和只读剩余矩阵保留，WAL生产NO-GO。
+
+## 355. 完整事实行精确复用，原IO与sample-only失败继续留账
+
+main基线822d6e8acf8d6deba0bde7246cf95572bef3ac71，源码d81067e8d8e98318003831db025eaf41ab4a01c0，5Go（4生产/1测试）248增12删。旧码公开实际TraceQuery→Finalizer RED确认IO完整行在专用账户和请求事实段重复；新render-local字典以完整public typed ObservationRecord与原渲染行精确匹配，仅已写完整定义才能被后段引用，引用仍带source/query-result，原owner/总体/量尺/闭合/因果边界不变。无状态持久化或来源凭证，不改ledger、私有表资格、模型schema、Trace投影或自动补齐。13个字段/源/query/未知窗负控和跨dispatch隔离通过；局部599B节省未扣新增说明，不冒整体token或自然答案效果，停止该局部优化。
+
+参考io_ops.py的compute_io_concurrency按20ms桶重叠计请求，compute_io_concurrency_agg按SQL起点桶计数并有异常过滤；设计意图为资源概览，不能当连续在途深度或物理队列状态。保本项目既有成功配对半开区间sweep、完整全窗分母、独立发起数与未知值；不移植过滤阈值/缺值0。独立整数端点oracle对原IOexpected一致；原真实二进制参考parser12000/1393/164/259，均只供验收。完整网易云82838676B/559592行与元宝63659046B/412546行真实query→Finalizer保原数值/因果，零模型不冒额外自然eval。75份用户ftrace未检出所需块端点不等于IO零；本批IO模型材料为原authored夹具，binary为完整真实PERFILE2。
+
+相关4包116/316（2顶层SKIP）、race×2三包44/136、原因果四包21/141、双整件1/2通过。冻结7650输入/349外部/10快照后唯一full UTC12:06:09.259524→12:20:03.651367、OS0/源前后true，98包PASS/12无测试，28780顶层PASS/58SKIP、34627子PASS/14SKIP，268719纯JSON、零FAIL/重复/未终态。新增负控v2引用不存在字段的编译FAIL保原，仅修新测试前提，原断言未降。
+
+恰好两原自然题各n1/15steps，精确请求A6/B8、歧义0、10重叠对/最大29.446s，机器2/2。A四组24数和全部8配对/13段保真；正文由partial配对低深度断言设备无积压、排除IO卡顿，且无跨层身份凭证就说同一IO，08.3有限/整答FAIL。B完整材料准备/native事实限定PASS，164/259、独立分母/CPU样本位置/单帧/未知态正确，仍断言执行过两段代码，整答FAIL；成功解释unit0自身与unknown边界冲突并进入INIT。A6定义/0引用，B0/0，新引用自然均NOT_TRIGGERED，不以公开回归代签。
+
+B实际先拒六单元带错误native_refs，再接受五单元无native_refs，INIT确实消费成功后者0/1/3，未投坏单元不冒污染。人工曾按blob字母序误读先后，已依日志时间/调用ID/原文纠正并留痕；不存在已证串代缺陷，不虚增gap。共享跟进仍为typed缺测/解释适用域、查询/原生/最终输出复用和整组预算，充分事实后的偶发误述留档而不无限重跑本例。只读登记终态/B2–B6、更多真格式、权限/图、原栈和数值限定自然覆盖继续轮换。
+
+513件index SHA30324db0c6ed65f9a97307f6273cc3231e779e6f8e335730db8d93cd68f34b10，seal SHAba0bcfba263701a43492917a70754f8d05362496d4bd1443b72f23cbffb0ba97；累计57代26536件按代非全局去重，物理核354476/353607/失败352709，其它53代链头。root closure=none，完整新增0、子能力1、余50按7/5/11/21/6 ROI；不改旧状态，不回签FAIL。五文档与代码相邻main提交，原件/冻结/远端清洁独立校验。Trace投影/自动补齐、原4根因/闭合睡眠、链上业务、合法计算/重试和WAL生产NO-GO保持。
 
 ## 354. 原合同代表选择交付，规划尝试与只读负向终态独立验收
 
