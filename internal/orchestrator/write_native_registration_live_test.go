@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func runNativeRegistrationLiveEvaluation(t *testing.T, out string, sourceTermina
 	runNativeRegistrationLiveEvaluationWithScope(t, out, sourceTerminal, natural, false)
 }
 
-func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sourceTerminal, natural, completeApplyReceipt bool) {
+func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sourceTerminal, natural, completeApplyReceipt bool, retryAudited ...bool) {
 	t.Helper()
 	if out == "" {
 		t.Skip("explicit live evaluation not requested")
@@ -97,6 +98,13 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		}
 	}
 	kind := "restored_native_registration_planner"
+	if len(retryAudited) > 1 {
+		t.Fatal("one explicit retry-audit lane flag required")
+	}
+	auditRetries := len(retryAudited) == 1 && retryAudited[0]
+	if auditRetries && (sourceTerminal || natural || !completeApplyReceipt) {
+		t.Fatal("retry-audited lane requires the distinct missing-source-terminal control")
+	}
 	if sourceTerminal {
 		kind = "native_registration_restored_terminal"
 	}
@@ -109,10 +117,16 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		}
 		kind = "native_registration_restored_unverified_source"
 	}
+	if auditRetries {
+		kind = "native_registration_retry_audited_unverified_source"
+	}
 	evaluation := map[string]any{"kind": kind, "model": adapter.ModelID(), "controller_model": controllerModel, "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": controllerDecisions, "source_terminal_verification": sourceTerminal, "source_preparation": "operator_public_emit_apply_git_and_native_execution", "verification_executor": "public_run_tests_not_model_verifier"}
 	if completeApplyReceipt {
 		evaluation["source_controller_verification_absent"] = true
 		evaluation["source_apply_receipt_completed_from_real_delivery"] = true
+	}
+	if auditRetries {
+		evaluation["planning_dispatch_is_not_registration_count"] = true
 	}
 	save("evaluation.json", evaluation)
 	f := newControllerRegistrationFixture(t)
@@ -140,6 +154,7 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		t.Fatal(err)
 	}
 	planner := agent.NewPlannerAgent(&agent.Dependencies{Tools: reg, LLM: adapter, MaxIterations: 12, AgentSettings: types.DefaultAgentSettings(), Emit: func(render.Event) {}})
+	var planningAttempts []registrationPlanningAttemptHMC354
 	o.controllerWriteStageFn = func(stage types.PipelineStage, steps *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan || mu.NativeTestRegistrationAuthorization() == nil || mu.ChangeReport() != nil {
 			t.Fatal("controller did not authorize fresh read-only planning")
@@ -149,6 +164,11 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		result, err := planner.Execute(ctx, planningSkill)
 		if err == nil {
 			err = planPostHook(o, result)
+		}
+		if auditRetries {
+			attempt := observeRegistrationPlanningAttemptHMC354(len(planningAttempts)+1, true, mu, err)
+			planningAttempts = append(planningAttempts, attempt)
+			save(fmt.Sprintf("planner-attempt-%03d.json", attempt.Dispatch), attempt)
 		}
 		return result, err
 	}
@@ -184,7 +204,15 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 			t.Fatal(err)
 		}
 		plan := mu.ChangePlan()
-		if steps != 1 || !types.IsPersistedNativeTestRegistrationPlan(plan) || len(plan.Changes) != 0 || mu.NativeTestRegistrationAuthorization() != nil || mu.ChangeReport() != nil {
+		if auditRetries {
+			if err := validateRegistrationPlanningAttemptsHMC354(planningAttempts, steps, plan); err != nil {
+				t.Fatal(err)
+			}
+			save("planning-audit.json", map[string]any{"dispatches": steps, "attempts": planningAttempts, "installed_native_registrations": 1, "execution_report_during_planning": false, "authorization_revoked_after_dispatch": mu.NativeTestRegistrationAuthorization() == nil})
+		} else if steps != 1 {
+			t.Fatal("legacy single-dispatch evaluation precondition failed")
+		}
+		if !types.IsPersistedNativeTestRegistrationPlan(plan) || len(plan.Changes) != 0 || mu.NativeTestRegistrationAuthorization() != nil || mu.ChangeReport() != nil {
 			t.Fatalf("planner did not return an independent read-only registration: plan=%+v", plan)
 		}
 		run := mu.WriteWorkflowRun()
