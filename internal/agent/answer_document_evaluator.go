@@ -15877,7 +15877,12 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 			return out
 		}
 	}
-	if e.preferPatchNext && answerDocumentPatchBaseAvailable(ctx, e.mu) {
+	// An accepted answer needs only the existing advisory patch round.
+	// Advertising both large emit schemas can exhaust its request allocation
+	// before the model sees the optional selector repair feedback.
+	advisoryPatch := e.postEmitAdvisoryDelivered && ctx != nil && ctx.Mutable != nil &&
+		ctx.Mutable.AnswerDocumentV2() != nil && len(ctx.Mutable.AnswerDocumentV2().Blocks) > 0
+	if (e.preferPatchNext || advisoryPatch) && answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		hasPatch := false
 		for _, s := range schemas {
 			if s.Name == "emit_answer_document_patch" {
@@ -15896,7 +15901,7 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 				out = append(out, s)
 			}
 			if dropped {
-				logging.Debug("[finalizer/answer_document] first-reject patch-first: dropped emit_answer_document from schema list")
+				logging.Debug("[finalizer/answer_document] local repair patch-first: dropped emit_answer_document from schema list (post_emit_advisory=%t)", advisoryPatch)
 			}
 			return out
 		}
