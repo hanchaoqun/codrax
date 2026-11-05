@@ -2,7 +2,35 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§350，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码62dbf18204cab2c42f2757a3401de032b30980c3；16完整账户内先保query公平，再软优先不同内容，独立来源/窗口/库存/权限不合并。完整网易云和元宝双query零模型验证16槽保15不同实例；自然元宝/原IO各n1真实并行，机器2/2、完整人工0/2，08.3有限FAIL不销。唯一full98包28763顶层/34576子PASS、零FAIL，621件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§350汇总/51项ROI](../../eval/parallel_selected_summary_hmc_account_novelty_yuanbao_io_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_account_novelty_yuanbao_io_20261104_manual_audit.md)。自然同窗偏好未触发、解释适用域、最终输出重复及旧采样/IO、权限/代表/二进制覆盖不销；WAL生产NO-GO。
+当前状态（2026-11-04，§351，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、源码子能力1共享组，源码a10e9ea14edbf385aba6ef1eab7ec4ffa7f70b42；当前原生完整时序的显示数据可复用，各query来源/说明/总体/权限独立。完整实采零模型公开接缝通过；自然元宝/资源身份机器2/2、完整人工0/2，03.2有限及自然重复展示目标仍FAIL。唯一full98包28765顶层/34595子PASS、零FAIL，686件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§351汇总/51项ROI](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_native_display_data_resource_20261104_manual_audit.md)。新P0是缺频率回退限定未随数值进入实际成文上下文；其它解释/自然复用及旧采样/IO、权限/代表/二进制/只读覆盖不销，WAL生产NO-GO。
+
+## 351. 原生显示数据与独立说明、完整实采及资源身份轮换
+
+main基线0a64113179530f0d45faa5677c1bbb6c711d9b34，源码a10e9ea14edbf385aba6ef1eab7ec4ffa7f70b42，11Go/431增11删（8生产/3测试）。完整新增0、源码子能力1共享组，79/28/51与原checkbox不变。已核参考仓root/core/preprocess/docs指导、完整architecture/Golden Rules和context_index.py，采用产物/索引/阅读角色分离，不搬path-only代次、value覆写、全局业务must_read或噪声/fingerprint文字硬门；参考仓只读。
+
+### 351.1 有界修复及未完成范围
+
+旧码公开query→Finalizer→emit→render RED确认不同Notes导致整表双份；原nativeFactIdentity拒绝合并正确，不能削弱。旁加私有显示数据key，保完整原生精度/端点、当前代次、source/target/窗/钟/行、label/列/行等，只剥独立保留Notes。JSON恢复、变异、未知窗、其它角色/生产者、成员域/选集不能借权。
+
+仅system完整表可引用前一完整数据体，保每个block/receipt、来源标题/全部Notes，不抑制模型表，短“数据表N”仅为读者引用。普通relation/claim/scope回调不绕过；不改doc/ledger/原总体/因果或完成权，不重开工件。未扩全部IO/资源生产者，不声称全输出字典或上下文token压缩；无新prompt/schema/问答关键词门。
+
+### 351.2 原件、测试及冻结
+
+完整网易云82838676B/559592行、元宝63659046B/412546行，实际双query→Finalizer→公开emit/render分别保3735/836行只展示一次、2独立query和全部Notes；原doc/ledger/因果/原件不变，零模型不是额外付费eval。RED-v1还含HTML实体比较前提错误，仅修新增测试；RED-v2仍暴露两条重复，不放宽旧断言。终版相关21顶层/148子、race×2 36/268、原4根因/闭合睡眠21/141（均四包）及整件1顶层/2子PASS。
+
+冻结7637输入/365外部/21快照SHA1eff7266895fac6999a99d6c2cbc9c1b61241a509c3420548bf232890861df4c后停写。唯一full UTC2026-11-05 03:35:49.435337→03:49:49.010127，OS0/源前后true：98包PASS/12无测试、28765顶层PASS/56SKIP、34595子PASS/14SKIP、268490纯JSON，零FAIL/重复/未终态；log SHA0a1da8d46167fea21e85af7a7c8fc7a129aa9f6e25dfcd2d565531b5c72a5936。
+
+### 351.3 原自然两例及新共享P0
+
+元宝/资源身份各n1/15steps，问题/附件/断言不改；唯一请求A14/B8，另8歧义组排除，12已证重叠对/最大19.213s。机器2/2、整答人工0/2，03.2有限FAIL。A17原生JSON/475775B实际INIT，128业务节点独立整件整数B/E对照0差异，2211最终时序行保真；正文仍把闭合实例说尾部超窗、混父完整/裁窗值。实际unit0闭合/可能超窗冲突已投，未投坏self单元不冒污染。两份836行仍重复：自然目标FAIL、私有资格触发未证，不用相等格式行放宽资格。
+
+B5操作/5快照、精确位型/缺失状态/合法差值正确，时间吻合已明确不证物理配对；已知原始值仍被并入不真实/哨兵解释，03.2有限FAIL，不新增图/栈/泄漏/二进制门。新系统反例：原生CPU1 frequency_known=false及无频点回退1.0 caveat存在，297211B实际INIT只含ratio1/summary loss0，不含限定；支持ObservationRecord仅搬Summary和七数值Notes。正文断言供给无挤占/低频损失0，系统后附投影却诚实为不可量；后附说明和完整payload路径都不证明成文前限定已交接。legacy reason无该排除结论，不冒污染。
+
+### 351.4 封存与后继
+
+686件index SHA40f68e1ddd30767d3c616d5a22922f9eb196fe0280c2e77ac5436e3b9807da55、seal SHA146799affa98d856d6909e0867ac137cd9e35154e45b35c19989eab5847a4ccf，root closure=none；累计53代24231件按代非全局去重。前350621/失败344554原件重核，其它历史链头；大trace按完整身份引用，124MB编译物/失败payload留本地ignored证据树，不读取/哈希/复制providers。源码与五文档main相邻提交推送，远端/清洁另核publication，旧FAIL不回签。
+
+新P0挂01.3/16.4/08.5/13.2/18.4：实测/模型/回退/未知、每CPU覆盖与单位一起交给共享事实消费者，保合法估算和链上算力能力，不取消数值或关键词扫答。其后原窗/完整端点到解释、自然复用资格/整组预算、二进制/只读正负终态；旧采样/IO充分事实误述不独占。全部51项按7/6/11/21/6列于汇总，无第三例/第二full，WAL零副作用前生产NO-GO。
 
 ## 350. 完整账户预算、两份整件原始采集与有限IO轮换
 
