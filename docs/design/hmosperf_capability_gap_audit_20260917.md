@@ -2,7 +2,19 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§352失败代，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、正式源码子能力0，计算限定共享候选1组延期。唯一full含2顶层/1子FAIL，709件证据封存，不发布候选源码。两例真实并行各一次：资源smoke PASS/人工FAIL；只读负向进程FAIL/恢复目标未触发；计算限定自然分支未触发。详[清单](hmosperf_implementation_tasks_20260917.md)、[§352汇总/全51项ROI](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104_manual_audit.md)。下一代先修含锁拷贝和字段分类，不回签本代；旧采样/IO、权限/代表/图、二进制和只读欠项保留，WAL生产NO-GO。
+当前状态（2026-11-04，§353，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、源码子能力1共享组，061d5c99deee8f34bc35fff658706450e5796924保完整计算限定、逐CPU真实频率覆盖及共享消费者，原数值/权威不变。§352全仓两针新代闭环，旧代仍FAIL；唯一full98包28775顶层/34598子PASS、零FAIL，607件封存。自然CPU/原ZIP机器1/2、完整人工0/2，限定自然分支未触发；ZIP查询成功不冒恢复稿验收通过。详[清单](hmosperf_implementation_tasks_20260917.md)、[§353汇总/全51项ROI](../../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104_manual_audit.md)。并发总体外推、采样执行时间和JSON形状失败、旧IO/资源/只读/权限/代表/图覆盖保留，WAL生产NO-GO。
+
+## 353. 完整计算限定共享交付，旧失败与自然验收分账
+
+main基线0424084c42b7df51cc44bd7990b6aefcbfeeb4d9含远端34495d5d9预算修复；不覆盖他人提交、不建分支。源码061d5c99deee8f34bc35fff658706450e5796924，19Go（13生产/6测试）及1新自然case，共526增3删。完整新增0，子能力1共享组，79/28/51不变。
+
+ValueContext保完整字段适用域/方法/可用性/原caveats，贯穿ledger、compact、checkpoint、成文整条预算、语义复核。独立governing频点覆盖不借nearest-following估算作实测，原ratio/delivered/loss数值不改；legacy无覆盖仍未知，不从Notes猜元数据。共享clone和native-core指纹保值/限定一体，不授来源、全集、物理关系或因果权。参考freq_compute_load/by_thread及chip_config归一化意图，1024×f/fmax模型不搬为实测IPC/GB6/硬件零。无新模型发射schema或问答关键词门。
+
+既有ShallowClone与ValueContext显式native-core分类修复§352全仓两针；新增留存测试错误前提的FAIL保留，只校新测试为实际core/clone合同，不扩census准入。终版相关5包180/35、race×2五包40/26、原因果四包21/141、整件网易云82.8MB/元宝63.7MB1/2 PASS。冻结11121输入/397外部/25快照后唯一full OS0/源前后true，98包28775顶层34598子PASS，268557纯JSON、零FAIL/重复/未终态。新报告只作终态后精确文档分类，原冻结文件和helper未改。
+
+原CPU/ZIP各n1/15steps真实并行，精确请求A8/B15、0歧义、21重叠对/最大28.086s，机器1/2、整答人工0/2。A5ms/原0..9ms保真且不猜硬件余量，仍由观测并发排除系统竞争；估算行仅ID名册、值及限定都未选，新自然分支NOT_TRIGGERED。B完整30MB真实成员进入共享准备/原生工具，独立parser12000/1393/164/259匹配；runtime ID误用源码引文、坏JSON补丁重复导致恢复稿/原case FAIL，正文仍把未知执行态采样升CPU时间。正确信息和精确JSON反馈已给，不无限追同例求绿。
+
+607件index SHA86e3838822d9e9c3727d5965079658eec976ce9eca43a2766de09fee1121d245，seal SHAb76197823a6f11533e2c639499d5ee3758761f05daca18426f3fc512cbf60cb8，累计55代25547件按代非全局去重。失败352709/发布351686物理重核，旧失败无publication回签；19Go源码与五文档相邻main提交，独立原件/远端/清洁守卫核发布。剩余51项7/6/11/21/6 ROI，完整只读负向、更多真格式、代表/权限/图和旧解释欠项保留；Trace投影/自动补齐、原4根因/闭合睡眠及合法计算重试不变，WAL生产NO-GO。
 
 ## 352. 计算限定共享候选失败，禁止用定向通过覆盖全仓失败
 

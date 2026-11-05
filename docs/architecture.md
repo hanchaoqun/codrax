@@ -7,7 +7,9 @@ codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
-**§352候选未交付（2026-11-04）**：计算值与方法/缺测/回退限定的共享交接仍在验收，不能把下面既有§351已交付能力或定向绿灯当作新候选已上线。新ValueContext旨在保持完整数值语义，并随ledger、compact、checkpoint、成文和语义复核整条流转；不授来源、物理关系或根因权限，不改变原算力数值。唯一full因新增测试含锁拷贝与新增字段缺保留分类而FAIL；下一代使用既有ShallowClone并明确native-core字段所有权后重新验收，不放宽两针。原资源身份人工FAIL、只读恢复负向未触发及自然计算限定未触发均保留。详[§352失败汇总](../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)。原79/28/51、Trace投影/自动补齐、合法估算/重试和WAL生产NO-GO不变。
+**§353计算限定共享交付（2026-11-04）**：源码061d5c99deee8f34bc35fff658706450e5796924新增producer-owned ObservationValueContext（字段适用域/方法/完整Detail），随ledger、compact、checkpoint、成文整条预算和语义复核保留；Notes/Summary预览不裁掉必要数值限定，超预算整条不选，不留下无条件裸数值。compute_supply_balance把模型方法、逐CPU频率可用性/真实支配频点覆盖和原caveats同源交给消费者；nearest-following或回退权重不是实测覆盖，legacy缺字段仍未知，原数值算法保持。clone与native-core编码明确拥有此字段，不授来源/全集、物理关系/根因或完成权威，不增加模型发射schema或问答关键词门。
+
+§352的含锁拷贝与字段分类FAIL由本代既有ShallowClone及显式native-core所有权闭环；旧原件不回签。19Go（13生产/6测试）及新自然case，共526增3删；相关/race/原因果与整件82.8MB网易云、63.7MB元宝实际query→Finalizer均PASS，冻结后唯一full98包28775顶层/34598子PASS、零FAIL。完整新增0、子能力1共享组，79/28/51不变。真实CPU/原ZIP机器1/2、整答人工0/2：观测并发被外推全系统、采样被升CPU执行时间及坏JSON修补仍FAIL；CPU估算行值/限定均未选，新自然分支NOT_TRIGGERED，不冒context充分或新自然PASS。详[§353汇总](../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104.md)/[手审](../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104_manual_audit.md)及[§352失败原记录](../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)。Trace投影/自动补齐、原4根因/闭合睡眠、合法估算/重试和WAL生产NO-GO保持。
 
 ## 目录
 
