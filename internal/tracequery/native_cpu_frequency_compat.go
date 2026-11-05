@@ -111,6 +111,7 @@ func (w *nativeCPUFrequencyWindow) segment(cpu int, start, end float64) frequenc
 		return frequencySegmentStats{}
 	}
 	out.weightedKHz, out.known = weighted/(end-start), true
+	out.governedMs = (end - start) * 1000
 	return out
 }
 

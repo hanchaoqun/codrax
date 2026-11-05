@@ -558,6 +558,7 @@ type cpuSupplyAcc struct {
 	runningMs       float64
 	freqWeightKHzMs float64 // Σ segment_ms × duration-weighted kHz (known segments)
 	freqKnownMs     float64 // Σ segment_ms with any frequency coverage
+	freqGovernedMs  float64 // running ms supported by a positive sample at/before it; excludes nearest-following fallback
 }
 
 // computeComputeSupplyBalance builds the CMP-10 supply ledger. Returns nil
@@ -644,6 +645,13 @@ func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply m
 			RunningMs:       runningMs,
 			MaxFrequencyKHz: fmax,
 			FrequencyKnown:  fmax > 0,
+		}
+		per.FrequencyCoverageKnown = true
+		if acc != nil {
+			per.FrequencyKnownRunningMs = acc.freqGovernedMs
+		}
+		if unknown := runningMs - per.FrequencyKnownRunningMs; unknown > 0 {
+			per.FrequencyUnknownRunningMs = unknown
 		}
 		if donorCPU >= 0 {
 			donor := donorCPU

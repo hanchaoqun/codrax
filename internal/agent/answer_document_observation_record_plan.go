@@ -44,6 +44,9 @@ func planAnswerDocObservationRecord(record types.ObservationPromptRecord, window
 	if record.ResultCount != nil {
 		fmt.Fprintf(&b, "; result_count=%d", *record.ResultCount)
 	}
+	if context := types.FormatObservationValueContexts(record.ValueContext); context != "" {
+		fmt.Fprintf(&b, "; %s", context)
+	}
 	if value := strings.TrimSpace(record.Value); value != "" {
 		fmt.Fprintf(&b, "; value=%q", value)
 	}

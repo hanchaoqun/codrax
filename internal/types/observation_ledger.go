@@ -255,6 +255,7 @@ type ObservationRecord struct {
 	Predicate                  string                            `json:"predicate,omitempty"`
 	Object                     string                            `json:"object,omitempty"`
 	Value                      string                            `json:"value,omitempty"`
+	ValueContext               []ObservationValueContext         `json:"value_context,omitempty"`
 	Unit                       string                            `json:"unit,omitempty"`
 	Negative                   bool                              `json:"negative,omitempty"`
 	ResultCount                *int                              `json:"result_count,omitempty"`
@@ -688,6 +689,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 			record.ClaimAuthority = inferObservationClaimAuthority(record)
 		}
 		record.ModelNotes = cloneObservationModelNotes(record.ModelNotes)
+		record.ValueContext = CloneObservationValueContexts(record.ValueContext)
 		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
 		record.StateAccounting = CloneTraceSchedulerStateAccounts(record.StateAccounting)
 		record.EventSearchInventory = CloneTraceEventSearchInventory(record.EventSearchInventory)
@@ -1017,6 +1019,7 @@ func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
 	}
 	dst.RichNotes = mergeObservationRecordRichNotes(dst, src)
 	dst.ModelNotes = mergeObservationModelNotes(dst.ModelNotes, src.ModelNotes)
+	dst.ValueContext = mergeObservationValueContexts(dst.ValueContext, src.ValueContext)
 	dst.SupportRefs = appendUniqueObservationStrings(dst.SupportRefs, src.SupportRefs...)
 	if dst.RawExcerpt == "" {
 		dst.RawExcerpt = strings.TrimSpace(src.RawExcerpt)

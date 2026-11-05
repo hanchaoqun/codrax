@@ -216,6 +216,7 @@ func cloneTraceBusinessSpanToolResult(in ToolResult) ToolResult {
 		out.Observations = append([]ObservationRecord{}, in.Observations...)
 		for i := range out.Observations {
 			out.Observations[i].StateAccounting = CloneTraceSchedulerStateAccounts(in.Observations[i].StateAccounting)
+			out.Observations[i].ValueContext = CloneObservationValueContexts(in.Observations[i].ValueContext)
 		}
 	}
 	if in.Handoff != nil && in.Handoff.Documentation != nil {

@@ -45,6 +45,7 @@ type ObservationPromptRecord struct {
 	Span            string
 	Claim           string
 	Value           string
+	ValueContext    []ObservationValueContext
 	Summary         string
 	Excerpt         string
 	SourceExcerpt   *ObservationPromptSourceExcerpt
@@ -164,6 +165,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			Span:            span,
 			Claim:           observationPromptClaim(record.ClaimKey, summary, value),
 			Value:           value,
+			ValueContext:    CloneObservationValueContexts(record.ValueContext),
 			Summary:         summary,
 			Excerpt:         excerpt,
 			SourceExcerpt:   sourceExcerpt,

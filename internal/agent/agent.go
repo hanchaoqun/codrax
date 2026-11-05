@@ -1966,6 +1966,9 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 		if record.ResultCount != nil {
 			fmt.Fprintf(&b, " count=%d", *record.ResultCount)
 		}
+		if context := types.FormatObservationValueContexts(record.ValueContext); context != "" {
+			fmt.Fprintf(&b, " %s", context)
+		}
 		if record.Value != "" {
 			fmt.Fprintf(&b, " value=%s", logging.Truncate(record.Value, toolHistoryObservationCheckpointValueMaxLen))
 		}

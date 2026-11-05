@@ -175,6 +175,7 @@ type SemanticObservationSummary struct {
 	Span            string
 	Claim           string
 	Value           string
+	ValueContext    []types.ObservationValueContext
 	Summary         string
 	Excerpt         string
 	SourceExcerpt   *types.ObservationPromptSourceExcerpt
@@ -844,6 +845,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Span:            strings.TrimSpace(record.Span),
 			Claim:           strings.TrimSpace(record.Claim),
 			Value:           strings.TrimSpace(record.Value),
+			ValueContext:    types.CloneObservationValueContexts(record.ValueContext),
 			Summary:         strings.TrimSpace(record.Summary),
 			Excerpt:         strings.TrimSpace(record.Excerpt),
 			SourceExcerpt:   record.SourceExcerpt,

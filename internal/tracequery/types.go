@@ -2411,6 +2411,13 @@ type ComputeSupplyCPUBalance struct {
 	// FrequencyKnown is false when the CPU had no frequency sample at all —
 	// its running time was weighted 1.0 (无频点数据).
 	FrequencyKnown bool `json:"frequency_known"`
+	// Coverage is accumulated beside, not substituted for, model weighting.
+	// Only positive samples at/before the running instant govern coverage;
+	// nearest-following estimation remains in the numeric algorithm but is
+	// unmeasured here. Legacy rows without the publication flag stay unknown.
+	FrequencyCoverageKnown    bool    `json:"frequency_coverage_known,omitempty"`
+	FrequencyKnownRunningMs   float64 `json:"frequency_known_running_ms"`
+	FrequencyUnknownRunningMs float64 `json:"frequency_unknown_running_ms"`
 	// FrequencyClusterDonorCPU (CFR #75 簇共频): non-nil when this CPU had no
 	// own cpu_frequency samples and its fmax/weighting reused the named
 	// same-cluster sampled core (cluster_freq_share.go single authority).

@@ -3257,6 +3257,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					supplyByCPU[cpu] = sacc
 				}
 				sacc.runningMs += dur
+				sacc.freqGovernedMs += fs.governedMs
 				if fs.known {
 					sacc.freqWeightKHzMs += fs.weightedKHz * dur
 					sacc.freqKnownMs += dur
@@ -10387,6 +10388,7 @@ func sortFrequencyTimeline(freqByCPU map[int][]Event) {
 // inside the segment — zero means the value rests entirely on nearest samples.
 type frequencySegmentStats struct {
 	weightedKHz      float64
+	governedMs       float64 // positive, chronologically governing samples only; display metadata, not weighting
 	observedMaxKHz   int64
 	inSegmentSamples int
 	known            bool
@@ -10425,6 +10427,9 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 	weighted := 0.0
 	for i := first; i < len(samples) && samples[i].Ts < endTs; i++ {
 		if currentKnown {
+			if current > 0 {
+				out.governedMs += (samples[i].Ts - cursor) * 1000
+			}
 			if current == 0 && samples[i].Ts > cursor {
 				unavailableCoverage = true
 			}
@@ -10453,6 +10458,9 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 		unavailableCoverage = true
 	}
 	weighted += float64(current) * (endTs - cursor)
+	if currentKnown && current > 0 {
+		out.governedMs += (endTs - cursor) * 1000
+	}
 	// The nearest following sample participates in the observed-max benchmark
 	// ("inside or nearby"), even when unused for coverage.
 	if following < len(samples) {
@@ -10462,7 +10470,7 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 		// A canonical zero transition cuts carry-in but is not a 0kHz hard
 		// measurement. Refuse the whole segment rather than dilute a positive
 		// average and mint a false low-frequency verdict.
-		return frequencySegmentStats{}
+		return frequencySegmentStats{governedMs: out.governedMs}
 	}
 	out.weightedKHz = weighted / (endTs - startTs)
 	out.known = out.weightedKHz > 0

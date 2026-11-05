@@ -1,0 +1,7 @@
+ID="trace_compute_supply_availability"
+NAME="CPU running and supply — natural scoped analysis"
+QUESTION="请分析附件中app-main线程（tid 100）在0.0005到0.0055秒内的CPU运行与供给情况：时间主要花在哪里，有哪些可确认的问题？"
+HTRACE_FILE="eval/fixtures/hmosperf_native_resource_identity/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

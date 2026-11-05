@@ -7517,9 +7517,13 @@ func writeTraceComputeSupplyBalance(b *strings.Builder, bal *tracequery.ComputeS
 	}
 	fmt.Fprintf(b, "- compute_supply_balance(算力供给) window_ms=%.3f cpus=%d nominal=%.3fcpu·ms delivered=%.3fcpu·ms supply_ratio=%.3f low_freq_loss=%.3fcpu·ms idle_mismatch=%.3fms(wall) core_limited≈%.3fcpu·ms — %s\n",
 		bal.WindowMs, bal.CPUCount, bal.NominalCapacityMs, bal.DeliveredComputeMs, bal.SupplyRatio, bal.LowFrequencyLossMs, bal.IdleMismatchMs, bal.CoreLimitedMs, sanitizeForBanner(bal.Summary))
+	fmt.Fprintf(b, "- compute_supply_balance_caliber=%s\n", traceComputeSupplyEstimateCaliber)
 	for _, per := range bal.PerCPU {
 		fmt.Fprintf(b, "- compute_supply_balance_cpu cpu=%d core_class=%s running=%.3fcpu·ms delivered=%.3fcpu·ms low_freq_loss=%.3fcpu·ms max_freq=%dkHz freq_known=%t\n",
 			per.CPU, sanitizeForBanner(per.CoreClass), per.RunningMs, per.DeliveredComputeMs, per.LowFrequencyLossMs, per.MaxFrequencyKHz, per.FrequencyKnown)
+		if per.FrequencyCoverageKnown {
+			fmt.Fprintf(b, "- compute_supply_frequency_coverage cpu=%d known_running_ms=%g unknown_running_ms=%g (governing samples only; nearest-following estimates remain unmeasured)\n", per.CPU, per.FrequencyKnownRunningMs, per.FrequencyUnknownRunningMs)
+		}
 	}
 	for _, caveat := range bal.Caveats {
 		fmt.Fprintf(b, "- compute_supply_balance_caveat=%s\n", sanitizeForBanner(caveat))
@@ -14737,7 +14741,8 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	// comparison lane can consume the supply ratio and its decomposition
 	// without re-parsing the rendered stanza. Rich notes always carry the
 	// full contract set (%.3f floats + %d cpu_count, never the ""-dropping
-	// ms helper — a 0.000 low_freq_loss is a fact, not an absence). No
+	// ms helper — a computed 0.000 low_freq_loss is retained, with the
+	// producer's ValueContext method/coverage, not a measured absence). No
 	// balance (unbounded window / no sched-observed CPU) publishes nothing.
 	if bal := stats.ComputeSupplyBalance; bal != nil {
 		// WINFLAG-1 (b): the window_stats balance Span copies the q-window
@@ -14756,6 +14761,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Subject:         "compute_supply_balance",
 			Predicate:       "compute_supply_balance",
 			Value:           fmt.Sprintf("%.3f", bal.SupplyRatio),
+			ValueContext:    traceQueryComputeSupplyValueContext(bal),
 			Summary:         bal.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeySupplyRatio, fmt.Sprintf("%.3f", bal.SupplyRatio)},
