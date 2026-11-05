@@ -2,7 +2,41 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§349，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码551e94a48d43c8c67999ce2cba0926d39c988ccf；精确查询目标默认业务展示不再混入其它线程，背景事实/显式选择与独立权限保留。两原例各n1真实并行，机器2/2、root有限完整主审1/2；只读自然控制器/独立恢复/新执行/同代报告PASS，完整网易云全集外推仍FAIL。唯一full98包28760顶层/34562子PASS、零FAIL，517件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§349汇总/51项ROI](../../eval/parallel_selected_summary_hmc_target_business_defaults_registration_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_target_business_defaults_registration_20261104_manual_audit.md)。重复业务账户预算及最终时序表重复优先修，旧采样/IO、权限/代表/二进制覆盖不销；WAL生产NO-GO。
+当前状态（2026-11-04，§350，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0，交付1子能力/1共享组，源码62dbf18204cab2c42f2757a3401de032b30980c3；16完整账户内先保query公平，再软优先不同内容，独立来源/窗口/库存/权限不合并。完整网易云和元宝双query零模型验证16槽保15不同实例；自然元宝/原IO各n1真实并行，机器2/2、完整人工0/2，08.3有限FAIL不销。唯一full98包28763顶层/34576子PASS、零FAIL，621件封存。详[清单](hmosperf_implementation_tasks_20260917.md)、[§350汇总/51项ROI](../../eval/parallel_selected_summary_hmc_account_novelty_yuanbao_io_20261104.md)及[手审](../../eval/parallel_selected_summary_hmc_account_novelty_yuanbao_io_20261104_manual_audit.md)。自然同窗偏好未触发、解释适用域、最终输出重复及旧采样/IO、权限/代表/二进制覆盖不销；WAL生产NO-GO。
+
+## 350. 完整账户预算、两份整件原始采集与有限IO轮换
+
+main基线1eb828c87f1da30dc7091f349ccb49a9832afa16，源码62dbf18204cab2c42f2757a3401de032b30980c3，5Go/400增8删（2生产/3测试）。79/28/51、原checkbox和状态均不变；完整新增0，已交付子能力1共享组。前349在本轮开始时已由正常Git推送和原publication guard确认，旧待推送/失败收据仍保留，不以传输恢复回签人工FAIL。
+
+### 350.1 已证缺口、参考发现与权限分离
+
+§349实际16账户仅8物理实例；新公开双合法同窗查询在旧码RED复现。预算仍16完整记录：每来源/query组先保自己的精确首owner/root，后续公平轮次优先未显示完整内容。重复不禁、原query不合、所有实际选中账户仍逐条带完整SourceRef、窗口、population/Notes和obsID。不是全输出字典、全局压缩或新根因选择。
+
+整件真实材料暴露纯payload地址比较不足：不同索引/扫描元数据导致外层payload变化，完整账户体却完全相同。复用RuntimeObservationPresentationSourceKey私有当前物理代次owner，禁JSON恢复、陈旧或同ID冲突借权；纯ledger重放关闭RowSetWriter，不创建新查询或文件I/O。完整内容键只在软排序中忽略发布ID/观测时点/call/query/text定位，只有当前私有代次凭证才可另去外层payload定位；目标/钟/原窗/行/值/量尺/完整Notes和支持坐标仍逐项比较。保守fallback保payload，不授任何来源、完整性、关系或完成权。
+
+参考context_index.py逐步索引/产物分层、精确键设计；不搬其path-only来源代次、value覆值或全局must_read。项目同一事实的内容复用与独立查询权威必须两条轨，不能凭名字/同payload或文字扫描合并。新层不增加JSON心智、prompt重复、工具字段或问答关键词硬门；旧16+4、查询公平、完整表/Notes、因果投影、自动补齐和产品write隔离保持。
+
+### 350.2 测试、原始数据和冻结
+
+用户目录75份ftrace/5版本应用组合；本批认真使用网易云82838676B和元宝63659046B两个完整原件，未切微窗伪原件。实际公开双query→Finalizer测试均16记录/15不同物理实例/2独立query，旧码仅8；ledger、原件和因果投影字节不变。新单元字段负控覆盖物理源、payload、窗/钟/target、行、单位/值/支持/Notes，公开JSON恢复与冲突ID不能借私有来源。
+
+首新green失败因比较stage-reset outbox而非Turn A原件；full-real-v1/v2因外层payload差异失败，其中v1仅保存log、v2保存native原件，不伪称v1全载荷齐全。工装IO常量遮蔽::IO.copy_stream在冻结前修复并保留原部分文件/失败说明。旧断言未放宽。终版相关40顶层/98子（4包）、race×2 42/66（2包）、原4根因/闭合睡眠21/141（4包）、整件双原件1顶层/2子PASS。
+
+冻结7632输入/395外部/15仓外快照，SHA97bb522a5cea8a1bcde1f20b9ad5980cd288e17aa7ea8721094ea465e8a7e638后停写。唯一full UTC2026-11-05 02:00:27.962720→02:14:17.916581，OS0/源前后true，98包/28763顶层/34576子PASS、12包无测试/55顶层和14子SKIP，268401纯JSON，零FAIL/重复/未终态；log SHA96f1497e16985f802620dac660c85bd9fb224c1f283d38f26b1d8ad59a1e1cd8。
+
+### 350.3 两例完整主审与真实输入
+
+原自然A元宝/B IO，各15steps/n1，实际唯一请求A34/B7、歧义0、最大重叠27.486s；两个case smoke PASS，但完整主审0/2。A实际INIT409919B，16账户/12物理/3不同窗，主四量测/self正确；96原生业务账户与新整件独立整数B/E标尺0差异。四表217+322+836+836行均匹配原生物理时序/状态/端点，完整836行表重复两份；MD389726B/HTML3373513B。仍错把父事务3733.863427末点当activityStart完整末点、后代称直子，并过宽否认既有逐等待位置绑定。A原8解释单元仅0/1全转发，坏unit7未传，不冒直接污染。三查询窗不同，新增同窗偏好自然NOT_TRIGGERED。
+
+B实际INIT274810B，四组表与原expected全同，来源/层/设备/读写/单位/完整配对与issue群体分列。正文却由低深度断言设备无排队/很闲，把6issue与4pair差额归窗外完成，将request·ms升为设备槽位；原有限08.3和整答均FAIL，继续验收中。正当端点事件10=9RQ+1BIO与同family小计不封禁。坏3187B reason及34面积/41.2%未进实际INIT，不以同次受理推污染；正确native边界已给足。HTML2800712B，四聚合正确但4行RQ成员表也重复两份。无图/浏览器像素验收，不新增图退出门。
+
+A真截断1004B emit_analysis参数被执行前拒绝并自然恢复，40声明/40参数分列，其中1blob不可解；A/B非UTF-8日志3/1行保原，B7参数均可解。不得把两个证据面相加算调用，不把这些原失败抹成全程成功。没有第三例或第二full；旧采样/IO充分证据误述留账，不无限重跑阻塞更高ROI。
+
+### 350.4 封存与后继顺序
+
+621件index SHA00d6a64040896ff2de6e1edd065f9065abc2f3d4331eb1b459f853cd817678d1、seal SHA1988eac37dbe5322938dfa2a4782c0e803817c08b148128e7688e407cd840326；root closure=none。前51代22924＋621＝52代23545件，按代非全局去重；物理重核349517/失败344554，其它49代仅链头。原始大trace只按完整身份引用、124MB编译物和完整原件本地ignored证据树保留，不塞Git；源码与五文档提交推送，publication另核main/远端，providers不读取/哈希/复制。
+
+三组失败/欠项挂原ID：主体/原窗/完整实例/关系到解释；IO总体/量尺与物理权限；最终跨块内容复用与整组预算。自然新分支、代表/权限/图、只读登记正负终态及更多二进制真实格式覆盖独立留账，本批未跑不签PASS。51ID按P0共享7→P1有材料验收6→P2原生复用11→P3协议/材料依赖21→P4新域6无重漏排队，名单见批汇总。WAL零副作用前生产NO-GO。
 
 ## 349. 查询目标默认展示、完整实采与只读自然终态
 
