@@ -2,7 +2,21 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-04，§353，main）：79唯一＝28完整＋51开放，原状态/勾选不变。完整新增0、源码子能力1共享组，061d5c99deee8f34bc35fff658706450e5796924保完整计算限定、逐CPU真实频率覆盖及共享消费者，原数值/权威不变。§352全仓两针新代闭环，旧代仍FAIL；唯一full98包28775顶层/34598子PASS、零FAIL，607件封存。自然CPU/原ZIP机器1/2、完整人工0/2，限定自然分支未触发；ZIP查询成功不冒恢复稿验收通过。详[清单](hmosperf_implementation_tasks_20260917.md)、[§353汇总/全51项ROI](../../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104.md)/[手审](../../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104_manual_audit.md)。并发总体外推、采样执行时间和JSON形状失败、旧IO/资源/只读/权限/代表/图覆盖保留，WAL生产NO-GO。
+当前状态（2026-11-05，§354，main）：79唯一＝29完整＋50开放；仅HMC-11.2按原有限选择合同完成，其它勾选不变。新增完整能力1、测试工装子能力1、生产源码改动0；f88efa385a753780af7c67f19fc13cf6227ac7c3保旧入口，分开规划尝试与成功登记。原代表自然题/只读缺来源负向各一次真实并行，机器2/2；代表选择有限人工PASS但整答栈关系误述仍FAIL，B有限负向PASS但真实重试未触发，不冒全CLI/自然controller或父项完成。唯一full98包28777顶层/34606子PASS、零FAIL，476件保原。详[清单](hmosperf_implementation_tasks_20260917.md)、[§354汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105_manual_audit.md)。旧采样/IO、权限/图、数值限定自然覆盖及同源复用欠项保留，WAL生产NO-GO。
+
+## 354. 原合同代表选择交付，规划尝试与只读负向终态独立验收
+
+main基线59df769ee429559bd61a4bf8ed83176c010fdab5，源码f88efa385a753780af7c67f19fc13cf6227ac7c3仅3个Go测试文件、216增2删，无生产修改。普通query与自动补齐共享展示的公开诊断在旧生产本来PASS，不凭旧自然重复表放宽源/查询/精度/端点/角色的私有资格，也不冒称生产RED已修。
+
+§352已证工装阻塞是steps==1把合法无计划重试误作登记数：保留原入口/断言及旧FAIL，新增独立retry-audited入口，逐dispatch记录授权/无执行结果/失败及精确计划身份，仅允许一个最后安装的当前只读登记。公开拒绝发射→合法登记两次尝试和8负控PASS，不抬次数阈值；新测试v1漏持久旧报告的前提错误保原，仅修新setup，旧来源身份断言不改。实际B一次规划安装，重试分支NOT_TRIGGERED；独立新进程重跑原测试，新invocation不同于旧代，源码/测试/HEAD/status均不变，proof verified但overall unverified/missing_terminal_verify_verdict，有限负向PASS。不代完整自然入口、context-pack durability或B2–B6。
+
+参考仓closure/select.py的设计是manifest驱动软排序/有界代表/未选留名册；采用意图，不搬固定每簇5/全局50覆盖用户每组2。context_index.py按step/type/path去重交接产物，不能把path或value覆盖当本轮执行证明、泛业务must_read或证据权。本批不加重复prompt/发射schema/问答关键词门。HMC-11.2最初da4a33d5f原合同只要求软排序、全集/未匹配/跳过分列、未选不宣布正常和无同文率硬拒；既有公开精确规格/旧代次/分页/授权/取消/未选重查负控与此次自然同代交付满足它，不再用其它栈解释债无限阻塞该能力。
+
+原自然题不改，四份原authored SQLite字节、零模型准备、新workspace，无预选索引/oracle喂模型。request_plan=resource_stack自然复用线程101/202、[10,10.05)窗、每组2，8计划/2组/4选/4未选；当前12attempt涉及4记录，3success+1empty、4not_executed，与正文/表/索引/名册一致。原operator实际OS0，root独立手审有限PASS。唯一成文答案仍FAIL：5事件/14源帧原值正确，但正文用malloc→业务符号表达调用顺序；实际INIT已有原帧、明确非有序链限定，不能冒缺上下文。该解释债留12.2/01.3/16.4；不回签§334/335或其它历史FAIL。
+
+相关5包82顶层/301子（12顶层SKIP）、race×2四包8/26（2SKIP）、原因果四包21/141、完整网易云82.8MB/元宝63.7MB实际query→Finalizer1/2均PASS，原数值/投影不变。冻结7648输入/308外部/8快照后不再改源，唯一full UTC10:02:01.194568→10:15:52.411863、OS0/源前后true，98包PASS/12无测试、28777顶层PASS/58SKIP、34606子PASS/14SKIP，268604纯JSON、零FAIL/重复/未终态。两例唯一请求A10/B2，另2歧义组排除，4已证重叠对/最大4.595s，不用进程重叠代签模型并行。
+
+476件index SHAabeb2264336a71ed02ba901e136ee17bd2d10e2880dafa312f5e4c40bf6f48ff，seal SHAfb3a6236d84be4eaea8897cc7869e402360325e633332263be82be3aa41e0b9d；累计56代26023件按代非全局去重，物理重核353607及失败352709，其它53代链头。完整新增1至29、余50按7/5/11/21/6 ROI，下一完整轨轮换IO/资源/真实二进制及只读剩余能力；充分事实后的采样/IO/栈偶发误述留原不追第三例。五文档与代码相邻main提交推送，原件/冻结/远端/清洁独立核验；Trace因果投影、自动补齐、原4根因/闭合睡眠和合法计算重试保持，WAL生产NO-GO。
 
 ## 353. 完整计算限定共享交付，旧失败与自然验收分账
 

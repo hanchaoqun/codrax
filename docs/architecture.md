@@ -7,6 +7,10 @@ codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
+**§354代表选择有限交付与只读登记验收分账（2026-11-05）**：既有生产实现经原自然题真实验收，线程/窗口/每组预算贯通8计划、2组、4选/4未选及同代索引和名册；正文、进度表和导航一致。按最初HMC-11.2软排序/独立覆盖/未选安全合同完成该项，累计29完整/50开放；不把原生栈深度写成调用箭头的整答FAIL销掉，也不暗加新聚类/回写/WAL义务。只读缺来源终态真实恢复执行PASS，proof成功但整体仍unverified；真实重试分支未触发，旧§352失败保原。
+
+源码f88efa385a753780af7c67f19fc13cf6227ac7c3仅3个Go测试文件、216增2删，无生产改动：新独立retry-audited入口逐次记规划尝试、只准一个最终零变更登记，旧单dispatch入口/断言保留，恢复/原件/新执行/缺来源终态门不变。公开普通/自动补齐复用诊断原本已绿，不伪称新生产修复。相关/race/原因果及完整网易云82.8MB/元宝63.7MBquery→Finalizer通过；冻结后唯一full98包28777顶层/34606子PASS、零FAIL，476件保原。详[§354汇总/全50项ROI](../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105.md)/[分轨手审](../eval/parallel_selected_summary_hmc_registration_attempts_representatives_20261105_manual_audit.md)。旧采样/IO、权限/图、自然同源复用与数值限定覆盖仍开放；Trace投影/自动补齐、原4根因/闭合睡眠、合法计算/重试及WAL生产NO-GO保持。
+
 **§353计算限定共享交付（2026-11-04）**：源码061d5c99deee8f34bc35fff658706450e5796924新增producer-owned ObservationValueContext（字段适用域/方法/完整Detail），随ledger、compact、checkpoint、成文整条预算和语义复核保留；Notes/Summary预览不裁掉必要数值限定，超预算整条不选，不留下无条件裸数值。compute_supply_balance把模型方法、逐CPU频率可用性/真实支配频点覆盖和原caveats同源交给消费者；nearest-following或回退权重不是实测覆盖，legacy缺字段仍未知，原数值算法保持。clone与native-core编码明确拥有此字段，不授来源/全集、物理关系/根因或完成权威，不增加模型发射schema或问答关键词门。
 
 §352的含锁拷贝与字段分类FAIL由本代既有ShallowClone及显式native-core所有权闭环；旧原件不回签。19Go（13生产/6测试）及新自然case，共526增3删；相关/race/原因果与整件82.8MB网易云、63.7MB元宝实际query→Finalizer均PASS，冻结后唯一full98包28775顶层/34598子PASS、零FAIL。完整新增0、子能力1共享组，79/28/51不变。真实CPU/原ZIP机器1/2、整答人工0/2：观测并发被外推全系统、采样被升CPU执行时间及坏JSON修补仍FAIL；CPU估算行值/限定均未选，新自然分支NOT_TRIGGERED，不冒context充分或新自然PASS。详[§353汇总](../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104.md)/[手审](../eval/parallel_selected_summary_hmc_value_context_cpu_binary_20261104_manual_audit.md)及[§352失败原记录](../eval/parallel_selected_summary_hmc_value_context_resource_registration_20261104.md)。Trace投影/自动补齐、原4根因/闭合睡眠、合法估算/重试和WAL生产NO-GO保持。
