@@ -5940,7 +5940,18 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocBoundedRuntimeFactAuthority(ctx, promptLedger); authority != "" {
+	// The dedicated, independently bounded accounts publish full source rows
+	// first. Other fact-family sections may reference only those exact rows;
+	// their own scope/owner/ruler guidance remains in place.
+	var contextRows runtimeContextRowPresentation
+	if ctx.AnalysisIR != nil {
+		b.WriteString(renderAnswerDocIOInFlightMeasurementsWithRows(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx), &contextRows))
+		b.WriteString(renderAnswerDocSchedulerConcurrencyMeasurementsWithRows(ctx, promptLedger, &contextRows))
+	}
+	if len(contextRows.rows) > 0 {
+		b.WriteString("- context_row_ref reuses a complete earlier context_row_id in this prompt only. These display references are not measurement selectors, source citations, population/completeness receipts or causal priority. Keep the section's independent boundaries; do not copy internal reference labels into the reader's answer.\n\n")
+	}
+	if authority := renderAnswerDocBoundedRuntimeFactAuthorityWithRows(ctx, promptLedger, &contextRows); authority != "" {
 		b.WriteString(authority)
 	}
 	if meanings := renderAnswerDocQueriedIOMeasurementSemantics(ctx, promptLedger); meanings != "" {
@@ -5968,9 +5979,6 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		b.WriteString(measurements)
 	}
 	if ctx.AnalysisIR != nil {
-		// Occupancy is already-queried resource context regardless of whether
-		// the model classified the question as pressure, counts or causality.
-		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
 		if deferred == nil {
 			b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx, publication))
 		}
@@ -5980,9 +5988,6 @@ func renderAnswerDocObservationLedgerWithPublication(ctx *types.AgentContext, pu
 		deferred.business = b.Len()
 	} else {
 		b.WriteString(renderAnswerDocScopedBusinessTreeFacts(ctx, ledger, promptLedger, publication))
-	}
-	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
-		b.WriteString(measurements)
 	}
 	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger); authority != "" {
 		b.WriteString(authority)
@@ -6499,6 +6504,10 @@ func renderAnswerDocTraceValueOccurrenceAuthority(ctx *types.AgentContext, ledge
 // pair, its coverage row, or a separately requested pressure caliber.  This is
 // evidence handoff only: it neither edits the answer nor elects a root cause.
 func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	return renderAnswerDocBoundedRuntimeFactAuthorityWithRows(ctx, ledger, nil)
+}
+
+func renderAnswerDocBoundedRuntimeFactAuthorityWithRows(ctx *types.AgentContext, ledger types.ObservationLedger, contextRows *runtimeContextRowPresentation) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
@@ -6551,7 +6560,7 @@ func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger 
 			fmt.Fprintf(&b, "  - target_owned_request_rows_rendered=`%d`; this is a bounded witness count, not a target request total unless a target-scoped complete census explicitly says so. A selected-window/global `io_latency_coverage` row's emitted/total/overflow values MUST NOT be attributed to the named target.\n", targetRows)
 		}
 		for _, row := range rows {
-			fmt.Fprintf(&b, "  - %s\n", answerDocBoundedRuntimeFactAuthorityRow(row, rm, extractAnswerDocLang(ctx)))
+			contextRows.write(&b, row, rm, extractAnswerDocLang(ctx), false)
 		}
 	}
 	b.WriteByte('\n')

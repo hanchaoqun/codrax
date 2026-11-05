@@ -73,6 +73,10 @@ func answerDocSchedulerConcurrencyRows(ledger types.ObservationLedger, rm *types
 }
 
 func renderAnswerDocSchedulerConcurrencyMeasurements(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	return renderAnswerDocSchedulerConcurrencyMeasurementsWithRows(ctx, ledger, nil)
+}
+
+func renderAnswerDocSchedulerConcurrencyMeasurementsWithRows(ctx *types.AgentContext, ledger types.ObservationLedger, contextRows *runtimeContextRowPresentation) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
@@ -88,7 +92,7 @@ func renderAnswerDocSchedulerConcurrencyMeasurements(ctx *types.AgentContext, le
 	b.WriteString("- Preserve each row's original source, query receipt and exact window. Do not substitute a containing query's average or peak for a smaller user window. Translate field names and status codes into reader language such as 同时就绪线程数、同时运行线程数、全窗平均、已确认闭合区间; retain omission and coverage limits.\n")
 	fmt.Fprintf(&b, "- rendered_source_rows=%d omitted_source_rows=%d; independent display budget, not a whole-capture census.\n", len(rows), omitted)
 	for _, r := range rows {
-		fmt.Fprintf(&b, "  - %s; source_path=%q; query_result=%q\n", answerDocBoundedRuntimeFactAuthorityRow(r, rm, extractAnswerDocLang(ctx)), r.SourceRef.Path, r.SourceRef.PayloadRef)
+		contextRows.write(&b, r, rm, extractAnswerDocLang(ctx), true)
 	}
 	b.WriteByte('\n')
 	return b.String()

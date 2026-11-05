@@ -67,6 +67,10 @@ func answerDocIOInFlightMeasurementRows(ledger types.ObservationLedger, rm *type
 }
 
 func renderAnswerDocIOInFlightMeasurements(ledger types.ObservationLedger, rm *types.RequestModel, lang string) string {
+	return renderAnswerDocIOInFlightMeasurementsWithRows(ledger, rm, lang, nil)
+}
+
+func renderAnswerDocIOInFlightMeasurementsWithRows(ledger types.ObservationLedger, rm *types.RequestModel, lang string, contextRows *runtimeContextRowPresentation) string {
 	rows, omitted := answerDocIOInFlightMeasurementRows(ledger, rm)
 	if len(rows) == 0 {
 		return ""
@@ -77,9 +81,7 @@ func renderAnswerDocIOInFlightMeasurements(ledger types.ObservationLedger, rm *t
 	b.WriteString("- Depth counts requests on half-open intervals clipped to the selected window; simultaneous completions and starts are processed together. Mean depth uses the full window including idle time. Busy time is the union with at least one admitted request; request·ms is depth integrated over time, not wall-clock delay. Start counts are arrivals, not depth. Missing/ambiguous pairs are excluded from depth and residence, not extended to the window end. A missing value is not measured zero; available pairing is not proof of complete capture. Translate audit labels into reader language.\n")
 	fmt.Fprintf(&b, "- rendered_source_rows=%d omitted_source_rows=%d; retain each row's separate pairing coverage and display omissions.\n", len(rows), omitted)
 	for _, r := range rows {
-		parts := []string{answerDocBoundedRuntimeFactAuthorityRow(r, rm, lang),
-			fmt.Sprintf("source_path=%q; query_result=%q", r.SourceRef.Path, r.SourceRef.PayloadRef)}
-		fmt.Fprintf(&b, "  - %s\n", strings.Join(parts, "; "))
+		contextRows.write(&b, r, rm, lang, true)
 	}
 	b.WriteByte('\n')
 	return b.String()
