@@ -33,10 +33,14 @@ func TestHMC355RuntimeContextFactsPublishedOnce(t *testing.T) {
 					ledger := answerDocObservationLedger(ctx)
 					before, _ := json.Marshal([]any{result, ledger, ctx.AnalysisIR.RequestModel, types.CompileTraceCausalProjection(ledger)})
 					e := &answerDocumentEvaluator{}
+					var prompt string
 					if budgeted {
-						e.promptBudget = &finalizerPromptBudget{RequestAllocationBytes: 700000}
+						prompt = e.BuildInitialInstructionWithBudget(ctx, nil, func() *finalizerPromptBudget {
+							return &finalizerPromptBudget{RequestAllocationBytes: 700000}
+						})
+					} else {
+						prompt = e.BuildInitialInstruction(ctx, nil)
 					}
-					prompt := e.BuildInitialInstruction(ctx, nil)
 					t.Logf("actual_finalizer_prompt_bytes=%d", len(prompt))
 					checked := 0
 					for _, row := range ledger.Records {

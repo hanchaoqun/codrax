@@ -7226,27 +7226,7 @@ func traceQuerySourceBasename(path string) string {
 }
 
 func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary) {
-	fmt.Fprintf(b, "- io_pressure io_pressure_signal=%s activity_index=%.3f evidence_quality=%s score_caliber=%s pressure_conclusion=%s block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
-		sanitizeForBanner(item.Signal),
-		item.Score,
-		sanitizeForBanner(item.EvidenceQuality),
-		sanitizeForBanner(item.ScoreCaliber),
-		traceQueryIOPressureConclusion(item.EvidenceQuality),
-		item.BlockMaxLatencyMs,
-		item.StorageMaxLatencyMs,
-		item.FileIOBytes,
-		item.FileIOEvents,
-		item.PageCacheChurn,
-		item.IOWaitBlockedCount,
-		item.DStateMs,
-		item.IOWaitMs,
-		sanitizeForBanner(firstNonEmptyTraceString(item.TopInode, "unknown")),
-		sanitizeForBanner(firstNonEmptyTraceString(item.TopDev, "unknown")),
-		sanitizeForBanner(firstNonEmptyTraceString(item.TopEntryName, "unknown")),
-		item.LineStart,
-		item.LineEnd,
-		sanitizeForBanner(item.Summary),
-	)
+	fmt.Fprintf(b, "- %s lines=%d-%d — %s\n", traceQueryIOPressureAccountText(item, "io_pressure"), item.LineStart, item.LineEnd, tracequery.IOActivityDurationBoundary)
 }
 
 func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSummary) {
@@ -9678,8 +9658,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				continue
 			}
 			notes := traceQueryTypedOccurrenceWindowRichNotes(item.OccurrenceWindows)
+			var valueContext []types.ObservationValueContext
 			if strings.TrimSpace(item.Type) == "io_pressure" {
 				notes = append(notes, traceQueryTypedIOPressureRankAuthorityNotes(rank, tier, item)...)
+				valueContext = traceQueryIOActivityValueContext()
 			} else {
 				notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
 			}
@@ -10046,12 +10028,13 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// as the QH2-A 站② rank-text word face; the wire field name
 				// ("unit") stays unchanged (不改名关账). Every other caliber
 				// keeps "ms" byte-identically.
-				Unit:        traceQueryRankObservationUnit(item.Type),
-				Summary:     firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
-				RichNotes:   notes,
-				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
-				ObservedAt:  at,
-				Confidence:  item.Confidence,
+				Unit:         traceQueryRankObservationUnit(item.Type),
+				Summary:      firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
+				RichNotes:    notes,
+				ValueContext: valueContext,
+				SupportRefs:  traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
+				ObservedAt:   at,
+				Confidence:   item.Confidence,
 			})
 		}
 	}
@@ -11539,12 +11522,10 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	}
 	dStateValue := traceQueryObservationMSValue(item.DStateMs)
 	ioWaitValue := traceQueryObservationMSValue(item.IOWaitMs)
-	if strings.TrimSpace(item.Type) == "io_pressure" && strings.TrimSpace(item.IOPressureSignal) != "" {
-		// The IO-caliber contract must distinguish an observed zero from an
-		// absent state account. Publish both zeros beside the exact
-		// evidence-quality token on aggregate io_pressure rows.
-		dStateValue = fmt.Sprintf("%.3f", item.DStateMs)
-		ioWaitValue = fmt.Sprintf("%.3f", item.IOWaitMs)
+	if strings.TrimSpace(item.Type) == "io_pressure" {
+		// A score input is not an independently measured state account.
+		dStateValue = tracequery.IOActivityDurationContribution(item.DStateMs)
+		ioWaitValue = tracequery.IOActivityDurationContribution(item.IOWaitMs)
 	}
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset judgment
 	// payload — emitted only when the engine minted it (fields ride only the
@@ -11632,8 +11613,8 @@ func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankIt
 		{"comparison_scope", comparisonScope},
 		{"absolute_level", absoluteLevel},
 		{types.TraceNoteKeyIOPressureIOWaitBlockedCount, strconv.Itoa(item.IOPressureIOWaitBlockedCount)},
-		{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", item.IOPressureBlockMaxLatencyMs)},
-		{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", item.IOPressureStorageMaxLatencyMs)},
+		{types.TraceNoteKeyIOPressureBlockMaxMS, tracequery.IOActivityDurationContribution(item.IOPressureBlockMaxLatencyMs)},
+		{types.TraceNoteKeyIOPressureStorageMaxMS, tracequery.IOActivityDurationContribution(item.IOPressureStorageMaxLatencyMs)},
 		{types.TraceNoteKeyIOPressureFileBytes, fmt.Sprintf("%d", item.IOPressureFileIOBytes)},
 		{types.TraceNoteKeyIOPressureFileEvents, strconv.Itoa(item.IOPressureFileIOEvents)},
 		{types.TraceNoteKeyIOPressurePageCacheChurn, strconv.Itoa(item.IOPressurePageCacheChurn)},
@@ -14441,6 +14422,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Value:           value,
 			Unit:            types.TraceObservationUnitCompositeScore,
 			Summary:         traceQueryTypedIOPressureSummary(*pressure),
+			ValueContext:    traceQueryIOActivityValueContext(),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyType, "io_pressure"},
 				{types.TraceNoteKeySubjectKind, tracequery.RootCauseSubjectKindAggregateMetric},
@@ -14453,14 +14435,14 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"score_breakdown", traceQueryIOPressureScoreBreakdown(*pressure)},
 				{"comparison_scope", traceQueryIOPressureComparisonScope(*pressure)},
 				{"absolute_level", traceQueryIOPressureAbsoluteLevel(*pressure)},
-				{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", pressure.BlockMaxLatencyMs)},
-				{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", pressure.StorageMaxLatencyMs)},
+				{types.TraceNoteKeyIOPressureBlockMaxMS, tracequery.IOActivityDurationContribution(pressure.BlockMaxLatencyMs)},
+				{types.TraceNoteKeyIOPressureStorageMaxMS, tracequery.IOActivityDurationContribution(pressure.StorageMaxLatencyMs)},
 				{types.TraceNoteKeyIOPressureFileBytes, fmt.Sprintf("%d", pressure.FileIOBytes)},
 				{types.TraceNoteKeyIOPressureFileEvents, strconv.Itoa(pressure.FileIOEvents)},
 				{types.TraceNoteKeyIOPressurePageCacheChurn, strconv.Itoa(pressure.PageCacheChurn)},
 				{types.TraceNoteKeyIOPressureIOWaitBlockedCount, strconv.Itoa(pressure.IOWaitBlockedCount)},
-				{types.TraceNoteKeyDState, fmt.Sprintf("%.3f", pressure.DStateMs)},
-				{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", pressure.IOWaitMs)},
+				{types.TraceNoteKeyDState, tracequery.IOActivityDurationContribution(pressure.DStateMs)},
+				{types.TraceNoteKeyIOWait, tracequery.IOActivityDurationContribution(pressure.IOWaitMs)},
 				{types.TraceNoteKeyIOPressureConclusion, traceQueryIOPressureConclusion(pressure.EvidenceQuality)},
 				{"top_inode", pressure.TopInode},
 				{"top_dev", pressure.TopDev},
@@ -15671,7 +15653,19 @@ func traceQueryTypedStorageLatencySummary(item tracequery.StorageLatencySummary)
 }
 
 func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string {
-	parts := []string{"io_pressure_summary"}
+	return traceQueryIOPressureAccountText(item, "io_pressure_summary")
+}
+
+func traceQueryIOActivityValueContext() []types.ObservationValueContext {
+	return []types.ObservationValueContext{{
+		Fields: "block_max,storage_max,d_state,io_wait,iowait_blocked",
+		Method: "admitted_io_activity_operands",
+		Detail: tracequery.IOActivityDurationBoundary,
+	}}
+}
+
+func traceQueryIOPressureAccountText(item tracequery.IOPressureSummary, label string) string {
+	parts := []string{label}
 	for _, kv := range [][2]string{
 		{"io_pressure_signal", item.Signal},
 		{"activity_index", traceQueryTypedFloat(item.Score)},
@@ -15681,25 +15675,24 @@ func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string 
 		{"score_breakdown", traceQueryIOPressureScoreBreakdown(item)},
 		{"comparison_scope", traceQueryIOPressureComparisonScope(item)},
 		{"absolute_level", traceQueryIOPressureAbsoluteLevel(item)},
+		{"block_max", tracequery.IOActivityDurationText(item.BlockMaxLatencyMs, "not_accounted")},
+		{"storage_max", tracequery.IOActivityDurationText(item.StorageMaxLatencyMs, "not_accounted")},
+		{"iowait_blocked", strconv.Itoa(item.IOWaitBlockedCount)},
+		{types.TraceNoteKeyDState, tracequery.IOActivityDurationText(item.DStateMs, "not_accounted")},
+		{types.TraceNoteKeyIOWait, tracequery.IOActivityDurationText(item.IOWaitMs, "not_accounted")},
+		{"file_bytes", strconv.FormatInt(item.FileIOBytes, 10)},
+		{"file_events", strconv.Itoa(item.FileIOEvents)},
+		{"page_cache_churn", strconv.Itoa(item.PageCacheChurn)},
 		{"top_inode", item.TopInode},
 		{"top_dev", item.TopDev},
 		{"top_name", item.TopEntryName},
-		{"file_bytes", fmt.Sprintf("%d", item.FileIOBytes)},
-		{"file_events", strconv.Itoa(item.FileIOEvents)},
-		{"page_cache_churn", strconv.Itoa(item.PageCacheChurn)},
-		{"storage_max", fmt.Sprintf("%.3f", item.StorageMaxLatencyMs)},
-		{"block_max", fmt.Sprintf("%.3f", item.BlockMaxLatencyMs)},
-		{"iowait_blocked", strconv.Itoa(item.IOWaitBlockedCount)},
-		{types.TraceNoteKeyDState, fmt.Sprintf("%.3f", item.DStateMs)},
-		{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", item.IOWaitMs)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {
 			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
 		}
 	}
-	if summary := strings.TrimSpace(item.Summary); summary != "" {
-		parts = append(parts, "detail="+sanitizeForBanner(summary))
-	}
+	// The producer summary repeats these operands; do not forward a second
+	// free-text copy (including legacy default zeros) beside the typed values.
 	return strings.Join(parts, " ")
 }
 

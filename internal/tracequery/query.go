@@ -13819,11 +13819,7 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 			break
 		}
 	}
-	summary := fmt.Sprintf("io activity signal=%s activity_index=%.3f evidence_quality=%s score_caliber=%s block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s", signal, score, evidenceQuality, scoreCaliber, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, ioWaitMs, firstNonEmpty(topInode, "unknown"))
-	if signal == "blocked_reason_iowait_count_only" {
-		summary += fmt.Sprintf(" score_breakdown=iowait_blocked_count(%d)*5=%.3f comparison_scope=same_score_caliber_capture_conditions_and_window_duration absolute_level=not_defined", stats.IOWaitBlockedCount, score)
-	}
-	return &IOPressureSummary{
+	pressure := &IOPressureSummary{
 		Signal:              signal,
 		EvidenceQuality:     evidenceQuality,
 		ScoreCaliber:        scoreCaliber,
@@ -13841,8 +13837,9 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 		TopEntryName:        topName,
 		LineStart:           lineStart,
 		LineEnd:             lineEnd,
-		Summary:             summary,
 	}
+	pressure.Summary = pressure.ActivityIndexSummaryParts().String()
+	return pressure
 }
 
 type blockInodeAcc struct {

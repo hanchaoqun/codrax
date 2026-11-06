@@ -899,11 +899,19 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 	// Direct (non-promoted) field lookup only: reflect promotion through a
 	// nil embedded pointer group panics, and the P4 side-table ban forbids
 	// promoted reads anyway.
-	if f, ok := directField(v, "Summary"); ok && f.Kind() == reflect.String {
-		summary = f.String()
+	if t == reflect.TypeOf(tracequery.IOPressureSummary{}) {
+		// A single admitted line carries all parts. The normal per-value cap
+		// cannot sever the required qualification from the index it limits,
+		// and the existing step/report line caps still admit or omit the row.
+		parts := v.Interface().(tracequery.IOPressureSummary).ActivityIndexSummaryParts()
+		parts.Account = clampToken(parts.Account)
+		parts.Comparison = clampToken(parts.Comparison)
+		summary = parts.String()
+	} else if f, ok := directField(v, "Summary"); ok && f.Kind() == reflect.String {
+		summary = clampToken(f.String())
 	}
 	if summary != "" {
-		line := fmt.Sprintf("- %s: %s", path, clampToken(summary))
+		line := fmt.Sprintf("- %s: %s", path, summary)
 		if extra := structCoordinateTokens(v); extra != "" {
 			line += "; " + extra
 		}

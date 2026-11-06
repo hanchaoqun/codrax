@@ -157,13 +157,22 @@ func TestEvalcaseDHIO2ChurnEndToEnd(t *testing.T) {
 		"evidence_quality=wall_clock_or_latency_corroborated",
 		"score_caliber=cross_unit_activity_index",
 		"block_max=0.936ms storage_max=0.936ms",
-		"d_state=3.859ms io_wait=0.000ms",
+		"d_state=3.859ms io_wait=not_accounted",
 		"page_cache_churn=2167",
 		"top_inode=0x9903f",
 		"sysmgr-reclaim0-9",
 		"sh-19629 thread load running=19.402ms",
 		"mm_filemap_delete",
 	})
+	// In this capture D time is admitted to the activity index; I/O-wait
+	// duration is not. Keep the qualification on both delivered index rows,
+	// including the copy accompanying root_cause_rank, even at the text cap.
+	rows := evalcaseQualifiedIOIndexRows(t, report, 2)
+	for _, row := range rows {
+		if !strings.Contains(row, "d_state=3.859ms io_wait=not_accounted") {
+			t.Errorf("DH-IO2 mixed operand availability changed: %s", row)
+		}
+	}
 }
 
 // DH-R1 e2e: the runnable storm's victims + the cpu·ms caliber words + the

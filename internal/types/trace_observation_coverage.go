@@ -51,26 +51,27 @@ type TraceObservationDimensionCoverage struct {
 }
 
 type TraceObservationCoverageRecord struct {
-	ID                     string   `json:"id,omitempty"`
-	Dimension              string   `json:"dimension,omitempty"`
-	Subject                string   `json:"subject,omitempty"`
-	Predicate              string   `json:"predicate,omitempty"`
-	Object                 string   `json:"object,omitempty"`
-	Value                  string   `json:"value,omitempty"`
-	Unit                   string   `json:"unit,omitempty"`
-	Summary                string   `json:"summary,omitempty"`
-	StateAccountingMeaning string   `json:"state_accounting_meaning,omitempty"`
-	ChainRelevance         string   `json:"chain_relevance,omitempty"`
-	DrilldownSource        string   `json:"drilldown_source,omitempty"`
-	RecommendedViews       []string `json:"recommended_views,omitempty"`
-	ChainRequired          bool     `json:"chain_required,omitempty"`
-	RecursiveDrilldown     bool     `json:"recursive_drilldown,omitempty"`
-	Window                 string   `json:"window,omitempty"`
-	Filter                 string   `json:"filter,omitempty"`
-	Source                 string   `json:"source,omitempty"`
-	Span                   string   `json:"span,omitempty"`
-	SupportRefs            []string `json:"support_refs,omitempty"`
-	Significant            bool     `json:"significant,omitempty"`
+	ID                     string                    `json:"id,omitempty"`
+	Dimension              string                    `json:"dimension,omitempty"`
+	Subject                string                    `json:"subject,omitempty"`
+	Predicate              string                    `json:"predicate,omitempty"`
+	Object                 string                    `json:"object,omitempty"`
+	Value                  string                    `json:"value,omitempty"`
+	Unit                   string                    `json:"unit,omitempty"`
+	Summary                string                    `json:"summary,omitempty"`
+	ValueContext           []ObservationValueContext `json:"value_context,omitempty"`
+	StateAccountingMeaning string                    `json:"state_accounting_meaning,omitempty"`
+	ChainRelevance         string                    `json:"chain_relevance,omitempty"`
+	DrilldownSource        string                    `json:"drilldown_source,omitempty"`
+	RecommendedViews       []string                  `json:"recommended_views,omitempty"`
+	ChainRequired          bool                      `json:"chain_required,omitempty"`
+	RecursiveDrilldown     bool                      `json:"recursive_drilldown,omitempty"`
+	Window                 string                    `json:"window,omitempty"`
+	Filter                 string                    `json:"filter,omitempty"`
+	Source                 string                    `json:"source,omitempty"`
+	Span                   string                    `json:"span,omitempty"`
+	SupportRefs            []string                  `json:"support_refs,omitempty"`
+	Significant            bool                      `json:"significant,omitempty"`
 	// LockTwinFolded mirrors the producer's typed "lock_twin_folded=true"
 	// note (BLK-2 P2): this root_cause_rank record is the SINGLE publication
 	// of a physical lock-contention span whose waiter-subject
@@ -237,6 +238,7 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 		Value:                  value,
 		Unit:                   strings.TrimSpace(record.Unit),
 		Summary:                strings.TrimSpace(record.Summary),
+		ValueContext:           CloneObservationValueContexts(record.ValueContext),
 		StateAccountingMeaning: TraceObservationStateAccountingMeaning(record, false),
 		ChainRelevance:         traceObservationChainRelevance(record),
 		DrilldownSource:        traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySource),

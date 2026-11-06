@@ -6377,6 +6377,9 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 		if obs.Value != "" {
 			fmt.Fprintf(&b, "; value=%q", obs.Value)
 		}
+		if qualification := types.FormatObservationValueContexts(obs.ValueContext); qualification != "" {
+			b.WriteString("; " + qualification)
+		}
 		if obs.StateAccountingMeaning != "" {
 			fmt.Fprintf(&b, "; accounting=%q", obs.StateAccountingMeaning)
 		}

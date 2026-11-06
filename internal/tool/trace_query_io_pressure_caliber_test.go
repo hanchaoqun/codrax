@@ -21,8 +21,9 @@ func TestTraceQueryCountOnlyIOCaliberIsConsistentAcrossFaces(t *testing.T) {
 		"score_breakdown=iowait_blocked_count(36)*5=180.000",
 		"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
 		"absolute_level=not_defined",
-		"block_max=0.000ms storage_max=0.000ms",
-		"iowait_blocked=36 d_state=0.000ms io_wait=0.000ms",
+		"block_max=not_accounted storage_max=not_accounted",
+		"iowait_blocked=36 d_state=not_accounted io_wait=not_accounted",
+		"An unaccounted duration is not a measured zero",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("raw summary missing %q:\n%s", want, summary)
@@ -44,6 +45,14 @@ func TestTraceQueryCountOnlyIOCaliberIsConsistentAcrossFaces(t *testing.T) {
 	}
 	for label, record := range map[string]*types.ObservationRecord{"direct": direct, "root": root} {
 		notes := strings.Join(record.RichNotes, " ")
+		if len(record.ValueContext) != 1 || record.ValueContext[0].Detail != tracequery.IOActivityDurationBoundary {
+			t.Fatalf("%s lost the complete operand qualification: %+v", label, record.ValueContext)
+		}
+		for _, key := range []string{"io_pressure_block_max_ms=", "io_pressure_storage_max_ms=", "d_state=", "io_wait="} {
+			if strings.Contains(notes, key) {
+				t.Errorf("%s published a duration operand without evidence: %q", label, key)
+			}
+		}
 		for _, want := range []string{
 			"io_pressure_signal=blocked_reason_iowait_count_only",
 			"io_pressure_evidence_quality=activity_marker_only",
@@ -53,10 +62,6 @@ func TestTraceQueryCountOnlyIOCaliberIsConsistentAcrossFaces(t *testing.T) {
 			"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
 			"absolute_level=not_defined",
 			"io_pressure_iowait_blocked_count=36",
-			"io_pressure_block_max_ms=0.000",
-			"io_pressure_storage_max_ms=0.000",
-			"d_state=0.000",
-			"io_wait=0.000",
 		} {
 			if !strings.Contains(notes, want) {
 				t.Fatalf("%s typed record missing %q: %+v", label, want, *record)
@@ -100,9 +105,10 @@ func TestSystemProjectionLabelsCountOnlyIOAsActivityNotPressure(t *testing.T) {
 		"证据口径=activity_marker_only",
 		"signal=blocked_reason_iowait_count_only",
 		"iowait=36",
-		"D态=0.000ms",
-		"iowait=0.000ms",
-		"块/存储最大延迟=0.000/0.000ms",
+		"D态=未计入",
+		"IO等待=未计入",
+		"块/存储最大延迟=未计入/未计入",
+		"未计入不等于实测零",
 		"score_caliber=count_weighted_activity_index",
 		"分解=36×5=180.000",
 		"comparison_scope=仅同score_caliber、同采集条件且同窗长",
