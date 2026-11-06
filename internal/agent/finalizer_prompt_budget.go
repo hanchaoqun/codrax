@@ -41,6 +41,8 @@ type finalizerPromptBudget struct {
 	PreviewOmittedBytes     int                              `json:"preview_omitted_bytes"`
 	PreviewOmittedGroups    int                              `json:"preview_omitted_dependency_groups"`
 	DynamicUnexecutedGroups int                              `json:"dynamic_groups_not_executed"`
+	EquivalentGroups        int                              `json:"equivalent_groups_compacted,omitempty"`
+	EquivalentSavedBytes    int                              `json:"equivalent_bytes_saved,omitempty"`
 	NativeLedgerPlan        *finalizerNativeLedgerPlan       `json:"native_ledger_plan,omitempty"`
 	protectedDynamicBytes   int
 }
@@ -145,6 +147,56 @@ type answerDocDeferredSection struct {
 	render func() string
 }
 
+type finalizerTextProjection struct {
+	expanded string
+	compact  string
+}
+
+// These are builder-owned byte ranges, never matches in source, user or
+// model prose. Replacement is permitted only by the producer of the section.
+type finalizerEquivalentSection struct {
+	start, end int
+	compact    string
+}
+
+func (s finalizerEquivalentSection) savings() int { return s.end - s.start - len(s.compact) }
+
+func compactEquivalentFinalizerSections(full string, sections []finalizerEquivalentSection, limit int) (string, int, int) {
+	if len(full) <= limit || len(sections) == 0 {
+		return full, 0, 0
+	}
+	order := make([]int, len(sections))
+	for i := range order {
+		order[i] = i
+	}
+	// Prefer replacing fewer sections; ties keep their assembly order.
+	sort.SliceStable(order, func(i, j int) bool { return sections[order[i]].savings() > sections[order[j]].savings() })
+	selected := make([]bool, len(sections))
+	saved, count := 0, 0
+	for _, i := range order {
+		selected[i] = true
+		saved += sections[i].savings()
+		count++
+		if len(full)-saved <= limit {
+			break
+		}
+	}
+	var out strings.Builder
+	out.Grow(len(full) - saved)
+	pos := 0
+	for i, s := range sections {
+		if selected[i] {
+			out.WriteString(full[pos:s.start])
+			out.WriteString(s.compact)
+			pos = s.end
+		}
+	}
+	out.WriteString(full[pos:])
+	// If even the equivalent minimum cannot fit, the unchanged dispatch
+	// guard still refuses it. No required unit is dropped to force a fit.
+	return out.String(), count, saved
+}
+
 // Required outer sections are built once before allocating optional native
 // previews. Offsets are builder positions, never markers scanned from prose.
 // Deferred sections and their dependent narrative are each rendered once.
@@ -159,9 +211,22 @@ func (t *answerDocDynamicTrace) finishBudgeted(base string) string {
 	p.protectedDynamicBytes = len(base) + 8*1024
 	var out strings.Builder
 	pos := 0
+	var relocated []finalizerEquivalentSection
+	nextEquivalent := 0
+	copyBase := func(end int) {
+		shift := out.Len() - pos
+		for nextEquivalent < len(t.equivalent) && t.equivalent[nextEquivalent].end <= end {
+			section := t.equivalent[nextEquivalent]
+			section.start += shift
+			section.end += shift
+			relocated = append(relocated, section)
+			nextEquivalent++
+		}
+		out.WriteString(base[pos:end])
+		pos = end
+	}
 	for _, section := range t.deferred {
-		out.WriteString(base[pos:section.offset])
-		pos = section.offset
+		copyBase(section.offset)
 		if t.shouldStop(&out, section.name) {
 			p.DynamicUnexecutedGroups++
 			continue
@@ -172,14 +237,16 @@ func (t *answerDocDynamicTrace) finishBudgeted(base string) string {
 		appendAnswerDocDynamicSectionOutput(&out, text)
 		out.WriteString("\n\n")
 	}
-	out.WriteString(base[pos:])
+	copyBase(len(base))
 	// Local resource-policy numbers belong to this dispatch and diagnostics,
 	// not answer evidence. Native omissions/completeness/navigation are still
 	// rendered by their actual fact groups, with no operational duplicate.
-	p.DynamicPublishedBytes = out.Len()
+	var instruction string
+	instruction, p.EquivalentGroups, p.EquivalentSavedBytes = compactEquivalentFinalizerSections(out.String(), relocated, p.DynamicAllocatedBytes)
+	p.DynamicPublishedBytes = len(instruction)
 	receipt, _ := json.Marshal(p)
 	logging.Debug("[diag finalizer] phase=prompt_byte_budget receipt=%s", receipt)
-	return out.String()
+	return instruction
 }
 
 // Optional native dependencies are committed together. A rejected candidate

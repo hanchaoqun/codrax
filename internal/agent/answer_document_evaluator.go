@@ -225,10 +225,29 @@ const (
 type answerDocDynamicTrace struct {
 	promptBudget *finalizerPromptBudget
 	deferred     []answerDocDeferredSection
+	equivalent   []finalizerEquivalentSection
 	ctx          *types.AgentContext
 	stage        string
 	started      time.Time
 	budgetLogged bool
+}
+
+// Only pure presentation renderers may register an equivalent projection.
+// Both faces must contain the same complete evidence; neither may update
+// source/publication receipts. The ordinary and roomy paths keep their bytes.
+func (t *answerDocDynamicTrace) appendEquivalentSection(b *strings.Builder, section string, render func(bool) finalizerTextProjection) bool {
+	var projection finalizerTextProjection
+	allowCompact := t != nil && t.promptBudget != nil && t.promptBudget.Policy == types.FinalizerRequestByteEnforce
+	ok := t.appendSection(b, section, func() string {
+		projection = render(allowCompact)
+		return projection.expanded
+	})
+	if allowCompact && projection.compact != "" && len(projection.compact) < len(projection.expanded) {
+		t.equivalent = append(t.equivalent, finalizerEquivalentSection{
+			start: b.Len() - len(projection.expanded), end: b.Len(), compact: projection.compact,
+		})
+	}
+	return ok
 }
 
 func newAnswerDocDynamicTrace(ctx *types.AgentContext) *answerDocDynamicTrace {
@@ -635,8 +654,8 @@ func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContex
 	// decision inputs to the finalizer before the larger ledger view so the
 	// model can synthesize the conclusion itself. This section is prompt-only;
 	// persistence must never replace or rewrite model reasoning from it.
-	if !trace.appendSection(&b, "runtime_trace_decision_handoff", func() string {
-		return renderAnswerDocTraceDecisionHandoff(ctx)
+	if !trace.appendEquivalentSection(&b, "runtime_trace_decision_handoff", func(allowCompact bool) finalizerTextProjection {
+		return renderAnswerDocTraceDecisionHandoffProjection(ctx, allowCompact)
 	}) {
 		return b.String()
 	}

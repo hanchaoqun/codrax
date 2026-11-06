@@ -87,8 +87,72 @@ func traceFindingHasTraceCarrier(ctx *types.AgentContext) bool {
 // traceRootCauseRosterGroup is one rendered roster fence: the candidates of
 // one trace file (label = the fold's partition key) as indented JSON.
 type traceRootCauseRosterGroup struct {
-	label string
-	json  []byte
+	label   string
+	json    []byte
+	compact []byte
+}
+
+type traceRootCauseRosterRow struct {
+	CandidateID        string                       `json:"candidate_id"`
+	ArtifactLabel      string                       `json:"artifact_label,omitempty"`
+	CauseKind          string                       `json:"cause_kind"`
+	Subject            string                       `json:"subject,omitempty"`
+	Resource           string                       `json:"resource,omitempty"`
+	Phase              string                       `json:"phase,omitempty"`
+	Rank               int                          `json:"rank,omitempty"`
+	ImpactMS           float64                      `json:"impact_ms"`
+	ImpactCaliber      string                       `json:"impact_caliber"`
+	CausalQualifier    string                       `json:"causal_qualifier"`
+	MechanismQualifier string                       `json:"mechanism_qualifier,omitempty"`
+	ValueDescription   string                       `json:"value_description,omitempty"`
+	EvidenceRefs       []string                     `json:"evidence_refs"`
+	WindowScope        *types.TraceQueryWindowScope `json:"window_scope,omitempty"`
+	WindowScopeNote    string                       `json:"window_scope_note,omitempty"`
+	WindowContextRef   string                       `json:"window_context_ref,omitempty"`
+}
+
+type traceRootCauseRosterWindow struct {
+	Scope types.TraceQueryWindowScope `json:"window_scope"`
+	Note  string                      `json:"window_scope_note,omitempty"`
+}
+
+// Reuse exact window display metadata within one artifact roster. IDs,
+// evidence, cause/value/qualifier fields and array order remain row-owned;
+// sharing a ruler does not prove common query identity or causality.
+func compactTraceRootCauseRoster(rows []traceRootCauseRosterRow) []byte {
+	counts := make(map[traceRootCauseRosterWindow]int)
+	for _, row := range rows {
+		if row.WindowScope != nil {
+			counts[traceRootCauseRosterWindow{*row.WindowScope, row.WindowScopeNote}]++
+		}
+	}
+	refs := make(map[traceRootCauseRosterWindow]string)
+	contexts := make(map[string]traceRootCauseRosterWindow)
+	candidates := append([]traceRootCauseRosterRow(nil), rows...)
+	for i := range candidates {
+		row := &candidates[i]
+		if row.WindowScope == nil {
+			continue
+		}
+		key := traceRootCauseRosterWindow{*row.WindowScope, row.WindowScopeNote}
+		if counts[key] < 2 {
+			continue
+		}
+		ref := refs[key]
+		if ref == "" {
+			ref = fmt.Sprintf("w%d", len(refs)+1)
+			refs[key], contexts[ref] = ref, key
+		}
+		row.WindowScope, row.WindowScopeNote, row.WindowContextRef = nil, "", ref
+	}
+	if len(contexts) == 0 {
+		return nil
+	}
+	encoded, _ := json.Marshal(struct {
+		WindowContexts map[string]traceRootCauseRosterWindow `json:"window_contexts"`
+		Candidates     []traceRootCauseRosterRow             `json:"candidates"`
+	}{contexts, candidates})
+	return encoded
 }
 
 // traceRootCauseRosterGroups renders the selectable roster. Single-artifact
@@ -103,26 +167,13 @@ type traceRootCauseRosterGroup struct {
 // contributed no selectable candidate (§40.48 fold-in): the teaching counts
 // the partition roster, so a silent partition is disclosed, not miscounted.
 func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, contract *types.TraceFindingContract) ([]traceRootCauseRosterGroup, []string, error) {
-	type candidateView struct {
-		CandidateID        string                       `json:"candidate_id"`
-		ArtifactLabel      string                       `json:"artifact_label,omitempty"`
-		CauseKind          string                       `json:"cause_kind"`
-		Subject            string                       `json:"subject,omitempty"`
-		Resource           string                       `json:"resource,omitempty"`
-		Phase              string                       `json:"phase,omitempty"`
-		Rank               int                          `json:"rank,omitempty"`
-		ImpactMS           float64                      `json:"impact_ms"`
-		ImpactCaliber      string                       `json:"impact_caliber"`
-		CausalQualifier    string                       `json:"causal_qualifier"`
-		MechanismQualifier string                       `json:"mechanism_qualifier,omitempty"`
-		ValueDescription   string                       `json:"value_description,omitempty"`
-		EvidenceRefs       []string                     `json:"evidence_refs"`
-		WindowScope        *types.TraceQueryWindowScope `json:"window_scope,omitempty"`
-		WindowScopeNote    string                       `json:"window_scope_note,omitempty"`
-	}
-	view := func(candidate types.TraceFindingCandidateV1) candidateView {
+	return traceRootCauseRosterGroupsWithProjection(selectable, contract, false)
+}
+
+func traceRootCauseRosterGroupsWithProjection(selectable []types.TraceFindingCandidateV1, contract *types.TraceFindingContract, allowCompact bool) ([]traceRootCauseRosterGroup, []string, error) {
+	view := func(candidate types.TraceFindingCandidateV1) traceRootCauseRosterRow {
 		decision := candidate.Decision
-		out := candidateView{
+		out := traceRootCauseRosterRow{
 			CandidateID: decision.CandidateID, ArtifactLabel: decision.ArtifactLabel, CauseKind: decision.Token.Token,
 			Subject: decision.SubjectName, Resource: decision.ResourceName,
 			Phase: decision.PhaseName, Rank: decision.Rank,
@@ -141,7 +192,7 @@ func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, cont
 	if contract.MultiArtifact() {
 		labels = append(append([]string(nil), contract.ArtifactLabels...), "")
 	}
-	byLabel := map[string][]candidateView{}
+	byLabel := map[string][]traceRootCauseRosterRow{}
 	for _, candidate := range selectable {
 		key := ""
 		if contract.MultiArtifact() {
@@ -171,7 +222,11 @@ func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, cont
 		if heading == "" && contract.MultiArtifact() {
 			heading = "unlabeled"
 		}
-		groups = append(groups, traceRootCauseRosterGroup{label: heading, json: b})
+		group := traceRootCauseRosterGroup{label: heading, json: b}
+		if allowCompact {
+			group.compact = compactTraceRootCauseRoster(roster)
+		}
+		groups = append(groups, group)
 	}
 	return groups, silent, nil
 }
@@ -186,17 +241,21 @@ func rosterLabelListed(values []string, want string) bool {
 }
 
 func renderTraceFindingContract(ctx *types.AgentContext) string {
+	return renderTraceFindingContractProjection(ctx, false).expanded
+}
+
+func renderTraceFindingContractProjection(ctx *types.AgentContext, allowCompact bool) finalizerTextProjection {
 	if ctx == nil || ctx.Mutable == nil {
-		return ""
+		return finalizerTextProjection{}
 	}
 	contract := ctx.Mutable.TraceFindingContract()
 	if contract == nil || strings.TrimSpace(contract.CandidateSetID) == "" {
-		return ""
+		return finalizerTextProjection{}
 	}
 	var out strings.Builder
 	selectable := tracefinding.SelectableRootCauseCandidates(contract)
 	if contract.RootCauseReportEnabled && len(selectable) > 0 {
-		groups, silent, err := traceRootCauseRosterGroups(selectable, contract)
+		groups, silent, err := traceRootCauseRosterGroupsWithProjection(selectable, contract, allowCompact)
 		if err == nil {
 			out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
 			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` never replaces or blocks it. " + types.TraceRootCauseSelectorOutcomeTeaching() + " Omitting it on a later re-emit keeps the previously accepted selection.\n")
@@ -221,18 +280,39 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 				out.WriteString("\n")
 			}
 			out.WriteString("\n")
-			for index, group := range groups {
-				if index > 0 {
-					out.WriteString("\n")
+			header := out.String()
+			expanded := renderTraceRootCauseRosters(header, groups, contract.MultiArtifact(), false)
+			for _, group := range groups {
+				if len(group.compact) != 0 {
+					return finalizerTextProjection{expanded, renderTraceRootCauseRosters(header, groups, contract.MultiArtifact(), true)}
 				}
-				if contract.MultiArtifact() {
-					fmt.Fprintf(&out, "**Trace file: %s**\n\n", group.label)
-				}
-				out.WriteString("```json\n")
-				out.Write(group.json)
-				out.WriteString("\n```\n")
 			}
+			return finalizerTextProjection{expanded: expanded}
 		}
+	}
+	return finalizerTextProjection{}
+}
+
+func renderTraceRootCauseRosters(header string, groups []traceRootCauseRosterGroup, multiArtifact, compact bool) string {
+	var out strings.Builder
+	out.WriteString(header)
+	if compact {
+		out.WriteString("Read a candidate's `window_context_ref` only in that roster's `window_contexts`: it reuses the exact window scope and any note, not query identity or a causal link. Select by `candidate_id`; window references are not tool arguments.\n\n")
+	}
+	for index, group := range groups {
+		if index > 0 {
+			out.WriteString("\n")
+		}
+		if multiArtifact {
+			fmt.Fprintf(&out, "**Trace file: %s**\n\n", group.label)
+		}
+		out.WriteString("```json\n")
+		if compact && len(group.compact) != 0 {
+			out.Write(group.compact)
+		} else {
+			out.Write(group.json)
+		}
+		out.WriteString("\n```\n")
 	}
 	return strings.TrimSpace(out.String())
 }

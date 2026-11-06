@@ -22,10 +22,14 @@ import (
 // This is deliberately prompt-only. It neither creates an AnswerBlock nor
 // inspects/replaces model prose, and no answer hard gate consumes it.
 func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
+	return renderAnswerDocTraceDecisionHandoffProjection(ctx, false).expanded
+}
+
+func renderAnswerDocTraceDecisionHandoffProjection(ctx *types.AgentContext, allowCompact bool) finalizerTextProjection {
 	if ctx == nil {
-		return ""
+		return finalizerTextProjection{}
 	}
-	findingContract := strings.TrimSpace(renderTraceFindingContract(ctx))
+	findingContract := renderTraceFindingContractProjection(ctx, allowCompact)
 	authority := answerDocRuntimeTraceGuidanceView(ctx)
 	// A generic runtime/log observation ledger can compile an empty projection
 	// partition. Only an actual typed trace source may activate this trace-only
@@ -44,7 +48,7 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	// causal synthesis merely because exploration happened to collect a causal
 	// row; explicit typed windows and causal/relation scopes remain authorized.
 	if !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
-		return strings.TrimSpace(renderAnswerDocBoundedSemanticFacts(ctx, ledger) + findingContract)
+		return prependTraceDecisionContext(renderAnswerDocBoundedSemanticFacts(ctx, ledger), findingContract)
 	}
 	var claims []types.AnswerRelationClaim
 	if ctx.Mutable != nil {
@@ -53,7 +57,15 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	handoff := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
 		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), claims,
 	)
-	return strings.TrimSpace(handoff + findingContract)
+	return prependTraceDecisionContext(handoff, findingContract)
+}
+
+func prependTraceDecisionContext(prefix string, finding finalizerTextProjection) finalizerTextProjection {
+	finding.expanded = strings.TrimSpace(prefix + finding.expanded)
+	if finding.compact != "" {
+		finding.compact = strings.TrimSpace(prefix + finding.compact)
+	}
+	return finding
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {
