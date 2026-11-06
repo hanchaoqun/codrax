@@ -7,6 +7,8 @@ codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
+**§356 I/O 活动量尺候选，冻结失败未发布（2026-11-05）**：复现背景活动指数把未记账的 D/IO 等待写成实测零。候选以一个生产者口径统一原生摘要、工具显示与共享观测覆盖的字段限定；合法正值、独立实测零、原配对和 Trace 因果权限不变。实际成文收到 `not_accounted` 与完整限定，未消除调查解释对配对范围与设备状态的误述。原 IO 机器/人工 FAIL，既有只读登记独立恢复终态有限 PASS。唯一冻结全仓 97 包通过、1 包失败：`tracediag` 离线报告旧断言仍要求缺测为零；候选源码不提交，保留 274 件原始证据。完整新增 0、已交付子能力 0，79 项中 29 完整、50 开放。详[批汇总和 ROI](../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105.md)/[手审](../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105_manual_audit.md)。下一代覆盖同源报告消费者和原有因果合同，具真实材料的 BRBE 子范围先于缺材料格式；WAL 生产 NO-GO。
+
 **§355单次上下文内完整事实行复用（2026-11-05）**：源码d81067e8d8e98318003831db025eaf41ab4a01c0，5Go（4生产/1测试）、248增12删。公开实际query→Finalizer复现IO完整行被专用账户和请求事实段重复发送；仅在同一次受保护ledger渲染中，以完整public typed record及原渲染行精确相等复用。完整定义先写，后续引用仍带源/query-result定位，每段原scope/owner/量尺说明不变；未知窗、不同源/query/payload/值/Notes/生产者不得借用。引用不持久化、不授来源/总体/因果/完成权，不改ledger、模型schema或私有表资格。局部账户17513→16914B、省599B（未扣新增引用说明），不冒全提示/token降幅，不继续局部微调。
 
 唯一冻结全仓98包28780顶层/34627子PASS，零FAIL；完整网易云82.8MB/元宝63.7MB实际query→Finalizer保原数值/因果投影。原IO自然题及sample-only真实30MB原件各n1，机器2/2、整答人工0/2：IO四组24数正确但低深度被升硬件无积压/排除卡顿；采样164/259、独立分母/CPU记录位置/完整单帧正确，未知状态仍被写成执行过。自然新引用均NOT_TRIGGERED，不借公开绿销账，08.3仍验收中；完整新增0、子能力1、29完整/50开放。513件保原，见[§355汇总/全50项ROI](../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105.md)/[完整手审与配对纠正](../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105_manual_audit.md)。保留合法算术/重试、Trace投影/自动补齐、原4根因/闭合睡眠及WAL生产NO-GO；旧重复查询、完整输出复用/预算和只读剩余矩阵继续开放。

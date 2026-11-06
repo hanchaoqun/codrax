@@ -2,7 +2,17 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-05，§355，main）：79唯一＝29完整＋50开放，checkbox不变；本批完整新增0、已交付子能力1（同次上下文完整行精确复用）。源码d81067e8d8e98318003831db025eaf41ab4a01c0；冻结后唯一full98包28780顶层/34627子PASS、零FAIL，513件保原。原IO与真实sample-only各一次真实并行，机器2/2但完整人工0/2；新自然引用均未触发，不代08.3或二进制父项完成。详[清单](hmosperf_implementation_tasks_20260917.md)、[§355汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_context_row_reuse_io_binary_20261105_manual_audit.md)。旧采样/IO/栈、权限/图、重复查询/完整输出预算和只读剩余矩阵保留，WAL生产NO-GO。
+当前状态（2026-11-05，§356，main）：79唯一＝29完整＋50开放，checkbox不变；本批完整新增0、已交付子能力0。I/O 活动量尺候选唯一冻结全仓1包FAIL，不发布源码；原IO机器与人工FAIL，既有只读登记有限PASS，274件保原。详[清单](hmosperf_implementation_tasks_20260917.md)、[§356汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105_manual_audit.md)。旧采样/IO/栈、权限/图、重复查询/完整输出预算和只读剩余矩阵保留，WAL生产NO-GO。
+
+## 356. I/O 活动量尺候选与报告契约遗漏，原样封存
+
+参考 `core/preprocess/io_ops.py` 的时窗重叠与发起桶是不同资源概览口径；`config/indicators/uninterruptible/uninterruptible_dstate.yaml` 及 `uninterruptible_ops.py` 从明确 `thread_state` 取状态时长。借独立统计人口与来源边界，不将缺值元数据或低深度外推为设备无积压/目标不阻塞。候选在生产者生成的背景指数里分开有限正时长与未计入，工具与共享覆盖行携带同源限定；不改合法数值、排序、请求配对/身份、独立原生零值、查询和原 Trace 权限。公开 RED、双整件及因果回归通过，实际 A 成文上下文触发了新限定；不是旧上下文复用自然覆盖。
+
+唯一冻结全仓失败于离线 `tracediag` 端到端旧零断言。报告消费者须保 `d_state=3.859ms`、指数438.195、两种0.936ms延迟及churn/原行，明确 `io_wait=not_accounted`，验证独立实测零，不删旧指标或改冻结断言。其余97包通过，原样封存274件。完整源码交付0，下一代先做报告生产者/消费者联合门检。
+
+A原生表精确，调查中已接受但未证的“队列不排队”及配对范围混用实际进入成文；最终也混裁窗/全耗时与设备状态，08.3仍FAIL。四个调查解释单元只实际投递第0，未投第3与跨RQ/BIO错误总计不冒成文污染。B既有只读终态的新执行凭证、报告引用、哈希和恢复合同有限PASS，合法修正两次被拒请求，并不证明全 CLI、全部负向/恢复矩阵。旧误述不重复追绿；后续泛化以同查询/人口/单位的结构化交接和上下文权限为准。
+
+09.3仅BRBE实材子范围提早预审：参考解码真原件12000采样/11978有栈/369677条，样本内顺序与有效性/未知周期须显式保留；本项目现在跳过分支栈。不得照搬猜尾字段或新表删列后的旧消费者假设，不冒SPE、硬件IPC、执行时长或Trace因果。稳定ID不增，09.3仍待实施。
 
 ## 355. 完整事实行精确复用，原IO与sample-only失败继续留账
 
