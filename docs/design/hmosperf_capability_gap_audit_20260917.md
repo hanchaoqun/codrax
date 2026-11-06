@@ -2,7 +2,15 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前状态（2026-11-05，§356，main）：79唯一＝29完整＋50开放，checkbox不变；本批完整新增0、已交付子能力0。I/O 活动量尺候选唯一冻结全仓1包FAIL，不发布源码；原IO机器与人工FAIL，既有只读登记有限PASS，274件保原。详[清单](hmosperf_implementation_tasks_20260917.md)、[§356汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_io_activity_qualification_registration_20261105_manual_audit.md)。旧采样/IO/栈、权限/图、重复查询/完整输出预算和只读剩余矩阵保留，WAL生产NO-GO。
+当前状态（2026-11-05，§357，main）：79唯一＝29完整＋50开放，checkbox不变；本批完整新增0、已交付子能力1。§356未记账零值及离线限定裁断在新代闭环，冻结全仓98包通过；两例真实并行机器2/2、完整人工0/2。详[清单](hmosperf_implementation_tasks_20260917.md)、[§357汇总/全50项ROI](../../eval/parallel_selected_summary_hmc_io_report_qualification_trace_binary_20261105.md)/[分轨手审](../../eval/parallel_selected_summary_hmc_io_report_qualification_trace_binary_20261105_manual_audit.md)。旧解释、图/权限、来源义务和展示预算、只读与二进制剩余矩阵保留，WAL生产NO-GO。
+
+## 357. 离线报告保完整量尺；真实业务窗及二进制分段审计
+
+同源生产者区分 I/O 活动指数的计量操作数、计数比较方法、必要解释限定，报告在同一逻辑行内独立约束可变段；保原行预算和完整限制。通过原真实 DH-IO2 及 count-only 回归、独立真零、两整件与唯一冻结全仓；§356 原失败不改。不外推设备队列/目标阻塞、测量零或因果，不调整合法正值/计数/排名。参考 `io_ops.py`、`uninterruptible_ops.py` 的分人口设计与来源约束保留，未搬近似桶和空集补零。
+
+高 ROI 新实证附现有稳定 ID：16.4/01.3，二进制只问采样分布和热点但被多开 current_source 验证，且表脚误把准备清单标原件；16.5/18.4，主要阶段题自动展开3735条已保真的时序，标题端点与表内不一致；02.4/12.5，正文用错标记实例、加总相交睡眠区间，样本/嵌套等观察不授执行、调用和根因权。优先统一 typed 角色、预算与统计人口，保合法源码任务、真值、显式全量、原生自动补齐及链上业务。两整答不销账，旧模型充分证据后不为同句追跑。
+
+09.3 实材预审：原始 attr `sample_type=0x80010bc7`、`branch_sample_type=11`（直接读 attr），aarch64、12000样本/11978有栈/369677条；逐原始记录对齐与参考解析一致，条目后余16/24/32/40字节不猜。Feature 11 是单长度前缀的命令文本，不等同默认字符串列表，不能由 `-j` 单独推定硬件条目 ABI。原生仍只观测 CPU 采样，不冒 BRBE/SPE、IPC 或已证执行。提高该有实材子范围优先级，父项不变。
 
 ## 356. I/O 活动量尺候选与报告契约遗漏，原样封存
 
