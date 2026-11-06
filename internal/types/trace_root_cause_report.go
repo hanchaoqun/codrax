@@ -82,7 +82,10 @@ type TraceRootCauseItemV2 struct {
 	ArtifactLabel string `json:"artifact_label,omitempty"`
 	// Read-only, append-only v2 scope provenance. The binder copies the
 	// selected candidate's exact query scope; model-supplied values are ignored.
-	WindowScope   *TraceQueryWindowScope `json:"window_scope,omitempty"`
+	WindowScope *TraceQueryWindowScope `json:"window_scope,omitempty"`
+	// Query and row identity only. Like WindowScope, this is populated by
+	// binding a current candidate, never by the model's selector payload.
+	SubjectScope  *TraceRankSubjectScope `json:"query_subject_scope,omitempty"`
 	ImpactSeconds *float64               `json:"impact_seconds"`
 	// ImpactCaliber (SIDECAR-Q1, §40.28 ②) names the ruler behind
 	// impact_seconds — "effective_attribution" (the engine-published effective
@@ -286,6 +289,7 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		ResourceName:       compactTraceRootCauseField(in.ResourceName),
 		PhaseName:          compactTraceRootCauseField(in.PhaseName),
 		ArtifactLabel:      compactTraceRootCauseField(in.ArtifactLabel),
+		SubjectScope:       CloneTraceRankSubjectScope(in.SubjectScope),
 		ImpactCaliber:      strings.TrimSpace(in.ImpactCaliber),
 		CausalQualifier:    strings.TrimSpace(in.CausalQualifier),
 		MechanismQualifier: strings.TrimSpace(in.MechanismQualifier),
@@ -427,6 +431,7 @@ func cloneTraceRootCauseReportV2(in *TraceRootCauseReportV2) *TraceRootCauseRepo
 			continue
 		}
 		cause := *item
+		cause.SubjectScope = CloneTraceRankSubjectScope(item.SubjectScope)
 		cause.Evidence = append([]string(nil), item.Evidence...)
 		if item.WindowScope != nil {
 			scope := *item.WindowScope

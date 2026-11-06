@@ -234,6 +234,7 @@ type ObservationRecord struct {
 	runtimeResourcePublication *runtimeResourcePublicationWitness
 	ioRequestIdentity          *traceIORequestIdentity
 	IORequestEndpoints         *TraceIORequestEndpoints          `json:"-"`
+	TraceRankSubjects          *TraceRankSubjects                `json:"-"`
 	EventSearchInventory       *TraceEventSearchInventory        `json:"event_search_inventory,omitempty"`
 	MeasurementSources         *TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	StateAccounting            []TraceSchedulerStateAccounting   `json:"state_accounting,omitempty"`
@@ -296,6 +297,7 @@ type AnchorUserEntity struct {
 
 type ObservationLedger struct {
 	runtimeDisplayScopes *RuntimeObservationDisplayScopes
+	traceRankUserFocus   *traceRankUserFocus
 	Records              []ObservationRecord `json:"records,omitempty"`
 	// RuntimeArtifactSources preserves producer-owned physical source receipts
 	// before claim deduplication can merge their factual authority with model
@@ -697,6 +699,10 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 			endpoints := *record.IORequestEndpoints
 			record.IORequestEndpoints = &endpoints
 		}
+		if record.TraceRankSubjects != nil {
+			subjects := *record.TraceRankSubjects
+			record.TraceRankSubjects = &subjects
+		}
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
@@ -735,6 +741,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	}
 	return ObservationLedger{
 		runtimeDisplayScopes:        BuildRuntimeObservationDisplayScopes(input),
+		traceRankUserFocus:          traceRankUserFocusFromRequest(input.RequestModel),
 		Records:                     out,
 		RuntimeArtifactSources:      runtimeArtifactSourcesSnapshot,
 		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),

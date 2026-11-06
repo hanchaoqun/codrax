@@ -45,6 +45,7 @@ const (
 )
 
 type TraceCausalProjection struct {
+	rankUserFocus     *traceRankUserFocus
 	PrimaryRootCause  *TraceCausalProjectionNode  `json:"primary_root_cause,omitempty"`
 	PrimaryRootCauses []TraceCausalProjectionNode `json:"primary_root_causes,omitempty"`
 	// RankedSeats is the complete pre-presentation-cap roster of typed
@@ -527,6 +528,7 @@ func (p TraceCausalProjection) Active() bool {
 
 type TraceCausalProjectionNode struct {
 	ioRequestIdentity string
+	RankSubjects      *TraceRankSubjects `json:"-"`
 	// Descriptive isolation survives JSON; positive identity does not.
 	IORequestMeasurement bool `json:"io_request_measurement,omitempty"`
 	// Compile-local eligibility, never restored from a rendered projection.
@@ -4039,6 +4041,7 @@ func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
 	ioIdentity, ioMeasurement := traceObservationIOProjectionKey(record)
 	node := TraceCausalProjectionNode{
+		RankSubjects:         record.TraceRankSubjects,
 		ioRequestIdentity:    ioIdentity,
 		IORequestMeasurement: ioMeasurement,
 		sleepDrilldownNativeRecord: record.Origin == AnswerEvidenceOriginRuntimeArtifact &&

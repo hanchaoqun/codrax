@@ -29,6 +29,7 @@ type TraceMaterial struct {
 	queryDomain              TraceQueryDomain
 	sourceFormat             string
 	queryFormat              string
+	rawPerfRecords           *RawPerfRecordBinding
 }
 
 // TraceQueryDomain identifies the reader selected by physical preparation,

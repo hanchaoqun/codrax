@@ -128,6 +128,7 @@ type rawPerfFileHeader struct {
 }
 
 type rawPerfSample struct {
+	Record        tracewire.PerfRecordSpan
 	IP            uint64
 	Addr          uint64
 	PID           int
@@ -347,6 +348,9 @@ func maybeConvertRawPerfDataFromInput(ctx context.Context, opts Options, input d
 	)
 	if err == nil {
 		artifact.SourceMetadata = outcome.SourceMetadata
+		if opts.prepareInputDefaults {
+			artifact.rawPerfRecordIndex = outcome.RecordIndex
+		}
 	}
 	return artifact, "", err
 }
@@ -628,6 +632,7 @@ type rawPerfConversionOutcome struct {
 	SampleRows          int
 	QueryReady          bool
 	Inventory           bool
+	RecordIndex         *tracewire.PerfRecordIndex
 }
 
 func finishRawPerfDataConversionWithPolicy(
@@ -704,6 +709,12 @@ func finishRawPerfDataConversionWithPolicy(
 			Records:    len(data.Samples),
 		})
 	}
+	var coordinates []tracewire.PerfRecordSpan
+	var recordSpans *[]tracewire.PerfRecordSpan
+	if policy == rawPerfPublicationInventoryAllowed && len(data.Samples) > 0 && len(data.Samples) <= tracewire.MaxPerfSamplingStreamRecords {
+		coordinates = make([]tracewire.PerfRecordSpan, 0, len(data.Samples))
+		recordSpans = &coordinates
+	}
 	published, finishErr := writeValidatedOwnedPerfTraceWithLedger(
 		ctx, ownedPerfTraceWriteSpec{
 			Profile: ownedTracePerfRaw, ExpectedRows: len(data.Samples),
@@ -716,7 +727,7 @@ func finishRawPerfDataConversionWithPolicy(
 			if wireErr != nil {
 				return wireErr
 			}
-			return writeRawPerfDataPerfTrace(ctx, writer, wireData)
+			return writeRawPerfDataPerfTraceAndIndex(ctx, writer, wireData, recordSpans)
 		},
 	)
 	if finishErr != nil {
@@ -756,6 +767,9 @@ func finishRawPerfDataConversionWithPolicy(
 	outcome.QueryReady = published.receipt.queryReady
 	outcome.Inventory = !published.receipt.queryReady
 	outcome.SourceMetadata = attachment.NewTraceSourceMetadata(data.Features.SourceMetadata)
+	if outcome.QueryReady && len(coordinates) == outcome.SampleRows {
+		outcome.RecordIndex = tracewire.NewPerfRecordIndex(strings.Count(systraceHeader, "\n")+1, coordinates)
+	}
 	return outcome, nil
 }
 
@@ -973,6 +987,9 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 			sample, ok := parseRawPerfSample(payload, attr)
 			observeRawPerfRecord(&out.CaptureCompleteness.SampleRecords, ok)
 			if ok {
+				// Capture the cursor before incrementing it or timestamp-sorting
+				// the published stream. The enclosing header already bounded size.
+				sample.Record = tracewire.PerfRecordSpan{HeaderOffset: header.DataOffset + uint64(processed), RecordBytes: uint64(size)}
 				sample.EventName = rawPerfEventNameForSample(sample, attr.EventName, eventIDs)
 				sample.Comm = firstNonEmpty(activeThreads[sample.TID], activeThreads[sample.PID])
 				if observeRawPerfSampleAdmission(&out.SampleAdmission, sample) {
@@ -2318,6 +2335,10 @@ func skipRawPerfRead(off *int, payload []byte, readFormat uint64) bool {
 }
 
 func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfData) error {
+	return writeRawPerfDataPerfTraceAndIndex(ctx, w, data, nil)
+}
+
+func writeRawPerfDataPerfTraceAndIndex(ctx context.Context, w io.Writer, data rawPerfData, records *[]tracewire.PerfRecordSpan) error {
 	samples := append([]rawPerfSample(nil), data.Samples...)
 	sort.SliceStable(samples, func(left, right int) bool {
 		return samples[left].TimeNS < samples[right].TimeNS
@@ -2407,6 +2428,9 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: %s\n",
 			perfTraceHeaderComm(comm), tid, pid, rawPerfHeaderCPU(cpu), ts, body); err != nil {
 			return err
+		}
+		if records != nil {
+			*records = append(*records, sample.Record)
 		}
 	}
 	return nil

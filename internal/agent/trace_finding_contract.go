@@ -106,6 +106,7 @@ type traceRootCauseRosterRow struct {
 	MechanismQualifier string                       `json:"mechanism_qualifier,omitempty"`
 	ValueDescription   string                       `json:"value_description,omitempty"`
 	EvidenceRefs       []string                     `json:"evidence_refs"`
+	SubjectScope       *types.TraceRankSubjectScope `json:"query_subject_scope,omitempty"`
 	WindowScope        *types.TraceQueryWindowScope `json:"window_scope,omitempty"`
 	WindowScopeNote    string                       `json:"window_scope_note,omitempty"`
 	WindowContextRef   string                       `json:"window_context_ref,omitempty"`
@@ -182,9 +183,12 @@ func traceRootCauseRosterGroupsWithProjection(selectable []types.TraceFindingCan
 			MechanismQualifier: decision.MechanismQualifier,
 			ValueDescription:   tracefinding.RootCauseValueDescription(decision),
 		}
-		if facts := decision.EvidenceFacts; facts != nil && facts.WindowScope != nil {
-			out.WindowScope = facts.WindowScope
-			out.WindowScopeNote = facts.WindowScope.Format("en")
+		if facts := decision.EvidenceFacts; facts != nil {
+			out.SubjectScope = facts.SubjectScope
+			if facts.WindowScope != nil {
+				out.WindowScope = facts.WindowScope
+				out.WindowScopeNote = facts.WindowScope.Format("en")
+			}
 		}
 		return out
 	}
@@ -263,6 +267,12 @@ func renderTraceFindingContractProjection(ctx *types.AgentContext, allowCompact 
 			out.WriteString("- Use `trace_root_causes` in `emit_answer_document`; use `replace_trace_root_causes` in `emit_answer_document_patch`. Both fields take the same native object: `{\"schema_version\":2,\"root_causes\":[{\"candidate_id\":\"<exact id from roster>\"}]}`. Keep `schema_version` inside that object, not at the document top level. Do not quote the object or the number.\n")
 			out.WriteString("- A patch that only revises answer blocks should omit `replace_trace_root_causes`; the previously accepted report is retained. A replacement lists the complete ordered selection, not only the added entries.\n")
 			out.WriteString("- Choosing no candidate and declining to provide a selection are both allowed, but they are distinct report states as described above. Background and adjacent observations are intentionally absent from the selectable roster.\n")
+			for _, candidate := range selectable {
+				if f := candidate.Decision.EvidenceFacts; f != nil && f.SubjectScope != nil {
+					out.WriteString("- " + types.TraceRankSubjectScopeTeaching + "\n")
+					break
+				}
+			}
 			out.WriteString("- Optionally add `description` to each selection: " + types.TraceRootCauseDescriptionTeaching() + "\n")
 			out.WriteString("- Each candidate carries its own `impact_caliber` (" + strings.Join(types.AllTraceImpactCalibers(), " vs ") + ") and `causal_qualifier`, a closed set copied verbatim onto the published sidecar: `proven` (this candidate's own trace evidence was checked for frame evidence and none withholds it), `frame_unproven` (checked and absent or unproven; seat-level — the same qualifier the answer headline wears), or `not_applicable` (this request is not a frame/jank question, so frame causality is not a claim the report makes and no headline qualifier appears). Selecting a frame_unproven candidate is allowed and stays disclosed as such.\n")
 			if contract.MultiArtifact() {

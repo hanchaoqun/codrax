@@ -373,6 +373,32 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 			return nil, err
 		}
 	}
+	// Coordinates for transformed members are in the decoded stream, not the
+	// user-visible outer file. Publish original byte addresses only for the
+	// directly read, generation-checked binary and its own raw output.
+	if kind == string(attachment.BinaryTraceFormatLinuxPerf) && result.ArchiveProvenance == nil && result.GzipInputProvenance == nil {
+		var rawArtifact *hitraceconv.Artifact
+		for i := range result.Artifacts {
+			a := &result.Artifacts[i]
+			if a.Type == "perftrace" && a.Perf != nil && a.Perf.TraceQueryReady &&
+				a.Perf.ProviderKind == "raw_fallback" && a.Perf.ProviderName == "codrax_raw_perfdata" &&
+				a.Perf.InputFormat == kind && a.PerfTransform == nil {
+				if rawArtifact != nil {
+					// A direct one-provider capture must own one raw artifact.
+					// Keep ambiguous material queryable without coordinate proof.
+					rawArtifact = nil
+					break
+				}
+				rawArtifact = a
+			}
+		}
+		if rawArtifact != nil && rawArtifact.RawPerfRecordIndex() != nil {
+			material, err = material.WithDirectRawPerfRecordBinding(ctx, rawArtifact.Path, sourceSHA, rawArtifact.RawPerfRecordIndex())
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return material.WithSourceMetadata(ctx, result.SourceMetadataForQueryPath(queryPath))
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -36,11 +37,11 @@ func traceQueryPerfSamplingTreeSchema(schema json.RawMessage) json.RawMessage {
 	return b.Bytes()
 }
 
-func (t *TraceQuery) streamPerfSamplingTree(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string, window traceQueryNormalizedWindow) (types.ToolResult, bool) {
+func (t *TraceQuery) streamPerfSamplingTree(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string, window traceQueryNormalizedWindow, rawRecordBinding *attachment.RawPerfRecordBinding) (types.ToolResult, bool) {
 	if tracequery.CanonicalViewName(p.View) != tracequery.ViewPerfSamplingTree {
 		return types.ToolResult{}, false
 	}
-	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd)
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd).WithRawPerfRecordBinding(rawRecordBinding)
 	result, err := tracequery.StreamPerfSamplingTree(contextFromBus(ctx), path, q)
 	if err != nil {
 		if traceQueryIsCancellation(err) {
@@ -154,13 +155,20 @@ func TracePerfSamplingTreeText(p tracequery.PerfSamplingTreeResult) string {
 		if c.ThreadIdentity != nil {
 			fmt.Fprintf(&b, "thread_tid=%d generation=%d comm=%q\n", c.ThreadIdentity.TID, c.ThreadIdentity.Generation, c.ThreadIdentity.DisplayComm)
 		}
+		if s := c.RawRecordSource; s != nil {
+			fmt.Fprintf(&b, "Original record positions refer to %q (SHA-256 %s, %d bytes). They locate record headers, not sample/stream IDs, derived text lines, execution intervals or causes.\n", s.Path, s.SHA256, s.Bytes)
+		}
 		for _, n := range c.Nodes {
 			if n.Kind == "context_marker" {
 				b.WriteString("context_marker (not a function frame): ")
 			}
 			fmt.Fprintf(&b, "node=%s parent=%s depth=%d symbol=%q dso=%q ip=%q inclusive=%d self=%d samples=%d self_samples=%d cohort_percent=%.6f children=%d omitted_children=%d references=%d omitted_references=%d\n", n.ID, n.ParentID, n.Depth, n.Symbol, n.DSO, n.IP, n.InclusiveWeight, n.SelfWeight, n.InclusiveSamples, n.SelfSamples, n.Percent, n.ChildCount, n.OmittedChildren, n.ReferenceCount, n.OmittedReferences)
 			for _, r := range n.References {
-				fmt.Fprintf(&b, "  raw_ref line=%d frame_index=%d source_ref=%q source_depth=%d\n", r.Line, r.FrameIndex, r.SourceRef, r.SourceDepth)
+				fmt.Fprintf(&b, "  raw_ref line=%d frame_index=%d source_ref=%q source_depth=%d", r.Line, r.FrameIndex, r.SourceRef, r.SourceDepth)
+				if span := r.RawRecord; span != nil {
+					fmt.Fprintf(&b, " original_record_header_offset=%d record_bytes=%d", span.HeaderOffset, span.RecordBytes)
+				}
+				b.WriteByte('\n')
 			}
 		}
 	}

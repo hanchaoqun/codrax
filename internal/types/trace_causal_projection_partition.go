@@ -133,7 +133,11 @@ func CompileTraceCausalProjections(ledger ObservationLedger) []TraceCausalProjec
 // one anchor. An empty entity list keeps the legacy publication-order anchor
 // byte-stable.
 func CompileTraceCausalProjectionSet(ledger ObservationLedger) TraceCausalProjectionSet {
-	return traceCausalProjectionSetFromObservationRecords(ledger.Records, traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities), ledger.RuntimeArtifactScopeProfile, ledger.runtimeDisplayScopes)
+	set := traceCausalProjectionSetFromObservationRecords(ledger.Records, traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities), ledger.RuntimeArtifactScopeProfile, ledger.runtimeDisplayScopes)
+	for i := range set.Projections {
+		set.Projections[i].rankUserFocus = ledger.traceRankUserFocus
+	}
+	return set
 }
 
 // traceCausalProjectionAnchorEntitiesFromLedger converts the ledger's typed

@@ -585,6 +585,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if sweep, ok := t.maybeStreamWindowSweep(ctx, p, path, sourceLabel, window.RequestedStart, window.RequestedEnd, callCaveat); ok {
 		return sweep, nil
 	}
+	var rawRecordBinding *attachment.RawPerfRecordBinding
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewPerfSamplingTree {
+		if binding, ok := material.RawPerfRecordBinding(runCtx, path); ok {
+			rawRecordBinding = &binding
+		}
+	}
 	// EVALFIX-2B 类2 (2026-07-30): everything below is the PURE core — a
 	// deterministic function of (artifact bytes, effective params), pinned
 	// by DET-1 (trace_query_det1_determinism_test.go). All run-scoped
@@ -596,7 +602,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
-		if streamed, ok := t.streamPerfSamplingTree(ctx, p, path, sourceLabel, callCaveat, window); ok {
+		if streamed, ok := t.streamPerfSamplingTree(ctx, p, path, sourceLabel, callCaveat, window, rawRecordBinding); ok {
 			return streamed, nil
 		}
 		if streamed, ok := t.streamTransactionHandoffs(ctx, p, path, sourceLabel, callCaveat, window); ok {
@@ -704,6 +710,13 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}, result, q), nil
 	}
 	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok && !t.skipNativeMeasurementMemo {
+		if rawRecordBinding != nil {
+			// The same bundle opened without the original preparation must not
+			// borrow cached original-byte references. This is a separate input
+			// to the pure memo, not a model-visible selector or a new read.
+			b := rawRecordBinding
+			key += "\x00direct-raw-record\x00" + b.Source.Path + "\x00" + b.Source.SHA256 + "\x00" + b.Artifact.CacheToken()
+		}
 		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {
 			return len(result.TraceBusinessSpanCandidates) == 0
 		})
@@ -9638,6 +9651,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.RootCauseRank != nil {
 		publishedItems := append([]tracequery.RootCauseRankItem(nil), result.RootCauseRank.Items...)
+		target := result.RootCauseRank.Target
+		targetCoordinate := types.TraceThreadCoordinate{TID: target.PID, TGID: target.TGID, Comm: target.Comm}
 		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
 		rankRows = append(rankRows, publishedItems...)
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
@@ -10018,7 +10033,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// rank-keyed ID would collide across them. Byte-identical to
 				// the pre-G9 shape whenever every row carries an ordinal
 				// (there rank == i+1 held by construction).
-				ID:                 fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
+				ID: fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
+				TraceRankSubjects: &types.TraceRankSubjects{Target: targetCoordinate, Member: types.TraceThreadCoordinate{
+					TID: item.Thread.PID, TGID: item.Thread.TGID, Comm: item.Thread.Comm,
+				}},
 				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
 				IORequestEndpoints: item.IORequestEndpoints.WithProjectionTarget(result.RootCauseRank.Target.PID, result.RootCauseRank.Target.TGID, result.RootCauseRank.Target.Comm),
 				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,

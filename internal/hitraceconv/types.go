@@ -5,6 +5,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const (
@@ -79,7 +80,12 @@ type Artifact struct {
 	traceReceiptBindingPath  string             `json:"-"`
 	traceReceiptArtifactPath string             `json:"-"`
 	standaloneReceipt        *standaloneSegment `json:"-"`
+	rawPerfRecordIndex       *tracewire.PerfRecordIndex
 }
+
+// RawPerfRecordIndex is produced alongside the validated raw perftrace, not
+// by bundle restoration or official converters. The returned index is immutable.
+func (a Artifact) RawPerfRecordIndex() *tracewire.PerfRecordIndex { return a.rawPerfRecordIndex }
 
 // PerfInputTransform binds a derived perftrace to the exact compressed source
 // artifact and exact privately decoded generation consumed by its provider.

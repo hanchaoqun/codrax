@@ -228,6 +228,9 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 		scope := *facts.WindowScope
 		item.WindowScope = &scope
 	}
+	if facts := decision.EvidenceFacts; facts != nil {
+		item.SubjectScope = types.CloneTraceRankSubjectScope(facts.SubjectScope)
+	}
 	switch category {
 	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
 		// These categories permit an unnamed scope, but retain a supplied

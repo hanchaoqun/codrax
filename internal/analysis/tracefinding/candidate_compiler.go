@@ -299,6 +299,7 @@ func applyProjectionMetadata(contract *types.TraceFindingContract, projection ty
 // projection node / projection header, none from prose or artifact paths.
 func candidateEvidenceFacts(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, lane tracequery.CausalTokenLane, direction tracequery.CausalTokenFixDirection) *types.TraceCauseEvidenceFacts {
 	facts := &types.TraceCauseEvidenceFacts{
+		SubjectScope:           projection.RankSubjectScope(node),
 		ArtifactLabel:          strings.TrimSpace(projection.ArtifactLabel),
 		WindowStartTs:          projection.WindowStartTs,
 		WindowEndTs:            projection.WindowEndTs,

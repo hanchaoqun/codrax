@@ -15506,6 +15506,11 @@ func runtimeTraceProjLeadTextWithLegend(projection types.TraceCausalProjection, 
 	if scope := runtimeTraceQueryScopePreface("", projection.WindowScope, zh); scope != "" {
 		sections = append(sections, scope)
 	}
+	if primary, lane := runtimeTraceProjLeadSelect(projection, model); primary != nil && lane != runtimeTraceProjLeadLaneSemanticFallback {
+		if scope := projection.RankSubjectScope(*primary); scope != nil {
+			sections = append(sections, scope.Format(zh))
+		}
+	}
 	if line := runtimeTraceProjConclusionLine(projection, model, zh); line != "" {
 		sections = append(sections, line)
 	}

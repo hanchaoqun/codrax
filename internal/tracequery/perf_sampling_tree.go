@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
@@ -32,33 +33,59 @@ type PerfSamplingTreeResult struct {
 }
 
 type PerfSamplingCohort struct {
-	ID                     string              `json:"id"`
-	SourcePath             string              `json:"source_path"`
-	SourceGeneration       string              `json:"source_generation"`
-	Producer               string              `json:"producer"`
-	Event                  string              `json:"event"`
-	WeightUnit             string              `json:"weight_unit"`
-	SampleKind             string              `json:"sample_kind"`
-	Clock                  string              `json:"clock"`
-	ThreadIdentity         *PerfThreadIdentity `json:"thread_identity,omitempty"`
-	WeightStatus           string              `json:"weight_status"`
-	SampleCount            int                 `json:"sample_count"`
-	TotalWeight            int64               `json:"total_weight"`
-	StackSampleCount       int                 `json:"stack_sample_count"`
-	StackWeight            int64               `json:"stack_weight"`
-	UnavailableSampleCount int                 `json:"unavailable_sample_count"`
-	UnavailableWeight      int64               `json:"unavailable_weight"`
-	UnavailableReasons     map[string]int      `json:"unavailable_reasons,omitempty"`
-	NodeCount              int                 `json:"node_count"`
-	OmittedNodes           int                 `json:"omitted_nodes"`
-	Nodes                  []PerfSamplingNode  `json:"nodes,omitempty"`
+	ID                     string                          `json:"id"`
+	SourcePath             string                          `json:"source_path"`
+	SourceGeneration       string                          `json:"source_generation"`
+	RawRecordSource        *attachment.RawPerfRecordSource `json:"raw_record_source,omitempty"`
+	Producer               string                          `json:"producer"`
+	Event                  string                          `json:"event"`
+	WeightUnit             string                          `json:"weight_unit"`
+	SampleKind             string                          `json:"sample_kind"`
+	Clock                  string                          `json:"clock"`
+	ThreadIdentity         *PerfThreadIdentity             `json:"thread_identity,omitempty"`
+	WeightStatus           string                          `json:"weight_status"`
+	SampleCount            int                             `json:"sample_count"`
+	TotalWeight            int64                           `json:"total_weight"`
+	StackSampleCount       int                             `json:"stack_sample_count"`
+	StackWeight            int64                           `json:"stack_weight"`
+	UnavailableSampleCount int                             `json:"unavailable_sample_count"`
+	UnavailableWeight      int64                           `json:"unavailable_weight"`
+	UnavailableReasons     map[string]int                  `json:"unavailable_reasons,omitempty"`
+	NodeCount              int                             `json:"node_count"`
+	OmittedNodes           int                             `json:"omitted_nodes"`
+	Nodes                  []PerfSamplingNode              `json:"nodes,omitempty"`
 }
 
 type PerfSamplingReference struct {
-	Line        int    `json:"line"`
-	FrameIndex  int    `json:"frame_index"`
-	SourceRef   string `json:"source_ref"`
-	SourceDepth int64  `json:"source_depth"`
+	Line        int                       `json:"line"`
+	FrameIndex  int                       `json:"frame_index"`
+	SourceRef   string                    `json:"source_ref"`
+	SourceDepth int64                     `json:"source_depth"`
+	RawRecord   *tracewire.PerfRecordSpan `json:"raw_record,omitempty"`
+}
+
+// WithRawPerfRecordBinding is an internal prepared-material input, never a
+// trace_query parameter. It does not affect the selected sample population.
+func (q Query) WithRawPerfRecordBinding(binding *attachment.RawPerfRecordBinding) Query {
+	q.rawPerfRecordBinding = nil
+	if binding != nil && binding.Source.Valid() {
+		frozen := *binding
+		q.rawPerfRecordBinding = &frozen
+	}
+	return q
+}
+
+func perfSamplingRawRecord(q Query, source TraceArtifactSource, producer string, line int) (*attachment.RawPerfRecordSource, *tracewire.PerfRecordSpan) {
+	b := q.rawPerfRecordBinding
+	if b == nil || source.SourcePath != b.ArtifactPath || !b.Artifact.SameVersion(source.sourceIdentity) ||
+		producer != string(tracewire.PerfSampleSourceRawPerfDataFallback) {
+		return nil, nil
+	}
+	span, ok := b.AtDerivedLine(line)
+	if !ok {
+		return nil, nil
+	}
+	return &b.Source, &span
 }
 
 type PerfSamplingNode struct {
@@ -221,7 +248,11 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 			}
 			node.ReferenceCount++
 			if len(node.References) < 4 {
-				node.References = append(node.References, PerfSamplingReference{Line: ev.Line - source.VirtualLineBase, FrameIndex: n, SourceRef: f.SourceRef, SourceDepth: f.SourceDepth})
+				reference := PerfSamplingReference{Line: ev.Line - source.VirtualLineBase, FrameIndex: n, SourceRef: f.SourceRef, SourceDepth: f.SourceDepth}
+				if original, span := perfSamplingRawRecord(q, source, pf.Source, reference.Line); span != nil {
+					c.RawRecordSource, reference.RawRecord = original, span
+				}
+				node.References = append(node.References, reference)
 			}
 			parent = node.ID
 			children = node.children
@@ -335,6 +366,10 @@ func ValidPerfSamplingTree(p PerfSamplingTreeResult) bool {
 			return false
 		}
 		seen[c.ID] = true
+		if c.RawRecordSource != nil && (!c.RawRecordSource.Valid() || c.RawRecordSource.Path == c.SourcePath ||
+			c.Producer != string(tracewire.PerfSampleSourceRawPerfDataFallback)) {
+			return false
+		}
 		samples += c.SampleCount
 		if c.WeightStatus == "exact" {
 			if c.TotalWeight < 0 || c.StackWeight < 0 || c.UnavailableWeight < 0 || c.StackWeight > c.TotalWeight || c.UnavailableWeight != c.TotalWeight-c.StackWeight {
@@ -351,6 +386,9 @@ func ValidPerfSamplingTree(p PerfSamplingTreeResult) bool {
 			nodes[n.ID] = true
 			for _, r := range n.References {
 				if r.Line < 1 || r.FrameIndex != n.Depth || r.SourceDepth < 0 || strings.TrimSpace(r.SourceRef) == "" {
+					return false
+				}
+				if r.RawRecord != nil && (c.RawRecordSource == nil || !r.RawRecord.ValidWithin(c.RawRecordSource.Bytes)) {
 					return false
 				}
 			}

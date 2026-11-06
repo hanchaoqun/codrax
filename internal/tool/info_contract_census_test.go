@@ -141,6 +141,7 @@ var infoContractKnownGaps = map[string]infoContractKnownGap{
 // --- T1 · TraceCausalProjectionNode contract (B 区) ---------------------------
 
 var nodeFieldContract = map[string]fieldDisposition{
+	"RankSubjects":                  {Status: "projection_gate", Ref: "HMC363 RankSubjectScope typed board/member disclosure to roster and reader; no causal/election authority"},
 	"MeasurementOrigins":            {Status: "internal_gate", Ref: "B1638b3 R1/V4/R2/全窗参考范围反证及tree×2/等待分母;W-24仅免opaque逐字词面"},
 	"Role":                          {Status: "displayed", Ref: "行1 glyph/段位 + 明细层级"},
 	"EvidenceID":                    {Status: "displayed", Ref: "[E#] 行尾 + 证据索引"},

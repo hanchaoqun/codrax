@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1088,6 +1089,9 @@ type Index struct {
 }
 
 type Query struct {
+	// Current prepared original only. Native programmatic calls without it
+	// can read derived samples but cannot publish original record positions.
+	rawPerfRecordBinding *attachment.RawPerfRecordBinding
 	// Sampling tree display controls do not change the cohort census.
 	SamplingDepth     int
 	SamplingRoot      string

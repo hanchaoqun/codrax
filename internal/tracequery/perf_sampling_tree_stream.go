@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 // StreamPerfSamplingTree reaches EOF on every frozen source. Its retention
@@ -15,7 +17,7 @@ import (
 // partial denominator. Non-perf events retain lifecycle metadata needed by the
 // existing exact perf identity ledger, not a second thread/name matcher.
 func StreamPerfSamplingTree(ctx context.Context, path string, q Query) (Result, error) {
-	return streamPerfSamplingTree(ctx, path, q, 65536, 64<<20)
+	return streamPerfSamplingTree(ctx, path, q, tracewire.MaxPerfSamplingStreamRecords, 64<<20)
 }
 
 func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLimit, byteLimit int) (Result, error) {
@@ -199,6 +201,11 @@ func streamPerfSamplingTree(ctx context.Context, path string, q Query, recordLim
 	}
 	if err := sel.close(); err != nil {
 		return Result{}, err
+	}
+	if b := q.rawPerfRecordBinding; b != nil {
+		if err := b.ValidateOriginal(); err != nil {
+			return Result{}, err
+		}
 	}
 	return Result{View: ViewPerfSamplingTree, SourcePath: idx.Path, TimeUnit: "seconds", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, LineCount: idx.LineCount, ScannedLineCount: idx.ScannedLineCount, EventCount: idx.ParsedKnown, UnparsedLineCount: idx.UnparsedLines, ParseLinePanics: idx.ParseLinePanics, ClockRegressions: idx.ClockRegressions, TraceArtifacts: idx.TraceArtifacts, PerfSamplingTree: p, ThreadSelection: selection, Caveats: caveats}, nil
 }

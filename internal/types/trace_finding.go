@@ -160,6 +160,7 @@ type TraceCauseEvidenceFacts struct {
 	// WindowScope describes the seat's query ruler independently of the
 	// elected projection window below. It never changes magnitude or rank.
 	WindowScope            *TraceQueryWindowScope `json:"window_scope,omitempty"`
+	SubjectScope           *TraceRankSubjectScope `json:"query_subject_scope,omitempty"`
 	ArtifactLabel          string                 `json:"artifact_label,omitempty"`
 	WindowStartTs          float64                `json:"window_start_ts,omitempty"`
 	WindowEndTs            float64                `json:"window_end_ts,omitempty"`

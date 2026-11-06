@@ -7,6 +7,7 @@ func cloneTraceCauseEvidenceFacts(in *TraceCauseEvidenceFacts) *TraceCauseEviden
 		return nil
 	}
 	out := *in
+	out.SubjectScope = CloneTraceRankSubjectScope(in.SubjectScope)
 	out.WakeupPath = append([]string(nil), in.WakeupPath...)
 	if in.WindowScope != nil {
 		scope := *in.WindowScope

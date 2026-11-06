@@ -51,6 +51,7 @@ type nativeFactWire struct {
 	Result                 ToolResult
 	IOEndpoints            []*TraceIORequestEndpoints
 	IOTargets              []traceIOProjectionTarget
+	RankSubjects           map[int]TraceRankSubjects `json:",omitempty"`
 	BusinessSpans          []TraceBusinessSpanCandidate
 	BusinessRefData        []TraceBusinessSpanCandidate
 	BusinessSources        []nativeFactSourceVersion
@@ -131,13 +132,19 @@ func nativeFactWireValue(result ToolResult) nativeFactWire {
 		wire.BusinessRefData = append(wire.BusinessRefData, ref.data)
 		wire.BusinessSources = append(wire.BusinessSources, nativeFactSourceVersionOf(ref.source))
 	}
-	for _, row := range result.Observations {
+	for i, row := range result.Observations {
 		wire.IOEndpoints = append(wire.IOEndpoints, row.IORequestEndpoints)
 		target := traceIOProjectionTarget{}
 		if row.IORequestEndpoints != nil {
 			target = row.IORequestEndpoints.projectionTarget
 		}
 		wire.IOTargets = append(wire.IOTargets, target)
+		if row.TraceRankSubjects != nil {
+			if wire.RankSubjects == nil {
+				wire.RankSubjects = make(map[int]TraceRankSubjects)
+			}
+			wire.RankSubjects[i] = *row.TraceRankSubjects
+		}
 	}
 	return wire
 }
@@ -245,6 +252,9 @@ func (f *retainedNativeFact) result() (ToolResult, bool) {
 		row.ioRequestIdentity, row.IORequestEndpoints = private.ioIdentity, wire.IOEndpoints[i]
 		if row.IORequestEndpoints != nil {
 			row.IORequestEndpoints.projectionTarget = private.ioTarget
+		}
+		if subjects, ok := wire.RankSubjects[i]; ok {
+			row.TraceRankSubjects = &subjects
 		}
 	}
 	return r, true

@@ -359,6 +359,7 @@ func TestHMC325NativeRetentionFieldOwnershipInventory(t *testing.T) {
 			"native encoded core":                                 {"EventSearchInventory", "MeasurementSources", "StateAccounting", "ID", "Origin", "Producer", "Role", "GroundingPolicy", "ProvenanceLane", "ClaimAuthority", "SourceRef", "Span", "EvidenceKind", "AnchorKind", "EvidenceScope", "GroundingStatus", "ClaimKey", "Subject", "Predicate", "Object", "Value", "Unit", "ValueContext", "Negative", "ResultCount", "Enumeration", "Summary", "RawExcerpt", "RichNotes", "ModelNotes", "SupportRefs", "SurfaceTerms", "ObservedAt", "Scope", "Confidence", "SystemSupplement"},
 			"private immutable witness":                           {"runtimeRawMeasurementPublication", "runtimeMeasurementFactIdentity", "aggregateKind", "runtimeSamplingPublication", "runtimeResourcePublication", "ioRequestIdentity"},
 			"explicit native wire plus private projection target": {"IORequestEndpoints"},
+			"generation-local native retention wire only":         {"TraceRankSubjects"},
 		}},
 	} {
 		t.Run(reflect.TypeOf(shape.value).Name(), func(t *testing.T) {
