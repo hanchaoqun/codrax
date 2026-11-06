@@ -43,7 +43,8 @@ func TestIOInFlightPublicFinalizerContext(t *testing.T) {
 				for _, want := range []struct {
 					family, dev, op        string
 					peak, mean, busy, area float64
-				}{{"block_rq", "8,0", "R", 2, 1.4, 10, 14}, {"block_rq", "8,0", "W", 1, .6, 6, 6}, {"block_bio", "8,0", "R", 1, 1, 10, 10}, {"block_rq", "8,1", "R", 1, .4, 4, 4}} {
+					peakMS                 float64
+				}{{"block_rq", "8,0", "R", 2, 1.4, 10, 14, 4}, {"block_rq", "8,0", "W", 1, .6, 6, 6, 6}, {"block_bio", "8,0", "R", 1, 1, 10, 10, 10}, {"block_rq", "8,1", "R", 1, .4, 4, 4, 4}} {
 					var group *tracequery.IOInFlightGroup
 					for i := range native.Groups {
 						g := &native.Groups[i]
@@ -88,7 +89,8 @@ func TestIOInFlightPublicFinalizerContext(t *testing.T) {
 						}
 					}
 					for surface, line := range map[string]string{"initial": finalLine, "semantic": semanticLine} {
-						for _, token := range []string{"endpoint_family=" + want.family, "dev=" + want.dev, "op=" + want.op, "all_issuers", "accepted_complete_pairs", "1.000000..1.010000", "requests", "request·ms"} {
+						peakDuration := fmt.Sprintf("峰值持续时间：%g ms（同时 %g 个，占全窗 %g%%，分母 10 ms）；本组零贡献 %g ms。", want.peakMS, want.peak, want.peakMS*10, 10-want.busy)
+						for _, token := range []string{"endpoint_family=" + want.family, "dev=" + want.dev, "op=" + want.op, "all_issuers", "accepted_complete_pairs", "1.000000..1.010000", "requests", "request·ms", peakDuration} {
 							if !strings.Contains(line, token) {
 								t.Errorf("%s same-ID group %s lost %q: %s", surface, row.ID, token, line)
 							}

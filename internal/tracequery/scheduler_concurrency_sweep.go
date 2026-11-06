@@ -44,6 +44,7 @@ func finishSchedulerConcurrencyGroup(q Query, a *schedulerConcurrencyAccumulator
 	}
 	sort.Float64s(points)
 	v := &SchedulerConcurrencyValues{}
+	durations := IntervalDepthDuration{WindowMs: (window.EndTs - window.StartTs) * 1000}
 	histogram := make(map[int]float64)
 	histogramRoundoff := 0.0
 	prepareSchedulerConcurrencyBuckets(&a.group, window, ioActivityBucketMs(q.BucketMs))
@@ -61,12 +62,10 @@ func finishSchedulerConcurrencyGroup(q Query, a *schedulerConcurrencyAccumulator
 		}
 		end := points[i+1]
 		ms := (end - ts) * 1000
+		durations.add(depth, ms)
 		histogram[depth] += ms
 		histogramRoundoff = math.Nextafter(histogramRoundoff+schedulerConcurrencySpanRoundoff(ts, end)+schedulerConcurrencyULP(histogram[depth]), math.Inf(1))
 		accumulateSchedulerConcurrencyBuckets(a.group.Buckets, ts, end, depth)
-		if depth > v.PeakThreads {
-			v.PeakThreads = depth
-		}
 		v.ThreadMs += float64(depth) * ms
 		if depth > 0 {
 			v.BusyMs += ms
@@ -83,7 +82,8 @@ func finishSchedulerConcurrencyGroup(q Query, a *schedulerConcurrencyAccumulator
 			a.group.Segments = append(a.group.Segments, SchedulerConcurrencySegment{StartTs: ts, EndTs: end, Threads: depth})
 		}
 	}
-	v.MeanThreads = v.ThreadMs / ((window.EndTs - window.StartTs) * 1000)
+	v.PeakThreads = durations.PeakDepth
+	v.MeanThreads = v.ThreadMs / durations.WindowMs
 	if !schedulerConcurrencyFinite(v.ThreadMs) || !schedulerConcurrencyFinite(v.MeanThreads) || !schedulerConcurrencyFinite(v.BusyMs) {
 		a.group.ValuesUnavailableReason = "non_finite_aggregate"
 		a.group.Buckets = nil
@@ -96,6 +96,7 @@ func finishSchedulerConcurrencyGroup(q Query, a *schedulerConcurrencyAccumulator
 	if a.group.Distribution == nil {
 		return false
 	}
+	a.group.DepthDuration = &durations
 	for i := range a.group.Buckets {
 		b := &a.group.Buckets[i]
 		b.Values.MeanThreads = b.Values.ThreadMs / ((b.Window.EndTs - b.Window.StartTs) * 1000)

@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// Only the inherited-target cardinality teaching changed. Reverse this exact
-// independently literal delta before every older byte/hash comparison.
+// Reverse the separately pinned interval-depth evolution, then the exact
+// inherited-target delta before each older byte/hash comparison.
 func traceQueryDescriptionBeforeTargetIdentityEvolution(t *testing.T, description string) string {
 	t.Helper()
+	description = traceQueryDescriptionBeforeIntervalDepthEvolution(t, description)
 	const prior = "if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread"
 	const current = "if omitted and the structured request model exposes one unambiguous typed target after canonical identity comparison, trace_query inherits only that typed pid/thread (same-kind numeric IDs remain one target when a display name is omitted; different IDs or process/thread identities remain ambiguous)"
 	if strings.Count(description, current) != 1 || strings.Contains(description, prior) {

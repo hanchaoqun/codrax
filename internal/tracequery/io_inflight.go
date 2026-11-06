@@ -268,6 +268,7 @@ func finishIOInFlightGroup(q Query, acc *ioInFlightGroupAccumulator, window IOIn
 		return false
 	}
 	values := &IOInFlightValues{}
+	durations := IntervalDepthDuration{WindowMs: (window.EndTs - window.StartTs) * 1000}
 	depth := 0
 	previous := window.StartTs
 	segments := []IOInFlightSegment{}
@@ -277,12 +278,10 @@ func finishIOInFlightGroup(q Query, acc *ioInFlightGroupAccumulator, window IOIn
 		}
 		if ts > previous {
 			ms := (ts - previous) * 1000
+			durations.add(depth, ms)
 			values.RequestMs += float64(depth) * ms
 			if depth > 0 {
 				values.BusyMs += ms
-			}
-			if depth > values.PeakRequests {
-				values.PeakRequests = depth
 			}
 			if len(segments) > 0 && segments[len(segments)-1].Requests == depth {
 				segments[len(segments)-1].EndTs = ts
@@ -296,12 +295,14 @@ func finishIOInFlightGroup(q Query, acc *ioInFlightGroupAccumulator, window IOIn
 		delete(acc.deltas, ts)
 		previous = ts
 	}
-	values.MeanRequests = values.RequestMs / ((window.EndTs - window.StartTs) * 1000)
+	values.PeakRequests = durations.PeakDepth
+	values.MeanRequests = values.RequestMs / durations.WindowMs
 	if !ioInFlightFinite(values.RequestMs) || !ioInFlightFinite(values.BusyMs) || !ioInFlightFinite(values.MeanRequests) {
 		acc.group.ValuesUnavailableReason = "non_finite_statistic"
 		return true
 	}
 	acc.group.Values = values
+	acc.group.DepthDuration = &durations
 	if len(segments) > ioInFlightSegmentLimit {
 		acc.group.OmittedSegments = len(segments) - ioInFlightSegmentLimit
 		segments = segments[:ioInFlightSegmentLimit]

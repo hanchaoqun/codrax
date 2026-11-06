@@ -46,6 +46,7 @@ type SchedulerConcurrencyGroup struct {
 	OmittedMembers                int                               `json:"omitted_members"`
 	MemberWitnessUnavailableCount int                               `json:"member_witness_unavailable_count"`
 	Distribution                  *SchedulerConcurrencyDistribution `json:"distribution,omitempty"`
+	DepthDuration                 *IntervalDepthDuration            `json:"depth_duration,omitempty"`
 	Buckets                       []SchedulerConcurrencyBucket      `json:"buckets,omitempty"`
 	BucketCount                   uint64                            `json:"bucket_count"`
 	OmittedBuckets                uint64                            `json:"omitted_buckets"`

@@ -225,6 +225,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + types.TraceStateDrilldownWindowGuidance
 	description += " " + skill.TraceIOInFlightTeaching
 	description += " " + skill.TraceSchedulerConcurrencyTeaching
+	description += " " + skill.TraceIntervalDepthDurationTeaching
 	description += " " + skill.TraceBusinessTreeTeaching
 	description += " " + skill.TraceIOActivityTeaching
 	description += " " + traceQueryEventNameTeaching
@@ -272,7 +273,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	viewNames, _ := json.Marshal(tracequery.CapabilityViewNames())
 	schema = strings.ReplaceAll(schema, "__TRACE_VIEW_NAMES__", string(viewNames))
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
-	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceIOActivityTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceBusinessTreeTeaching)
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceIOActivityTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceIntervalDepthDurationTeaching + " " + skill.TraceBusinessTreeTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
@@ -5046,6 +5047,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	writeTraceRootCauseRankPreview(&b, traceQueryRootCauseRankForHeadPreview(result), payloadRef)
 	writeTraceSleepInventoryPreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
 	writeTraceBinderWaitInventoryPreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
+	writeTraceIntervalDepthDurationHead(&b, result.WindowStats)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,

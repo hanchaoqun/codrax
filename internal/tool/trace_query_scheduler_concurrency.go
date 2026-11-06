@@ -150,7 +150,7 @@ func traceQueryTypedSchedulerConcurrencyObservations(stats *tracequery.Scheduler
 			ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: groupRef,
 			ClaimKey: "scheduler_concurrency:" + hex.EncodeToString(digest[:]), Subject: group.State,
 			Predicate: "scheduler_concurrency", Value: value, Unit: "threads",
-			Summary: traceQuerySchedulerConcurrencySummary(group), RichNotes: traceQuerySchedulerConcurrencyNotes(stats, group),
+			Summary: appendTraceQueryIntervalDepthDuration(traceQuerySchedulerConcurrencySummary(group), group.DepthDuration), RichNotes: traceQuerySchedulerConcurrencyNotes(stats, group),
 			ObservedAt: at, Confidence: .72,
 		})
 		if receipt := traceQuerySchedulerConcurrencyReceipt(out[len(out)-1], stats, group); receipt != "" {

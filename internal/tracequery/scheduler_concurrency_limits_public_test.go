@@ -23,6 +23,9 @@ func TestSchedulerConcurrencyPublicIndependentCensusCaps(t *testing.T) {
 	if d == nil || d.DepthCount != 40 || len(d.Depths) != 32 || d.OmittedDepths != 8 || d.P50Threads != 20 || d.P95Threads != 38 || d.P99Threads != 40 {
 		t.Fatalf("CDF reconstructed from displayed values: %+v", d)
 	}
+	if peak := g.DepthDuration; peak == nil || *peak != (IntervalDepthDuration{WindowMs: 40000, PeakDepth: 40, PeakDurationMs: 1000}) {
+		t.Fatalf("peak above the retained CDF cap did not keep its full-sweep duration: %+v", peak)
+	}
 	for i, row := range d.Depths {
 		if row.Threads != i+1 || row.DurationMs != 1000 || row.WindowShare != .025 {
 			t.Errorf("depth=%+v", row)
@@ -78,7 +81,7 @@ func TestSchedulerConcurrencyPublicBucketWidthsAndUnavailable(t *testing.T) {
 	// One real, open switch has neither a distribution of confirmed duration
 	// nor measured idle buckets, even though the requested axis is known.
 	open := concurrencyPublicGroup(t, concurrencyPublicRun(t, concurrencyPublicTrace(concurrencyPublicSwitch(1.001, 0, 0, 10, "S")), 1, 1.01), "running")
-	if open.Distribution != nil || len(open.Buckets) != 0 || len(open.Members) != 0 || open.BucketsUnavailableReason != "no_accepted_closed_intervals" {
+	if open.Distribution != nil || open.DepthDuration != nil || len(open.Buckets) != 0 || len(open.Members) != 0 || open.BucketsUnavailableReason != "no_accepted_closed_intervals" {
 		t.Fatalf("unknown tail synthesized zero/closure: %+v", open)
 	}
 }

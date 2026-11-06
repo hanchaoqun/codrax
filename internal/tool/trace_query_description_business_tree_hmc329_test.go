@@ -36,7 +36,8 @@ func traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t *testing.T,
 }
 
 func TestHMC329BusinessTreeOwnerPriorityOnlyEvolution(t *testing.T) {
-	prior := traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t, (&TraceQuery{}).Description())
+	description := traceQueryDescriptionBeforeIntervalDepthEvolution(t, (&TraceQuery{}).Description())
+	prior := traceQueryDescriptionBeforeBusinessTreeOwnerPriorityEvolution(t, description)
 	// This is the complete canonical golden before HMC328, not a regenerated
 	// current golden or an edited expected digest from a failed test.
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(prior))); got != traceDescriptionBeforeBusinessTreeOwnerPrioritySHA {
@@ -45,7 +46,7 @@ func TestHMC329BusinessTreeOwnerPriorityOnlyEvolution(t *testing.T) {
 }
 
 func TestHMC329BusinessTreeOwnerPriorityEvolutionRejectsUnapprovedDeltas(t *testing.T) {
-	description := (&TraceQuery{}).Description()
+	description := traceQueryDescriptionBeforeIntervalDepthEvolution(t, (&TraceQuery{}).Description())
 	for _, tc := range []struct {
 		name        string
 		description string

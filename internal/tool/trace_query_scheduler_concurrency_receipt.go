@@ -51,6 +51,11 @@ func traceQuerySchedulerConcurrencyReceipt(r types.ObservationRecord, s *tracequ
 	if g.Values == nil {
 		summary.Notes = append(summary.Notes, "测量不可用："+traceQuerySchedulerConcurrencyReason(g.ValuesUnavailableReason))
 	}
+	// Publish the group scalar once. The distribution view retains its own
+	// coverage/quantile notes within the bounded independent-view preview.
+	if peak := traceQueryIntervalDepthDuration(g.DepthDuration); peak != "" {
+		summary.Notes = append(summary.Notes, peak)
+	}
 	var members [][]string
 	var memberIDs []string
 	for _, m := range g.Members {

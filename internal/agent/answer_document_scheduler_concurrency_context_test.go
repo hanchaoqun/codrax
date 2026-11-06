@@ -51,10 +51,12 @@ func TestSchedulerConcurrencyPublicFinalizerContext(t *testing.T) {
 					}
 					if r.Predicate == "scheduler_concurrency" {
 						mean, area := .2, 2.0
+						peakDuration := "峰值持续时间：2 ms（同时 1 个，占全窗 20%，分母 10 ms）；本组零贡献 8 ms。"
 						if r.Subject == "running" {
 							mean, area = .8, 8
+							peakDuration = "峰值持续时间：8 ms（同时 1 个，占全窗 80%，分母 10 ms）；本组零贡献 2 ms。"
 						}
-						for _, want := range []string{"峰值=1", fmt.Sprintf("全窗平均=%.9g", mean), fmt.Sprintf("线程时间合计=%.9g thread·ms", area), "已确认闭合区间", "不是目标等待或根因"} {
+						for _, want := range []string{"峰值=1", fmt.Sprintf("全窗平均=%.9g", mean), fmt.Sprintf("线程时间合计=%.9g thread·ms", area), "已确认闭合区间", "不是目标等待或根因", peakDuration} {
 							if !strings.Contains(line, want) {
 								t.Errorf("state %s lost %q: %s", r.Subject, want, line)
 							}

@@ -149,7 +149,7 @@ func traceQueryTypedIOInFlightObservations(stats *tracequery.IOInFlightStats, re
 			ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: groupRef,
 			ClaimKey: "io_inflight:" + hex.EncodeToString(digest[:]), Subject: group.Layer,
 			Predicate: "io_inflight", Object: group.EndpointFamily, Value: value, Unit: "requests",
-			Summary: traceQueryIOInFlightSummary(group), RichNotes: traceQueryIOInFlightNotes(stats, group),
+			Summary: appendTraceQueryIntervalDepthDuration(traceQueryIOInFlightSummary(group), group.DepthDuration), RichNotes: traceQueryIOInFlightNotes(stats, group),
 			ObservedAt: at, Confidence: .72,
 		})
 		if note := traceQueryIOInFlightReceipt(out[len(out)-1], stats, group); note != "" {

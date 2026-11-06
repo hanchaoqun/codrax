@@ -28,6 +28,9 @@ func TestSchedulerConcurrencyTeachingSharesOneWindowStatsContract(t *testing.T) 
 		if strings.Count(text, skill.TraceSchedulerConcurrencyTeaching) != 1 {
 			t.Errorf("%s must contain exactly one shared contract", label)
 		}
+		if strings.Count(text, skill.TraceIntervalDepthDurationTeaching) != 1 {
+			t.Errorf("%s must contain exactly one shared peak-duration contract", label)
+		}
 	}
 	for _, part := range []string{"confirmed intervals only", "query_pid is context", "full query window", "thread·ms", "open tails", "on-chain"} {
 		if !strings.Contains(skill.TraceSchedulerConcurrencyTeaching, part) {

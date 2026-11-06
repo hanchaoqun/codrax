@@ -126,6 +126,15 @@ func TestIOInflightPublicWindowProjectionAndZero(t *testing.T) {
 			}
 			ioInflightPublicValues(t, wire.Groups[0], len(tc.pairs), tc.issues, tc.peak, tc.mean, tc.requestMS, tc.requestMS)
 			g := wire.Groups[0]
+			wallMs := (tc.end - tc.start) * 1000
+			wantPeakMs := tc.requestMS // all positive depths in this matrix are one
+			if tc.peak == 0 {
+				wantPeakMs = wallMs // measured zero from a real accepted point pair
+			}
+			if d := g.DepthDuration; d == nil || d.PeakDepth != tc.peak || d.WindowMs != wallMs ||
+				math.Abs(d.PeakDurationMs-wantPeakMs) > 1e-8 || math.Abs(d.ZeroContributionMs-(wallMs-tc.requestMS)) > 1e-8 {
+				t.Fatalf("depth duration did not preserve real zero, clipping or the full denominator: %+v", d)
+			}
 			if g.OmittedSegments == 0 {
 				area, busy, last := 0.0, 0.0, tc.start
 				for _, seg := range g.Segments {

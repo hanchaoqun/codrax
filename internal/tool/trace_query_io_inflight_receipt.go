@@ -52,7 +52,10 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 		[]string{"Peak concurrent requests", "Mean concurrent requests", "Busy time (ms)", "Request-time area (request·ms)", "Accepted complete pairs", "Starts inside query"},
 		[][]string{values},
 		"Concurrent-request peak and mean, busy time, request-time area and accepted complete-pair count use successfully paired requests. Starts inside query is a separate count of in-range issue events retained by source and identity checks: it can include unpaired or ambiguous issues, and excludes start endpoints outside the selected range.",
-		"Mean includes idle time; busy time is a union; request-time area is not wall-clock delay.")
+		"Mean includes time with zero contribution from these accepted pairs, not proof of device idle. Busy time is a union, not duration at peak depth; request-time area is not wall-clock delay.")
+	if peak := traceQueryIntervalDepthDuration(group.DepthDuration); peak != "" {
+		summary.Notes = append(summary.Notes, peak)
+	}
 	if group.Values == nil {
 		if stats.Window == nil {
 			summary.Notes = append(summary.Notes, "No continuous time denominator is established; concurrency and time measures are unavailable.")

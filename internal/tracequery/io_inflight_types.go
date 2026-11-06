@@ -43,11 +43,12 @@ type IOInFlightGroup struct {
 	AcceptedPairCount int    `json:"accepted_pair_count"`
 	// IssueCount counts admitted start endpoints inside the selected query,
 	// independently of whether they later formed an unambiguous complete pair.
-	IssueCount              int                 `json:"issue_count"`
-	Values                  *IOInFlightValues   `json:"values,omitempty"`
-	ValuesUnavailableReason string              `json:"values_unavailable_reason,omitempty"`
-	Segments                []IOInFlightSegment `json:"segments,omitempty"`
-	OmittedSegments         int                 `json:"omitted_segments"`
+	IssueCount              int                    `json:"issue_count"`
+	Values                  *IOInFlightValues      `json:"values,omitempty"`
+	DepthDuration           *IntervalDepthDuration `json:"depth_duration,omitempty"`
+	ValuesUnavailableReason string                 `json:"values_unavailable_reason,omitempty"`
+	Segments                []IOInFlightSegment    `json:"segments,omitempty"`
+	OmittedSegments         int                    `json:"omitted_segments"`
 	// Members are bounded witnesses of accepted pairs, not the population
 	// used to recompute Values or a roster for each merged depth segment.
 	// These three disjoint sets exactly partition AcceptedPairCount:

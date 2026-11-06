@@ -1,0 +1,9 @@
+# Whole original from Donghu. The question specifies the comparison, not the measurements or oracle.
+ID="donghu_v105_yuanbao_peak_duration"
+NAME="Donghu v105 Yuanbao — time at peak versus nonzero thread coverage"
+QUESTION="在 3733.491839 到 3733.795890 秒这段采集里，同时在 CPU 上运行的线程、已经就绪但还没轮到 CPU 的线程，分别最多有多少？两个峰值各持续了多久、占这段时间多少？请把峰值时长和有线程的总时长放在一张表里比较。"
+HTRACE_FILE="/Users/han/opt/donghu/基线数据/105版本/元宝/容器重启后冷启动/1、LOG_ftrace_20261019_17.17.44/ftrace-20261019_17.17.44.ftrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="[^[:space:]]"
