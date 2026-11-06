@@ -1959,6 +1959,9 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return CurrentSourceLaneExcluded
 	}
+	if rm.runtimeOptionalSourceRoute && !requestHasIndependentCurrentSourceObligation(&rm) {
+		return CurrentSourceLaneAllowedOptional
+	}
 	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		// A newly typed/named runtime domain is not itself a negative source
 		// declaration. Legacy direct callers have no route hint, so preserve

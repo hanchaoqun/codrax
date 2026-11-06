@@ -24,6 +24,19 @@ func EffectiveRequestRouteHint(rm *RequestModel, hint TurnRouteHint) TurnRouteHi
 	return hint
 }
 
+// WithAcceptedCurrentSourceRoute carries an explicit optional route into
+// intent, lane, and completion compilers that receive only the accepted IR.
+// A missing/legacy route is not an optional route. Independent obligations
+// are checked at use time, including anchors added after emit_analysis.
+func (rm RequestModel) WithAcceptedCurrentSourceRoute(hint TurnRouteHint) RequestModel {
+	hint = EffectiveRequestRouteHint(&rm, hint)
+	rm.runtimeOptionalSourceRoute = rm.hasRuntimeRequestDomain() &&
+		hint.CurrentSourceEvidenceMode == TurnRouteCurrentSourceEvidenceOptional &&
+		!hint.RequiresCurrentSourceEvidence() &&
+		!hint.RequiredOutcomes.Has(TurnOutcomeSourceChange) && hint.WriteIntent == ""
+	return rm
+}
+
 // This is a refinement veto, not a new hard evidence gate. In particular a
 // bare current_key_code role retains its existing soft status; only the shared
 // authority compiler may decide that a source requirement is precise.

@@ -155,6 +155,9 @@ func traceQueryTypedSchedulerConcurrencyObservations(stats *tracequery.Scheduler
 		})
 		if receipt := traceQuerySchedulerConcurrencyReceipt(out[len(out)-1], stats, group); receipt != "" {
 			out[len(out)-1].RichNotes = append(out[len(out)-1].RichNotes, receipt)
+			if w := stats.Window; w != nil {
+				out[len(out)-1] = types.PublishRuntimeMeasurementQueryWindow(out[len(out)-1], w.StartTs, w.EndTs, false)
+			}
 		}
 	}
 	c := stats.Coverage

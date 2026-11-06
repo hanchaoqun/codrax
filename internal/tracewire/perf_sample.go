@@ -80,25 +80,29 @@ type PerfIdentitySource string
 
 const PerfIdentitySourceTraceThread PerfIdentitySource = "trace_thread"
 
+// MaxRawPerfBranchCount is the supported raw adapter's per-record slot bound.
+const MaxRawPerfBranchCount = 4096
+
 // PerfRawSampleFields is the closed optional tail emitted by the raw perf.data
-// fallback. Zero values are absent, matching the historical wire contract.
+// fallback. Zero values are absent except an explicitly recorded branch count.
 type PerfRawSampleFields struct {
-	Addr          uint64
-	SampleID      uint64
-	StreamID      uint64
-	PerfWeight    uint64
-	DataSource    uint64
-	Transaction   uint64
-	PhysicalAddr  uint64
-	CGroupID      uint64
-	DataPageSize  uint64
-	CodePageSize  uint64
-	RawSize       uint64
-	BranchCount   uint64
-	UserRegsABI   uint64
-	UserRegsCount int64
-	UserStackSize uint64
-	AuxSize       uint64
+	Addr             uint64
+	SampleID         uint64
+	StreamID         uint64
+	PerfWeight       uint64
+	DataSource       uint64
+	Transaction      uint64
+	PhysicalAddr     uint64
+	CGroupID         uint64
+	DataPageSize     uint64
+	CodePageSize     uint64
+	RawSize          uint64
+	BranchCount      uint64
+	BranchCountKnown bool
+	UserRegsABI      uint64
+	UserRegsCount    int64
+	UserStackSize    uint64
+	AuxSize          uint64
 }
 
 func (f PerfRawSampleFields) empty() bool {
@@ -540,7 +544,7 @@ func appendRawPerfFields(b *perfSampleBodyBuilder, raw PerfRawSampleFields) erro
 		{"user_regs_abi", raw.UserRegsABI, false},
 	}
 	for _, field := range fields {
-		if field.value == 0 {
+		if field.value == 0 && !(field.key == "branch_count" && raw.BranchCountKnown) {
 			continue
 		}
 		value := strconv.FormatUint(field.value, 10)

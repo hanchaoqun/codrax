@@ -50,7 +50,10 @@ type RequestModel struct {
 	// runtimeMaterialDomain is a detached current-context applicability hint.
 	// It is rebuilt from current runtime receipts, never serialized as evidence.
 	runtimeMaterialDomain bool
-	RawRequest            string `json:"raw_request"`
+	// Current-turn route optionality is operational metadata, not an
+	// analyzer declaration or an evidence permission. Never serialize it.
+	runtimeOptionalSourceRoute bool
+	RawRequest                 string `json:"raw_request"`
 	// ToolDocumentationRequest selects static host-tool documentation without
 	// reclassifying source/runtime facts or granting evidence authority.
 	ToolDocumentationRequest *ToolDocumentationRequest `json:"tool_documentation_request,omitempty"`

@@ -3971,21 +3971,25 @@ const maxPerfIntegrityIssueKinds = 64
 const maxPerfParserCaveatKinds = 8
 
 type perfQualityAcc struct {
-	sources               map[string]*perfValueCountAcc
-	inputIntegrityIssues  map[string]*perfValueCountAcc
-	parserCaveats         map[string]*perfValueCountAcc
-	symbolizationStatuses map[string]*perfValueCountAcc
-	sampleKinds           map[string]*perfValueCountAcc
-	weightUnits           map[string]*perfValueCountAcc
-	clocks                map[string]*perfValueCountAcc
-	clockConfidences      map[string]*perfValueCountAcc
-	callchainStatuses     map[string]*perfValueCountAcc
-	frameStatuses         map[string]*perfValueCountAcc
-	recordedCPUs          map[string]*perfValueCountAcc
-	cpuKnownCount         int
-	cpuUnknownCount       int
-	callchainKnownCount   int
-	callchainUnknownCount int
+	sources                   map[string]*perfValueCountAcc
+	inputIntegrityIssues      map[string]*perfValueCountAcc
+	parserCaveats             map[string]*perfValueCountAcc
+	symbolizationStatuses     map[string]*perfValueCountAcc
+	sampleKinds               map[string]*perfValueCountAcc
+	weightUnits               map[string]*perfValueCountAcc
+	clocks                    map[string]*perfValueCountAcc
+	clockConfidences          map[string]*perfValueCountAcc
+	callchainStatuses         map[string]*perfValueCountAcc
+	frameStatuses             map[string]*perfValueCountAcc
+	recordedCPUs              map[string]*perfValueCountAcc
+	cpuKnownCount             int
+	cpuUnknownCount           int
+	callchainKnownCount       int
+	callchainUnknownCount     int
+	branchSamplesWithCount    int
+	branchSamplesWithEntries  int
+	branchSamplesWithoutCount int
+	branchEntries             perfCheckedInt64
 }
 
 // perfSampleFilter is identity-aware because thread role joins are allowed to
@@ -4486,7 +4490,7 @@ func perfSampleExample(ev Event) string {
 	if pf.RawSize > 0 {
 		parts = append(parts, fmt.Sprintf("raw_size=%d", pf.RawSize))
 	}
-	if pf.BranchCount > 0 {
+	if pf.BranchCount > 0 || pf.BranchCountKnown {
 		parts = append(parts, fmt.Sprintf("branch_count=%d", pf.BranchCount))
 	}
 	if pf.UserRegsABI != "" {
@@ -4565,6 +4569,7 @@ func newPerfQualityAcc() *perfQualityAcc {
 		callchainStatuses:     map[string]*perfValueCountAcc{},
 		frameStatuses:         map[string]*perfValueCountAcc{},
 		recordedCPUs:          map[string]*perfValueCountAcc{},
+		branchEntries:         newPerfCheckedInt64(),
 	}
 }
 
@@ -4575,6 +4580,15 @@ func (acc *perfQualityAcc) add(ev Event, period int64, frameReason string) {
 	pf := ev.PerfFields
 	if pf == nil {
 		pf = &PerfFields{}
+	}
+	if pf.BranchCountKnown {
+		acc.branchSamplesWithCount++
+		if pf.BranchCount > 0 {
+			acc.branchSamplesWithEntries++
+		}
+		acc.branchEntries.add(pf.BranchCount)
+	} else {
+		acc.branchSamplesWithoutCount++
 	}
 	addPerfValueCount(acc.sources, firstNonEmpty(pf.Source, "unknown"), period)
 	for _, issue := range strings.Split(pf.PerfTextIntegrity, ",") {
@@ -4643,6 +4657,12 @@ func (acc *perfQualityAcc) summary(total int64, weighted bool) *PerfQualitySumma
 	}
 	if weighted {
 		out.WeightStatus = perfAggregateStatusExact
+	}
+	if acc.branchSamplesWithCount > 0 && acc.branchEntries.exact {
+		out.BranchRecords = &PerfBranchRecordCensus{
+			SamplesWithCount: acc.branchSamplesWithCount, SamplesWithEntries: acc.branchSamplesWithEntries,
+			SamplesWithoutCount: acc.branchSamplesWithoutCount, RecordedEntries: acc.branchEntries.value,
+		}
 	}
 	out.RecordedCPUs, out.RecordedCPUOmittedCount = perfRecordedCPUDistribution(acc.recordedCPUs, total, weighted)
 	out.Caveats = perfQualityCaveats(*out)

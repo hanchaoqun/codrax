@@ -145,19 +145,20 @@ type rawPerfSample struct {
 	Comm          string
 	Callchain     []uint64
 
-	RawSize          uint64
-	BranchStackCount uint64
-	UserRegsABI      uint64
-	UserRegsCount    int
-	UserStackSize    uint64
-	Weight           uint64
-	DataSrc          uint64
-	Transaction      uint64
-	PhysAddr         uint64
-	AuxSize          uint64
-	CGroupID         uint64
-	DataPageSize     uint64
-	CodePageSize     uint64
+	RawSize               uint64
+	BranchStackCount      uint64
+	BranchStackCountKnown bool
+	UserRegsABI           uint64
+	UserRegsCount         int
+	UserStackSize         uint64
+	Weight                uint64
+	DataSrc               uint64
+	Transaction           uint64
+	PhysAddr              uint64
+	AuxSize               uint64
+	CGroupID              uint64
+	DataPageSize          uint64
+	CodePageSize          uint64
 }
 
 type rawPerfMapping struct {
@@ -849,7 +850,11 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 	}
 	skipped := attr.SampleType & rawPerfSkippedSampleBits
 	if skipped != 0 {
-		attr.Caveats = append(attr.Caveats, fmt.Sprintf("raw fallback skipped non-causal sample payload field(s): %s", rawPerfSampleBitNames(skipped)))
+		caveat := "raw fallback skipped non-causal sample payload field(s): " + rawPerfSampleBitNames(skipped)
+		if skipped&perfSampleBranchStack != 0 {
+			caveat += " (branch_stack slot count retained; entries not decoded)"
+		}
+		attr.Caveats = append(attr.Caveats, caveat)
 	}
 	out := rawPerfData{
 		SampleType:          attr.SampleType,
@@ -2133,13 +2138,13 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 	}
 	if sampleType&perfSampleBranchStack != 0 {
 		nr, ok := readU64()
-		if !ok || nr > 4096 {
+		if !ok || nr > tracewire.MaxRawPerfBranchCount {
 			return rawPerfSample{}, false
 		}
-		sample.BranchStackCount = nr
 		if !skipBytes(int(nr) * 24) {
 			return rawPerfSample{}, false
 		}
+		sample.BranchStackCount, sample.BranchStackCountKnown = nr, true
 	}
 	if sampleType&perfSampleRegsUser != 0 {
 		abi, count, ok := skipRawPerfSampleRegs(&off, payload, attr.SampleRegsUser)
@@ -2376,22 +2381,23 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			ClockConfidence:     tracewire.PerfClockConfidenceAssumed,
 			CallchainStatus:     tracewire.PerfCallchainStatus(callchainStatus),
 			Raw: tracewire.PerfRawSampleFields{
-				Addr:          sample.Addr,
-				SampleID:      sample.ID,
-				StreamID:      sample.StreamID,
-				PerfWeight:    sample.Weight,
-				DataSource:    sample.DataSrc,
-				Transaction:   sample.Transaction,
-				PhysicalAddr:  sample.PhysAddr,
-				CGroupID:      sample.CGroupID,
-				DataPageSize:  sample.DataPageSize,
-				CodePageSize:  sample.CodePageSize,
-				RawSize:       sample.RawSize,
-				BranchCount:   sample.BranchStackCount,
-				UserRegsABI:   sample.UserRegsABI,
-				UserRegsCount: int64(sample.UserRegsCount),
-				UserStackSize: sample.UserStackSize,
-				AuxSize:       sample.AuxSize,
+				Addr:             sample.Addr,
+				SampleID:         sample.ID,
+				StreamID:         sample.StreamID,
+				PerfWeight:       sample.Weight,
+				DataSource:       sample.DataSrc,
+				Transaction:      sample.Transaction,
+				PhysicalAddr:     sample.PhysAddr,
+				CGroupID:         sample.CGroupID,
+				DataPageSize:     sample.DataPageSize,
+				CodePageSize:     sample.CodePageSize,
+				RawSize:          sample.RawSize,
+				BranchCount:      sample.BranchStackCount,
+				BranchCountKnown: sample.BranchStackCountKnown,
+				UserRegsABI:      sample.UserRegsABI,
+				UserRegsCount:    int64(sample.UserRegsCount),
+				UserStackSize:    sample.UserStackSize,
+				AuxSize:          sample.AuxSize,
 			},
 			ParserCaveats: strings.Join(data.Caveats, "; "),
 		})

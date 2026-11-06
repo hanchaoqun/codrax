@@ -15,17 +15,17 @@ func hmc348ExpectedProducerContracts() map[string]runtimeMeasurementProducerCont
 		RuntimeResourceMeasurementPredicate:     {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerResource},
 		"packet_inventory_observation":          {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerRaw},
 		"packet_flows_observation":              {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerRaw},
-		TraceBusinessSpanPredicate:              {views: runtimeMeasurementSummaryView, kind: runtimeMeasurementProducerInterval},
-		"trace_span_members_observation":        {views: runtimeMeasurementMembersView, kind: runtimeMeasurementProducerInterval},
-		"io_inflight":                           {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval},
-		"io_activity":                           {views: runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerInterval},
-		"scheduler_concurrency":                 {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerAggregate},
+		TraceBusinessSpanPredicate:              {views: runtimeMeasurementSummaryView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
+		"trace_span_members_observation":        {views: runtimeMeasurementMembersView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
+		"io_inflight":                           {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
+		"io_activity":                           {views: runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
+		"scheduler_concurrency":                 {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerAggregate, window: runtimeMeasurementProducerWindowHalfOpen},
 		"cpu_state_frequency_observation":       {views: runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerAggregate},
 		"process_measurements_observation":      {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerRaw},
 		"preferred_frame_rate_observation":      {views: runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, kind: runtimeMeasurementProducerAggregate},
 		"measurements_observation":              {views: runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerRaw},
-		"thread_timeline_observation":           {views: runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval},
-		"cpu_frequency_timeline_observation":    {views: runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval},
+		"thread_timeline_observation":           {views: runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
+		"cpu_frequency_timeline_observation":    {views: runtimeMeasurementTimelineView, kind: runtimeMeasurementProducerInterval, window: runtimeMeasurementProducerWindowVariable},
 		"unpositioned_measurements_observation": {views: runtimeMeasurementMembersView, kind: runtimeMeasurementProducerRaw},
 	}
 }
@@ -40,7 +40,7 @@ func TestHMC348ProducerContractTotalityAndRoutingBoundaries(t *testing.T) {
 	}
 	for _, declaration := range runtimeMeasurementProducerContracts {
 		want, exists := expected[declaration.predicate]
-		if !exists || declaration.predicate == "" || seen[declaration.predicate] || declaration.kind != want.kind || declaration.views != want.views {
+		if !exists || declaration.predicate == "" || seen[declaration.predicate] || declaration.kind != want.kind || declaration.views != want.views || declaration.window != want.window {
 			t.Fatalf("unreviewed, duplicated or drifted producer: %+v", declaration)
 		}
 		seen[declaration.predicate] = true
@@ -95,11 +95,12 @@ func TestHMC348EveryProducerEndpointOptInIsExplicit(t *testing.T) {
 					before, _ := json.Marshal(r)
 					r = PublishRuntimeMeasurementQueryWindow(r, 0, 1, inclusive)
 					want := runtimeMeasurementQueryEndUnknown
-					if expected.kind == runtimeMeasurementProducerInterval {
+					if expected.window == runtimeMeasurementProducerWindowVariable ||
+						(expected.window == runtimeMeasurementProducerWindowHalfOpen && !inclusive) {
 						want = runtimeMeasurementNativeQueryEnd(inclusive)
 					}
 					if endpointOfHMC321(r) != want || runtimeRawMeasurementValid(r) {
-						t.Fatal("interval publisher crossed a producer-family boundary")
+						t.Fatal("publication crossed its registered endpoint boundary")
 					}
 					after, _ := json.Marshal(r)
 					if string(before) != string(after) {

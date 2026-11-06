@@ -4955,6 +4955,18 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "event_field_filters=%s\n", filters)
 	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
+	// Census is an exact scalar inventory of the selected records, not a
+	// reconstruction from the visible cohort/Top-N details. Keep one copy
+	// ahead of the preview cap, even when independent cohorts fill the tail.
+	perf := result.PerfStats
+	if perf == nil && result.WindowStats != nil {
+		perf = result.WindowStats.PerfSamples
+	}
+	if perf != nil && perf.Quality != nil {
+		if census := perf.Quality.BranchRecords.Compact(); census != "" {
+			fmt.Fprintf(&b, "- perf_query_population %s\n", census)
+		}
+	}
 	writeTraceMarkerQueryNavigation(&b, result)
 	writeTraceNativeIntervalNavigation(&b, result)
 	writeTraceEventFilterAndIONavigation(&b, result, p, sourceLabel)

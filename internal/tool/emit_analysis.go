@@ -2585,6 +2585,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if conflict := validateEmitToolDocumentationRequest(&rm, p.RequestedAnswerDimensions); conflict != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_analysis rejected: " + conflict.Error(), Timestamp: time.Now()}, nil
 	}
+	rm = rm.WithAcceptedCurrentSourceRoute(routeHint)
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 

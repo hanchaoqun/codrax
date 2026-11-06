@@ -638,6 +638,7 @@ type PerfFields struct {
 	CodePageSize        int64  `json:"perf_code_page_size,omitempty"`
 	RawSize             int64  `json:"perf_raw_size,omitempty"`
 	BranchCount         int64  `json:"perf_branch_count,omitempty"`
+	BranchCountKnown    bool   `json:"perf_branch_count_known,omitempty"`
 	UserRegsABI         string `json:"perf_user_regs_abi,omitempty"`
 	UserRegsCount       int64  `json:"perf_user_regs_count,omitempty"`
 	UserStackSize       int64  `json:"perf_user_stack_size,omitempty"`
@@ -2000,9 +2001,20 @@ type PerfQualitySummary struct {
 	CPUKnownCount           int              `json:"cpu_known_count,omitempty"`
 	CPUUnknownCount         int              `json:"cpu_unknown_count,omitempty"`
 	// Known means exact producer frame boundaries, not a symbolized label or complete unwinding.
-	CallchainKnownCount   int      `json:"callchain_known_count,omitempty"`
-	CallchainUnknownCount int      `json:"callchain_unknown_count,omitempty"`
-	Caveats               []string `json:"caveats,omitempty"`
+	CallchainKnownCount   int                     `json:"callchain_known_count,omitempty"`
+	CallchainUnknownCount int                     `json:"callchain_unknown_count,omitempty"`
+	Caveats               []string                `json:"caveats,omitempty"`
+	BranchRecords         *PerfBranchRecordCensus `json:"branch_records,omitempty"`
+}
+
+// PerfBranchRecordCensus counts slots declared by admitted raw sample records,
+// not decoded or validated edges. A nil census means unavailable; a non-nil
+// census can explicitly measure zero slots, including when coverage is partial.
+type PerfBranchRecordCensus struct {
+	SamplesWithCount    int   `json:"samples_with_count"`
+	SamplesWithEntries  int   `json:"samples_with_entries"`
+	SamplesWithoutCount int   `json:"samples_without_count"`
+	RecordedEntries     int64 `json:"recorded_entries"`
 }
 
 type PerfValueCount struct {

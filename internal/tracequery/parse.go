@@ -4914,6 +4914,12 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTyp
 	pf.Callchain = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), tracewire.MaxPerfCallchainBytes))
 	pf.FramesV1 = intern.intern(kv["frames_v1"])
 	pf.Source = intern.intern(perfTextValueBounded(firstNonEmpty(kv["source"], kv["producer"]), tracewire.MaxPerfMetadataBytes))
+	// The shared lexer already withdraws duplicated keys. Preserve legacy
+	// extra-field display, but qualify only the raw producer's bounded decimal
+	// count. An absent or malformed field cannot masquerade as recorded zero.
+	pf.BranchCountKnown = pf.Source == string(tracewire.PerfSampleSourceRawPerfDataFallback) &&
+		pf.BranchCount <= tracewire.MaxRawPerfBranchCount &&
+		kv["branch_count"] == strconv.FormatInt(pf.BranchCount, 10)
 	pf.ParserCaveats = intern.intern(perfTextValueBounded(kv["parser_caveats"], tracewire.MaxPerfParserCaveatsBytes))
 	if known, ok := perfWireBool(kv["thread_identity_known"]); ok {
 		pf.ThreadIdentityKnown = boolPtr(known)

@@ -112,6 +112,9 @@ func runtimeTracePerfPopulationText(scope *perfQualityScopeDisplay) string {
 	if thread := scope.Scope.ThreadIdentity; thread != nil {
 		parts = append(parts, fmt.Sprintf("TID=%d; 线程代次=%d", thread.TID, thread.Generation))
 	}
+	if census := q.BranchRecords.Compact(); census != "" {
+		parts = append(parts, census)
+	}
 	for _, dimension := range traceQueryPerfQualityDimensions(q) {
 		if len(dimension.values) > 0 {
 			parts = append(parts, dimension.name+"_distribution="+traceQueryPerfQualityDistribution(dimension.values))

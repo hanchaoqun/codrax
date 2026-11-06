@@ -32,7 +32,7 @@ import (
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
 // HMC-17.7 adds 29 leaves under the optional raw measure side-table only.
-const eventSerializableLeafCount = 267 + 29 + 4
+const eventSerializableLeafCount = 267 + 29 + 4 + 1 // optional recorded branch-count presence
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -555,6 +555,7 @@ const eventJSONGoldenFull = `{
   "perf_code_page_size": 3673,
   "perf_raw_size": 2501,
   "perf_branch_count": 6955,
+  "perf_branch_count_known": true,
   "perf_user_regs_abi": "perf_user_regs_abi",
   "perf_user_regs_count": 7714,
   "perf_user_stack_size": 6151,
@@ -886,6 +887,7 @@ const eventJSONGoldenView = `{
   "perf_code_page_size": 3673,
   "perf_raw_size": 2501,
   "perf_branch_count": 6955,
+  "perf_branch_count_known": true,
   "perf_user_regs_abi": "perf_user_regs_abi",
   "perf_user_regs_count": 7714,
   "perf_user_stack_size": 6151,

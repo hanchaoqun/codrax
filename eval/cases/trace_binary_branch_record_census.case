@@ -1,0 +1,10 @@
+# The full binary fixture and independent header-count oracle are operator inputs.
+ID="trace_binary_branch_record_census"
+NAME="Original binary sampling — branch record inventory"
+QUESTION="请检查这份采集中 poll_report 线程（TID 1609）在 486489.4 到 486489.6 秒的采样记录：有多少条记录，多少条带分支槽位计数、其中多少条非空，合计多少个槽位？请用表格把这些计数与采样权重分开，并说明这些记录能说明什么、不能说明什么。"
+: "${CODRAX_SAMPLE_ONLY_INPUT:?set CODRAX_SAMPLE_ONLY_INPUT to the pinned complete test_brbe.data original; run the offline oracle first}"
+HTRACE_FILE="$CODRAX_SAMPLE_ONLY_INPUT"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="[^[:space:]]"

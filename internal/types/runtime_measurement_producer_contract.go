@@ -24,33 +24,50 @@ const (
 	runtimeMeasurementDistributionView
 )
 
+// Query endpoint authority is independent of the output family's shape. A
+// continuous aggregate may prove a fixed half-open ruler without acquiring
+// the ability to declare inclusive bounds (or to seal other aggregates).
+type runtimeMeasurementProducerWindow uint8
+
+const (
+	runtimeMeasurementProducerWindowUnspecified runtimeMeasurementProducerWindow = iota
+	runtimeMeasurementProducerWindowVariable
+	runtimeMeasurementProducerWindowHalfOpen
+)
+
 type runtimeMeasurementProducerContract struct {
 	predicate string
 	views     runtimeMeasurementViewMask
 	kind      runtimeMeasurementProducerKind
+	window    runtimeMeasurementProducerWindow
 }
 
 // Private, read-only declarations; lookup returns a value, never a mutable
 // entry or a public JSON permission field. New producers must choose their
 // family explicitly instead of silently inheriting a generic interval seal.
 var runtimeMeasurementProducerContracts = [...]runtimeMeasurementProducerContract{
-	{TraceEventSearchInventoryPredicate, runtimeMeasurementMembersView, runtimeMeasurementProducerEvent},
-	{RuntimeSamplingMeasurementPredicate, runtimeMeasurementSummaryView | runtimeMeasurementDistributionView, runtimeMeasurementProducerSampling},
-	{RuntimeResourceMeasurementPredicate, runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerResource},
-	{"packet_inventory_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerRaw},
-	{"packet_flows_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerRaw},
-	{TraceBusinessSpanPredicate, runtimeMeasurementSummaryView, runtimeMeasurementProducerInterval},
-	{"trace_span_members_observation", runtimeMeasurementMembersView, runtimeMeasurementProducerInterval},
-	{"io_inflight", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval},
-	{"io_activity", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerInterval},
-	{"scheduler_concurrency", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate},
-	{"cpu_state_frequency_observation", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate},
-	{"process_measurements_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerRaw},
-	{"preferred_frame_rate_observation", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate},
-	{"measurements_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerRaw},
-	{"thread_timeline_observation", runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval},
-	{"cpu_frequency_timeline_observation", runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval},
-	{"unpositioned_measurements_observation", runtimeMeasurementMembersView, runtimeMeasurementProducerRaw},
+	{TraceEventSearchInventoryPredicate, runtimeMeasurementMembersView, runtimeMeasurementProducerEvent, runtimeMeasurementProducerWindowUnspecified},
+	{RuntimeSamplingMeasurementPredicate, runtimeMeasurementSummaryView | runtimeMeasurementDistributionView, runtimeMeasurementProducerSampling, runtimeMeasurementProducerWindowUnspecified},
+	{RuntimeResourceMeasurementPredicate, runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerResource, runtimeMeasurementProducerWindowUnspecified},
+	{"packet_inventory_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerRaw, runtimeMeasurementProducerWindowUnspecified},
+	{"packet_flows_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementDistributionView, runtimeMeasurementProducerRaw, runtimeMeasurementProducerWindowUnspecified},
+	{TraceBusinessSpanPredicate, runtimeMeasurementSummaryView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"trace_span_members_observation", runtimeMeasurementMembersView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"io_inflight", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"io_activity", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"scheduler_concurrency", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate, runtimeMeasurementProducerWindowHalfOpen},
+	{"cpu_state_frequency_observation", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate, runtimeMeasurementProducerWindowUnspecified},
+	{"process_measurements_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerRaw, runtimeMeasurementProducerWindowUnspecified},
+	{"preferred_frame_rate_observation", runtimeMeasurementSummaryView | runtimeMeasurementTimelineView | runtimeMeasurementDistributionView, runtimeMeasurementProducerAggregate, runtimeMeasurementProducerWindowUnspecified},
+	{"measurements_observation", runtimeMeasurementSummaryView | runtimeMeasurementMembersView | runtimeMeasurementTimelineView, runtimeMeasurementProducerRaw, runtimeMeasurementProducerWindowUnspecified},
+	{"thread_timeline_observation", runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"cpu_frequency_timeline_observation", runtimeMeasurementTimelineView, runtimeMeasurementProducerInterval, runtimeMeasurementProducerWindowVariable},
+	{"unpositioned_measurements_observation", runtimeMeasurementMembersView, runtimeMeasurementProducerRaw, runtimeMeasurementProducerWindowUnspecified},
+}
+
+func (c runtimeMeasurementProducerContract) allowsQueryEnd(inclusive bool) bool {
+	return c.window == runtimeMeasurementProducerWindowVariable ||
+		(c.window == runtimeMeasurementProducerWindowHalfOpen && !inclusive)
 }
 
 func runtimeMeasurementProducerContractFor(predicate string) runtimeMeasurementProducerContract {

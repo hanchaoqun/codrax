@@ -13,6 +13,7 @@ import (
 // Exact reviewed additive fields only; all historical schema bytes/hashes stay.
 func perfQualitySchemaBeforeRecordedCPU(t *testing.T, schema string) string {
 	t.Helper()
+	schema = perfQualitySchemaBeforeBranchCensus(t, schema)
 	schema = removeReviewedPerfField(t, schema, "RecordedCPUs|[]tracequery.PerfValueCount|recorded_cpus,omitempty")
 	return removeReviewedPerfField(t, schema, "RecordedCPUOmittedCount|int|recorded_cpu_omitted_count,omitempty")
 }

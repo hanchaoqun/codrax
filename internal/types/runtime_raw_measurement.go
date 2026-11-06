@@ -55,8 +55,8 @@ func PublishRuntimeRawMeasurement(r ObservationRecord) (ObservationRecord, bool)
 	return r, true
 }
 
-// PublishRuntimeMeasurementQueryWindow belongs to the native interval
-// producers, after their typed window and complete table validation. It
+// PublishRuntimeMeasurementQueryWindow belongs to registered native producers
+// with an explicit endpoint policy, after typed window and table validation. It
 // preserves the publication's query ruler, not a member envelope or a request
 // window. Legacy receipts, point populations and other producers stay unknown.
 // An existing seal cannot be replaced to repair mutated facts or endpoints.
@@ -64,7 +64,7 @@ func PublishRuntimeMeasurementQueryWindow(r ObservationRecord, start, end float6
 	if r.runtimeRawMeasurementPublication != nil || r.Role != AnswerAggregateRoleSupportingCoverage {
 		return r
 	}
-	if runtimeMeasurementProducerContractFor(r.Predicate).kind != runtimeMeasurementProducerInterval {
+	if !runtimeMeasurementProducerContractFor(r.Predicate).allowsQueryEnd(endInclusive) {
 		return r
 	}
 	a, b, known := TraceObservationContinuousQueryWindow(r.SourceRef)
