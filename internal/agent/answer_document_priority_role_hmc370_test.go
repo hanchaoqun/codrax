@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -124,5 +125,41 @@ func TestHMC370HoneybirdWholePriorityRolesKeepNativePartiesAndIntervals(t *testi
 	}
 	if !found {
 		t.Fatal("expected the native on-chain runnable-overlap seat to remain selectable")
+	}
+
+	// The same original produced the misleading system-authored 3.928ms
+	// single-method statement. Keep this witness beside the original causal
+	// claims so neither measurement repair nor graph rendering can hide it.
+	work := types.BuildRuntimeWorkRelationContract(types.ObservationLedgerInputFromAgentContext(ctx, 64), true)
+	found = false
+	if work != nil {
+		for _, row := range work.Rows {
+			m := row.SemanticSpanMeasurement()
+			if m.LongestLabel != "VerifyClass android.net.TrafficStats" {
+				continue
+			}
+			if row.WorkLabel != "class_verification" || m.MemberCount != 5 ||
+				row.MeasuredDurationMS != 3.868 || m.FullDurationMS != 3.928 || m.LongestMS != 2.954 {
+				t.Fatalf("native class-verification rulers crossed: row=%+v measurement=%+v", row, m)
+			}
+			receipt := &types.AnswerRuntimeWorkRelationReceipt{ObservationID: row.ObservationID, Conclusion: types.RuntimeWorkRelationConclusionTargetSelfWorkObserved}
+			if !types.BindRuntimeWorkRelationReceipt(receipt, work) {
+				t.Fatal("native self-work conclusion lost its authority")
+			}
+			if types.BindRuntimeWorkRelationReceipt(&types.AnswerRuntimeWorkRelationReceipt{ObservationID: row.ObservationID, Conclusion: types.RuntimeWorkRelationConclusionCausalContributionSupported}, work) {
+				t.Fatal("a timing group gained authority to prove causal contribution")
+			}
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "work", Kind: types.BlockSummary, Text: "类校验排查。", RuntimeWorkRelation: receipt}}}
+			visible := render.RenderAnswerDocument(doc, "zh")
+			for _, want := range []string{"`类校验`", "5 条记录", "查询窗内合计 3.868ms", "[11343.248000, 11343.310000)", "`VerifyClass android.net.TrafficStats`（窗内 2.954ms）", "完整配对范围合计 3.928ms"} {
+				if !strings.Contains(visible, want) {
+					t.Errorf("original receipt missing %q:\n%s", want, visible)
+				}
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the complete Honeybird capture no longer offers its retained class-verification family")
 	}
 }

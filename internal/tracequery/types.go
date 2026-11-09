@@ -5251,11 +5251,11 @@ const (
 	//       timeline even though the per-CPU bucket ENVELOPES interleave;
 	//       minted only on regression-free indexes, ClockRegressions==0 —
 	//       复核 P3-1 ordered-stream premise).
-	RootCauseMemberFoldCaliberSumDisjoint = "sum_disjoint"
+	RootCauseMemberFoldCaliberSumDisjoint = types.TraceFamilyFoldSumDisjoint
 	// RootCauseMemberFoldCaliberIntervalUnion — member intervals overlap and
 	// the interval union is computable: published value == union length
 	// (< member Σ, disclosed via MemberSumMs).
-	RootCauseMemberFoldCaliberIntervalUnion = "interval_union"
+	RootCauseMemberFoldCaliberIntervalUnion = types.TraceFamilyFoldIntervalUnion
 	// RootCauseMemberFoldCaliberMaxOverlapFallback — overlap without a usable
 	// union deduction (missing interval identity, or the member value is not an
 	// interval length — composite/advisory calibers): published value == member

@@ -6,6 +6,36 @@ import (
 	"strings"
 )
 
+// Native interval measures shared by the producer and answer surfaces.
+const (
+	TraceFamilyFoldSumDisjoint   = "sum_disjoint"
+	TraceFamilyFoldIntervalUnion = "interval_union"
+)
+
+// TraceSemanticWorkLabel is the reader label for a typed semantic class.
+// Callers can keep a generic label for a class they do not recognize.
+func TraceSemanticWorkLabel(class string, zh bool) string {
+	var en, cn string
+	switch class {
+	case "class_verification":
+		en, cn = "class verification", "类校验"
+	case "jit_compile":
+		en, cn = "JIT compilation", "JIT编译"
+	case "shader_compile":
+		en, cn = "shader compilation", "着色器编译"
+	case "runtime_compile":
+		en, cn = "runtime compilation", "运行时编译"
+	case "texture_upload":
+		en, cn = "texture upload", "纹理上传"
+	case "gc_pause":
+		en, cn = "GC pause", "GC暂停"
+	}
+	if zh {
+		return cn
+	}
+	return en
+}
+
 // FormatTraceFamilyMeasurement keeps an engine family value beside its own
 // record population and folding ruler on answer-writing surfaces. It consumes
 // FamilyMember* only: display-fold Merged* counts and another query's physical
@@ -25,12 +55,12 @@ func FormatTraceFamilyMeasurement(count int, maximum float64, fold, lang string)
 	var ruler string
 	timed := false
 	switch strings.TrimSpace(fold) {
-	case "sum_disjoint":
+	case TraceFamilyFoldSumDisjoint:
 		ruler, timed = "sum of disjoint intervals within this family", true
 		if zh {
 			ruler = "本组互斥区间求和"
 		}
-	case "interval_union":
+	case TraceFamilyFoldIntervalUnion:
 		ruler, timed = "interval union within this family", true
 		if zh {
 			ruler = "本组区间去重并集"

@@ -607,7 +607,12 @@ func (e *plannerEvaluator) buildWriteExplorationRequestSection(ctx *types.AgentC
 	}
 	var b strings.Builder
 	b.WriteString("## Targeted source exploration request\n\n")
-	b.WriteString("This write batch may need read-only source exploration before planning edits. Use this typed request to guide any grep/read_file/repo_map work, then emit a bounded ChangePlan only after the relevant existing patterns, invariants, and verification surface are clear enough.\n")
+	proof := currentPlannerProofPresentation(ctx, ctx.Mutable.WriteWorkflowRun())
+	if proof != nil && req.BatchID == proof.batch.ID {
+		b.WriteString("Use these paths and requirements to locate current evidence with the reads allowed by Verification proof materialization. This does not authorize edits or broaden the dispatch.\n")
+	} else {
+		b.WriteString("This write batch may need read-only source exploration before planning edits. Use this typed request to guide any grep/read_file/repo_map work, then emit a bounded ChangePlan only after the relevant existing patterns, invariants, and verification surface are clear enough.\n")
+	}
 	if req.BatchID != "" {
 		fmt.Fprintf(&b, "- batch_id: %s\n", req.BatchID)
 	}
@@ -621,7 +626,7 @@ func (e *plannerEvaluator) buildWriteExplorationRequestSection(ctx *types.AgentC
 	writePlannerList(&b, "candidate_paths", req.CandidatePaths, 10)
 	writePlannerList(&b, "constraints", req.Constraints, 8)
 	requirements := req.EvidenceRequirements
-	if proof := currentPlannerProofPresentation(ctx, ctx.Mutable.WriteWorkflowRun()); proof != nil && req.BatchID == proof.batch.ID {
+	if proof != nil && req.BatchID == proof.batch.ID {
 		requirements = nil
 		for _, criterion := range req.EvidenceRequirements {
 			if !proof.ownsCriterion(criterion) {
@@ -857,11 +862,9 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	b.WriteString("## Verification proof materialization\n\n")
 	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Keep `changes: []`. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
 	if proof.grant != nil {
-		b.WriteString("This dispatch permits read-only existing-test registration: first read each entire existing Python unittest file and receive its contents in a model turn, then emit `project_test_observations[]` with test_path, existing contract_refs, and an offered assertion_ref or the exact assertion_suite/assertion_id pair. Do not include verification_probes or change contracts in that registration. It is not a test pass: verification must execute these exact tests again. No additional metadata fields are needed. Alternatively, use `verification_probes[]` to execute the changed code and bind the uncovered typed criteria when existing tests do not cover them; do not combine these two plan shapes.\n")
-		b.WriteString("For a criterion marked fresh_verification_evidence_required, use an existing registered assertion when it directly checks that contract, or a probe if no eligible assertion covers it. A criterion still marked verification_probe_required is not replaced by this registration option.\n")
-	} else {
-		b.WriteString("Materialize verification with `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria.\n")
+		b.WriteString("This dispatch permits read-only existing-test registration: first read each entire existing Python unittest file and receive its contents in a model turn, then emit `project_test_observations[]` with test_path, existing contract_refs, and an offered assertion_ref or the exact assertion_suite/assertion_id pair. It is not a test pass: verification must execute these exact tests again. No additional metadata fields are needed. Use a registered assertion only when it directly checks the contract marked fresh_verification_evidence_required. Registration and probes are separate; do not combine these two plan shapes. Do not change contracts. Registration does not replace a criterion still marked verification_probe_required.\n")
 	}
+	b.WriteString("A separate `verification_probes[]` plan can execute changed code and bind target-execution criteria. For behavior proof, the selected runtime must emit a compatible assertion witness. Python plain probes are execution-only: if no applicable native assertion or other authorized assertion witness is available, retain any execution evidence and leave behavior unverified.\n")
 	fmt.Fprintf(&b, "Before forming the verification plan, use bounded `read_file` calls if needed to inspect the current worktree's changed code, relevant tests, and necessary project metadata. Use the current repository root and returned source paths; do not assume prior plan summaries contain current bytes. This dispatch allows up to %d successful reads or %d failed reads; the next turn closes reads when either count is reached, including all calls already admitted in the same tool batch. Rejected plan submissions do not refresh this allowance. Repository search and source writes remain unavailable in this proof-only lane.\n", plannerHandoffSynthesisBaseReadBudget, plannerReadFailureBudget)
 	if len(batch.ExpectedPaths) > 0 {
 		fmt.Fprintf(&b, "- expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))

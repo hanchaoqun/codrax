@@ -77,6 +77,7 @@ type RuntimeWorkRelationRow struct {
 	// aliases evidence across the existing contract/document clone paths.
 	businessMeasurement RuntimeWorkBusinessMeasurement
 	businessMeasured    bool
+	semanticMeasurement RuntimeWorkSemanticMeasurement
 	// FrameCausalityApplicable (RECEIPT-1, §40.31.1 ○14 → §40.32, 2026-09-02)
 	// is the analyzer's typed frame decision (FrameCausalityQualifierApplicable)
 	// stamped on the system-bound row at contract build time: the receipt's
@@ -101,6 +102,27 @@ type RuntimeWorkBusinessMeasurement struct {
 
 func (r RuntimeWorkRelationRow) BusinessSpanMeasurement() (RuntimeWorkBusinessMeasurement, bool) {
 	return r.businessMeasurement, r.businessMeasured
+}
+
+// RuntimeWorkSemanticMeasurement describes the native work observation, not
+// the amount credited to the causal chain. For a group, the query-window
+// amount on the row measures the retained members, not their envelope, raw
+// sum, longest member or number of physical occurrences.
+type RuntimeWorkSemanticMeasurement struct {
+	QueryStartTs, QueryEndTs float64
+	MemberCount              int
+	OverlapDeduplicated      bool
+	LongestLabel             string
+	LongestMS                float64
+	FullDurationMS           float64
+}
+
+func (m RuntimeWorkSemanticMeasurement) HasQueryWindow() bool {
+	return TraceCausalProjectionWindowPresent(m.QueryStartTs, m.QueryEndTs) && !math.IsInf(m.QueryEndTs, 0)
+}
+
+func (r RuntimeWorkRelationRow) SemanticSpanMeasurement() RuntimeWorkSemanticMeasurement {
+	return r.semanticMeasurement
 }
 
 // RuntimeWorkRelationContract is active only when the analyzer explicitly
@@ -160,15 +182,14 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 	for _, projection := range set.Projections {
 		for _, node := range projection.SemanticSpans {
 			id := strings.TrimSpace(node.EvidenceID)
-			label := strings.TrimSpace(node.SpanName)
-			if id == "" || label == "" || seen[id] {
+			if id == "" || seen[id] {
 				continue
 			}
-			row := runtimeWorkRelationRowFromNode(id, label, node)
+			row, ok := runtimeWorkRelationRowFromNode(id, node)
+			if !ok {
+				continue
+			}
 			row.FrameCausalityApplicable = frameQuestion
-			if row.MeasuredDurationMS <= 0 || math.IsNaN(row.MeasuredDurationMS) || math.IsInf(row.MeasuredDurationMS, 0) {
-				continue
-			}
 			seen[id] = true
 			rows = append(rows, row)
 		}
@@ -325,20 +346,49 @@ func runtimeWorkRelationRowFromBusinessSpan(record ObservationRecord) (RuntimeWo
 	}, true
 }
 
-func runtimeWorkRelationRowFromNode(id, label string, node TraceCausalProjectionNode) RuntimeWorkRelationRow {
+func runtimeWorkRelationRowFromNode(id string, node TraceCausalProjectionNode) (RuntimeWorkRelationRow, bool) {
+	// Value is the native semantic span's selected-window measurement. The
+	// projection also carries ranking, intersection and full-pair values;
+	// none can stand in for this one, including on legacy replays.
+	ms, err := strconv.ParseFloat(node.Value, 64)
+	label := strings.TrimSpace(node.SpanName)
+	if node.Unit != "ms" || err != nil || !runtimeWorkPositiveMS(ms) || label == "" {
+		return RuntimeWorkRelationRow{}, false
+	}
 	row := RuntimeWorkRelationRow{
-		ObservationID: id,
-		WorkLabel:     label,
-		Subject:       strings.TrimSpace(node.Subject),
+		ObservationID: id, WorkLabel: label, Subject: strings.TrimSpace(node.Subject), MeasuredDurationMS: ms,
 	}
-	switch {
-	case node.ActualImpactMS > 0:
-		row.MeasuredDurationMS = node.ActualImpactMS
-	case node.ImpactMS > 0:
-		row.MeasuredDurationMS = node.ImpactMS
-	case node.EndTs > node.StartTs:
-		row.MeasuredDurationMS = (node.EndTs - node.StartTs) * 1000
+	measurement := RuntimeWorkSemanticMeasurement{QueryStartTs: node.QueryWindowStartTs, QueryEndTs: node.QueryWindowEndTs}
+	if node.FamilyMemberCount > 1 {
+		switch node.FamilyFoldCaliber {
+		case TraceFamilyFoldSumDisjoint:
+		case TraceFamilyFoldIntervalUnion:
+			measurement.OverlapDeduplicated = true
+		default:
+			return RuntimeWorkRelationRow{}, false // unknown ruler is not elapsed time
+		}
+		row.WorkLabel = node.SemanticClass
+		measurement.MemberCount = node.FamilyMemberCount
+		if runtimeWorkPositiveMS(node.FamilyMemberMaxMS) && node.FamilyMemberMaxMS <= ms {
+			measurement.LongestLabel, measurement.LongestMS = label, node.FamilyMemberMaxMS
+		}
 	}
+	// The actual_* pair is optional and separate. Its enclosing range is
+	// not an amount for a family (there can be gaps between its members).
+	if measurement.HasQueryWindow() && runtimeWorkPositiveMS(node.ActualImpactMS) && node.ActualImpactMS > ms &&
+		TraceCausalProjectionWindowPresent(node.ActualWindowStartTs, node.ActualWindowEndTs) &&
+		!math.IsInf(node.ActualWindowEndTs, 0) && TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) &&
+		node.ActualWindowStartTs <= node.StartTs+0.000000501 && node.ActualWindowEndTs >= node.EndTs-0.000000501 {
+		envelopeMS := (node.ActualWindowEndTs - node.ActualWindowStartTs) * 1000
+		// Producer endpoints and duration each round to 1µs. A single
+		// interval's measure must match its range; a union can be smaller.
+		const fullPairToleranceMS = 0.001501
+		if node.ActualImpactMS <= envelopeMS+fullPairToleranceMS &&
+			(measurement.MemberCount > 1 || math.Abs(node.ActualImpactMS-envelopeMS) <= fullPairToleranceMS) {
+			measurement.FullDurationMS = node.ActualImpactMS
+		}
+	}
+	row.semanticMeasurement = measurement
 	switch strings.TrimSpace(node.OnChainBasis) {
 	case TraceCausalOnChainBasisHostWakeupEdgeSpan:
 		row.AllowedConclusions = []RuntimeWorkRelationConclusion{
@@ -378,7 +428,11 @@ func runtimeWorkRelationRowFromNode(id, label string, node TraceCausalProjection
 			row.Boundary = "work_to_target_relation_unproven"
 		}
 	}
-	return row
+	return row, true
+}
+
+func runtimeWorkPositiveMS(value float64) bool {
+	return value > 0 && !math.IsInf(value, 0) && !math.IsNaN(value)
 }
 
 func runtimeWorkRelationConclusionAllowed(got RuntimeWorkRelationConclusion, allowed []RuntimeWorkRelationConclusion) bool {

@@ -34,7 +34,8 @@ import (
 // coverage test scans the rootCauseTypeWeight case set so newly added types
 // cannot silently miss a translation.
 func runtimeTraceRootCauseTypeZHLabel(token string) string {
-	switch strings.ToLower(strings.TrimSpace(token)) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	switch token {
 	case "priority_inversion_candidate":
 		// INV-SUPPLY §29.61.11: bytes in tracefence (UXG-1 M1; feed shares them).
 		return tracefence.InversionCandidateWordZH
@@ -97,21 +98,8 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "CPU亲和/cpuset限制"
 	case "running":
 		return "running"
-	case "jit_compile":
-		return "JIT编译"
-	case "class_verification":
-		return "类校验"
-	case "shader_compile":
-		return "着色器编译"
-	case "runtime_compile":
-		return "运行时编译"
-	case "texture_upload":
-		// Evolution 2026-07-10: the Chinese decision/UX lane uses the customer-
-		// ruled term 纹理上传. Raw span names, member rosters and audit wire tokens
-		// remain verbatim, so this display mapping does not rewrite trace facts.
-		return "纹理上传"
-	case "gc_pause":
-		return "GC暂停"
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
+		return types.TraceSemanticWorkLabel(token, true)
 	case "cpu_frequency_limit":
 		return "频率受限"
 	case "trace_span":
@@ -166,7 +154,8 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 // keep the original token; every typed wire/audit key keeps the raw
 // snake_case token (证据引用键位, deliberately NOT this lane).
 func runtimeTraceRootCauseTypeENLabel(token string) string {
-	switch strings.ToLower(strings.TrimSpace(token)) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	switch token {
 	case "priority_inversion_candidate":
 		return "priority inversion (candidate)"
 	case "priority_inversion_runnable_wait":
@@ -219,18 +208,8 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 		return "CPU affinity/cpuset restriction"
 	case "running":
 		return "running"
-	case "jit_compile":
-		return "JIT compilation"
-	case "class_verification":
-		return "class verification"
-	case "shader_compile":
-		return "shader compilation"
-	case "runtime_compile":
-		return "runtime compilation"
-	case "texture_upload":
-		return "texture upload"
-	case "gc_pause":
-		return "GC pause"
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
+		return types.TraceSemanticWorkLabel(token, false)
 	case "cpu_frequency_limit":
 		return "frequency limited"
 	case "trace_span":

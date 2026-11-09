@@ -69,3 +69,57 @@ func TestPendingProofPlanRenamedEchoRetainsPublicProbeOnlyLane(t *testing.T) {
 		t.Fatal("planning fabricated a verification verdict")
 	}
 }
+
+func TestControllerProofPlanningOwnsLongCriteriaBeforeExplorationClipping(t *testing.T) {
+	// A real controller-produced row can exceed the handoff display bound.
+	// Removing a duplicate after that bound cannot recover the exact row.
+	criterion := "impact_obligation=verification kind=behavior_contract verification_probe_required=true evidence_ref=" + strings.Repeat("深", 160) + "/current.py:4-9"
+	for _, tc := range []struct {
+		name, purpose, active    string
+		verifyFailure, duplicate bool
+		wantInExploration        bool
+	}{
+		{"proof", "verification_proof_followup", "batch-1", false, false, false},
+		{"impact-proof", "impact_and_verification_proof_followup", "batch-1", false, false, false},
+		{"mixed-recovery", "impact_and_verification_proof_followup", "batch-1", true, false, true},
+		{"ordinary", "repair", "batch-1", false, false, true},
+		{"foreign", "verification_proof_followup", "other", false, false, true},
+		{"ambiguous", "verification_proof_followup", "batch-1", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mu := types.NewMutableState("verify existing work")
+			batch := writeflow.WriteBatchPlan{ID: "batch-1", Goal: "keep exact source localization", Purpose: tc.purpose,
+				ExpectedPaths: []string{"pkg/target.py"}, SuccessCriteria: []string{criterion}}
+			batchRow := types.WriteWorkflowBatch{ID: batch.ID, Purpose: batch.Purpose, SuccessCriteria: batch.SuccessCriteria}
+			run := &types.WriteWorkflowRun{RunID: "proof-long", ActiveBatchID: tc.active, Batches: []types.WriteWorkflowBatch{batchRow},
+				ProgressLedger: []types.WriteWorkflowProgress{{BatchID: "applied", ReasonCode: "verification_proof_followup_requested"}},
+				ContextPacks:   []types.WriteContextPack{testOwnerLocalizationContextPack("batch-1", "pkg/target.py", "Owner.handle")}}
+			if tc.duplicate {
+				run.Batches = append(run.Batches, batchRow)
+			}
+			mu.SetWriteWorkflowRun(run)
+			if tc.verifyFailure {
+				mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{})
+			}
+			o := New(types.PipelineSettings{}, nil, nil, nil)
+			o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, PipelineStage: types.StagePlan, RepoRoot: t.TempDir()}
+			o.seedControllerBatchPlanningHint(batch)
+			o.seedControllerBatchExplorationContext(batch)
+			req := mu.WriteExplorationRequest()
+			if req == nil || len(req.CandidatePaths) == 0 || req.CandidatePaths[0] != "pkg/target.py" {
+				t.Fatalf("lost scoped source candidates: %+v", req)
+			}
+			seen := strings.Join(req.EvidenceRequirements, "\n")
+			if !strings.Contains(seen, "Owner.handle") {
+				t.Fatalf("lost independent localization evidence: %s", seen)
+			}
+			if strings.Contains(seen, "impact_obligation=verification") != tc.wantInExploration ||
+				strings.Contains(mu.PlanningHint(), "Batch success criteria:") != tc.wantInExploration {
+				t.Fatalf("wrong current proof owner: hint=%s; exploration=%s", mu.PlanningHint(), seen)
+			}
+			if !reflect.DeepEqual(mu.WriteWorkflowRun().Batches[0].SuccessCriteria, []string{criterion}) {
+				t.Fatal("presentation changed durable proof criteria")
+			}
+		})
+	}
+}

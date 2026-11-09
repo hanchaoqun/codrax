@@ -130,6 +130,12 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 			if strings.Contains(message.String(), choices[0].Ref) != (mode == "authorized") {
 				t.Fatal("visible identity list and actual schema authorization disagree")
 			}
+			if proof && (strings.Count(message.String(), "Python plain probes are execution-only:") != 1 ||
+				!strings.Contains(message.String(), "the selected runtime must emit a compatible assertion witness") ||
+				strings.Contains(message.String(), "or a probe if no eligible assertion covers it") ||
+				strings.Contains(message.String(), "guide any grep/read_file/repo_map work")) {
+				t.Fatal("proof-only planner request did not preserve the execution/behavior boundary or read-only routing")
+			}
 			if proof && mode == "authorized" {
 				want := strings.Replace(shared, "verification_probe_required=true", "fresh_verification_evidence_required=true", 1)
 				if strings.Count(message.String(), want) != 1 || strings.Contains(message.String(), shared) ||

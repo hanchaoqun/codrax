@@ -4438,11 +4438,14 @@ func pendingActiveBatchRevision(run *types.WriteWorkflowRun) *types.WriteWorkflo
 	return nil
 }
 
+func controllerProofSectionOwnsBatchCriteria(mu *types.MutableState, batchID string) bool {
+	proof := writeflow.CurrentProofPlanningBatch(mu.WriteWorkflowRun(), mu.VerifyFailureHandoff() != nil)
+	return proof != nil && strings.TrimSpace(proof.ID) == batchID
+}
+
 func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatchPlan) {
 	batch = writeflow.NormalizeBatchPlan(batch)
-	mu := o.busCtx.Mutable
-	activeProof := writeflow.CurrentProofPlanningBatch(mu.WriteWorkflowRun(), mu.VerifyFailureHandoff() != nil)
-	criteriaInProofSection := activeProof != nil && strings.TrimSpace(activeProof.ID) == batch.ID
+	criteriaInProofSection := controllerProofSectionOwnsBatchCriteria(o.busCtx.Mutable, batch.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Workflow batch %s\n\n", batchIDOrDefault(batch.ID, "batch-1"))
 	if activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable) {
@@ -4554,7 +4557,12 @@ func (o *Orchestrator) seedControllerBatchExplorationContext(batch writeflow.Wri
 	candidatePaths := types.OwnerAnchorCandidatePaths(ownerView, batch.ExpectedPaths, 16)
 	prePlanRequirements := types.LocalizationRequirementsFromCandidatePaths(batch.ExpectedPaths, ownerView, batchIDOrDefault(batch.ID, "batch-1"), "", "controller_preplan", 8)
 	evidenceRequirements := append(types.OwnerAnchorEvidenceRequirements(ownerView, 8), types.LocalizationRequirementEvidenceRows(prePlanRequirements, 8)...)
-	evidenceRequirements = append(evidenceRequirements, batch.SuccessCriteria...)
+	// The proof section already owns these exact rows. Route them before
+	// the exploration request truncates display text, not by matching a
+	// potentially partial second copy at the planner.
+	if !controllerProofSectionOwnsBatchCriteria(o.busCtx.Mutable, batch.ID) {
+		evidenceRequirements = append(evidenceRequirements, batch.SuccessCriteria...)
+	}
 	req := types.WriteExplorationRequest{
 		BatchID:              batchIDOrDefault(batch.ID, "batch-1"),
 		Goal:                 batch.Goal,

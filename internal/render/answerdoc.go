@@ -242,19 +242,100 @@ func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBloc
 		}
 		return
 	}
+	measurement := row.SemanticSpanMeasurement()
+	label := row.WorkLabel
+	if measurement.MemberCount > 1 {
+		label = types.TraceSemanticWorkLabel(label, lang == answerDocLangZH)
+		if label == "" {
+			label = "Observed work"
+			if lang == answerDocLangZH {
+				label = "观测到的同类工作"
+			}
+		}
+	}
 	if lang == answerDocLangZH {
-		fmt.Fprintf(b, "**运行时工作关系判断**：`%s`", row.WorkLabel)
+		fmt.Fprintf(b, "**运行时工作关系判断**：`%s`", label)
 		if row.Subject != "" {
 			fmt.Fprintf(b, "（线程 `%s`）", row.Subject)
 		}
-		fmt.Fprintf(b, "实测 %.3fms；%s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionZH(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
+		renderRuntimeSemanticMeasurement(b, row.MeasuredDurationMS, measurement, true)
+		fmt.Fprintf(b, "；%s\n\n", runtimeWorkRelationConclusionZH(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
 		return
 	}
-	fmt.Fprintf(b, "**Runtime-work relation conclusion**: `%s`", row.WorkLabel)
+	fmt.Fprintf(b, "**Runtime-work relation conclusion**: `%s`", label)
 	if row.Subject != "" {
 		fmt.Fprintf(b, " (thread `%s`)", row.Subject)
 	}
-	fmt.Fprintf(b, " measured %.3fms; %s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionEN(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
+	renderRuntimeSemanticMeasurement(b, row.MeasuredDurationMS, measurement, false)
+	fmt.Fprintf(b, "; %s\n\n", runtimeWorkRelationConclusionEN(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
+}
+
+func renderRuntimeSemanticMeasurement(b *strings.Builder, ms float64, m types.RuntimeWorkSemanticMeasurement, zh bool) {
+	window := m.HasQueryWindow()
+	if m.MemberCount <= 1 {
+		if zh {
+			if window {
+				b.WriteString("查询窗内")
+			}
+			fmt.Fprintf(b, "实测 %.3fms", ms)
+		} else {
+			fmt.Fprintf(b, " measured %.3fms", ms)
+			if window {
+				b.WriteString(" in the query window")
+			}
+		}
+	} else if zh {
+		fmt.Fprintf(b, "：%d 条记录", m.MemberCount)
+		if window {
+			b.WriteString("在查询窗内")
+		}
+		fmt.Fprintf(b, "合计 %.3fms（记录数不代表发生次数", ms)
+		if m.OverlapDeduplicated {
+			b.WriteString("；重叠区间只计一次")
+		}
+		b.WriteString("）")
+	} else {
+		fmt.Fprintf(b, ": %d records total %.3fms", m.MemberCount, ms)
+		if window {
+			b.WriteString(" in the query window")
+		}
+		b.WriteString(" (record count, not occurrence count")
+		if m.OverlapDeduplicated {
+			b.WriteString("; overlapping intervals counted once")
+		}
+		b.WriteString(")")
+	}
+	if window {
+		fmt.Fprintf(b, " [%.6f, %.6f)", m.QueryStartTs, m.QueryEndTs)
+		if zh {
+			b.WriteString(" 秒")
+		} else {
+			b.WriteString(" s")
+		}
+	}
+	if m.LongestLabel != "" {
+		if zh && window {
+			fmt.Fprintf(b, "；最长记录 `%s`（窗内 %.3fms）", m.LongestLabel, m.LongestMS)
+		} else if zh {
+			fmt.Fprintf(b, "；最长记录 `%s`（%.3fms）", m.LongestLabel, m.LongestMS)
+		} else if window {
+			fmt.Fprintf(b, "; longest record `%s` (%.3fms in the window)", m.LongestLabel, m.LongestMS)
+		} else {
+			fmt.Fprintf(b, "; longest record `%s` (%.3fms)", m.LongestLabel, m.LongestMS)
+		}
+	}
+	if m.FullDurationMS > 0 {
+		switch {
+		case zh && m.MemberCount > 1:
+			fmt.Fprintf(b, "；同组记录的完整配对范围合计 %.3fms（重叠只计一次，不是窗内耗时）", m.FullDurationMS)
+		case zh:
+			fmt.Fprintf(b, "；同条记录完整耗时 %.3fms（不是窗内耗时）", m.FullDurationMS)
+		case m.MemberCount > 1:
+			fmt.Fprintf(b, "; these records' full paired intervals total %.3fms (overlaps counted once; not the in-window duration)", m.FullDurationMS)
+		default:
+			fmt.Fprintf(b, "; the same record's full elapsed %.3fms (not the in-window duration)", m.FullDurationMS)
+		}
+	}
 }
 
 // runtimeWorkRelationConclusionZH — RECEIPT-1 (§40.32): the unproven-mechanism
