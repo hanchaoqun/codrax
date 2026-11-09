@@ -83,15 +83,23 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 	var controller agent.Agent
 	controllerModel, controllerDecisions := "", "scripted_verify_then_finish"
 	if natural {
-		if !sourceTerminal {
-			t.Fatal("natural controller evaluation requires the source-terminal preparation")
+		if !sourceTerminal && !completeApplyReceipt {
+			t.Fatal("natural controller requires either a source terminal or the independent apply-only receipt")
 		}
 		controllerAdapter, err := llm.NewFromConfig(config.ResolveProvider(cfg, string(types.AgentWriteController)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		controller = nativeRegistrationControllerAgent(controllerAdapter)
-		controllerModel, controllerDecisions = controllerAdapter.ModelID(), "real_model_parent_and_restored_child"
+		controllerModel = controllerAdapter.ModelID()
+		if sourceTerminal {
+			controller = nativeRegistrationControllerAgent(controllerAdapter)
+			controllerDecisions = "real_model_parent_and_restored_child"
+		} else {
+			// The proof-planning precondition is deliberately prepared through
+			// the bounded dispatcher below. Do not let a parent controller
+			// verify the source before the independent negative test begins.
+			controllerDecisions = "real_model_restored_child_only"
+		}
 		providers, err = filepath.Abs(providers)
 		if err != nil {
 			t.Fatal(err)
@@ -102,7 +110,7 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		t.Fatal("one explicit retry-audit lane flag required")
 	}
 	auditRetries := len(retryAudited) == 1 && retryAudited[0]
-	if auditRetries && (sourceTerminal || natural || !completeApplyReceipt) {
+	if auditRetries && (sourceTerminal || !completeApplyReceipt) {
 		t.Fatal("retry-audited lane requires the distinct missing-source-terminal control")
 	}
 	if sourceTerminal {
@@ -112,13 +120,16 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 		kind = "native_registration_natural_controller_terminal"
 	}
 	if completeApplyReceipt {
-		if sourceTerminal || natural {
-			t.Fatal("unverified-source control requires absent source controller verification and a scripted restored controller")
+		if sourceTerminal {
+			t.Fatal("unverified-source control requires absent source controller verification")
 		}
 		kind = "native_registration_restored_unverified_source"
 	}
 	if auditRetries {
 		kind = "native_registration_retry_audited_unverified_source"
+	}
+	if natural && !sourceTerminal {
+		kind = "native_registration_natural_controller_missing_terminal"
 	}
 	evaluation := map[string]any{"kind": kind, "model": adapter.ModelID(), "controller_model": controllerModel, "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": controllerDecisions, "source_terminal_verification": sourceTerminal, "source_preparation": "operator_public_emit_apply_git_and_native_execution", "verification_executor": "public_run_tests_not_model_verifier"}
 	if completeApplyReceipt {
@@ -225,6 +236,9 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 	}
 	plan := mu.ChangePlan()
 	run := mu.WriteWorkflowRun()
+	if completeApplyReceipt {
+		assertNativeRegistrationSourceApplyOnly(t, run, f.source.ID, f.head)
+	}
 	save("before-restart-plan.json", plan)
 	save("before-restart-workflow.json", run)
 	report := f.restartWithController(t, sourceTerminal, natural, providers, out)
@@ -246,5 +260,10 @@ func runNativeRegistrationLiveEvaluationWithScope(t *testing.T, out string, sour
 	if sourceTerminal {
 		assertNativeRegistrationContextPackReceipt(t, o.busCtx.WorkDir)
 	}
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal, "context_pack_durability_verified": sourceTerminal, "controller_decisions": controllerDecisions})
+	receiptFields := map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true, "source_terminal_verification": sourceTerminal, "context_pack_durability_verified": sourceTerminal, "controller_decisions": controllerDecisions}
+	if completeApplyReceipt {
+		assertNativeRegistrationSourceApplyOnly(t, completedRun, f.source.ID, f.head)
+		receiptFields["source_apply_only_preserved"] = true
+	}
+	save("receipt.json", receiptFields)
 }

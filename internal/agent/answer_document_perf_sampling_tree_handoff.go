@@ -35,15 +35,18 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	}
 	var b strings.Builder
 	seen := map[key]bool{}
-	// Query receipts stay independent. Only byte-identical, validated native
-	// tree publications share this display slot: source generations, target,
-	// window, full denominators and all expansion/omission details remain in
-	// the key. A different view or outer payload ID is not a different tree.
+	// Query receipts stay independent. Only exact content or qualified
+	// equivalent displays share a slot: source, target, window, denominators,
+	// actual omissions and physical references remain in the key.
 	seenFacts := map[string]bool{}
 	publishedFacts := map[string]bool{}
 	aggregateFacts := map[string]bool{}
 	selectedFacts := map[string]bool{}
-	factRefs := map[string]string{}
+	type displayOwner struct {
+		id    string
+		depth int
+	}
+	factRefs := map[string]displayOwner{}
 	accepted, shown := 0, 0
 	for _, r := range ledger.Records {
 		p, ok := tool.DecodeTracePerfSamplingTree(r)
@@ -70,7 +73,12 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 			fact = publication.samplingIdentities[nativePresentationQueryKey(r)]
 		}
 		if p.Status == "available" && seenFacts[fact] {
-			alias := fmt.Sprintf("native_tree_reuse observation_id=%q source=%q query_scope=%q payload=%q: shares displayed fields with observation_id=%q; native_summary=%q; query/cohort IDs and original references remain in their own native payload.\n", r.ID, r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef, factRefs[fact], r.Summary)
+			owner := factRefs[fact]
+			depth := ""
+			if p.DisplayDepth != owner.depth {
+				depth = fmt.Sprintf(" query_display_depth=%d shared_display_depth=%d", p.DisplayDepth, owner.depth)
+			}
+			alias := fmt.Sprintf("native_tree_reuse observation_id=%q source=%q query_scope=%q payload=%q%s: shares displayed fields with observation_id=%q; native_summary=%q; query/cohort IDs and original references remain in their own native payload.\n", r.ID, r.SourceRef.Path, r.SourceRef.QueryScopeID, r.SourceRef.PayloadRef, depth, owner.id, r.Summary)
 			linked := publication.writeDetailNavigation(&b, alias, 63<<10)
 			publication.observe(r, linked && publishedFacts[fact])
 			publication.observeSamplingSelection(r, linked && selectedFacts[fact])
@@ -101,7 +109,7 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 		if p.Status == "available" {
 			seenFacts[fact] = true
 		}
-		factRefs[fact] = r.ID
+		factRefs[fact] = displayOwner{r.ID, p.DisplayDepth}
 		selected := p.Status == "available" && p.OmittedCohorts == 0
 		selectedFacts[fact] = selected
 		publication.observeSamplingSelection(r, selected)

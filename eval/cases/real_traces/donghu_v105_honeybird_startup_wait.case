@@ -1,0 +1,9 @@
+ID="donghu_v105_honeybird_startup_wait"
+NAME="Whole Honeybird startup trace — main-thread work and wait sequence"
+QUESTION="请分析这份蜂鸟众包冷启动采集里 11343.248 到 11343.310 秒主线程（tid 64156）的这次停顿。分开说明运行、就绪和休眠期间发生了什么，并画一张时序图，把这段启动工作和唤醒的先后关系讲清楚。能定位停顿原因吗？"
+: "${CODRAX_HMC365_HONEYBIRD:?set CODRAX_HMC365_HONEYBIRD to the pinned complete Honeybird ftrace}"
+HTRACE_FILE="$CODRAX_HMC365_HONEYBIRD"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="64156"

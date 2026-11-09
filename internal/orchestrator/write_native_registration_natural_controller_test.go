@@ -27,6 +27,13 @@ func TestNativeRegistrationLiveNaturalControllerTerminal(t *testing.T) {
 	runNativeRegistrationLiveEvaluation(t, os.Getenv("CODRAX_LIVE_REGISTRATION_NATURAL_EVAL_DIR"), true, true)
 }
 
+// Keep the original positive and scripted-negative lanes independent. The
+// planner is real, the proof is prepared via the bounded dispatcher, and the
+// restored controller decides naturally with the source terminal absent.
+func TestNativeRegistrationLiveNaturalMissingTerminal(t *testing.T) {
+	runNativeRegistrationLiveEvaluationWithScope(t, os.Getenv("CODRAX_LIVE_REGISTRATION_NATURAL_MISSING_EVAL_DIR"), false, true, true, true)
+}
+
 func nativeRegistrationControllerAgent(adapter llm.Adapter) agent.Agent {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.EmitWriteWorkflowDecision{})
@@ -42,8 +49,8 @@ func installNativeRegistrationController(ar *agent.Registry, sr *skill.Registry,
 
 func installNativeRegistrationChildController(t *testing.T, input registrationRestartInput, ar *agent.Registry, sr *skill.Registry) {
 	t.Helper()
-	if !input.SourceTerminal || !filepath.IsAbs(input.ProvidersPath) || !filepath.IsAbs(input.AuditDir) {
-		t.Fatal("natural controller child requires explicit terminal fixture and absolute provider/audit paths")
+	if !input.NaturalController || !filepath.IsAbs(input.ProvidersPath) || !filepath.IsAbs(input.AuditDir) {
+		t.Fatal("natural controller child requires explicit controller selection and absolute provider/audit paths")
 	}
 	logger, err := logging.NewFromFlags(filepath.Join(input.AuditDir, "child-logs"), "debug", false)
 	if err != nil {

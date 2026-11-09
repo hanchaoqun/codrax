@@ -54,35 +54,37 @@ func TestHMC287NativeRegistrationMissingSourceTerminalScopePublic(t *testing.T) 
 	if loopkernel.WorkflowRegistrationReusesVerifiedSource(*run, plan) {
 		t.Fatal("unverified source was granted strict verified-source authority")
 	}
+	source := assertNativeRegistrationSourceApplyOnly(t, run, f.source.ID, f.head)
+	view := writeflow.DeriveWorkflowExecutionView(types.ModeApply, *run, plan)
+	t.Logf("isolated absent source verification: apply_ref=%s verify_ref=%s localization=%+v", source.ApplyRef, source.VerifyRef, view.Localization)
+	// This helper checks a fresh invocation, unchanged source/tests, verified
+	// current proof and unverified overall/missing_terminal_verify_verdict.
+	f.restart(t)
+	assertNativeRegistrationSourceApplyOnly(t, mu.WriteWorkflowRun(), f.source.ID, f.head)
+}
+
+func assertNativeRegistrationSourceApplyOnly(t *testing.T, run *types.WriteWorkflowRun, planID, head string) *types.WriteWorkflowBatch {
+	t.Helper()
+	if run == nil || planID == "" || head == "" {
+		t.Fatal("source apply-only audit requires an exact run, plan and applied commit")
+	}
 	var source *types.WriteWorkflowBatch
 	for i := range run.Batches {
-		if run.Batches[i].PlanID == f.source.ID {
+		if run.Batches[i].PlanID == planID {
 			if source != nil {
 				t.Fatal("source batch must be unique")
 			}
 			source = &run.Batches[i]
 		}
 	}
-	if source == nil || source.Completion != nil || source.ApplyRef != f.head || source.VerifyRef != "" {
+	if source == nil || source.Completion != nil || source.ApplyRef != head || source.VerifyRef != "" || len(source.Attempts) != 1 {
 		t.Fatalf("source is not exactly applied but unverified: %+v", source)
 	}
-	applied := false
-	for _, attempt := range source.Attempts {
-		if attempt.Kind == "verify" {
-			t.Fatal("source verification was unexpectedly introduced")
-		}
-		if attempt.Kind == "apply" && attempt.Status == "applied" && attempt.PlanID == f.source.ID && attempt.ArtifactRef == f.head {
-			applied = true
-		}
-	}
-	if !applied {
+	attempt := source.Attempts[0]
+	if attempt.Kind != "apply" || attempt.Status != "applied" || attempt.PlanID != planID || attempt.ArtifactRef != head {
 		t.Fatal("source lacks its exact independent apply attempt")
 	}
-	view := writeflow.DeriveWorkflowExecutionView(types.ModeApply, *run, plan)
-	t.Logf("isolated absent source verification: apply_ref=%s verify_ref=%s localization=%+v", source.ApplyRef, source.VerifyRef, view.Localization)
-	// This helper checks a fresh invocation, unchanged source/tests, verified
-	// current proof and unverified overall/missing_terminal_verify_verdict.
-	f.restart(t)
+	return source
 }
 
 func TestHMC287NativeRegistrationSourceScopeBoundariesPublic(t *testing.T) {

@@ -25,6 +25,7 @@ func nativeSamplingPresentationKey(source string, r types.ObservationRecord, tre
 	copy := tree
 	copy.TargetThread = ""
 	copy.Cohorts = append([]tracequery.PerfSamplingCohort(nil), tree.Cohorts...)
+	levels := 0
 	for i, cohort := range tree.Cohorts {
 		if cohort.SourceGeneration == "" || cohort.ThreadIdentity == nil || cohort.ThreadIdentity.TID != tree.TargetPID || cohort.ThreadIdentity.Generation <= 0 || cohort.OmittedNodes != 0 {
 			return ""
@@ -36,6 +37,7 @@ func nativeSamplingPresentationKey(source string, r types.ObservationRecord, tre
 			if node.OmittedChildren != 0 {
 				return ""
 			}
+			levels = max(levels, node.Depth+1)
 			// Exact parent structure is retained with local positions, never
 			// flattened into equal symbols or equal numeric weights.
 			id, _ := json.Marshal(j)
@@ -51,6 +53,14 @@ func nativeSamplingPresentationKey(source string, r types.ObservationRecord, tre
 				copy.Cohorts[i].Nodes[j].ParentID = parent
 			}
 		}
+	}
+	// A depth ceiling with slack after every recorded level did not affect
+	// this complete display. Its exact value remains in the query receipt;
+	// only the display key can ignore it. Keep depth at a frontier (or with
+	// no displayed levels), and keep all other omissions including bounded
+	// sample references in the key.
+	if levels > 0 && tree.DisplayDepth > levels {
+		copy.DisplayDepth = 0
 	}
 	// Cohorts are independent populations. Their producer order can depend on
 	// selector-derived IDs; sorting whole cohorts changes no tree ordering or
@@ -77,6 +87,7 @@ func (p *answerDocNativePresentationReceipt) prepareSamplingIdentities(ctx *type
 	p.samplingCohortIDs = map[string]map[string]bool{}
 	p.nativeSources = map[string]string{}
 	queryConflicts := map[string]bool{}
+	queryDepths := map[string]int{}
 	input := types.ObservationLedgerInputFromAgentContext(ctx, 0)
 	rawSources, conflicts := map[string]string{}, map[string]bool{}
 	var groups [2][]types.ToolResult
@@ -122,9 +133,10 @@ func (p *answerDocNativePresentationReceipt) prepareSamplingIdentities(ctx *type
 					if tree, valid := tool.DecodeTracePerfSamplingTree(r); valid {
 						qkey := nativePresentationQueryKey(r)
 						identity := nativeSamplingPresentationKey(rawSources[key], r, tree)
-						if prior, found := p.samplingIdentities[qkey]; found && prior != identity {
+						if prior, found := p.samplingIdentities[qkey]; found && (prior != identity || queryDepths[qkey] != tree.DisplayDepth) {
 							queryConflicts[qkey] = true
 						}
+						queryDepths[qkey] = tree.DisplayDepth
 						p.samplingIdentities[qkey] = identity
 						p.samplingCohortIDs[qkey] = map[string]bool{}
 						for _, cohort := range tree.Cohorts {
