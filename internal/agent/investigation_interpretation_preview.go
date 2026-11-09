@@ -60,10 +60,14 @@ func previewInvestigationInterpretationWithReferenceContexts(h *types.Investigat
 			if len(unit.NativeRefs) > 0 {
 				part += "  native_reference_status=" + status + "; Address validation does not validate text, arithmetic, causality or diagram notes, and does not certify row publication.\n\n"
 				if context := contexts[i]; nativeReferencesCurrent && len(context) > 0 {
+					if limits := investigationNativeReferenceLimits(context); len(limits) > 0 {
+						encoded, _ := json.Marshal(limits)
+						part += "  native_reference_limits=" + string(encoded) + "\n\n"
+					}
 					// Keep the original unit, status and all reference metadata atomic
 					// under the SAME existing narrative budget. No context truncation.
 					base = part
-					encoded, _ := json.Marshal(context)
+					encoded, _ := json.Marshal(investigationNativeReferenceNavigation(context))
 					part += "  native_reference_context=" + string(encoded) + "\n\n"
 					encoded, _ = json.Marshal(compactInvestigationNativeReferenceContexts(context))
 					compactPart = base + "  native_reference_context=" + string(encoded) + "\n\n"
@@ -116,9 +120,9 @@ func previewInvestigationInterpretationWithReferenceContexts(h *types.Investigat
 			shown = append(shown, i)
 		}
 	}
-	// Reserve the complete legacy-eligible units first, so optional navigation
-	// cannot displace a later finding or its boundaries. Then spend only the
-	// remaining SAME budget on whole full/compact descriptors in stable order.
+	// Reserve whole eligible units with their current source-owned limits
+	// first. Optional navigation cannot crowd out a finding or its limits.
+	// Then spend only the remaining budget on whole full/compact descriptors.
 	extra := budget - baseBytes
 	for _, i := range shown {
 		part := parts[i]

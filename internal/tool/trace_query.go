@@ -586,10 +586,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return sweep, nil
 	}
 	var rawRecordBinding *attachment.RawPerfRecordBinding
-	if tracequery.CanonicalViewName(p.View) == tracequery.ViewPerfSamplingTree {
-		if binding, ok := material.RawPerfRecordBinding(runCtx, path); ok {
-			rawRecordBinding = &binding
-		}
+	// A prepared original is an input of the shared sampling tree builder,
+	// not a capability of the dedicated view. The indexed runner can return
+	// the same tree as a companion. Execute's publication defer revalidates
+	// all prepared members for both paths, including on a memo hit.
+	if binding, ok := material.RawPerfRecordBinding(runCtx, path); ok {
+		rawRecordBinding = &binding
 	}
 	// EVALFIX-2B 类2 (2026-07-30): everything below is the PURE core — a
 	// deterministic function of (artifact bytes, effective params), pinned
@@ -660,7 +662,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
 		logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 			p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd, heapAlloc, heapSys, gcCount)
-		q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd)
+		q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd).WithRawPerfRecordBinding(rawRecordBinding)
 		runStart := time.Now()
 		logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
 		result := tracequery.Run(idx, q)

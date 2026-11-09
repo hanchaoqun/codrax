@@ -205,6 +205,15 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
 					if boundOriginal == original {
 						p.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, p.Source, original, replay)
+						if source := p.sourcePresentation; source != nil {
+							source.referenceUse = runtimeMeasurementProducerContractFor(r.Predicate).referenceUse()
+							// The timeline producer validates this exact numeric
+							// selector against its observed thread. A system query's
+							// exploration cursor is not population membership.
+							if source.referenceUse == runtimeMeasurementReferenceThreadStates && p.Source.QueryTargetPID > 0 && p.Source.QueryTargetPID <= RuntimeTargetMaxPID {
+								source.referenceTID = p.Source.QueryTargetPID
+							}
+						}
 					}
 					if !supplementary {
 						boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)

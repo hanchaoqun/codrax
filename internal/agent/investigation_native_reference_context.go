@@ -14,6 +14,8 @@ type investigationNativeReferenceContext struct {
 	QuerySelection      string   `json:"query_selection,omitempty"`
 	Role                string   `json:"role,omitempty"`
 	RoleBasis           string   `json:"role_basis,omitempty"`
+	UseLimit            string   `json:"use_limit,omitempty"`
+	ThreadTID           int      `json:"tid,omitempty"`
 	ScopeDetailsOmitted bool     `json:"scope_details_omitted,omitempty"`
 }
 
@@ -26,7 +28,53 @@ func investigationNativeTableContext(table types.RuntimeMeasurementTable) (inves
 		Label: table.Label, Columns: append([]string(nil), table.Columns...),
 		OriginalSource: source.OriginalSource, QueryWindow: source.QueryWindow,
 		QuerySelection: source.QuerySelection, Role: source.Role, RoleBasis: source.RoleBasis,
+		UseLimit: source.ReferenceLimit, ThreadTID: source.ReferenceTID,
 	}, true
+}
+
+type investigationNativeReferenceLimit struct {
+	Refs []int `json:"refs"`
+	investigationNativeReferenceLimitBasis
+}
+
+type investigationNativeReferenceLimitBasis struct {
+	QueryWindow    string `json:"query_window,omitempty"`
+	QuerySelection string `json:"query_selection,omitempty"`
+	ThreadTID      int    `json:"tid,omitempty"`
+	UseLimit       string `json:"use_limit"`
+}
+
+// Share identical teaching within a unit, not source identities or data. A
+// different exact query window or thread always retains its own limit. The
+// reference positions resolve to the unit's original native_refs entries.
+func investigationNativeReferenceLimits(in []investigationNativeReferenceContext) []investigationNativeReferenceLimit {
+	var out []investigationNativeReferenceLimit
+	positions := map[investigationNativeReferenceLimitBasis]int{}
+	for _, context := range in {
+		if context.ReferenceIndex == nil || context.UseLimit == "" {
+			continue
+		}
+		basis := investigationNativeReferenceLimitBasis{context.QueryWindow, context.QuerySelection, context.ThreadTID, context.UseLimit}
+		index, found := positions[basis]
+		if !found {
+			index = len(out)
+			positions[basis] = index
+			out = append(out, investigationNativeReferenceLimit{investigationNativeReferenceLimitBasis: basis})
+		}
+		out[index].Refs = append(out[index].Refs, *context.ReferenceIndex)
+	}
+	return out
+}
+
+func investigationNativeReferenceNavigation(in []investigationNativeReferenceContext) []investigationNativeReferenceContext {
+	out := append([]investigationNativeReferenceContext(nil), in...)
+	for i := range out {
+		if out[i].ReferenceIndex != nil && out[i].UseLimit != "" {
+			// Already delivered with the unit, not a second scope description.
+			out[i].QueryWindow, out[i].QuerySelection, out[i].UseLimit, out[i].ThreadTID = "", "", "", 0
+		}
+	}
+	return out
 }
 
 // Current accepted ownership is checked by the caller; private row/source/table

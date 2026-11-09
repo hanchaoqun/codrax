@@ -65,6 +65,8 @@ type runtimeMeasurementSourcePresentation struct {
 	role, roleBasis                 string
 	window                          runtimeMeasurementSourceWindow
 	selection                       string
+	referenceUse                    runtimeMeasurementReferenceUse
+	referenceTID                    int
 	digest                          string
 }
 
@@ -79,6 +81,10 @@ type RuntimeMeasurementSourceTitleBasis struct {
 	RoleBasis          string `json:"role_basis,omitempty"`
 	QueryWindow        string `json:"query_window,omitempty"`
 	QuerySelection     string `json:"query_selection,omitempty"`
+	// Only the current producer describes how the addressed population can
+	// be used. Neither a display label nor model text can set these values.
+	ReferenceLimit string `json:"use_limit,omitempty"`
+	ReferenceTID   int    `json:"tid,omitempty"`
 }
 
 func (t RuntimeMeasurementTable) NativeSourceTitleBasis() (RuntimeMeasurementSourceTitleBasis, bool) {
@@ -89,6 +95,7 @@ func (t RuntimeMeasurementTable) NativeSourceTitleBasis() (RuntimeMeasurementSou
 	return RuntimeMeasurementSourceTitleBasis{
 		OriginalSource: p.original, QuerySource: p.queryPath, QuerySourceVersion: p.generation,
 		Role: p.role, RoleBasis: p.roleBasis, QueryWindow: p.window.format(""), QuerySelection: p.selection,
+		ReferenceLimit: p.referenceUse.limit(), ReferenceTID: p.referenceTID,
 	}, true
 }
 
@@ -149,7 +156,7 @@ func qualifyRuntimeMeasurementSourcePresentations(c *RuntimeMeasurementContract,
 		cp.window = newRuntimeMeasurementSourceWindow(publication.Source, publication.queryWindowEnd)
 		p = &cp
 		key := publication.ObservationID
-		if old := sources[key]; old != nil && (old.original != p.original || old.queryPath != p.queryPath || old.generation != p.generation || old.window != p.window) {
+		if old := sources[key]; old != nil && (old.original != p.original || old.queryPath != p.queryPath || old.generation != p.generation || old.window != p.window || old.referenceUse != p.referenceUse || old.referenceTID != p.referenceTID) {
 			conflicts[key] = true
 		} else if old == nil {
 			cp := *p
