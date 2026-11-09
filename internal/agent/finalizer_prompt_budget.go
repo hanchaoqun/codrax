@@ -141,6 +141,33 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 	return &AnswerContextByteBudgetError{ActualBytes: actual, AllocatedBytes: e.promptBudget.RequestAllocationBytes}
 }
 
+// finalizerRepairTeaching retains the two representations of the canonical
+// system message. The compact version is request-only: the durable history,
+// original rejected tool call, validation feedback and evidence stay intact.
+type finalizerRepairTeaching struct {
+	draftSystem string
+	patchSystem string
+}
+
+func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
+	e, ok := eval.(*answerDocumentEvaluator)
+	if !ok || e == nil || ctx == nil || ctx.Mutable == nil ||
+		!(e.preferPatchNext || e.emitFullDocFailStreak >= 2) || e.forceFullEmitNext ||
+		len(tools) != 1 || tools[0].Name != "emit_answer_document_patch" ||
+		len(messages) == 0 || messages[0].Role != "system" || messages[0].Content != t.draftSystem {
+		return messages
+	}
+	err, over := e.finalizerRequestByteError(ctx, messages, tools).(*AnswerContextByteBudgetError)
+	if !over || ctx.Mutable.AnswerDocumentV2() != nil {
+		return messages
+	}
+	out := append([]llm.Message(nil), messages...)
+	out[0].Content = t.patchSystem
+	logging.Debug("[diag finalizer] phase=repair_prompt_budget draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
+		err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(t.patchSystem))
+	return out
+}
+
 type answerDocDeferredSection struct {
 	offset int
 	name   string

@@ -2181,7 +2181,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	// Initialize message history
 	stopPreflight = b.startPreflightWatchdog(ctx, "initial_messages")
-	messages := b.buildInitialMessages(ctx, sk)
+	messages, repairTeaching := b.buildInitialMessagesAndRepairTeaching(ctx, sk)
 	stopPreflight()
 
 	// DIAGNOSTIC — dump initial prompt (debug only).
@@ -2371,6 +2371,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			if nudge := promptctx.ReasoningLanguageTailNudge(ctx.Language, currentReq); nudge != "" {
 				requestMessages = append(requestMessages, llm.Message{Role: "user", Content: nudge})
 			}
+		}
+		if repairTeaching != nil {
+			requestMessages = repairTeaching.project(ctx, b.eval, requestMessages, effectiveTools)
 		}
 
 		// Account for the same catalog and ephemeral tails that Chat receives,
@@ -4625,6 +4628,11 @@ func analyzerEmitOnly(ctx *types.AgentContext) bool {
 // primitives keep passing because this method never implements
 // rules on its own.
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
+	messages, _ := b.buildInitialMessagesAndRepairTeaching(ctx, sk)
+	return messages
+}
+
+func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContext, sk *skill.Config) ([]llm.Message, *finalizerRepairTeaching) {
 	promptSkill := b.skillForPrompt(ctx, sk)
 	// 1. Assemble the structured PromptContext from ctx + skill.
 	stopPreflight := b.startPreflightWatchdog(ctx, "prompt_assemble")
@@ -4647,7 +4655,14 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 		messages = AppendDynamicInstruction(messages, b.eval, ctx, promptSkill)
 	}
 	stopPreflight()
-	return messages
+	if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && b.finalizerContentBudget &&
+		finalizerRequestBytePolicy(b.deps.AgentSettings) == types.FinalizerRequestByteEnforce &&
+		len(messages) > 0 && messages[0].Role == "system" {
+		if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
+			return messages, &finalizerRepairTeaching{draftSystem: messages[0].Content, patchSystem: patch}
+		}
+	}
+	return messages, nil
 }
 
 const (

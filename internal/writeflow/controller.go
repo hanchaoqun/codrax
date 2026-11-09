@@ -495,6 +495,27 @@ func completionFromBatchAttempts(batch types.WriteWorkflowBatch, decision WriteW
 	return types.WriteWorkflowCompletion{}
 }
 
+const MissingTerminalVerificationReason = "missing_terminal_verify_verdict"
+
+// CompletedBatchVerification is the read-only batch view used by the run's
+// terminal aggregator. The boolean describes lifecycle completion, not proof.
+// A complete batch with no terminal record or usable latest verify attempt
+// returns (nil, true); neither its apply receipt nor a sibling's proof fills it.
+func CompletedBatchVerification(batch types.WriteWorkflowBatch) (*types.WriteWorkflowCompletion, bool) {
+	if batch.Status != types.WriteWorkflowBatchComplete {
+		return nil, false
+	}
+	if batch.Completion != nil {
+		c := *batch.Completion
+		return &c, true
+	}
+	c := completionFromBatchAttempts(batch, WriteWorkflowDecision{}, "batch_attempts")
+	if c.Verdict == "" {
+		return nil, true
+	}
+	return &c, true
+}
+
 // MarkWorkflowRunCompletionFromBatches aggregates batch terminal completion
 // verdicts into the run-level completion verdict. It reads typed batch
 // completion records and verify attempts only.
@@ -514,30 +535,28 @@ func MarkWorkflowRunCompletionFromBatches(run *types.WriteWorkflowRun) {
 	}
 	sawComplete := false
 	for i := range run.Batches {
-		if run.Batches[i].Status != types.WriteWorkflowBatchComplete {
+		completion, complete := CompletedBatchVerification(run.Batches[i])
+		if !complete {
 			continue
 		}
 		sawComplete = true
-		if run.Batches[i].Completion == nil {
-			derived := completionFromBatchAttempts(run.Batches[i], WriteWorkflowDecision{}, "batch_attempts")
-			if derived.Verdict != "" {
-				run.Batches[i].Completion = &derived
-			}
-		}
-		if run.Batches[i].Completion == nil {
+		if completion == nil {
 			out = types.WriteWorkflowCompletion{
 				Verdict:    types.WriteWorkflowCompletionUnverified,
-				ReasonCode: "missing_terminal_verify_verdict",
+				ReasonCode: MissingTerminalVerificationReason,
 				Source:     "batch_completion_aggregate",
 				At:         now,
 			}
 			continue
 		}
-		switch run.Batches[i].Completion.Verdict {
+		if run.Batches[i].Completion == nil {
+			run.Batches[i].Completion = completion
+		}
+		switch completion.Verdict {
 		case types.WriteWorkflowCompletionAcceptedFailed:
 			run.Completion = &types.WriteWorkflowCompletion{
 				Verdict:    types.WriteWorkflowCompletionAcceptedFailed,
-				ReasonCode: run.Batches[i].Completion.ReasonCode,
+				ReasonCode: completion.ReasonCode,
 				Source:     "batch_completion_aggregate",
 				At:         now,
 			}
@@ -546,7 +565,7 @@ func MarkWorkflowRunCompletionFromBatches(run *types.WriteWorkflowRun) {
 			if out.Verdict != types.WriteWorkflowCompletionAcceptedFailed {
 				out = types.WriteWorkflowCompletion{
 					Verdict:    types.WriteWorkflowCompletionUnverified,
-					ReasonCode: run.Batches[i].Completion.ReasonCode,
+					ReasonCode: completion.ReasonCode,
 					Source:     "batch_completion_aggregate",
 					At:         now,
 				}

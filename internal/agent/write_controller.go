@@ -272,6 +272,30 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 		}
 	}
 	if len(run.Batches) > 0 {
+		type terminal struct {
+			verdict, reason string
+		}
+		terminals := make([]terminal, len(run.Batches))
+		counts := map[string]int{}
+		for i, batch := range run.Batches {
+			completion, complete := writeflow.CompletedBatchVerification(batch)
+			if !complete {
+				continue
+			}
+			switch {
+			case completion == nil:
+				terminals[i] = terminal{"missing", writeflow.MissingTerminalVerificationReason}
+			default:
+				terminals[i] = terminal{string(completion.Verdict), completion.ReasonCode}
+			}
+			counts[terminals[i].verdict]++
+		}
+		if len(counts) > 0 {
+			fmt.Fprintf(&b, "- terminal verification among complete batches: verified=%d unverified=%d accepted_failed=%d missing=%d\n",
+				counts[string(types.WriteWorkflowCompletionVerified)], counts[string(types.WriteWorkflowCompletionUnverified)],
+				counts[string(types.WriteWorkflowCompletionAcceptedFailed)], counts["missing"])
+			b.WriteString("  - complete is a lifecycle state, not verification. Do not claim all_verified when any completed batch lacks a verified terminal; the current report proves only its own scope.\n")
+		}
 		b.WriteString("- batches:\n")
 		for i, batch := range run.Batches {
 			if i >= 8 {
@@ -288,6 +312,12 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 			}
 			if st.FailedVerifyAttempts > 0 {
 				line += fmt.Sprintf(" failed_verify_attempts=%d", st.FailedVerifyAttempts)
+			}
+			if v := terminals[i]; v.verdict != "" {
+				line += " verification_terminal=" + v.verdict
+				if v.reason != "" {
+					line += " verification_reason=" + limitWriteControllerText(v.reason, 100)
+				}
 			}
 			if batch.ExecutionMode != "" {
 				line += " execution_mode=" + string(batch.ExecutionMode)

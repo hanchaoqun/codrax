@@ -1582,19 +1582,51 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderSystemSections(sections []types.PromptSection) string {
+	var systemParts []string
+	for _, s := range sections {
+		systemParts = append(systemParts, fmt.Sprintf("## %s\n%s", s.Title, s.Content))
+	}
+	return strings.Join(systemParts, "\n\n")
+}
+
+// AnswerDocumentPatchSystemTeaching projects only the built-in skill-owned
+// system sections. Never reassemble, scan, or shorten any user/evidence
+// message. Constraints, preferences and all ordinary prohibitions survive.
+func AnswerDocumentPatchSystemTeaching(pc *types.PromptContext, sk *skill.Config) string {
+	if pc == nil || pc.Stage != types.StageFinalize {
+		return ""
+	}
+	patch := sk.AnswerDocumentPatchTeaching()
+	if patch == nil {
+		return ""
+	}
+	sections := make([]types.PromptSection, 0, len(pc.SystemSections))
+	for _, section := range pc.SystemSections {
+		switch section.Title {
+		case SectionThinkAloud:
+			continue // This lane needs one patch call, not a second draft.
+		case SectionSkillGoal:
+			section.Content = patch.Goal
+		case SectionWorkflow:
+			section.Content = formatNumberedList(patch.Workflow)
+		case SectionOutputFormat:
+			section.Content = patch.OutputFormat
+		}
+		sections = append(sections, section)
+	}
+	return renderSystemSections(sections)
+}
+
 // ToMessages converts a PromptContext into a flat message list for the LLM.
 func ToMessages(pc *types.PromptContext) []Message {
 	var messages []Message
 
 	// System message
-	var systemParts []string
-	for _, s := range pc.SystemSections {
-		systemParts = append(systemParts, fmt.Sprintf("## %s\n%s", s.Title, s.Content))
-	}
-	if len(systemParts) > 0 {
+	if len(pc.SystemSections) > 0 {
 		messages = append(messages, Message{
 			Role:    "system",
-			Content: strings.Join(systemParts, "\n\n"),
+			Content: renderSystemSections(pc.SystemSections),
 		})
 	}
 

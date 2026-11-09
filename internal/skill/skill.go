@@ -36,6 +36,10 @@ type Config struct {
 	// ProhibitionsTierB mirrors WorkflowTierB for the Prohibitions
 	// surface. Same applicability gating semantics.
 	ProhibitionsTierB []TierBItem `json:"prohibitions_tier_b,omitempty" yaml:"prohibitions_tier_b,omitempty"`
+
+	// Non-serialized ownership of the built-in first-draft teaching. A
+	// same-named custom skill does not delegate its rules to this projection.
+	answerDocumentDraftTeaching *[32]byte
 }
 
 // TierBItem is one applicability-gated rule (Workflow or

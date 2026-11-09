@@ -392,7 +392,7 @@ Keep any prose brief and operational; save the final user-facing answer for late
 	// shape, MustInclude floor, prior extraction slate) so a shape
 	// addition or prompt re-word lives here in declarative config,
 	// one grep away, instead of in a Go string builder.
-	r.Register(&Config{
+	r.Register(ownAnswerDocumentDraftTeaching(&Config{
 		Name: "answer-document-skill",
 		Goal: "Produce the final answer as one complete structured tool call per attempt. The first accepted emit_answer_document (or an accepted retry patch) is the delivery; rejected attempts may be corrected with one complete call in the next attempt. The Required Answer Blocks contract is mandatory: every block listed under `## Required Answer Blocks` in the user section MUST appear in the rendered answer with the right kind, count, and grounded payload. Read that section FIRST, then draft.",
 		Workflow: []string{
@@ -1102,7 +1102,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{Always: true},
 			},
 		},
-	})
+	}))
 
 	// Turn B — the extractor's skill. Declarative contract surface
 	// that context/builder.go auto-renders into system sections
