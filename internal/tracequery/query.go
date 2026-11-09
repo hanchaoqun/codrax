@@ -22547,14 +22547,15 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 		return traceSpanSemanticWork{}, false
 	}
 	tokens := traceSpanNameTokenSet(lower)
+	compilerClass := traceSpanCompilerWorkClass(name, lower)
 	switch {
-	case traceSpanLooksLikeJITCompile(lower, tokens):
+	case compilerClass == "jit_compile":
 		return traceSpanSemanticWorkForClass("jit_compile")
 	case traceSpanLooksLikeClassVerification(lower, tokens):
 		return traceSpanSemanticWorkForClass("class_verification")
 	case traceSpanLooksLikeShaderCompile(lower, tokens):
 		return traceSpanSemanticWorkForClass("shader_compile")
-	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
+	case compilerClass == "runtime_compile":
 		return traceSpanSemanticWorkForClass("runtime_compile")
 	case traceSpanLooksLikeTextureUpload(lower):
 		return traceSpanSemanticWorkForClass("texture_upload")
@@ -22760,14 +22761,6 @@ func traceSpanNameTokenSet(lower string) map[string]bool {
 	return tokens
 }
 
-func traceSpanLooksLikeJITCompile(lower string, tokens map[string]bool) bool {
-	return tokens["jit"] ||
-		strings.Contains(lower, "jitcompile") ||
-		strings.Contains(lower, "jit_compile") ||
-		strings.Contains(lower, "jit compile") ||
-		strings.Contains(lower, "just-in-time")
-}
-
 func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) bool {
 	return strings.Contains(lower, "verifyclass") ||
 		strings.Contains(lower, "verify_class") ||
@@ -22897,27 +22890,6 @@ func traceSpanNearMissesGCPause(lower string, tokens map[string]bool) bool {
 	return tokens["gc"] ||
 		(strings.Contains(lower, "garbage") &&
 			(tokens["collect"] || tokens["collection"] || tokens["collector"]))
-}
-
-func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool {
-	compileLike := strings.Contains(lower, "compile") ||
-		tokens["compiler"] ||
-		tokens["compilation"] ||
-		strings.Contains(lower, "dex2oat") ||
-		tokens["aot"]
-	if !compileLike {
-		return false
-	}
-	return tokens["ark"] ||
-		tokens["arkts"] ||
-		strings.Contains(lower, "arkts") ||
-		tokens["art"] ||
-		tokens["dex"] ||
-		strings.Contains(lower, "dex2oat") ||
-		tokens["bytecode"] ||
-		tokens["wasm"] ||
-		tokens["js"] ||
-		tokens["runtime"]
 }
 
 // converterSyntheticLaneClass maps the CLOSED set of machine-generated

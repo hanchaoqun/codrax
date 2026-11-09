@@ -337,27 +337,28 @@ func WorkflowActionsForMode(mode types.PipelineMode) []WorkflowAction {
 
 // WorkflowActionsForRun narrows the mode-level action surface with the active
 // batch's exact lifecycle state. A ready_to_plan batch has no executable or
-// observable plan yet, so apply_plan and verify_batch are structurally
-// impossible regardless of its purpose. Keeping this in writeflow lets the
-// prompt, projected JSON schema, runtime decoder, and transition kernel share
-// one typed rule instead of teaching the model from a rejection.
+// observable plan yet; a completed active batch cannot execute it again.
+// The prompt, projected JSON schema, runtime decoder, and transition kernel
+// share the same typed action boundary rather than teaching from a rejection.
 func WorkflowActionsForRun(mode types.PipelineMode, run *types.WriteWorkflowRun) []WorkflowAction {
 	actions := WorkflowActionsForMode(mode)
-	if mode.Normalize() != types.ModeApply || run == nil {
+	if run == nil {
 		return actions
 	}
-	activeID := strings.TrimSpace(run.ActiveBatchID)
-	if activeID == "" {
+	active, found := workflowExecutionActiveBatch(*run)
+	if !found {
 		return actions
 	}
-	status := types.WriteWorkflowBatchStatus("")
-	for _, batch := range run.Batches {
-		if strings.TrimSpace(batch.ID) == activeID {
-			status = batch.Status
-			break
+	if active.Status == types.WriteWorkflowBatchComplete {
+		out := make([]WorkflowAction, 0, len(actions))
+		for _, action := range actions {
+			if completedBatchActionAvailable(run.Status, action) {
+				out = append(out, action)
+			}
 		}
+		return out
 	}
-	if status != types.WriteWorkflowBatchReadyToPlan {
+	if mode.Normalize() != types.ModeApply || strings.TrimSpace(run.ActiveBatchID) == "" || active.Status != types.WriteWorkflowBatchReadyToPlan {
 		return actions
 	}
 	out := make([]WorkflowAction, 0, len(actions)-2)

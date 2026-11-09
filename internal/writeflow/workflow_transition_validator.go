@@ -198,29 +198,28 @@ func workflowTransitionTargetsNewBatch(view WorkflowExecutionView, decision Writ
 	return active == "" || target != active
 }
 
-func validateCompleteTransition(view WorkflowExecutionView, decision WriteWorkflowDecision) WorkflowTransitionValidation {
-	action := decision.Action
-	if view.RunStatus == "" || view.RunStatus == types.WriteWorkflowRunInProgress {
-		switch action {
-		case ActionAppendBatch, ActionSplitBatch, ActionFinish, ActionBlock:
-			return WorkflowTransitionValidation{Allowed: true}
-		case ActionExploreCode:
-			// A completed active batch does not make an in-progress rolling
-			// workflow terminal. Permit exploration only when the typed decision
-			// names a distinct next batch; this mirrors append/split without
-			// allowing an already-complete batch to reopen itself.
-			if workflowTransitionTargetsNewBatch(view, decision) {
-				return WorkflowTransitionValidation{Allowed: true}
-			}
-		}
-	}
+// completedBatchActionAvailable is the shared action-level transition for a
+// completed active batch. A rolling run can still open another bounded batch;
+// completing a batch is not completing or proving the whole run.
+func completedBatchActionAvailable(status types.WriteWorkflowRunStatus, action WorkflowAction) bool {
 	switch action {
 	case ActionFinish, ActionBlock:
-		return WorkflowTransitionValidation{Allowed: true}
+		return true
+	case ActionAppendBatch, ActionSplitBatch, ActionExploreCode:
+		return status == "" || status == types.WriteWorkflowRunInProgress
 	default:
-		return workflowTransitionDenied("workflow_already_complete",
-			"completed workflow should finish or stay complete", ActionFinish)
+		return false
 	}
+}
+
+func validateCompleteTransition(view WorkflowExecutionView, decision WriteWorkflowDecision) WorkflowTransitionValidation {
+	if completedBatchActionAvailable(view.RunStatus, decision.Action) &&
+		// A legal exploration branch cannot reopen the completed active batch.
+		(decision.Action != ActionExploreCode || workflowTransitionTargetsNewBatch(view, decision)) {
+		return WorkflowTransitionValidation{Allowed: true}
+	}
+	return workflowTransitionDenied("workflow_already_complete",
+		"completed workflow should finish or stay complete", ActionFinish)
 }
 
 func validateBlockedTransition(action WorkflowAction) WorkflowTransitionValidation {
