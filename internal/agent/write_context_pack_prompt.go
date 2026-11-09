@@ -15,6 +15,11 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	if pack == nil {
 		return ""
 	}
+	run := ctx.Mutable.WriteWorkflowRun()
+	var proof *plannerProofPresentation
+	if consumer == types.WriteConsumerPlanner {
+		proof = currentPlannerProofPresentation(ctx, run)
+	}
 	if consumer == types.WriteConsumerController || consumer == types.WriteConsumerPlanner || consumer == types.WriteConsumerVerifier {
 		// These observations have a separately bounded, plan-bound section.
 		// Do not duplicate it or revive superseded/foreign observations in
@@ -25,6 +30,12 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 			if item.Kind == "verification_probe_execution_observation" ||
 				(item.Kind == "verification_failure_observation" && consumer != types.WriteConsumerVerifier) {
 				continue
+			}
+			if proof != nil && item.Kind == "success_criterion" && item.BatchID == proof.batch.ID {
+				if proof.ownsCriterion(item.Text) {
+					continue
+				}
+				item.Text = proof.criterion(item.Text)
 			}
 			filtered.Items = append(filtered.Items, item)
 		}
@@ -41,11 +52,10 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s\n\n", title)
 	b.WriteString("Prioritized typed handoff for this write batch. Treat it as planning and verification context only; hard gates still read ChangePlan, ChangeReport, approval records, and other typed artifacts directly.\n")
-	if note := writeContextPackConsumerGuidance(view); note != "" {
+	if note := writeContextPackConsumerGuidance(view, proof != nil); note != "" {
 		b.WriteString(note)
 		b.WriteByte('\n')
 	}
-	run := ctx.Mutable.WriteWorkflowRun()
 	if run != nil {
 		if batch := currentWriteBatch(run); batch != nil {
 			fmt.Fprintf(&b, "- batch_id: %s\n- durable_batch_goal: %s\n", batch.ID, batch.Goal)
@@ -109,7 +119,7 @@ func activeWriteContextScope(ctx *types.AgentContext) (string, string) {
 	return batchID, ""
 }
 
-func writeContextPackConsumerGuidance(view types.WriteContextView) string {
+func writeContextPackConsumerGuidance(view types.WriteContextView, proofOnly bool) string {
 	switch view.Consumer {
 	case types.WriteConsumerPlanner:
 		hasCoverageItem := false
@@ -127,6 +137,9 @@ func writeContextPackConsumerGuidance(view types.WriteContextView) string {
 		}
 		if !hasCoverageItem {
 			return ""
+		}
+		if proofOnly {
+			return "Planner coverage guidance (soft): keep P0 constraints and P1 scope/target/evidence items visible. Use the allowed plan shapes in Verification proof materialization for fresh execution; carry other uncovered surfaces as explicit uncertainty. Typed validation and approval still apply."
 		}
 		return "Planner coverage guidance (soft): keep P0 constraints and P1 scope/target/evidence items visible while choosing the bounded ChangePlan. The plan may modify only the smallest correct subset, but any unmodified production surface named by those typed rows should still be covered by verification_probes/test_surface or carried forward as an explicit uncertainty. Do not turn this guidance into a hard gate; validation, approval, and verifier verdicts remain typed-artifact decisions."
 	default:

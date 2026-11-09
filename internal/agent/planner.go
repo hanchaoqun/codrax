@@ -620,7 +620,16 @@ func (e *plannerEvaluator) buildWriteExplorationRequestSection(ctx *types.AgentC
 	writePlannerList(&b, "questions", req.ExplorationQuestions, 8)
 	writePlannerList(&b, "candidate_paths", req.CandidatePaths, 10)
 	writePlannerList(&b, "constraints", req.Constraints, 8)
-	writePlannerList(&b, "evidence_requirements", req.EvidenceRequirements, 8)
+	requirements := req.EvidenceRequirements
+	if proof := currentPlannerProofPresentation(ctx, ctx.Mutable.WriteWorkflowRun()); proof != nil && req.BatchID == proof.batch.ID {
+		requirements = nil
+		for _, criterion := range req.EvidenceRequirements {
+			if !proof.ownsCriterion(criterion) {
+				requirements = append(requirements, proof.criterion(criterion))
+			}
+		}
+	}
+	writePlannerList(&b, "evidence_requirements", requirements, 8)
 	return strings.TrimSpace(b.String())
 }
 
@@ -768,7 +777,7 @@ func (e *plannerEvaluator) buildWorkflowSeedSection(ctx *types.AgentContext) str
 		return ""
 	}
 	if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
-		return buildCurrentWriteBatchPrompt(run)
+		return buildCurrentWriteBatchPrompt(run, plannerProofFollowupBatch(ctx, run) != nil)
 	}
 	ir := ctx.Mutable.WriteAnalysisIR()
 	if ir == nil {
@@ -836,32 +845,20 @@ func (e *plannerEvaluator) buildWorkflowSeedSection(ctx *types.AgentContext) str
 }
 
 func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.AgentContext) string {
-	if !plannerContextHasProofFollowupMaterializationOnly(ctx) || ctx == nil || ctx.Mutable == nil {
+	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
-	run := ctx.Mutable.WriteWorkflowRun()
-	if run == nil {
+	proof := currentPlannerProofPresentation(ctx, ctx.Mutable.WriteWorkflowRun())
+	if proof == nil {
 		return ""
 	}
-	activeID := strings.TrimSpace(run.ActiveBatchID)
-	if activeID == "" {
-		return ""
-	}
-	var batch *types.WriteWorkflowBatch
-	for i := range run.Batches {
-		if strings.TrimSpace(run.Batches[i].ID) == activeID {
-			batch = &run.Batches[i]
-			break
-		}
-	}
-	if batch == nil {
-		return ""
-	}
+	batch := proof.batch
 	var b strings.Builder
 	b.WriteString("## Verification proof materialization\n\n")
 	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Keep `changes: []`. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
-	if ctx.Mutable.NativeTestRegistrationAuthorization() != nil {
+	if proof.grant != nil {
 		b.WriteString("This dispatch permits read-only existing-test registration: first read each entire existing Python unittest file and receive its contents in a model turn, then emit `project_test_observations[]` with test_path, existing contract_refs, and an offered assertion_ref or the exact assertion_suite/assertion_id pair. Do not include verification_probes or change contracts in that registration. It is not a test pass: verification must execute these exact tests again. No additional metadata fields are needed. Alternatively, use `verification_probes[]` to execute the changed code and bind the uncovered typed criteria when existing tests do not cover them; do not combine these two plan shapes.\n")
+		b.WriteString("For a criterion marked fresh_verification_evidence_required, use an existing registered assertion when it directly checks that contract, or a probe if no eligible assertion covers it. A criterion still marked verification_probe_required is not replaced by this registration option.\n")
 	} else {
 		b.WriteString("Materialize verification with `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria.\n")
 	}
@@ -872,7 +869,7 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	if len(batch.SuccessCriteria) > 0 {
 		b.WriteString("- proof_criteria:\n")
 		for _, c := range batch.SuccessCriteria {
-			fmt.Fprintf(&b, "  - %s\n", c)
+			fmt.Fprintf(&b, "  - %s\n", proof.criterion(c))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -1378,7 +1375,7 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
 	if e.proofFollowupMaterializationOnly {
 		allowed = plannerProofFollowupMaterializationToolNames()
-		if ctx != nil && ctx.Mutable != nil && ctx.Mutable.NativeTestRegistrationAuthorization() != nil {
+		if ctx != nil && ctx.Mutable != nil && plannerNativeRegistrationFor(ctx, ctx.Mutable.WriteWorkflowRun()) != nil {
 			allowed[emitPlanSkeletonToolName] = true
 		}
 		if e.proofFollowupReadAllowed() {
@@ -1807,38 +1804,28 @@ func plannerContextHasProofFollowupMaterializationOnly(ctx *types.AgentContext) 
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	run := ctx.Mutable.WriteWorkflowRun()
-	if run == nil {
-		return false
+	return plannerProofFollowupBatch(ctx, ctx.Mutable.WriteWorkflowRun()) != nil
+}
+
+func plannerProofFollowupBatch(ctx *types.AgentContext, run *types.WriteWorkflowRun) *types.WriteWorkflowBatch {
+	batch := currentWriteBatch(run)
+	if batch == nil || ctx == nil || ctx.Mutable == nil {
+		return nil
 	}
-	activeID := strings.TrimSpace(run.ActiveBatchID)
-	if activeID == "" {
-		return false
-	}
-	authorized := false
 	for _, event := range run.ProgressLedger {
 		if strings.TrimSpace(event.ReasonCode) == "verification_proof_followup_requested" {
-			authorized = true
-			break
+			switch strings.TrimSpace(batch.Purpose) {
+			case "verification_proof_followup":
+				return batch
+			case "impact_and_verification_proof_followup":
+				if ctx.Mutable.VerifyFailureHandoff() == nil {
+					return batch
+				}
+			}
+			return nil
 		}
 	}
-	if !authorized {
-		return false
-	}
-	for _, batch := range run.Batches {
-		if strings.TrimSpace(batch.ID) != activeID {
-			continue
-		}
-		switch strings.TrimSpace(batch.Purpose) {
-		case "verification_proof_followup":
-			return true
-		case "impact_and_verification_proof_followup":
-			return ctx.Mutable.VerifyFailureHandoff() == nil
-		default:
-			return false
-		}
-	}
-	return false
+	return nil
 }
 
 func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHandoff) int {

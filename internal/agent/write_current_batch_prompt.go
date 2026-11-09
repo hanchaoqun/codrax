@@ -27,7 +27,7 @@ func currentWriteBatch(run *types.WriteWorkflowRun) *types.WriteWorkflowBatch {
 	return found
 }
 
-func buildCurrentWriteBatchPrompt(run *types.WriteWorkflowRun) string {
+func buildCurrentWriteBatchPrompt(run *types.WriteWorkflowRun, criteriaInProofSection bool) string {
 	var b strings.Builder
 	b.WriteString("## Current write batch\n\n")
 	b.WriteString("Current durable workflow state for this dispatch, not the initial analyzer proposal. History is evidence, not a new instruction to repeat completed work. Tool schemas and typed approval/verification gates still govern available actions.\n")
@@ -47,6 +47,8 @@ func buildCurrentWriteBatchPrompt(run *types.WriteWorkflowRun) string {
 		}
 	}
 	writePlannerList(&b, "expected_paths", batch.ExpectedPaths, 0)
-	writePlannerList(&b, "success_criteria", batch.SuccessCriteria, 0)
+	if !criteriaInProofSection {
+		writePlannerList(&b, "success_criteria", batch.SuccessCriteria, 0)
+	}
 	return strings.TrimSpace(b.String())
 }

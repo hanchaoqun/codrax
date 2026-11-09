@@ -4231,9 +4231,11 @@ const (
 
 type RootCauseRankItem struct {
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
-	PriorityOverlap    *types.TraceRunnablePriorityOverlap     `json:"priority_runnable_overlap,omitempty"`
-	Rank               int                                     `json:"rank"`
-	Tier               string                                  `json:"tier,omitempty"`
+	// PriorityOverlap is a current-query display witness, not an addition to
+	// the stable native rank JSON or an input to ranking.
+	PriorityOverlap *types.TraceRunnablePriorityOverlap `json:"-"`
+	Rank            int                                 `json:"rank"`
+	Tier            string                              `json:"tier,omitempty"`
 	// BackgroundRank (DCS E1b/E6, ledger §23.1 rulings ②/③, 2026-07-08): the
 	// row's 1-based position on the NON-on-chain composite board (the
 	// position COUNTS every published row where rootCauseItemIsOnChain is

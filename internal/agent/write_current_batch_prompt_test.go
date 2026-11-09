@@ -122,14 +122,15 @@ func TestCurrentWriteProofTeachingFollowsDispatchAuthorization(t *testing.T) {
 	run.ProgressLedger = []types.WriteWorkflowProgress{{BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested"}}
 	mu.SetWriteWorkflowRun(run)
 	e := newPlannerEvaluatorForTest(t)
-	ctx := &types.AgentContext{Mutable: mu}
+	root := t.TempDir()
+	ctx := &types.AgentContext{Mutable: mu, RepoRoot: root}
 	section := func() string { return e.buildProofFollowupMaterializationSection(ctx) }
 	if got := section(); !strings.Contains(got, "verification_probes[]") || strings.Contains(got, "permits read-only existing-test registration") {
 		t.Fatalf("unauthorized teaching: %s", got)
 	}
 	sha := strings.Repeat("a", 40)
 	delivery := types.VerificationDeliverySnapshot{SourcePlanID: "applied", AppliedCommitSHA: sha, PatchEffect: &types.PatchEffectRecord{PlanID: "applied", RecordID: "effect", Source: "applied_commit", HeadRef: sha, DiffFingerprint: strings.Repeat("b", 64)}}
-	if err := mu.AuthorizeNativeTestRegistration(t.TempDir(), delivery, []types.WriteBehaviorContract{{ID: "criterion-current"}}, []string{"current.py"}); err != nil {
+	if err := mu.AuthorizeNativeTestRegistration(root, delivery, []types.WriteBehaviorContract{{ID: "criterion-current"}}, []string{"current.py"}); err != nil {
 		t.Fatal(err)
 	}
 	got := section()

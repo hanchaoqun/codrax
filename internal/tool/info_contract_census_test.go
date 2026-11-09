@@ -142,6 +142,7 @@ var infoContractKnownGaps = map[string]infoContractKnownGap{
 
 var nodeFieldContract = map[string]fieldDisposition{
 	"RankSubjects":                  {Status: "projection_gate", Ref: "HMC363 RankSubjectScope typed board/member disclosure to roster and reader; no causal/election authority"},
+	"PriorityOverlap":               {Status: "displayed", Ref: "HMC370–371 same native two-party scheduler witness on current rank details; no new causal authority"},
 	"MeasurementOrigins":            {Status: "internal_gate", Ref: "B1638b3 R1/V4/R2/全窗参考范围反证及tree×2/等待分母;W-24仅免opaque逐字词面"},
 	"Role":                          {Status: "displayed", Ref: "行1 glyph/段位 + 明细层级"},
 	"EvidenceID":                    {Status: "displayed", Ref: "[E#] 行尾 + 证据索引"},
@@ -573,6 +574,7 @@ var rankItemNodeMirror = map[string]string{
 
 var rankItemContract = map[string]fieldDisposition{
 	"MeasurementSources":            {Status: "node_mirror", Ref: "Node.MeasurementOrigins[].MeasurementSources(B1638b3 原生事件行筛选范围反证,不证明值相等或可加性)"},
+	"PriorityOverlap":               {Status: "node_mirror", Ref: "Node.PriorityOverlap through current source-bound retention, excluded from stable rank JSON"},
 	"Rank":                          {Status: "node_mirror", Ref: "Node.Rank"},
 	"Tier":                          {Status: "node_mirror", Ref: "Node.Tier"},
 	"BackgroundRank":                {Status: "node_mirror", Ref: "Node.BackgroundRank(W-2 词面豁免在 Node 侧)"},

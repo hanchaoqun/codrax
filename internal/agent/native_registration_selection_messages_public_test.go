@@ -28,9 +28,26 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	delivery := types.VerificationDeliverySnapshot{SourcePlanID: report.PlanID, AppliedCommitSHA: sha,
 		PatchEffect: &types.PatchEffectRecord{PlanID: report.PlanID, RecordID: "dispatch-fixture", Source: "applied_commit", HeadRef: sha, DiffFingerprint: strings.Repeat("b", 64)}}
-	for _, mode := range []string{"authorized", "ordinary", "revoked", "foreign_root", "restored_history"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, scenario := range []string{"authorized", "ordinary", "revoked", "foreign_root", "restored_history",
+		"authorized/proof", "revoked/proof", "foreign_root/proof", "restored_history/proof"} {
+		t.Run(scenario, func(t *testing.T) {
+			mode, _, proof := strings.Cut(scenario, "/")
 			mu := currentBatchPromptFixture()
+			const shared = "impact_obligation=eligible kind=behavior_contract verification_probe_required=true evidence_ref=criterion-current source=patch_review"
+			const probeOnly = "impact_obligation=probe-only kind=behavior_contract verification_probe_required=true contract_ref=another-criterion source=verification_probe"
+			if proof {
+				run := mu.WriteWorkflowRun()
+				run.ProgressLedger = []types.WriteWorkflowProgress{{BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested"}}
+				run.Batches[1].SuccessCriteria = []string{shared, probeOnly}
+				mu.SetWriteWorkflowRun(run)
+				mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{BatchID: "proof-2", Goal: "read current evidence",
+					EvidenceRequirements: []string{shared, probeOnly, "localization_requirement path=packages/widget/widget.py"}})
+				mu.SetWriteContextPack(&types.WriteContextPack{PackID: "current-proof-pack", BatchID: "proof-2", Items: []types.WriteContextItem{
+					{Kind: "success_criterion", Text: shared, Priority: types.WriteContextP1},
+					{Kind: "success_criterion", Text: probeOnly, Priority: types.WriteContextP1},
+					{Kind: "constraint", Text: "preserve independent evidence", Priority: types.WriteContextP0},
+				}})
+			}
 			if err := mu.AuthorizeNativeTestRegistration(root, delivery, []types.WriteBehaviorContract{{ID: "criterion-current"}}, []string{"packages/widget/widget.py"}); err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +75,7 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 				bus.Mutable.SetChangePlan(&types.ChangePlan{ID: report.PlanID})
 				bus.Mutable.SetChangeReport(report)
 			}
-			before := b1122JSON(t, []any{report, bus.Mutable.ChangePlan(), bus.Mutable.WriteWorkflowRun()})
+			before := b1122JSON(t, []any{report, bus.Mutable.ChangePlan(), bus.Mutable.WriteWorkflowRun(), bus.Mutable.WriteContextPack()})
 			registry := tool.NewRegistry()
 			tool.RegisterDefaults(registry)
 			capture := &traceTeachingCaptureLLM{stop: errors.New("captured actual native registration choices")}
@@ -99,7 +116,11 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 					}
 				}
 			}
-			if found != 2 {
+			wantEntries := 2
+			if proof && mode != "authorized" {
+				wantEntries = 1 // Proof-only skeleton is an authorized-dispatch tool.
+			}
+			if found != wantEntries {
 				t.Fatalf("actual planner did not expose both plan entry points: %d", found)
 			}
 			var message strings.Builder
@@ -109,8 +130,21 @@ func TestNativeRegistrationSelectionActualPlannerRequest(t *testing.T) {
 			if strings.Contains(message.String(), choices[0].Ref) != (mode == "authorized") {
 				t.Fatal("visible identity list and actual schema authorization disagree")
 			}
-			if !bytes.Equal(before, b1122JSON(t, []any{report, bus.Mutable.ChangePlan(), bus.Mutable.WriteWorkflowRun()})) {
-				t.Fatal("schema projection changed source report, plan, or workflow")
+			if proof && mode == "authorized" {
+				want := strings.Replace(shared, "verification_probe_required=true", "fresh_verification_evidence_required=true", 1)
+				if strings.Count(message.String(), want) != 1 || strings.Contains(message.String(), shared) ||
+					strings.Count(message.String(), probeOnly) != 1 ||
+					!strings.Contains(message.String(), "localization_requirement path=packages/widget/widget.py") ||
+					!strings.Contains(message.String(), "preserve independent evidence") ||
+					strings.Contains(message.String(), "should still be covered by verification_probes/test_surface") {
+					t.Fatalf("actual planner request duplicated or contradicted the current executable-proof choices: fresh=%d raw=%d probe-only=%d",
+						strings.Count(message.String(), want), strings.Count(message.String(), shared), strings.Count(message.String(), probeOnly))
+				}
+			} else if proof && (strings.Contains(message.String(), "fresh_verification_evidence_required=true") || strings.Contains(message.String(), "This dispatch permits read-only existing-test registration:")) {
+				t.Fatalf("%s planner acquired a current-registration presentation", mode)
+			}
+			if !bytes.Equal(before, b1122JSON(t, []any{report, bus.Mutable.ChangePlan(), bus.Mutable.WriteWorkflowRun(), bus.Mutable.WriteContextPack()})) {
+				t.Fatal("schema projection changed source report, plan, workflow, or pack")
 			}
 		})
 	}

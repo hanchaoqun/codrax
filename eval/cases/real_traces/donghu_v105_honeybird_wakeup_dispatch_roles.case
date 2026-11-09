@@ -1,0 +1,9 @@
+ID="donghu_v105_honeybird_wakeup_dispatch_roles"
+NAME="Whole Honeybird startup trace — distinguish pre-wake dependency from dispatch contention"
+QUESTION="请只根据这份 trace 分析蜂鸟众包主线程（TID 64156）在 11343.248 到 11343.310 秒的停顿：唤醒前观察到哪些工作和等待，唤醒后到真正上 CPU 发生了什么？哪些证据支持优先级或调度竞争，哪些还不足以定位直接原因？"
+: "${CODRAX_HMC365_HONEYBIRD:?set CODRAX_HMC365_HONEYBIRD to the pinned complete Honeybird ftrace}"
+HTRACE_FILE="$CODRAX_HMC365_HONEYBIRD"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="64156"
