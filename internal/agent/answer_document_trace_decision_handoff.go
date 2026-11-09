@@ -307,6 +307,8 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 				b.WriteString("; same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`")
 			}
 			switch {
+			case types.TracePriorityMechanismQualifier(leader) == types.TraceMechanismSameCPURunnableOverlapCandidate:
+				b.WriteString("; mechanism boundary: the leader prices measured same-CPU ready/run overlap only, not a lock or the whole wait")
 			case traceDecisionNodeIsPriorityInversionCandidate(leader):
 				b.WriteString("; mechanism_boundary=`lower_priority_dependency_supply_only`; lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`")
 			case strings.TrimSpace(leader.FixDirection) == "frequency_thermal":
@@ -1068,7 +1070,9 @@ func traceDecisionWritePhase(b *strings.Builder, node types.TraceCausalProjectio
 		if strings.TrimSpace(node.BlockingKind) == "" {
 			b.WriteString("; mechanism_ceiling=`on_chain_prewakeup_observation_candidate_only`; target_wait_for_work_authority=`not_provided_by_this_seat`; work_completion_dependency_authority=`not_provided_by_this_seat`; direct_blocking_authority=`not_provided_by_this_seat`")
 		}
-		b.WriteString("; post_wakeup_delay_authority=`not_provided_by_this_seat`")
+		if types.TracePriorityMechanismQualifier(node) != types.TraceMechanismSameCPURunnableOverlapCandidate {
+			b.WriteString("; post_wakeup_delay_authority=`not_provided_by_this_seat`")
+		}
 	}
 }
 
@@ -1449,7 +1453,10 @@ func traceDecisionModelFacingDirection(node types.TraceCausalProjectionNode) (ke
 	if strings.TrimSpace(node.FixDirection) == "" {
 		return "", "", false
 	}
-	if traceDecisionNodeIsPriorityInversionCandidate(node) {
+	switch types.TracePriorityMechanismQualifier(node) {
+	case types.TraceMechanismSameCPURunnableOverlapCandidate:
+		return "validation_direction", "priority_and_scheduler_contention", true
+	case types.TraceMechanismLowerPriorityDependencyCandidate:
 		return "validation_direction", "priority_or_dependency_supply", true
 	}
 	return "fix_direction", strings.TrimSpace(node.FixDirection), true
@@ -1461,6 +1468,15 @@ func traceDecisionModelFacingDirection(node types.TraceCausalProjectionNode) (ke
 // inspected, no gate consumes the words, and no answer is authored or edited.
 func traceDecisionWritePriorityCandidateClaimEnvelope(b *strings.Builder, node types.TraceCausalProjectionNode) {
 	if b == nil || !traceDecisionNodeIsPriorityInversionCandidate(node) {
+		return
+	}
+	if types.TracePriorityMechanismQualifier(node) == types.TraceMechanismSameCPURunnableOverlapCandidate {
+		b.WriteString("; scope is measured same-CPU ready/run overlap, not the full ready wait or proof of a lock, synchronous blocker, or wait for completion")
+		if witness := node.PriorityOverlap.ReaderDescription(false); witness != "" {
+			b.WriteString("; " + witness)
+		} else {
+			b.WriteString("; this row does not identify an exact pair and wakeup interval in the current evidence")
+		}
 		return
 	}
 	b.WriteString("; claim_envelope=`measured_lower_priority_dependency_supply_candidate`")

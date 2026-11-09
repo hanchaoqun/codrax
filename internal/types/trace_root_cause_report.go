@@ -306,7 +306,7 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 	if !ValidTraceCausalQualifier(out.CausalQualifier) {
 		return nil, fmt.Errorf("trace_root_causes.%s.causal_qualifier=%q is unsupported", field, out.CausalQualifier)
 	}
-	if out.MechanismQualifier != "" && out.MechanismQualifier != TraceMechanismLowerPriorityDependencyCandidate {
+	if out.MechanismQualifier != "" && !TracePriorityMechanismQualifierValid(out.MechanismQualifier) {
 		return nil, fmt.Errorf("trace_root_causes.%s.mechanism_qualifier=%q is unsupported", field, out.MechanismQualifier)
 	}
 	if !validTraceRootCauseCategory(out.Category) {
@@ -393,6 +393,9 @@ func traceRootCauseSummary(item TraceRootCauseItemV2) string {
 	case TraceRootCauseSynchronousBinder:
 		return item.ThreadName + "线程同步binder"
 	case TraceRootCausePriorityInversion:
+		if item.MechanismQualifier == TraceMechanismSameCPURunnableOverlapCandidate {
+			return item.ThreadName + "线程同核就绪竞争候选"
+		}
 		if item.MechanismQualifier == TraceMechanismLowerPriorityDependencyCandidate {
 			return item.ThreadName + "线程优先级反转候选"
 		}

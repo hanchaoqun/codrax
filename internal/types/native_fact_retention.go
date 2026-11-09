@@ -51,7 +51,8 @@ type nativeFactWire struct {
 	Result                 ToolResult
 	IOEndpoints            []*TraceIORequestEndpoints
 	IOTargets              []traceIOProjectionTarget
-	RankSubjects           map[int]TraceRankSubjects `json:",omitempty"`
+	RankSubjects           map[int]TraceRankSubjects            `json:",omitempty"`
+	PriorityOverlaps       map[int]TraceRunnablePriorityOverlap `json:",omitempty"`
 	BusinessSpans          []TraceBusinessSpanCandidate
 	BusinessRefData        []TraceBusinessSpanCandidate
 	BusinessSources        []nativeFactSourceVersion
@@ -144,6 +145,12 @@ func nativeFactWireValue(result ToolResult) nativeFactWire {
 				wire.RankSubjects = make(map[int]TraceRankSubjects)
 			}
 			wire.RankSubjects[i] = *row.TraceRankSubjects
+		}
+		if row.TracePriorityOverlap != nil {
+			if wire.PriorityOverlaps == nil {
+				wire.PriorityOverlaps = make(map[int]TraceRunnablePriorityOverlap)
+			}
+			wire.PriorityOverlaps[i] = *row.TracePriorityOverlap
 		}
 	}
 	return wire
@@ -255,6 +262,9 @@ func (f *retainedNativeFact) result() (ToolResult, bool) {
 		}
 		if subjects, ok := wire.RankSubjects[i]; ok {
 			row.TraceRankSubjects = &subjects
+		}
+		if overlap, ok := wire.PriorityOverlaps[i]; ok {
+			row.TracePriorityOverlap = &overlap
 		}
 	}
 	return r, true

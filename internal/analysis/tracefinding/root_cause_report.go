@@ -338,6 +338,12 @@ func RootCauseValueDescriptionForLanguage(decision types.TraceCauseDecision, lan
 		return ""
 	}
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(language)), "zh")
+	if decision.MechanismQualifier == types.TraceMechanismSameCPURunnableOverlapCandidate {
+		if zh {
+			return "同核就绪与低优先级运行的实测相交量，不是全部就绪时间，不能据此认定锁阻塞"
+		}
+		return "measured same-CPU overlap of the ready thread and lower-priority running work, not the full ready wait or proof of lock blocking"
+	}
 	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
 		description := "低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞"
 		if !zh {
@@ -450,7 +456,7 @@ func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision, zh boo
 // it. Raw window occupancy keeps its own ruler; incomplete/legacy gated facts
 // retain the candidate qualifier without inventing a numerical breakdown.
 func rootCauseImpactBreakdown(decision types.TraceCauseDecision) *types.TraceRootCauseImpactBreakdown {
-	if decision.MechanismQualifier != types.TraceMechanismLowerPriorityDependencyCandidate || decision.Magnitude == nil ||
+	if !types.TracePriorityMechanismQualifierValid(decision.MechanismQualifier) || decision.Magnitude == nil ||
 		decision.Magnitude.Components == nil || !decision.Magnitude.Components.GatedComponentsPresent {
 		return nil
 	}
@@ -586,6 +592,11 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 		// Put the mechanism boundary before potentially long work/site names.
 		parts = append(parts, "低优先级依赖方供给候选：未证明反转已发生或存在锁阻塞")
 	}
+	if decision.MechanismQualifier == types.TraceMechanismSameCPURunnableOverlapCandidate {
+		if witness := facts.PriorityOverlap.ReaderDescription(true); witness != "" {
+			parts = append(parts, witness)
+		}
+	}
 	if facts.StateKind != "" {
 		parts = append(parts, "状态="+facts.StateKind)
 	}
@@ -597,6 +608,8 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 	}
 	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
 		parts = append(parts, "排查方向=优先级与依赖方供给")
+	} else if decision.MechanismQualifier == types.TraceMechanismSameCPURunnableOverlapCandidate {
+		parts = append(parts, "排查方向=调度竞争与优先级")
 	} else if word, ok := tracefence.FixDirectionWord(facts.FixDirection, true); ok {
 		parts = append(parts, "修向="+word)
 	}

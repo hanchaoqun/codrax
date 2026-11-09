@@ -9,6 +9,7 @@ func cloneTraceCauseEvidenceFacts(in *TraceCauseEvidenceFacts) *TraceCauseEviden
 	out := *in
 	out.SubjectScope = CloneTraceRankSubjectScope(in.SubjectScope)
 	out.WakeupPath = append([]string(nil), in.WakeupPath...)
+	out.PriorityOverlap = in.PriorityOverlap.Clone()
 	if in.WindowScope != nil {
 		scope := *in.WindowScope
 		out.WindowScope = &scope

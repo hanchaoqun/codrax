@@ -9,11 +9,29 @@ import (
 // A mechanism qualifier is independent of frame causality and numerical
 // attribution. Absence makes no positive claim about a mechanism.
 const TraceMechanismLowerPriorityDependencyCandidate = "lower_priority_dependency_candidate"
+const TraceMechanismSameCPURunnableOverlapCandidate = "same_cpu_runnable_overlap_candidate"
 
 // The schema and selector context share this explanation; output facts do
 // not add model-authored fields or an extra completion obligation.
 func TraceRootCauseMechanismTeaching() string {
-	return "A mechanism_qualifier of " + TraceMechanismLowerPriorityDependencyCandidate + " describes a measured low-priority dependency candidate, not proof that inversion occurred or that a lock blocked the target; it is independent of frame causality. Its value_description separates ready-to-run waiting counted in full from the discounted running supply deficit. An absent mechanism_qualifier is not confirmation. Do not submit mechanism_qualifier or impact_breakdown: both are populated from the selected evidence."
+	return "A mechanism_qualifier of " + TraceMechanismLowerPriorityDependencyCandidate + " describes a measured low-priority dependency candidate; its value_description separates ready-to-run waiting counted in full from the discounted running supply deficit. " +
+		TraceMechanismSameCPURunnableOverlapCandidate + " describes only measured overlap of ready and lower-priority running threads on the same CPU; it is not the full ready wait, and only a recorded ready-start wakeup can locate it after that wakeup. Neither qualifier proves lock blocking or frame causality. An absent mechanism_qualifier is not confirmation. Do not submit mechanism_qualifier or impact_breakdown: both are populated from the selected evidence."
+}
+
+// Ranking may share a family; factual mechanism scope must not. Use the
+// producer type before the legacy candidate flag.
+func TracePriorityMechanismQualifier(node TraceCausalProjectionNode) string {
+	if strings.TrimSpace(node.TypeToken) == "priority_inversion_runnable_wait" {
+		return TraceMechanismSameCPURunnableOverlapCandidate
+	}
+	if TraceNodeIsPriorityInversionCandidate(node) {
+		return TraceMechanismLowerPriorityDependencyCandidate
+	}
+	return ""
+}
+
+func TracePriorityMechanismQualifierValid(value string) bool {
+	return value == TraceMechanismLowerPriorityDependencyCandidate || value == TraceMechanismSameCPURunnableOverlapCandidate
 }
 
 // TraceNodeIsPriorityInversionCandidate is shared by the model's evidence

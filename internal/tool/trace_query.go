@@ -10057,14 +10057,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				TraceRankSubjects: &types.TraceRankSubjects{Target: targetCoordinate, Member: types.TraceThreadCoordinate{
 					TID: item.Thread.PID, TGID: item.Thread.TGID, Comm: item.Thread.Comm,
 				}},
-				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
-				IORequestEndpoints: item.IORequestEndpoints.WithProjectionTarget(result.RootCauseRank.Target.PID, result.RootCauseRank.Target.TGID, result.RootCauseRank.Target.Comm),
-				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:           "trace_query",
-				Role:               role,
-				GroundingPolicy:    grounding,
-				ProvenanceLane:     provenance,
-				SourceRef:          ref,
+				TracePriorityOverlap: item.PriorityOverlap.Clone(),
+				MeasurementSources:   types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
+				IORequestEndpoints:   item.IORequestEndpoints.WithProjectionTarget(result.RootCauseRank.Target.PID, result.RootCauseRank.Target.TGID, result.RootCauseRank.Target.Comm),
+				Origin:               types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:             "trace_query",
+				Role:                 role,
+				GroundingPolicy:      grounding,
+				ProvenanceLane:       provenance,
+				SourceRef:            ref,
 				// P1-1 (SMR-1 修复轮, 2026-07-13): same wall-clock span emission
 				// as the critical lane above (typed item fields, no re-derivation).
 				Span: types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd,
@@ -16339,6 +16340,9 @@ func traceQueryPriorityRootCauseForPublication(item tracequery.RootCauseRankItem
 
 func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
 	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources)
+	if item.Type != "priority_inversion_runnable_wait" {
+		item.PriorityOverlap = nil
+	}
 	if !runtimeTracePriorityInversionCandidateType(item.Type) {
 		return item
 	}
@@ -16350,11 +16354,17 @@ func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCau
 	relationProvenanceAuthorized := universe.authorizesRelation(item.PriorityRelationArtifactSources)
 	if traceQueryPriorityCoverageAuthorizesImpact(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, effective) &&
 		relationProvenanceAuthorized {
+		if w := item.PriorityOverlap; w != nil {
+			path := firstNonEmptyTraceString(item.PhysicalSourcePath, w.SourcePath)
+			item.PriorityOverlap = w.ForRankMember(path, types.TraceThreadCoordinate{TID: item.Thread.PID, TGID: max(item.Thread.TGID, 0)},
+				item.StartTs, item.EndTs)
+		}
 		return item
 	}
 	item.Rank = 0
 	item.Tier = tracequery.RootCauseTierContextOnly
 	item.Type = "unknown_state"
+	item.PriorityOverlap = nil
 	item.Score = 0
 	item.EffectiveImpactMs = 0
 	item.GatedRunnableMs = 0

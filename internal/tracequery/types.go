@@ -2935,6 +2935,10 @@ type ThreadDuration struct {
 	priorityRangeStartLine int
 	priorityRangeEndLine   int
 	priorityRangeExact     bool
+	// Only a directly observed, unclipped sched_wakeup started this ready
+	// interval, not a wake-target CPU hint, switch-out or migration.
+	priorityReadyStartedAtWakeup bool
+	priorityReadyCPUContinuous   bool
 
 	// DSTATE-REFINE arm a carriers (CAL-1 件③, §29.39②/§29.47.2, 2026-07-12).
 	// Unexported: in-package verdict input, never serialized. dFamilySegments
@@ -4227,6 +4231,7 @@ const (
 
 type RootCauseRankItem struct {
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	PriorityOverlap    *types.TraceRunnablePriorityOverlap     `json:"priority_runnable_overlap,omitempty"`
 	Rank               int                                     `json:"rank"`
 	Tier               string                                  `json:"tier,omitempty"`
 	// BackgroundRank (DCS E1b/E6, ledger §23.1 rulings ②/③, 2026-07-08): the

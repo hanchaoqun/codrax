@@ -235,6 +235,7 @@ type ObservationRecord struct {
 	ioRequestIdentity          *traceIORequestIdentity
 	IORequestEndpoints         *TraceIORequestEndpoints          `json:"-"`
 	TraceRankSubjects          *TraceRankSubjects                `json:"-"`
+	TracePriorityOverlap       *TraceRunnablePriorityOverlap     `json:"-"`
 	EventSearchInventory       *TraceEventSearchInventory        `json:"event_search_inventory,omitempty"`
 	MeasurementSources         *TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	StateAccounting            []TraceSchedulerStateAccounting   `json:"state_accounting,omitempty"`
@@ -695,6 +696,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
 		record.StateAccounting = CloneTraceSchedulerStateAccounts(record.StateAccounting)
 		record.EventSearchInventory = CloneTraceEventSearchInventory(record.EventSearchInventory)
+		record.TracePriorityOverlap = record.TracePriorityOverlap.Clone()
 		if record.IORequestEndpoints != nil {
 			endpoints := *record.IORequestEndpoints
 			record.IORequestEndpoints = &endpoints

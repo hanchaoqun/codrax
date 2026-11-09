@@ -19898,6 +19898,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 						runtimeTraceProjInversionCompositionText(node, zh))
 				}
 				add("供给折算", "supply fold", runtimeTraceProjInversionSupplyFoldDetailLine(node, zh))
+				if types.TracePriorityMechanismQualifier(node) == types.TraceMechanismSameCPURunnableOverlapCandidate {
+					add("同核竞争见证", "scheduler overlap witness", node.PriorityOverlap.ReaderDescription(zh))
+				}
 			}
 		}
 		// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the

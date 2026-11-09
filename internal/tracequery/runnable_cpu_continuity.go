@@ -213,17 +213,18 @@ type runnableWaitSegment struct {
 	// looking up a same-thread row in a later display roster.
 	measurementDomain *types.TraceSchedulerMeasurementDomain
 
-	thread        ThreadRef
-	startTs       float64
-	endTs         float64
-	durationMs    float64
-	startLine     int
-	endLine       int
-	cpu           int
-	cpuKnown      bool
-	cpuContinuity string
-	priority      int
-	priorityClass string
+	thread         ThreadRef
+	startTs        float64
+	endTs          float64
+	durationMs     float64
+	startLine      int
+	endLine        int
+	cpu            int
+	cpuKnown       bool
+	cpuContinuity  string
+	priority       int
+	priorityClass  string
+	recordedWakeup bool
 }
 
 func (summary *RunnableCPUContinuitySummary) observe(segment runnableWaitSegment, verdict runnableCPUContinuityVerdict) {

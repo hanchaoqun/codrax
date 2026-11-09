@@ -6070,6 +6070,7 @@ type offCPUStart struct {
 	cpuConflictObserved int
 	priority            int
 	priorityClass       string
+	recordedWakeup      bool
 }
 
 // computeOffCPUStats takes the CFR (#75) cluster-shared frequency accessor
@@ -6344,17 +6345,18 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		attributed.cpu = verdict.cpu
 		attributed.cpuKnown = verdict.known
 		segment := runnableWaitSegment{
-			thread:        start.thread,
-			startTs:       startTs,
-			endTs:         clampedEnd,
-			durationMs:    (clampedEnd - startTs) * 1000,
-			startLine:     start.line,
-			endLine:       firstPositive(endLine, start.line),
-			cpu:           verdict.cpu,
-			cpuKnown:      verdict.known,
-			cpuContinuity: verdict.reason,
-			priority:      start.priority,
-			priorityClass: start.priorityClass,
+			thread:         start.thread,
+			startTs:        startTs,
+			endTs:          clampedEnd,
+			durationMs:     (clampedEnd - startTs) * 1000,
+			startLine:      start.line,
+			endLine:        firstPositive(endLine, start.line),
+			cpu:            verdict.cpu,
+			cpuKnown:       verdict.known,
+			cpuContinuity:  verdict.reason,
+			priority:       start.priority,
+			priorityClass:  start.priorityClass,
+			recordedWakeup: start.recordedWakeup && start.ts == startTs,
 		}
 		continuity.observe(segment, verdict)
 		runnableSegments = append(runnableSegments, segment)
@@ -6465,6 +6467,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			start.cpu = destCPU
 			start.cpuKnown = true
 			start.cpuProvenance = runnableCPUProvenanceMigration
+			start.recordedWakeup = false
 			if start.thread.Comm == "" && comm != "" {
 				start.thread.Comm = comm
 			}
@@ -6520,15 +6523,16 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 			targetCPU, targetCPUKnown := eventTargetCPU(ev)
 			open[ev.WakeePID] = offCPUStart{
-				thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
-				state:         StateRunnable,
-				ts:            ev.Ts,
-				line:          ev.Line,
-				cpu:           targetCPU,
-				cpuKnown:      targetCPUKnown,
-				cpuProvenance: runnableCPUProvenanceWakeTarget,
-				priority:      eventWakeePriorityForHardUse(ev),
-				priorityClass: classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
+				thread:         catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
+				state:          StateRunnable,
+				ts:             ev.Ts,
+				line:           ev.Line,
+				cpu:            targetCPU,
+				cpuKnown:       targetCPUKnown,
+				cpuProvenance:  runnableCPUProvenanceWakeTarget,
+				priority:       eventWakeePriorityForHardUse(ev),
+				priorityClass:  classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
+				recordedWakeup: ev.Type == EventSchedWakeup && !schedWakeupStartsNewIncarnation(ev),
 			}
 			return
 		}
@@ -16776,7 +16780,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			Priority: segment.priority, PriorityClass: segment.priorityClass,
 			priorityRangeStartTs: segment.startTs, priorityRangeEndTs: segment.endTs,
 			priorityRangeStartLine: segment.startLine, priorityRangeEndLine: segment.endLine,
-			priorityRangeExact: segment.startLine > 0 && segment.endLine > 0,
+			priorityRangeExact:           segment.startLine > 0 && segment.endLine > 0,
+			priorityReadyStartedAtWakeup: segment.recordedWakeup,
+			priorityReadyCPUContinuous:   segment.cpuContinuity == RunnableCPUContinuityVerified,
 		})
 	}
 	if stats.runnableCensus != nil && len(chainThreads) > 0 {
@@ -28178,6 +28184,12 @@ func rootCauseCPUMemberKey(cpu int) string {
 }
 
 type runnableInversionOverlapWitness struct {
+	readyThread     ThreadRef
+	readyCPU        int
+	readyStartLine  int
+	readyEndLine    int
+	readyHasWake    bool
+	readyContinuous bool
 	competitor      ThreadDuration
 	targetPrio      int
 	competitorPrio  int
@@ -28352,7 +28364,10 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 				return
 			}
 			witnesses = append(witnesses, runnableInversionOverlapWitness{
-				competitor: competitor, targetPrio: targetVerdict.Priority, competitorPrio: competitorVerdict.Priority,
+				readyThread: scope.Thread, readyCPU: scope.CPU, readyStartLine: scope.priorityRangeStartLine,
+				readyEndLine: scope.priorityRangeEndLine, readyHasWake: scope.priorityReadyStartedAtWakeup,
+				readyContinuous: scope.priorityReadyCPUContinuous,
+				competitor:      competitor, targetPrio: targetVerdict.Priority, competitorPrio: competitorVerdict.Priority,
 				durationMs: durationMs, interval: interval, intervalExact: exact,
 				artifactSources: priorityArtifactSourceUnion(targetVerdict.Source, competitorVerdict.Source),
 			})
@@ -28394,6 +28409,7 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 	})
 	primary := witnesses[0]
 	item.Type = "priority_inversion_runnable_wait"
+	item.PriorityOverlap = nativeRunnablePriorityOverlap(idx, primary)
 	item.EffectiveImpactMs = impactMs
 	// This retype's inversion algorithm is pure runnable overlap; publish the
 	// same scalar on the gated component lane so family folding and report
@@ -28425,6 +28441,35 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 		item.Summary, threadLabel(primary.competitor.Thread), primary.targetPrio, primary.competitorPrio,
 		account.DurationMs, item.EffectiveImpactMs, caliber, item.PriorityRelationCaliber,
 		item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs, len(competitorKeys))
+}
+
+// Carry the original proof without another scan or deriving endpoints from
+// an aggregate row, its prose, or a wakeup emitted on the same CPU.
+func nativeRunnablePriorityOverlap(idx *Index, w runnableInversionOverlapWitness) *types.TraceRunnablePriorityOverlap {
+	if idx == nil || !w.intervalExact || !w.readyContinuous ||
+		!validTraceCPUIndex(w.readyCPU) || w.readyCPU != w.competitor.CPU {
+		return nil
+	}
+	lines := [...]int{w.readyStartLine, w.readyEndLine,
+		w.competitor.priorityRangeStartLine, w.competitor.priorityRangeEndLine}
+	artifact := -1
+	for i, line := range lines {
+		source, ok := resolveTraceArtifactSourceIndexForLine(idx.TraceArtifacts, line)
+		if !ok || (artifact != -1 && source != artifact) {
+			return nil
+		}
+		artifact = source
+		lines[i] -= idx.TraceArtifacts[source].VirtualLineBase
+	}
+	coordinate := func(t ThreadRef) types.TraceThreadCoordinate {
+		return types.TraceThreadCoordinate{TID: t.PID, TGID: max(t.TGID, 0), Comm: t.Comm}
+	}
+	return &types.TraceRunnablePriorityOverlap{SourcePath: idx.TraceArtifacts[artifact].SourcePath, Ready: coordinate(w.readyThread),
+		Running: coordinate(w.competitor.Thread), CPU: w.readyCPU,
+		StartTs: w.interval.start, EndTs: w.interval.end,
+		ReadyStartLine: lines[0], ReadyEndLine: lines[1], RunningStartLine: lines[2], RunningEndLine: lines[3],
+		RecordedWakeup: w.readyHasWake,
+	}
 }
 
 // priorityRangeVerdictForDuration asks the single priority authority to prove

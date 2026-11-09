@@ -206,10 +206,7 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 	}
 	mechanismNode := node
 	mechanismNode.TypeToken = token // the same precise producer token resolved above
-	mechanismQualifier := ""
-	if types.TraceNodeIsPriorityInversionCandidate(mechanismNode) {
-		mechanismQualifier = types.TraceMechanismLowerPriorityDependencyCandidate
-	}
+	mechanismQualifier := types.TracePriorityMechanismQualifier(mechanismNode)
 	gatedPartsPresent := mechanismQualifier != "" && (node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0)
 	if gatedPartsPresent || node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 ||
 		(types.TraceUsesIOValueCaliber(token, node.IOValueCaliber) && types.NormalizeTraceIOValueCaliber(node.IOValueCaliber) != "") {
@@ -320,6 +317,7 @@ func candidateEvidenceFacts(projection types.TraceCausalProjection, node types.T
 		FixDirection:           string(direction),
 		SemanticClass:          strings.TrimSpace(node.SemanticClass),
 		SpanName:               strings.TrimSpace(node.SpanName),
+		PriorityOverlap:        node.PriorityOverlap.Clone(),
 	}
 	if projection.TargetStateAccount != nil {
 		facts.TargetSubject = strings.TrimSpace(projection.TargetStateAccount.Subject)

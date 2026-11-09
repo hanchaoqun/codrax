@@ -1247,7 +1247,8 @@ type TraceCausalProjectionNode struct {
 	// hop rows whose Object carries the dominant state still render their
 	// inversion candidacy). Display wording only; the R5d gated composition
 	// stays on GatedRunnableMS/GatedRunningDeficitMS.
-	PriorityInversionCandidate bool `json:"priority_inversion_candidate,omitempty"`
+	PriorityInversionCandidate bool                          `json:"priority_inversion_candidate,omitempty"`
+	PriorityOverlap            *TraceRunnablePriorityOverlap `json:"priority_runnable_overlap,omitempty"`
 	// RunnableBelowRTPreempted mirrors the producer's typed
 	// "runnable_below_rt_preempted=true" rich note (SYM-2 §24.17 R2,
 	// 2026-07-08): a SELF runnable-family rank row whose subject — the
@@ -4443,6 +4444,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType))
+	if node.TypeToken == "priority_inversion_runnable_wait" && record.TraceRankSubjects != nil &&
+		record.Origin == AnswerEvidenceOriginRuntimeArtifact && record.SourceRef.Kind == ObservationSourceRuntimeArtifact &&
+		RuntimeObservationProducerIsDeterministicQuery(record.Producer) && record.GroundingPolicy == ClaimGroundingHard && !record.Negative {
+		node.PriorityOverlap = record.TracePriorityOverlap.ForRankMember(record.SourceRef.Path, record.TraceRankSubjects.Member,
+			node.StartTs, node.EndTs)
+	}
 	// PTS (#68 用户裁定 2026-07-05): a producer-side fold record (rows beyond
 	// the per-family wire cap folded with a count — zero silent drops) carries
 	// its fold accounting in the typed folded_* note family; the node
