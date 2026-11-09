@@ -4440,6 +4440,9 @@ func pendingActiveBatchRevision(run *types.WriteWorkflowRun) *types.WriteWorkflo
 
 func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatchPlan) {
 	batch = writeflow.NormalizeBatchPlan(batch)
+	mu := o.busCtx.Mutable
+	activeProof := writeflow.CurrentProofPlanningBatch(mu.WriteWorkflowRun(), mu.VerifyFailureHandoff() != nil)
+	criteriaInProofSection := activeProof != nil && strings.TrimSpace(activeProof.ID) == batch.ID
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Workflow batch %s\n\n", batchIDOrDefault(batch.ID, "batch-1"))
 	if activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable) {
@@ -4486,7 +4489,7 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 		}
 		b.WriteString("\n")
 	}
-	if len(batch.SuccessCriteria) > 0 {
+	if !criteriaInProofSection && len(batch.SuccessCriteria) > 0 {
 		b.WriteString("Batch success criteria:\n")
 		for _, c := range batch.SuccessCriteria {
 			fmt.Fprintf(&b, "- %s\n", c)
@@ -4523,7 +4526,7 @@ func renderPriorPassingVerificationProbeTemplates(plan *types.ChangePlan, report
 			continue
 		}
 		if emitted == 0 {
-			b.WriteString("Prior passing verification probe templates (soft API-shape context only; reuse imports/construction/invocation where still valid, but author new assertions and exact contract_refs for the uncovered criteria):\n")
+			b.WriteString("Prior passing verification probe templates (soft API-shape context only if choosing an authorized probe plan; reuse imports/construction/invocation where still valid, but author new assertions and exact contract_refs for the uncovered criteria):\n")
 		}
 		if len(code) > 1600 {
 			code = code[:1600] + "\n[typed probe code truncated]"

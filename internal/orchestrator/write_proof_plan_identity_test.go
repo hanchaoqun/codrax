@@ -45,6 +45,9 @@ func TestPendingProofPlanRenamedEchoRetainsPublicProbeOnlyLane(t *testing.T) {
 	if hint := mu.PlanningHint(); !strings.Contains(hint, "pkg/target.py") || strings.Contains(hint, "other.js") {
 		t.Fatalf("planner saw a different scope from durable state: %s", hint)
 	}
+	if hint := mu.PlanningHint(); strings.Contains(hint, "verification_probe_required=true") || strings.Contains(hint, "Batch success criteria:") {
+		t.Fatalf("controller injected a second copy of the current proof section: %s", hint)
+	}
 	blocked := writeflow.WriteWorkflowDecision{Action: writeflow.ActionBlock, ReasonCode: "explicit_block"}
 	if got, ok := controllerPendingProofPlanDecision(blocked, &persisted); ok {
 		t.Fatalf("explicit block was replaced with mandatory planning: %+v", got)

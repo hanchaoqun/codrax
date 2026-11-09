@@ -45,6 +45,15 @@ type ExistingTestExecutionReceipt struct {
 	TestFileSHA256               string   `json:"test_file_sha256"`
 	CommandSHA256                string   `json:"command_sha256"`
 	AssertionDigests             []string `json:"assertion_digests"`
+	// Source ranges are assertion-method coordinates in the exact file/version
+	// above. Optional absence does not erase the native execution result.
+	AssertionSourceRanges []ExistingTestAssertionSourceRange `json:"assertion_source_ranges,omitempty"`
+}
+
+type ExistingTestAssertionSourceRange struct {
+	AssertionDigest string `json:"assertion_digest"`
+	LineStart       int    `json:"line_start"`
+	LineEnd         int    `json:"line_end"`
 }
 
 // RequiredExistingTestPaths reads only the pinned analyzer snapshot, never a

@@ -3834,19 +3834,11 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 				declared[ref] = struct{}{}
 			}
 		}
-		matched := false
 		for _, match := range projectTestObservationExecutionMatches(observation, report, true) {
-			if types.NativeTestRegistrationAssertionMatches(plan, report, observation, match.CommandIndex, match.ResultIndex) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		for _, raw := range observation.ContractRefs {
-			if ref := strings.TrimSpace(raw); ref != "" && (!restrictToRequired || stringSetContains(required, ref)) {
-				observed[ref] = struct{}{}
+			for _, raw := range types.NativeTestRegistrationContractRefs(plan, report, observation, match.CommandIndex, match.ResultIndex) {
+				if ref := strings.TrimSpace(raw); ref != "" && (!restrictToRequired || stringSetContains(required, ref)) {
+					observed[ref] = struct{}{}
+				}
 			}
 		}
 	}
@@ -3864,6 +3856,10 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 		})
 	}
 	if refs := sortedStringSet(subtractStringSet(declared, observed)); len(refs) > 0 {
+		detail := "declared project-test observations did not have both a successful exact typed candidate execution and the same passed assertion-scoped result identity"
+		if plan.NativeTestRegistration != nil || plan.PersistenceKind == types.PlanPersistenceNativeTestRegistration {
+			detail = "registered test observations lacked a successful exact candidate, the same passed assertion identity, or applicable cited test-method evidence"
+		}
 		out = append(out, types.VerificationConfidenceRecord{
 			Source:       "project_test_observation",
 			Category:     "project_test_contract_refs",
@@ -3871,7 +3867,7 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 			Severity:     "warning",
 			ReasonCode:   types.VerificationProjectTestAssertionNotObservedReasonCode,
 			ContractRefs: refs,
-			Detail:       "declared project-test observations did not have both a successful exact typed candidate execution and the same passed assertion-scoped result identity",
+			Detail:       detail,
 		})
 	}
 	return out

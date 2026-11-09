@@ -211,13 +211,16 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan,
 				!ProjectTestAssertionSuiteMatches(suite, observation.AssertionSuite) {
 				continue
 			}
-			if !projectTestFailureBindingMatches(bindings, observation, rowIndex) ||
-				!nativeTestRegistrationFailureRowMatches(plan, report, observation, rowIndex) {
+			if !projectTestFailureBindingMatches(bindings, observation, rowIndex) {
 				unboundProjectAssertion = true
 				continue
 			}
 			evidence := WriteBehaviorContractEvidenceAssertionPrefix + strings.TrimSpace(observation.TestPath) + "::" + strings.TrimSpace(observation.AssertionSuite) + "::" + assertionID
 			for _, ref := range observation.ContractRefs {
+				if !nativeTestRegistrationFailureRefMatches(plan, report, observation, rowIndex, ref) {
+					unboundProjectAssertion = true
+					continue
+				}
 				record(ref, WriteBehaviorContractRetiredFailedProjectTestAssertion, evidence)
 			}
 		}

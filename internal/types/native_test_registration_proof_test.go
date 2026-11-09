@@ -90,6 +90,25 @@ func TestNativeRegistrationProofPublicConsumers(t *testing.T) {
 	}
 }
 
+func TestNativeRegistrationProofCannotCoverUnlocatedTestContract(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		p, r := nativeRegistrationProofFixture(t)
+		p.BehaviorContracts[0].EvidenceRef = p.ProjectTestObservations[0].TestPath + ":17-20"
+		sealNativeTestRegistration(p)
+		r.ExistingTestExecutions[0].NativeTestRegistrationDigest = NativeTestRegistrationDigest(p)
+		if failed {
+			nativeRegistrationProofFail(r)
+		}
+		p, r = b1575PairConflictReload(t, p, r)
+		if !NativeTestRegistrationAssertionMatches(p, r, p.ProjectTestObservations[0], 0, 0) {
+			t.Fatal("actual file-bound execution cannot disappear when contract location is absent")
+		}
+		if BehaviorContractRefHasVerificationWitness(p, r, "value") || len(BuildVerifyFailureContractRelevance(r, p, nativeRegistrationProofBinding(p)).Hits) != 0 {
+			t.Fatalf("no fresh assertion location proves the anchored contract (failed=%v)", failed)
+		}
+	}
+}
+
 func TestNativeRegistrationProofRejectsStaleAndUnboundReceipts(t *testing.T) {
 	for _, tc := range []struct {
 		name string

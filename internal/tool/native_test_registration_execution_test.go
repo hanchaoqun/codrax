@@ -10,6 +10,56 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestNativeTestRegistrationPublicContractNeedsApplicableAssertionRange(t *testing.T) {
+	for _, tc := range []struct {
+		name, assertion string
+		failed, covers  bool
+	}{
+		{"matching_pass", "test_alpha", false, true},
+		{"different_method_pass", "test_beta", false, false},
+		{"matching_failure", "test_alpha", true, true},
+		{"different_method_failure", "test_beta", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const header = "import unittest\nfrom widget import increment\nclass Tests(unittest.TestCase):\n"
+			alpha := "    def test_alpha(self):\n        self.assertEqual(increment(2), 3)\n"
+			beta := "    def test_beta(self):\n        self.assertEqual(increment(6), 7)\n"
+			if tc.failed {
+				if tc.assertion == "test_alpha" {
+					alpha = strings.Replace(alpha, "2), 3", "2), 4", 1)
+				} else {
+					beta = strings.Replace(beta, "6), 7", "6), 8", 1)
+				}
+			}
+			ctx, source, delivery := nativeRegistrationPublicFixture(t, header+alpha+beta)
+			source.BehaviorContracts[0].EvidenceRef = "test_widget.py:4-5"
+			if err := ctx.Mutable.AuthorizeNativeTestRegistration(ctx.RepoRoot, delivery, source.BehaviorContracts, source.TargetPaths); err != nil {
+				t.Fatal(err)
+			}
+			nativeRegistrationPublicRead(t, ctx, true, 100)
+			payload := nativeRegistrationPublicPayload()
+			payload["project_test_observations"].([]types.ProjectTestObservation)[0].AssertionID = tc.assertion
+			if result := nativeRegistrationPublicEmit(t, ctx, "full", payload); !result.Success {
+				t.Fatal(result.Summary)
+			}
+			plan := ctx.Mutable.ChangePlan()
+			nativeRegistrationPublicAuthorizeExecution(t, ctx, delivery, source.BehaviorContracts)
+			report := existingTestDeliveryPublicRun(t, ctx)
+			if report.Passed == tc.failed || len(report.ExistingTestExecutions) != 1 || len(report.ExistingTestExecutions[0].AssertionSourceRanges) != 2 {
+				t.Fatalf("native verdict, file execution, or method coordinates changed: %+v", report.ExistingTestExecutions)
+			}
+			for _, records := range [][]types.VerificationConfidenceRecord{report.VerificationConfidence, types.EffectiveVerificationConfidence(plan, report)} {
+				if got := len(types.CoveredWriteBehaviorContractIDs(plan.BehaviorContracts, records)) != 0; got != (tc.covers && !tc.failed) {
+					t.Fatalf("source applicability drifted in proof: got=%v want=%v", got, tc.covers && !tc.failed)
+				}
+			}
+			if hits := BuildVerifyFailureContractRelevance(report, plan).Hits; (len(hits) != 0) != (tc.covers && tc.failed) {
+				t.Fatalf("source applicability drifted in failure attribution: %+v", hits)
+			}
+		})
+	}
+}
+
 func TestNativeTestRegistrationPublicArbitraryFilenameThroughAlias(t *testing.T) {
 	const target = "checks/arbitrary_cases.py"
 	ctx, source, delivery := nativeRegistrationPublicFixtureForTestPath(t, nativeRegistrationTestBody, target)

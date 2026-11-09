@@ -1808,24 +1808,10 @@ func plannerContextHasProofFollowupMaterializationOnly(ctx *types.AgentContext) 
 }
 
 func plannerProofFollowupBatch(ctx *types.AgentContext, run *types.WriteWorkflowRun) *types.WriteWorkflowBatch {
-	batch := currentWriteBatch(run)
-	if batch == nil || ctx == nil || ctx.Mutable == nil {
+	if ctx == nil || ctx.Mutable == nil {
 		return nil
 	}
-	for _, event := range run.ProgressLedger {
-		if strings.TrimSpace(event.ReasonCode) == "verification_proof_followup_requested" {
-			switch strings.TrimSpace(batch.Purpose) {
-			case "verification_proof_followup":
-				return batch
-			case "impact_and_verification_proof_followup":
-				if ctx.Mutable.VerifyFailureHandoff() == nil {
-					return batch
-				}
-			}
-			return nil
-		}
-	}
-	return nil
+	return writeflow.CurrentProofPlanningBatch(run, ctx.Mutable.VerifyFailureHandoff() != nil)
 }
 
 func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHandoff) int {

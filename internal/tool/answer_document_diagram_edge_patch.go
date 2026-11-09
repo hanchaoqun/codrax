@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2420,17 +2421,9 @@ func validateAtomicDiagramAdditionEndpointBindings(
 		// Advertise only the current candidate's explicit sequence binding,
 		// and only where its existing-node precondition is already satisfied.
 		// This remains a rejection; labels never supply missing identity.
-		if endpoint.native != "" && block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence {
-			declared := 0
-			for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
-				if declaration.ID == node {
-					declared++
-				}
-			}
-			if declared == 1 {
-				return fmt.Errorf("addition_ref=%q edge.%s=%q is not a typed carrier; reuse node/notes with %s=%q; or use a listed endpoint; labels grant no identity",
-					strings.TrimSpace(candidate.AdditionRef), endpoint.name, node, strings.TrimSuffix(endpoint.name, "_node")+"_native_participant", endpoint.native)
-			}
+		if endpoint.native != "" && slices.Contains(nativeBindingLocalSequenceNodes(block), node) {
+			return fmt.Errorf("addition_ref=%q edge.%s=%q is not a typed carrier; reuse node/notes with %s=%q; or use a listed endpoint; labels grant no identity",
+				strings.TrimSpace(candidate.AdditionRef), endpoint.name, node, strings.TrimSuffix(endpoint.name, "_node")+"_native_participant", endpoint.native)
 		}
 		return fmt.Errorf(
 			"addition_ref=%q edge.%s=%q is not a typed carrier for %s=%q; use the exact technical endpoint or one producer-listed node id on this side",

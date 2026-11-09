@@ -36,9 +36,16 @@ class ObservedResult(unittest.TextTestResult):
             method = getattr(test, test._testMethodName)
             source = os.path.realpath(inspect.getfile(method))
             module = os.path.realpath(sys.modules[type(test).__module__].__file__)
-            with open(source, 'rb') as f: digest = hashlib.sha256(f.read()).hexdigest()
+            with open(source, 'rb') as f: source_bytes = f.read()
+            digest = hashlib.sha256(source_bytes).hexdigest()
             self.current.update(source=source, module=module, sha256=digest)
-        except (AttributeError, KeyError, OSError, TypeError):
+            function = getattr(method, '__func__', method)
+            if inspect.unwrap(function) is function:
+                lines, first = inspect.getsourcelines(function)
+                last = first + len(lines) - 1
+                if 0 < first <= last <= len(source_bytes.splitlines()):
+                    self.current.update(line_start=first, line_end=last)
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
             pass
     def addFailure(self, test, err):
         self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addFailure(test, err)
@@ -82,6 +89,8 @@ type existingTestUnittestRow struct {
 	Source       string `json:"source"`
 	Module       string `json:"module"`
 	SHA256       string `json:"sha256"`
+	LineStart    int    `json:"line_start"`
+	LineEnd      int    `json:"line_end"`
 }
 
 type existingTestUnittestInvocation struct {

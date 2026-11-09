@@ -30,13 +30,20 @@ func existingTestExecutionReceipts(ctx *types.BusContext, invocation runnerPlan,
 	}
 	assertions, failures := 0, 0
 	var digests []string
+	var sourceRanges []types.ExistingTestAssertionSourceRange
 	for i, row := range leaf.TestResults {
 		origin := observed.rows[i]
 		if row.ObservationScope != types.TestObservationScopeAssertion || row.AssertionID == "" || origin.Source != observed.targetAbs || origin.Module != observed.targetAbs || origin.SHA256 != observed.targetSHA {
 			continue
 		}
 		assertions++
-		digests = append(digests, types.ExistingTestAssertionDigest(row))
+		digest := types.ExistingTestAssertionDigest(row)
+		digests = append(digests, digest)
+		if observed.registrationDigest != "" && origin.LineStart > 0 && origin.LineEnd >= origin.LineStart {
+			sourceRanges = append(sourceRanges, types.ExistingTestAssertionSourceRange{
+				AssertionDigest: digest, LineStart: origin.LineStart, LineEnd: origin.LineEnd,
+			})
+		}
 		if !row.Passed {
 			failures++
 		}
@@ -59,7 +66,7 @@ func existingTestExecutionReceipts(ctx *types.BusContext, invocation runnerPlan,
 		if target != observed.target || safeImpactRelatedPath(ctx.RepoRoot, target) == "" || !types.ExistingTestExactFileSelector(cmd.Runner, cmd.Framework, wd, cmd.Suite, target) {
 			continue
 		}
-		out = append(out, types.ExistingTestExecutionReceipt{PlanID: plan.ID, SourcePlanID: delivery.SourcePlanID, AppliedCommitSHA: delivery.AppliedCommitSHA, PatchEffectID: effect.RecordID, DiffFingerprint: effect.DiffFingerprint, TestPath: target, CandidateID: candidateID, Runner: cmd.Runner, Framework: cmd.Framework, WorkingDir: wd, Suite: cmd.Suite, CommandIndex: commandIndex, AssertionCount: assertions, FailedAssertionCount: failures, TestFileSHA256: observed.targetSHA, CommandSHA256: types.ExistingTestExecutionDigest(cmd.Command), AssertionDigests: digests, NativeTestRegistrationDigest: observed.registrationDigest})
+		out = append(out, types.ExistingTestExecutionReceipt{PlanID: plan.ID, SourcePlanID: delivery.SourcePlanID, AppliedCommitSHA: delivery.AppliedCommitSHA, PatchEffectID: effect.RecordID, DiffFingerprint: effect.DiffFingerprint, TestPath: target, CandidateID: candidateID, Runner: cmd.Runner, Framework: cmd.Framework, WorkingDir: wd, Suite: cmd.Suite, CommandIndex: commandIndex, AssertionCount: assertions, FailedAssertionCount: failures, TestFileSHA256: observed.targetSHA, CommandSHA256: types.ExistingTestExecutionDigest(cmd.Command), AssertionDigests: digests, AssertionSourceRanges: sourceRanges, NativeTestRegistrationDigest: observed.registrationDigest})
 	}
 	return out
 }

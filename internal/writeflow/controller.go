@@ -341,6 +341,41 @@ func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batc
 	}
 }
 
+// CurrentProofPlanningBatch identifies the single active proof-only batch for
+// planner presentation. It owns the criteria section, not execution authority.
+// Both the primary planner prompt and auxiliary controller hints use it.
+func CurrentProofPlanningBatch(run *types.WriteWorkflowRun, hasVerifyFailure bool) *types.WriteWorkflowBatch {
+	if run == nil || strings.TrimSpace(run.ActiveBatchID) == "" {
+		return nil
+	}
+	var batch *types.WriteWorkflowBatch
+	for i := range run.Batches {
+		if strings.TrimSpace(run.Batches[i].ID) == strings.TrimSpace(run.ActiveBatchID) {
+			if batch != nil {
+				return nil
+			}
+			batch = &run.Batches[i]
+		}
+	}
+	if batch == nil {
+		return nil
+	}
+	for _, event := range run.ProgressLedger {
+		if strings.TrimSpace(event.ReasonCode) == "verification_proof_followup_requested" {
+			switch strings.TrimSpace(batch.Purpose) {
+			case "verification_proof_followup":
+				return batch
+			case "impact_and_verification_proof_followup":
+				if !hasVerifyFailure {
+					return batch
+				}
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // PendingControllerProofPlanBatch returns the exact plan envelope promised by
 // a controller-owned proof follow-up after bounded exploration. Both scheduling
 // (including planner context) and durable transitions consume this single rule.
