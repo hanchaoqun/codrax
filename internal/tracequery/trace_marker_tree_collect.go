@@ -22,6 +22,9 @@ type traceMarkerTreeCollector struct {
 	unknownPrefix bool
 	invalid       bool
 	orderConflict bool
+	// The collector already accompanies the native span sweep. This flag
+	// describes that pass, independently of whether a business tree exists.
+	spanMeasurementEvaluated bool
 }
 
 func newTraceMarkerTreeCollector(idx *Index) *traceMarkerTreeCollector {

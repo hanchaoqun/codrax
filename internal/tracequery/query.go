@@ -1033,6 +1033,7 @@ func Run(idx *Index, q Query) Result {
 				return runCancelFinalize(&res, cancel)
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
+			stampTargetWindowRunningWorkScope(res.TargetWindowStates, idx, q)
 			if ok && tl.IntegrityFailure == "" && len(tl.Intervals) > 0 {
 				res.nativeTargetTimeline = &tl
 			}
@@ -3682,6 +3683,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "trace_spans/trace_mark_categories/async_file_work"))
 		} else {
 			stats.TraceSpans = append([]TraceSpanSummary(nil), traceSpans...)
+			stats.traceSpanMeasurementEvaluated = markerTree.spanMeasurementEvaluated
 			stampTraceSpanSchedulerStates(idx, q, stats.TraceSpans)
 			// SPANVIS-1: the FULL inventory rides the unexported engine-internal
 			// field under the same fail-closed gate as the bounded view; sole
@@ -10753,6 +10755,9 @@ func computeTraceMarksWithTree(idx *Index, q Query, max int, tree *traceMarkerTr
 	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncOpenStarts)...)
 	if caveat := traceSpanCPUUnavailableCaveat(fullInventory); caveat != "" {
 		caveats = append(caveats, caveat)
+	}
+	if tree != nil {
+		tree.spanMeasurementEvaluated = !q.runCancel.fired()
 	}
 	return spans, fullInventory, counterList, caveats
 }
@@ -21787,6 +21792,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	}
 	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
 	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
+	stampTargetWindowRunningWorkScope(bundle.TargetWindowStates, idx, analysisQ)
 	stampTargetWindowCPURepresentativeFrequencies(bundle.TargetWindowStates, idx, analysisQ, &stats)
 	if bundle.TargetWindowStates != nil {
 		bundle.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, analysisQ, targetTimeline, bundle.Window)

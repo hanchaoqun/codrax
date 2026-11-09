@@ -277,11 +277,13 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 		}
 		terminals := make([]terminal, len(run.Batches))
 		counts := map[string]int{}
+		activeVerified, completeBatches := false, 0
 		for i, batch := range run.Batches {
 			completion, complete := writeflow.CompletedBatchVerification(batch)
 			if !complete {
 				continue
 			}
+			completeBatches++
 			switch {
 			case completion == nil:
 				terminals[i] = terminal{"missing", writeflow.MissingTerminalVerificationReason}
@@ -289,12 +291,18 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 				terminals[i] = terminal{string(completion.Verdict), completion.ReasonCode}
 			}
 			counts[terminals[i].verdict]++
+			if batch.ID == run.ActiveBatchID && completion != nil {
+				activeVerified = completion.Verdict == types.WriteWorkflowCompletionVerified
+			}
 		}
 		if len(counts) > 0 {
 			fmt.Fprintf(&b, "- terminal verification among complete batches: verified=%d unverified=%d accepted_failed=%d missing=%d\n",
 				counts[string(types.WriteWorkflowCompletionVerified)], counts[string(types.WriteWorkflowCompletionUnverified)],
 				counts[string(types.WriteWorkflowCompletionAcceptedFailed)], counts["missing"])
 			b.WriteString("  - complete is a lifecycle state, not verification. Do not claim all_verified when any completed batch lacks a verified terminal; the current report proves only its own scope.\n")
+			if activeVerified && completeBatches == len(run.Batches) && counts["missing"] > 0 {
+				b.WriteString("  - If the requested work is done, finish the current scope without finish_disposition. Deliver the current report and leave missing historical verification unverified; a next batch needs separate work still required by the request, not just the missing historical verdict.\n")
+			}
 		}
 		b.WriteString("- batches:\n")
 		for i, batch := range run.Batches {

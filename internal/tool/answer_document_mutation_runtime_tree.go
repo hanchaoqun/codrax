@@ -16969,8 +16969,8 @@ func runtimeTraceProjFourStateBoundaryFoldClause(account *types.TraceCausalProje
 
 // runtimeTraceProjFourStateRunningLine renders the account's running-segment
 // attribution line: 「running X: 确定性工作 A ➋[E#] · 供给折算影响 B 见 ➌[E#]
-// (折算,不计入四态合计) · 自身执行(无确定性可优化工作) C」. All wall-clock
-// components are same-thread same-partition and therefore subtract; the
+// (折算,不计入四态合计) · 其余运行(未计入上述已量测工作) C」. The measured
+// wall-clock components are same-thread same-partition and therefore subtract; the
 // converted supply figure is a POINTER (对照口径), never an addend. "" when
 // running is zero or the deterministic work overshoots running beyond the
 // jitter tolerance (component unprovable — refuse the line, keep the
@@ -16997,7 +16997,7 @@ func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionT
 	if account.RunningMS <= 0 {
 		return nil, false
 	}
-	deterministic := account.DeterministicRunningMS
+	deterministic, measured := types.TraceRunningWorkValue(account.DeterministicRunningStatus, account.DeterministicRunningMS)
 	if deterministic > account.RunningMS+runtimeTraceProjSymptomOvershootJitterMS {
 		return nil, false
 	}
@@ -17005,7 +17005,26 @@ func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionT
 		deterministic = account.RunningMS // boundary jitter clamps to the partition
 	}
 	var parts []string
-	if deterministic > 0 {
+	switch {
+	case account.DeterministicRunningStatus == types.TraceRunningWorkConflict:
+		if zh {
+			parts = append(parts, "确定性工作量测不一致，不拆分运行时长")
+		} else {
+			parts = append(parts, "deterministic-work measurements disagree; running time not split")
+		}
+	case !measured:
+		if zh {
+			parts = append(parts, "确定性工作未量测")
+		} else {
+			parts = append(parts, "deterministic work not measured")
+		}
+	case deterministic == 0:
+		if zh {
+			parts = append(parts, "已识别确定性工作 0.000ms")
+		} else {
+			parts = append(parts, "0.000ms of matched deterministic work")
+		}
+	default:
 		tag, count, best := runtimeTraceProjFourStateSemanticPointer(model)
 		switch {
 		case tag == "":
@@ -17040,14 +17059,17 @@ func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionT
 			parts = append(parts, fmt.Sprintf("supply-converted impact %.3fms, see%s (converted; not in the four-state total)", value, tag))
 		}
 	}
+	if !measured {
+		return parts, true
+	}
 	residual := account.RunningMS - deterministic
 	if residual < 0 {
 		residual = 0
 	}
 	if zh {
-		parts = append(parts, fmt.Sprintf("自身执行(无确定性可优化工作) %.3fms", residual))
+		parts = append(parts, fmt.Sprintf("其余运行(未计入上述已量测工作) %.3fms", residual))
 	} else {
-		parts = append(parts, fmt.Sprintf("own execution (no deterministic optimizable work) %.3fms", residual))
+		parts = append(parts, fmt.Sprintf("remaining running (outside the measured work) %.3fms", residual))
 	}
 	return parts, true
 }

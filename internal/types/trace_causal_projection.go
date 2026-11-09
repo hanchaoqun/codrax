@@ -433,9 +433,10 @@ type TraceCausalProjectionTargetStateAccount struct {
 	// SleepIOWaitMS (复核 A-1): the sleep-side IO refinement label value —
 	// already inside SleepMS, never an addend (the Σ identity gate ignores
 	// it); feeds the sleep term's 「其中 IO等待」 clause only.
-	SleepIOWaitMS          float64 `json:"sleep_io_wait_ms,omitempty"`
-	TotalMS                float64 `json:"total_ms,omitempty"`
-	DeterministicRunningMS float64 `json:"deterministic_running_ms,omitempty"`
+	SleepIOWaitMS              float64                `json:"sleep_io_wait_ms,omitempty"`
+	TotalMS                    float64                `json:"total_ms,omitempty"`
+	DeterministicRunningMS     float64                `json:"deterministic_running_ms,omitempty"`
+	DeterministicRunningStatus TraceRunningWorkStatus `json:"deterministic_running_status,omitempty"`
 	// HeadCarry* / TailOpen* (§29.140 G6, ANSWERFACE-1 件2): the account's
 	// window-boundary extrapolated components — head prefix carried from the
 	// recovered pre-window scheduler state, tail suffix flushed from the
@@ -3370,9 +3371,10 @@ func traceCausalProjectionAttachFullWindowStateTotals(projection *TraceCausalPro
 // target_window_states record (§29.27② COV-4) before the anchor-window
 // admission in traceCausalProjectionAttachTargetStateAccount.
 type traceCausalProjectionTargetStateCandidate struct {
-	Account     TraceCausalProjectionTargetStateAccount
-	WindowStart float64
-	WindowEnd   float64
+	Account          TraceCausalProjectionTargetStateAccount
+	WindowStart      float64
+	WindowEnd        float64
+	RunningWorkScope string
 }
 
 // traceCausalProjectionTargetStateCandidateFromRecord parses one typed
@@ -3388,39 +3390,43 @@ func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecor
 	if !ok {
 		return traceCausalProjectionTargetStateCandidate{}, false
 	}
+	workStatus, workMS := traceRunningWorkFromRecord(record)
 	account := TraceCausalProjectionTargetStateAccount{
-		MeasurementOrigins:     TraceSchedulerMeasurementOriginsFromRecord(record),
-		Subject:                subject,
-		RunningMS:              traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunning),
-		RunnableMS:             traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable),
-		SleepMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleep),
-		DStateMS:               traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDState),
-		IOWaitMS:               traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOWait),
-		SleepIOWaitMS:          traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleepIOWait),
-		TotalMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTotal),
-		DeterministicRunningMS: traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDeterministicRunning),
-		HeadCarryMS:            traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyHeadCarryMS),
-		HeadCarryState:         strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHeadCarryState)),
-		TailOpenMS:             traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTailOpenMS),
-		TailOpenState:          strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTailOpenState)),
-		WindowStartTs:          ws,
-		WindowEndTs:            we,
-		EvidenceID:             record.ID,
-		SupportRefs:            cloneStringSlice(record.SupportRefs),
-		LineStart:              record.Span.LineStart,
-		LineEnd:                record.Span.LineEnd,
+		MeasurementOrigins:         TraceSchedulerMeasurementOriginsFromRecord(record),
+		Subject:                    subject,
+		RunningMS:                  traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunning),
+		RunnableMS:                 traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable),
+		SleepMS:                    traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleep),
+		DStateMS:                   traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDState),
+		IOWaitMS:                   traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOWait),
+		SleepIOWaitMS:              traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleepIOWait),
+		TotalMS:                    traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTotal),
+		DeterministicRunningMS:     workMS,
+		DeterministicRunningStatus: workStatus,
+		HeadCarryMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyHeadCarryMS),
+		HeadCarryState:             strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHeadCarryState)),
+		TailOpenMS:                 traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTailOpenMS),
+		TailOpenState:              strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTailOpenState)),
+		WindowStartTs:              ws,
+		WindowEndTs:                we,
+		EvidenceID:                 record.ID,
+		SupportRefs:                cloneStringSlice(record.SupportRefs),
+		LineStart:                  record.Span.LineStart,
+		LineEnd:                    record.Span.LineEnd,
 	}
 	if account.TotalMS <= 0 {
 		return traceCausalProjectionTargetStateCandidate{}, false
 	}
-	return traceCausalProjectionTargetStateCandidate{Account: account, WindowStart: ws, WindowEnd: we}, true
+	return traceCausalProjectionTargetStateCandidate{Account: account, WindowStart: ws, WindowEnd: we,
+		RunningWorkScope: traceRunningWorkScope(record)}, true
 }
 
 // traceCausalProjectionAttachTargetStateAccount admits the ONE candidate
 // whose typed selected_window matches the resolved anchor window within the
-// principal-value µs tolerance (both endpoints). Ties (same window re-queried) resolve
-// to the largest TotalMS — deterministic on record order independence (RN-12
-// precedent). A projection without an anchor window attaches nothing (禁猜).
+// principal-value µs tolerance (both endpoints). Preserve the established
+// largest-total base election (first on equal totals); only the exact native
+// partition may supply a measured running-work refinement for that base.
+// A projection without an anchor window attaches nothing.
 func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjection, candidates []traceCausalProjectionTargetStateCandidate) {
 	if projection == nil || len(candidates) == 0 {
 		return
@@ -3444,7 +3450,7 @@ func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjec
 	if chosen == nil {
 		return
 	}
-	account := chosen.Account
+	account := traceRefineRunningWork(*chosen, candidates)
 	account.MeasurementOrigins = CloneTraceSchedulerMeasurementOrigins(account.MeasurementOrigins)
 	projection.TargetStateAccount = &account
 }
@@ -6303,6 +6309,25 @@ func traceCausalProjectionRichNoteValue(notes []string, key string) string {
 		}
 	}
 	return ""
+}
+
+// A duplicate with the same value is harmless; conflicting typed values
+// have no first-wins authority. Absence is returned as an empty value.
+func traceProjectionUniqueTypedNote(notes []string, key string) (string, bool) {
+	prefix := key + "="
+	value, found := "", false
+	for _, note := range notes {
+		next, matches := strings.CutPrefix(strings.TrimSpace(note), prefix)
+		if !matches {
+			continue
+		}
+		next = strings.TrimSpace(next)
+		if found && value != next {
+			return "", false
+		}
+		value, found = next, true
+	}
+	return value, true
 }
 
 func traceCausalProjectionChainRelevance(notes []string) string {

@@ -113,7 +113,7 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 		priorityNotes := make(map[string]string, 6)
 		priorityNotesValid := true
 		for _, key := range []string{TraceNoteKeyPriorityRelation, TraceNoteKeyPriorityRelationCaliber, TraceNoteKeyWakerPriorityArtifactSource, TraceNoteKeyWakeePriorityArtifactSource, TraceNoteKeyWakerPrioritySource, TraceNoteKeyWakeePriorityAuthority} {
-			value, valid := traceWakeupEdgeRoleUniqueNote(record.RichNotes, key)
+			value, valid := traceProjectionUniqueTypedNote(record.RichNotes, key)
 			priorityNotes[key] = value
 			priorityNotesValid = priorityNotesValid && valid
 		}
@@ -213,23 +213,6 @@ func traceWakeupEdgeRolePriorityRelation(a TraceWakeupEdgeRoleAuthority) string 
 	default:
 		return ""
 	}
-}
-
-func traceWakeupEdgeRoleUniqueNote(notes []string, key string) (string, bool) {
-	prefix := key + "="
-	value, found := "", false
-	for _, note := range notes {
-		next, matches := strings.CutPrefix(strings.TrimSpace(note), prefix)
-		if !matches {
-			continue
-		}
-		next = strings.TrimSpace(next)
-		if found && value != next {
-			return "", false
-		}
-		value, found = next, true
-	}
-	return value, true
 }
 
 func traceWakeupEdgeRoleScope(id string) string {

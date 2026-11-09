@@ -9075,9 +9075,21 @@ func writeTraceTargetWindowStateAccount(b *strings.Builder, account *tracequery.
 	if b == nil || account == nil || !(account.TotalMs > 0) {
 		return
 	}
-	fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
-		traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
+	_, _, work := traceQueryRunningWorkMeasurement(account)
+	fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms %s%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
+		traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, work, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
 	writeTraceTargetCPURunningRoster(b, account)
+}
+
+// Both the direct tool text and the observation ledger state the same
+// measurement boundary. The typed value retains native precision even when
+// the reader-facing text rounds to the display quantum.
+func traceQueryRunningWorkMeasurement(account *tracequery.TargetWindowStateAccount) (status, value, text string) {
+	if ms, ok := types.TraceRunningWorkValue(account.DeterministicRunningStatus, account.DeterministicRunningMs); ok {
+		return string(types.TraceRunningWorkMeasured), strconv.FormatFloat(ms, 'g', -1, 64),
+			fmt.Sprintf("deterministic_running=%.3fms deterministic_running_scope=matched_paired_spans_within_running", ms)
+	}
+	return string(types.TraceRunningWorkNotMeasured), "", "deterministic_running=not_measured"
 }
 
 // writeTraceTargetCPURunningRoster publishes the focused thread's exact CPU
@@ -9572,6 +9584,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	if account := traceQueryTargetWindowStatesAccount(result); account != nil {
 		subject := traceThreadLabel(account.Thread)
 		if strings.TrimSpace(subject) != "" && account.TotalMs > 0 {
+			workStatus, workValue, work := traceQueryRunningWorkMeasurement(account)
 			notes := traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyRunning, fmt.Sprintf("%.3f", account.RunningMs)},
 				{types.TraceNoteKeyRunnable, fmt.Sprintf("%.3f", account.RunnableMs)},
@@ -9580,15 +9593,20 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", account.IOWaitMs)},
 				{types.TraceNoteKeySleepIOWait, fmt.Sprintf("%.3f", account.SleepIOWaitMs)},
 				{types.TraceNoteKeyTotal, fmt.Sprintf("%.3f", account.TotalMs)},
-				{types.TraceNoteKeyDeterministicRunning, fmt.Sprintf("%.3f", account.DeterministicRunningMs)},
+				// The base partition and its exact ruler lead together.
+				// Optional refinement/join and carry-in disclosures cannot
+				// displace the window from a bounded observation preview.
+				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
+				{types.TraceNoteKeyDeterministicRunning, workValue},
+				{types.TraceNoteKeyDeterministicRunningStatus, workStatus},
+				{types.TraceNoteKeyDeterministicRunningScopeID, account.RunningWorkScopeID},
 				// ANSWERFACE-1 件2 (§29.140 G6): boundary-fold disclosure
 				// quartet — zero-dropped by the typed KV builder when absent.
 				{types.TraceNoteKeyHeadCarryMS, traceQueryObservationMSValue(account.HeadCarryMs)},
 				{types.TraceNoteKeyHeadCarryState, account.HeadCarryState},
 				{types.TraceNoteKeyTailOpenMS, traceQueryObservationMSValue(account.TailOpenMs)},
 				{types.TraceNoteKeyTailOpenState, account.TailOpenState},
-				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
-				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
 				{types.TraceNoteKeyTargetCPURunningRosterTotal, strconv.Itoa(account.RunningCPURosterTotal)},
 				{types.TraceNoteKeyTargetCPURunningRosterEmitted, strconv.Itoa(account.RunningCPURosterEmitted)},
 				{types.TraceNoteKeyTargetCPURunningRosterStatus, account.RunningCPURosterStatus},
@@ -9621,8 +9639,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Object:    "state_partition",
 				Value:     traceQueryObservationMSValue(account.TotalMs),
 				Unit:      "ms",
-				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f",
-					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs),
+				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms %s%s window=%.6f..%.6f window_ms=%.3f",
+					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, work, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs),
 				RichNotes:   notes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, account.LineStart, account.LineEnd),
 				ObservedAt:  at,

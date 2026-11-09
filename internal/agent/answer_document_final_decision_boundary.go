@@ -1604,6 +1604,12 @@ func traceFinalSelectedStateAccountSource(projection types.TraceCausalProjection
 // SourceRef checks; never use a copied inventory to replace those checks.
 func traceFinalStateAccountFactsEqual(a, b types.TraceCausalProjectionTargetStateAccount) bool {
 	a.MeasurementOrigins, b.MeasurementOrigins = nil, nil
+	if b.DeterministicRunningStatus == types.TraceRunningWorkConflict {
+		// The compiler withheld only the secondary intersection. The
+		// original result still owns the scheduler lanes and their census.
+		a.DeterministicRunningStatus, b.DeterministicRunningStatus = "", ""
+		a.DeterministicRunningMS, b.DeterministicRunningMS = 0, 0
+	}
 	return reflect.DeepEqual(a, b)
 }
 

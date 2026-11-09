@@ -1799,9 +1799,12 @@ type WindowStats struct {
 	// WindowStats and on every trace-mark fail-closed path, where the mention
 	// face fails open to absence.
 	traceSpanFullInventory []TraceSpanSummary
-	TraceSpans             []TraceSpanSummary    `json:"trace_spans,omitempty"`
-	BusinessTree           *TraceMarkerTreeStats `json:"business_tree,omitempty"`
-	IOActivity             *IOActivityStats      `json:"io_activity,omitempty"`
+	// Set by the same native pairing pass that supplies TraceSpans, even
+	// when there are no admitted spans. A dropped/unrun pass is not zero.
+	traceSpanMeasurementEvaluated bool
+	TraceSpans                    []TraceSpanSummary    `json:"trace_spans,omitempty"`
+	BusinessTree                  *TraceMarkerTreeStats `json:"business_tree,omitempty"`
+	IOActivity                    *IOActivityStats      `json:"io_activity,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.

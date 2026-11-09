@@ -489,16 +489,17 @@ var projectionFieldContract = map[string]fieldDisposition{
 // ghost, and registry-reference arms still apply.
 
 var targetStateAccountContract = map[string]fieldDisposition{
-	"MeasurementOrigins":     {Status: "internal_gate", Ref: "B1638b3 tree.TargetMeasurementOrigins绑定既有所选账户,限制等待分母,不改账户选举;W-24仅免opaque逐字词面"},
-	"Subject":                {Status: "displayed", Ref: "F10 账主语", NoScan: true},
-	"RunningMS":              {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
-	"RunnableMS":             {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
-	"SleepMS":                {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
-	"DStateMS":               {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
-	"IOWaitMS":               {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
-	"SleepIOWaitMS":          {Status: "displayed", Ref: "其中IO等待从句(Σ门忽略)", NoScan: true},
-	"TotalMS":                {Status: "exempt", Ref: "W-10", NoScan: true},
-	"DeterministicRunningMS": {Status: "displayed", Ref: "F10 确定性运行从句", NoScan: true},
+	"MeasurementOrigins":         {Status: "internal_gate", Ref: "B1638b3 tree.TargetMeasurementOrigins绑定既有所选账户,限制等待分母,不改账户选举;W-24仅免opaque逐字词面"},
+	"Subject":                    {Status: "displayed", Ref: "F10 账主语", NoScan: true},
+	"RunningMS":                  {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
+	"RunnableMS":                 {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
+	"SleepMS":                    {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
+	"DStateMS":                   {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
+	"IOWaitMS":                   {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
+	"SleepIOWaitMS":              {Status: "displayed", Ref: "其中IO等待从句(Σ门忽略)", NoScan: true},
+	"TotalMS":                    {Status: "exempt", Ref: "W-10", NoScan: true},
+	"DeterministicRunningMS":     {Status: "displayed", Ref: "F10 确定性运行从句", NoScan: true},
+	"DeterministicRunningStatus": {Status: "displayed", Ref: "F10 运行细分量测/未量测/冲突", NoScan: true},
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): boundary-fold disclosure
 	// quartet — the 「含未覆盖段 X 折入」 in-term clause (Σ门忽略,披露非加项).
 	"HeadCarryMS":    {Status: "displayed", Ref: "含未覆盖段折入从句(Σ门忽略)", NoScan: true},

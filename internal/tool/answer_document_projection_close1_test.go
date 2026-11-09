@@ -168,7 +168,7 @@ func TestCLOSE1SelfRunningTierACrownSpeaksAccountParts(t *testing.T) {
 	for _, want := range []string{
 		"**主根因(=有链上依据的单项最大估算优化潜力):** 关注线程自身 running(确定性工作 120.000ms",
 		"供给折算影响 6.100ms",
-		"自身执行(无确定性可优化工作) 373.000ms",
+		"其余运行(未计入上述已量测工作) 373.000ms",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("Tier A crown must speak the account decomposition (%q):\n%s", want, line)
@@ -183,7 +183,7 @@ func TestCLOSE1SelfRunningTierACrownSpeaksAccountParts(t *testing.T) {
 	en := runtimeTraceProjConclusionLine(projection, model, false)
 	for _, want := range []string{
 		"the focused thread itself running(deterministic work 120.000ms",
-		"own execution (no deterministic optimizable work) 373.000ms",
+		"remaining running (outside the measured work) 373.000ms",
 	} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("EN Tier A crown missing %q:\n%s", want, en)

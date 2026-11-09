@@ -3,6 +3,7 @@ package tracequery
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -72,7 +73,12 @@ type TargetWindowStateAccount struct {
 	// DeterministicRunningMs is the wall-clock union of the focused thread's
 	// OWN semantic-span (deterministic-optimization class) intervals
 	// intersected with its running intervals, inside the window.
-	DeterministicRunningMs float64 `json:"deterministic_running_ms,omitempty"`
+	DeterministicRunningMs     float64                      `json:"deterministic_running_ms,omitempty"`
+	DeterministicRunningStatus types.TraceRunningWorkStatus `json:"deterministic_running_status,omitempty"`
+	// RunningWorkScopeID binds a possible refinement to the frozen native
+	// source universe and its unfiltered measurement lens, not to a display
+	// view or a query-specific publication identifier.
+	RunningWorkScopeID string `json:"-"`
 	// RunningByCPU is the target-owned, pre-global-cap CPU roster built from
 	// the SAME running intervals that feed RunningMs.  It is deliberately
 	// separate from WindowStats.TopRunning, whose global top-N contract can
@@ -399,10 +405,53 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 		account.WaitOccurrenceStatus = "complete"
 	}
 	account.WaitOccurrenceEmitted = len(account.WaitOccurrences)
-	account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
+	account.DeterministicRunningStatus = types.TraceRunningWorkNotMeasured
+	if stats != nil && stats.Window == window && stats.traceSpanMeasurementEvaluated && len(running) > 0 {
+		account.DeterministicRunningStatus = types.TraceRunningWorkMeasured
+		account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
+	}
 	stampWindowStateBoundaryFolds(account, tl)
 	account.SleepInventory = buildTargetWindowSleepInventory(tl, window)
 	return account
+}
+
+// A partition hash proves the state sequence, not the file generation or
+// marker lens. Stamp those separately from the index's held-source ledger;
+// never restat or reread a pathname to requalify an already measured result.
+func stampTargetWindowRunningWorkScope(account *TargetWindowStateAccount, idx *Index, q Query) {
+	if account == nil || account.MeasurementDomain == nil || idx == nil || len(idx.TraceArtifacts) == 0 || q.runCancel.fired() ||
+		(q.TargetScope != "" && q.TargetScope != "thread") || (q.PID > 0 && q.PID != account.Thread.PID) ||
+		q.SpanName != "" || q.Pattern != "" || len(q.Patterns)+len(q.EventTypes)+len(q.EventNames)+len(q.EventFieldFilters)+len(q.TraceMarkActions) != 0 {
+		return
+	}
+	w := schedulerPartitionHash{digest: sha256.New()}
+	w.text("target_running_work:v1")
+	w.text(idx.Path)
+	w.flag(q.timeEndBackfilled)
+	w.integer(len(idx.TraceArtifacts))
+	for _, source := range idx.TraceArtifacts {
+		if source.SourcePath == "" || !source.sourceIdentity.Strong() ||
+			source.SourceBytes != source.sourceIdentity.Size() || source.SourceModUnixNano != source.sourceIdentity.ModUnixNano() {
+			return
+		}
+		w.text(source.SourcePath)
+		w.text(source.sourceIdentity.CacheToken())
+		w.text(source.SourceSHA256)
+		w.text(source.CaptureID)
+		w.integer(source.VirtualLineBase)
+		w.text(source.TimeDomain)
+		w.text(source.CanonicalTimeDomain)
+		w.text(source.ClockAlignment)
+		w.flag(source.CausalCompatible)
+		w.flag(source.ClockCalibrated)
+		for _, p := range []*float64{source.ClockOffsetSec, source.ClockSlope} {
+			w.flag(p != nil)
+			if p != nil {
+				w.number(*p)
+			}
+		}
+	}
+	account.RunningWorkScopeID = fmt.Sprintf("running_work:v1:%x", w.digest.Sum(nil))
 }
 
 func stampTargetWindowCPURunningRoster(account *TargetWindowStateAccount, intervals []Interval) {

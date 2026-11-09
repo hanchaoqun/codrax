@@ -144,11 +144,14 @@ func nativePresentationNoteRecord(record ObservationRecord) ObservationRecord {
 	}
 	notes := make([]string, 0, len(record.RichNotes))
 	for _, note := range record.RichNotes {
-		// This exact producer-owned key is private display transport, even
+		// These exact producer-owned keys are private transport, even
 		// when malformed. Filter before the compact prompt spends its note
 		// budget or truncates JSON; the original ledger and table decoder keep
 		// every byte. Unknown keys and ordinary source prose remain untouched.
-		if traceRecord && (strings.HasPrefix(note, TraceNoteKeyRuntimeMeasurement+"=") || strings.HasPrefix(note, TraceNoteKeyPerfSamplingTree+"=") || strings.HasPrefix(note, TraceNoteKeyBusinessDiagramAnnotation+"=")) {
+		if traceRecord && (strings.HasPrefix(note, TraceNoteKeyRuntimeMeasurement+"=") ||
+			strings.HasPrefix(note, TraceNoteKeyPerfSamplingTree+"=") ||
+			strings.HasPrefix(note, TraceNoteKeyBusinessDiagramAnnotation+"=") ||
+			strings.HasPrefix(note, TraceNoteKeyDeterministicRunningScopeID+"=")) {
 			continue
 		}
 		// Duplicate digests are retained in the source receipt. Keep generation

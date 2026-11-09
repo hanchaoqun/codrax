@@ -57,6 +57,15 @@ func TestZeroOriginNativeTraceAccountReachesFinalizer(t *testing.T) {
 					ledger := answerDocObservationLedger(ctx)
 					before, _ := json.Marshal([]any{result, ledger, rm, mu.AnswerDocumentV2()})
 					instruction := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+					// The precise private join receipt remains in the
+					// immutable native evidence, not in a model note slot.
+					scopeKey := types.TraceNoteKeyDeterministicRunningScopeID + "="
+					if !strings.Contains(string(before), scopeKey) {
+						t.Fatal("the native partition lost its generation-bound running-work receipt")
+					}
+					if strings.Contains(instruction, scopeKey) {
+						t.Fatal("an opaque native join receipt consumed reader context")
+					}
 					// The whole-artifact finite lane owns the native state
 					// observation and its caliber guide. It need not mint an
 					// explicit-window principal_state recap or a causal anchor.

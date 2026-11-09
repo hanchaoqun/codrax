@@ -491,6 +491,8 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Window: window, WindowMs: 1000,
 				RunningMs: 700, RunnableMs: 100, SleepMs: 150, DStateMs: 30, IOWaitMs: 20,
 				SleepIOWaitMs: 40, TotalMs: 1000, DeterministicRunningMs: 120,
+				DeterministicRunningStatus: types.TraceRunningWorkMeasured,
+				RunningWorkScopeID:         "running_work:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				RunningByCPU: []tracequery.TargetWindowCPURunning{
 					{CPU: 4, RunningMs: 300, SegmentCount: 2, StartTs: 1.01, EndTs: 1.40, LineStart: 1, LineEnd: 4,
 						// B1633: the optional representative sample exercises its

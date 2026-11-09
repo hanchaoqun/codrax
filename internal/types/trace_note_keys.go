@@ -1018,16 +1018,18 @@ const (
 	// TargetWindowStateAccount.DeterministicRunningMs; never a converted
 	// value). Consumed by the projection compile into the typed
 	// TargetStateAccount for the four-state coverage account.
-	TraceNoteKeyDeterministicRunning = "deterministic_running"
-	TraceNoteKeyFragments            = "fragments"
-	TraceNoteKeySwitches             = "switches"
-	TraceNoteKeyMaxSegment           = "max_segment"
-	TraceNoteKeyP95Segment           = "p95_segment"
-	TraceNoteKeyActualRunning        = "actual_running"
-	TraceNoteKeyActualRunnable       = "actual_runnable"
-	TraceNoteKeyActualSleep          = "actual_sleep"
-	TraceNoteKeyActualDState         = "actual_d_state"
-	TraceNoteKeyActualIOWait         = "actual_io_wait"
+	TraceNoteKeyDeterministicRunning        = "deterministic_running"
+	TraceNoteKeyDeterministicRunningStatus  = "deterministic_running_status"
+	TraceNoteKeyDeterministicRunningScopeID = "deterministic_running_scope_id"
+	TraceNoteKeyFragments                   = "fragments"
+	TraceNoteKeySwitches                    = "switches"
+	TraceNoteKeyMaxSegment                  = "max_segment"
+	TraceNoteKeyP95Segment                  = "p95_segment"
+	TraceNoteKeyActualRunning               = "actual_running"
+	TraceNoteKeyActualRunnable              = "actual_runnable"
+	TraceNoteKeyActualSleep                 = "actual_sleep"
+	TraceNoteKeyActualDState                = "actual_d_state"
+	TraceNoteKeyActualIOWait                = "actual_io_wait"
 	// TraceNoteKeyRunnableBelowRTPreempted (SYM-2 §24.17 R2, 2026-07-08): the
 	// typed 「优先级低于RT」 disclosure on a SELF runnable-family rank row —
 	// the engine minted it only when the target's own priority class is below
@@ -1931,6 +1933,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyTailOpenMS, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyTailOpenState, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDeterministicRunningStatus, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDeterministicRunningScopeID, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFragments, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySwitches, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyMaxSegment, "state", TraceNoteCarrierSoftConsumer},

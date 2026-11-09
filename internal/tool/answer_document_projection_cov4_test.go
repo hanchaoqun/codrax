@@ -120,7 +120,7 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	if !strings.Contains(lead, "供给折算影响 16.100ms 见") || !strings.Contains(lead, "(折算,不计入四态合计)") {
 		t.Fatalf("the converted supply figure must publish as a pointer with the 折算 caliber:\n%s", lead)
 	}
-	if !strings.Contains(lead, "自身执行(无确定性可优化工作) 97.437ms") {
+	if !strings.Contains(lead, "其余运行(未计入上述已量测工作) 97.437ms") {
 		t.Fatalf("the running residual must wear the ruling-verbatim word with running−deterministic:\n%s", lead)
 	}
 	// The legend entry renders exactly when the account does (direction A).
@@ -137,7 +137,7 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	if !strings.Contains(en, "- Focused-thread full-window states: running 109.270ms (72%)") ||
 		!strings.Contains(en, "sleep 28.507ms (19%, incl. IO wait 20.000ms)") ||
 		!strings.Contains(en, "deterministic work 11.833ms (1 classes, largest 10.394ms, see ") ||
-		!strings.Contains(en, "own execution (no deterministic optimizable work) 97.437ms") ||
+		!strings.Contains(en, "remaining running (outside the measured work) 97.437ms") ||
 		!strings.Contains(en, "(converted; not in the four-state total)") {
 		t.Fatalf("the EN account face must mirror the zh shape:\n%s", en)
 	}

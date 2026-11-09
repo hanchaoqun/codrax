@@ -142,8 +142,14 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 			return original, fmt.Errorf("finish rejected: %s", blocked)
 		}
 		if run.ActiveBatchID != "" {
-			updateWorkflowBatch(&run, run.ActiveBatchID, "", types.WriteWorkflowBatchComplete)
-			markWorkflowBatchCompletionFromLatestVerify(&run, run.ActiveBatchID, decision)
+			// Ending the workflow does not execute or re-adjudicate an
+			// already closed batch. Its durable verdict may be the only
+			// retained witness after attempt-history compaction.
+			active, found := workflowExecutionActiveBatch(run)
+			if !found || active.ID != run.ActiveBatchID || active.Status != types.WriteWorkflowBatchComplete {
+				updateWorkflowBatch(&run, run.ActiveBatchID, "", types.WriteWorkflowBatchComplete)
+				markWorkflowBatchCompletionFromLatestVerify(&run, run.ActiveBatchID, decision)
+			}
 		}
 		run.Status = types.WriteWorkflowRunComplete
 		MarkWorkflowRunCompletionFromBatches(&run)

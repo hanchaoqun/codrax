@@ -206,6 +206,8 @@ var traceNoteKeyGoldenRows = []string{
 	"depth|causal_rank|hard_consumer",
 	"detected_period_ms|periodic|hard_consumer",
 	"deterministic_running|state|hard_consumer",
+	"deterministic_running_scope_id|state|hard_consumer",
+	"deterministic_running_status|state|hard_consumer",
 	"deterministic_runtime_query_present|ledger_marker|soft_consumer",
 	// EVOLUTION RECORD (RCM §24.7.1 ①/§24.9-B F3, 2026-07-08): dev/inode
 	// promoted display_only → hard_consumer — rank rows now carry them from
