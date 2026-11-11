@@ -686,7 +686,7 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		ArtifactLabel: "donghu.ftrace", WindowStartTs: 10, WindowEndTs: 10.11494,
 	}}}
-	got := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, runtimeTraceGuidanceView{}, facts)
+	got := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, runtimeTraceGuidanceView{}, facts, nil)
 	for _, want := range []string{
 		"typed_window_aggregate_context",
 		"All available background rows are included in this bounded handoff",
@@ -1014,7 +1014,7 @@ func TestFinalizerInitialInstructionWiresTraceDecisionHandoff(t *testing.T) {
 	for _, want := range []string{
 		"## Trace Decision Inputs (Model Owns The Conclusion)",
 		"axis_A_actual_occupancy_candidates",
-		"subject=`worker-200`; kind=`runnable`; window_projection=7.000ms",
+		"subject=`worker-200`; kind=`runnable`; measured_state_occupancy=7.000ms; locator_range=`10.000000..10.020000`; locator_role=\"record range (single occurrence unproven)\"",
 		"axis_B_existing_rule_eliminable",
 		"effective_attribution=6.000ms",
 	} {

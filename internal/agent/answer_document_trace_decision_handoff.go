@@ -55,7 +55,7 @@ func renderAnswerDocTraceDecisionHandoffProjection(ctx *types.AgentContext, allo
 		claims = ctx.Mutable.StableInvestigationRelationClaims()
 	}
 	handoff := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
-		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), claims,
+		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), ledger.Records, claims,
 	)
 	return prependTraceDecisionContext(handoff, findingContract)
 }
@@ -69,10 +69,10 @@ func prependTraceDecisionContext(prefix string, finding finalizerTextProjection)
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {
-	return renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, authority, nil, acceptedClaims...)
+	return renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, authority, nil, nil, acceptedClaims...)
 }
 
-func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, aggregateFacts []traceDecisionAggregateFact, acceptedClaims ...[]types.AnswerRelationClaim) string {
+func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, aggregateFacts []traceDecisionAggregateFact, records []types.ObservationRecord, acceptedClaims ...[]types.AnswerRelationClaim) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -147,12 +147,12 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 
 		actual := traceDecisionActualOccupancyCandidates(projection, 8)
 		if len(actual) > 0 || len(projection.BusinessSpanMentions) > 0 {
-			b.WriteString("- axis_A_actual_occupancy_candidates (not a conclusion; compare only compatible calibers):\n")
+			b.WriteString("- axis_A_actual_occupancy_candidates (not a conclusion; keep each measured duration with its own scope, not the enclosing selected window or a single occurrence):\n")
 			for _, node := range actual {
 				fmt.Fprintf(&b, "  - subject=`%s`; kind=`%s`; ", strings.TrimSpace(node.Subject), traceDecisionNodeKind(node))
 				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 				if measuredOK {
-					fmt.Fprintf(&b, "window_projection=%.3fms", measured)
+					traceDecisionWriteMeasuredDuration(&b, node, measured, records)
 				} else {
 					b.WriteString("state_occupancy=`unavailable`; priced_impact_is_not_state_occupancy=`true`")
 				}
@@ -215,8 +215,11 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 					fmt.Fprintf(&b, "; relation_member_ref=`%s`", relationRef)
 				}
 				traceDecisionWriteModelFacingDirection(&b, node)
-				if node.ImpactMS > 0 && node.ImpactMS != node.EffectiveImpactMS {
-					fmt.Fprintf(&b, "; window_projection=%.3fms", node.ImpactMS)
+				if measured, ok := traceFinalMeasuredStateOccupancy(node); ok && measured != node.EffectiveImpactMS {
+					b.WriteString("; ")
+					traceDecisionWriteMeasuredDuration(&b, node, measured, records)
+				} else if !ok && node.ImpactMS > 0 && node.ImpactMS != node.EffectiveImpactMS && node.Unit != types.TraceObservationUnitCompositeScore {
+					fmt.Fprintf(&b, "; projected_row_impact=%.3fms", node.ImpactMS)
 				}
 				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
 				traceDecisionWriteNodeIdentity(&b, node)

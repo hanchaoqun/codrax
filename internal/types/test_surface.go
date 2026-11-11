@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	TestSurfaceSourceFileConvention   = "test-file convention"
+	TestExecutionSourceSurfaceDefault = "test_surface_default"
+)
+
 // TestSurfaceCandidate is one runnable verification entry detected from typed
 // repository signals: manifest files, test-file naming conventions, declared
 // Makefile targets, configured native build directories, and python test

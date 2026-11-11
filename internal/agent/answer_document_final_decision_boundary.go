@@ -228,6 +228,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		types.BuildTraceWakeupCPUTopologyDecisionAuthorities(ledger, wakeupTargetCPUIntegrity),
 		wakeupTargetCPUIntegrity,
 		wakeupTargetCPUIntegrity.AffectsAnyWakeupRecord(ledger),
+		ledger.Records...,
 	))
 	return b.String()
 }
@@ -358,7 +359,7 @@ const answerDocReaderFieldVisibilityEN = "Do not expose internal protocol, valid
 // diagnosis, prioritization, optimization direction, and wording. Exact
 // typed admission/ranking stays upstream; this function performs display-only
 // mapping over those admitted rows and never scans request or answer prose.
-func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string, wakeupRows []types.TraceWakeupCPUTopologyAuthority, wakeupIntegrity types.TraceWakeupTargetCPUIntegrity, wakeupIntegrityAffectsRows bool) string {
+func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string, wakeupRows []types.TraceWakeupCPUTopologyAuthority, wakeupIntegrity types.TraceWakeupTargetCPUIntegrity, wakeupIntegrityAffectsRows bool, records ...types.ObservationRecord) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -418,6 +419,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					fmt.Fprintf(&b, "  - %s：%s，", strings.TrimSpace(node.Subject), cause)
 					if measuredOK {
 						fmt.Fprintf(&b, "已测 %.3f 毫秒", measured)
+						traceDecisionWriteReaderMeasurementScope(&b, node, records, zh)
 					} else {
 						b.WriteString("原始状态占用未提供；不能把" + tracefence.OptimizationPotentialZH + "当作实测时长")
 					}
@@ -430,6 +432,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					fmt.Fprintf(&b, "  - %s: %s, ", strings.TrimSpace(node.Subject), cause)
 					if measuredOK {
 						fmt.Fprintf(&b, "measured %.3f ms", measured)
+						traceDecisionWriteReaderMeasurementScope(&b, node, records, zh)
 					} else {
 						b.WriteString("original state occupancy not provided; " + tracefence.OptimizationPotentialEN + " is not a measured duration")
 					}
@@ -483,6 +486,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 						} else {
 							fmt.Fprintf(&b, "; separate measured state account (%s): %.3f ms", state, measured)
 						}
+						traceDecisionWriteReaderMeasurementScope(&b, node, records, zh)
 					} else if !measuredOK && strings.TrimSpace(node.StateKind) != "" {
 						if zh {
 							b.WriteString("，原始状态占用未提供")
@@ -532,6 +536,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					fmt.Fprintf(&b, "  - %s：%s", subject, cause)
 					if measuredOK {
 						fmt.Fprintf(&b, "，已测 %.3f 毫秒", measured)
+						traceDecisionWriteReaderMeasurementScope(&b, node, records, zh)
 					} else {
 						b.WriteString("，原始状态占用未提供")
 					}
@@ -540,6 +545,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					fmt.Fprintf(&b, "  - %s: %s", subject, cause)
 					if measuredOK {
 						fmt.Fprintf(&b, ", measured %.3f ms", measured)
+						traceDecisionWriteReaderMeasurementScope(&b, node, records, zh)
 					} else {
 						b.WriteString(", original state occupancy not provided")
 					}
@@ -2039,6 +2045,15 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet, rec
 	return b.String()
 }
 
+func traceDecisionWriteMeasuredDuration(b *strings.Builder, node types.TraceCausalProjectionNode, measured float64, records []types.ObservationRecord) {
+	if strings.TrimSpace(node.StateKind) == "" {
+		fmt.Fprintf(b, "measured_span_duration=%.3fms", measured)
+		return
+	}
+	fmt.Fprintf(b, "measured_state_occupancy=%.3fms", measured)
+	traceDecisionWriteMeasurementLocator(b, node, records)
+}
+
 // Projection coordinates can be recursive dependency domains, cumulative
 // state envelopes, or ranges of merged records. They do not independently
 // prove one occurrence, even when their width equals the published duration.
@@ -2051,6 +2066,31 @@ func traceDecisionWriteMeasurementLocator(b *strings.Builder, node types.TraceCa
 		return
 	}
 	role := "record range (single occurrence unproven)"
+	if classified := traceDecisionExactMeasurementScope(node, records, false); classified != "" {
+		role = classified + " (not a continuous state interval)"
+	}
+	fmt.Fprintf(b, "; locator_range=`%.6f..%.6f`; locator_role=%q", node.StartTs, node.EndTs, role)
+}
+
+func traceDecisionWriteReaderMeasurementScope(b *strings.Builder, node types.TraceCausalProjectionNode, records []types.ObservationRecord, zh bool) {
+	if strings.TrimSpace(node.StateKind) == "" {
+		return
+	}
+	if role := traceDecisionExactMeasurementScope(node, records, zh); role != "" {
+		if zh {
+			fmt.Fprintf(b, "（%s [%.6f, %.6f) 秒内的累计量，不是单次连续区间）", role, node.StartTs, node.EndTs)
+		} else {
+			fmt.Fprintf(b, " (total in the %s [%.6f, %.6f) s, not one continuous interval)", role, node.StartTs, node.EndTs)
+		}
+	}
+}
+
+func traceDecisionExactMeasurementScope(node types.TraceCausalProjectionNode, records []types.ObservationRecord, zh bool) string {
+	if node.MergedCount > 1 || node.OnChainOverflowFold ||
+		!types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) ||
+		!traceFinalFiniteNonNegative(node.StartTs) || !traceFinalFiniteNonNegative(node.EndTs) {
+		return ""
+	}
 	var matched *types.ObservationRecord
 	if id := strings.TrimSpace(node.EvidenceID); id != "" {
 		for i := range records {
@@ -2070,11 +2110,9 @@ func traceDecisionWriteMeasurementLocator(b *strings.Builder, node types.TraceCa
 		strings.TrimSpace(matched.Subject) == strings.TrimSpace(node.Subject) &&
 		matched.Span.StartTs == node.StartTs && matched.Span.EndTs == node.EndTs &&
 		reflect.DeepEqual(node.MeasurementOrigins, types.TraceSchedulerMeasurementOriginsFromRecord(*matched)) {
-		if classified := types.TraceObservationMeasurementWindowDisplayRole(*matched, false); classified != "" {
-			role = classified + " (not a continuous state interval)"
-		}
+		return types.TraceObservationMeasurementWindowDisplayRole(*matched, zh)
 	}
-	fmt.Fprintf(b, "; locator_range=`%.6f..%.6f`; locator_role=%q", node.StartTs, node.EndTs, role)
+	return ""
 }
 
 // renderTraceFinalSupplyFoldValueAuthority publishes the exact role equation

@@ -75,10 +75,13 @@ func TestFinalMeasurementWindowPublicFinalizer(t *testing.T) {
 				if len(prompt.UserSections) == 0 || !strings.Contains(instruction, "## Final Trace Decision Boundary") {
 					t.Fatal("actual finalizer context missing")
 				}
-				for _, want := range []struct{ subject, measured, window string }{
-					{names[1] + "-200", "17.000", "2.000000..2.020000"},
-					{names[2] + "-300", "14.000", "2.001000..2.018000"},
-					{names[3] + "-400", "11.000", "2.002000..2.016000"},
+				for _, want := range []struct{ subject, measured, window, axisRange, axisRole string }{
+					{names[1] + "-200", "17.000", "2.000000..2.020000", "2.000000..2.020000", "dependency analysis window (not a continuous state interval)"},
+					{names[2] + "-300", "14.000", "2.001000..2.018000", "2.001000..2.018000", "dependency analysis window (not a continuous state interval)"},
+					// The rank projection clips this row's locator more tightly
+					// than the original recursive row. It cannot borrow that
+					// row's measurement-domain authority or prove an occurrence.
+					{names[3] + "-400", "11.000", "2.002000..2.016000", "2.003000..2.014000", "record range (single occurrence unproven)"},
 				} {
 					line := finalMeasurementWindowLine(instruction, "- state_value_authority ", "subject=`"+want.subject+"`")
 					for _, token := range []string{"measured_state_occupancy=" + want.measured + "ms", "effective_attribution=1.000ms", "locator_range=`" + want.window + "`", "dependency analysis window", "not a continuous state interval"} {
@@ -89,10 +92,27 @@ func TestFinalMeasurementWindowPublicFinalizer(t *testing.T) {
 					if strings.Contains(line, "occurrence_interval=") {
 						t.Errorf("dependency domain masquerades as a state occurrence: %s", line)
 					}
+					axis := finalMeasurementWindowLine(instruction, "  - subject=", "subject=`"+want.subject+"`; kind=")
+					for _, token := range []string{"measured_state_occupancy=" + want.measured + "ms", "locator_range=`" + want.axisRange + "`", fmt.Sprintf("locator_role=%q", want.axisRole)} {
+						if !strings.Contains(axis, token) {
+							t.Errorf("same measured state has a different scope in the earlier Axis A handoff: missing %q: %s", token, axis)
+						}
+					}
+					if strings.Contains(axis, "window_projection=") || strings.Contains(axis, "occurrence_interval=") {
+						t.Errorf("Axis A mislabels a recursive dependency measurement: %s", axis)
+					}
 				}
 				leader := finalMeasurementWindowLine(instruction, "  - validation_direction=", "leader_subject=`"+names[1]+"-200`; leader_effective_attribution=")
 				if !strings.Contains(leader, "locator_range=`2.000000..2.020000`") || !strings.Contains(leader, "dependency analysis window") || strings.Contains(leader, "occurrence_interval=") {
 					t.Errorf("compact leader still claims an occurrence: %s", leader)
+				}
+				reader := finalMeasurementWindowLine(instruction, "  - "+names[1]+"-200", "17.000")
+				wantReader := "dependency analysis window [2.000000, 2.020000) s, not one continuous interval"
+				if lang == "zh" {
+					wantReader = "依赖分析窗口 [2.000000, 2.020000) 秒内的累计量，不是单次连续区间"
+				}
+				if !strings.Contains(reader, wantReader) {
+					t.Errorf("reader card lost measurement scope: %s", reader)
 				}
 				after, _ := json.Marshal(answerDocObservationLedger(ctx))
 				if string(before) != string(after) {
@@ -167,6 +187,9 @@ func TestFinalMeasurementWindowLocatorSourceBinding(t *testing.T) {
 		}, "record range (single occurrence unproven)"},
 		{"merged_origins", func(n *types.TraceCausalProjectionNode, _ *[]types.ObservationRecord) {
 			n.MeasurementOrigins = append(n.MeasurementOrigins, n.MeasurementOrigins[0])
+		}, "record range (single occurrence unproven)"},
+		{"merged_same_bounds", func(n *types.TraceCausalProjectionNode, _ *[]types.ObservationRecord) {
+			n.MergedCount = 2
 		}, "record range (single occurrence unproven)"},
 		{"missing_origins", func(n *types.TraceCausalProjectionNode, _ *[]types.ObservationRecord) {
 			n.MeasurementOrigins = nil

@@ -632,7 +632,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				planSources[key] = verificationProbeContinuationSourceDeclaredCoverage
 				continue
 			}
-			planSources[key] = "test_surface_default"
+			planSources[key] = types.TestExecutionSourceSurfaceDefault
 		}
 		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s declared_coverage=%d impact_targets=%d)",
 			len(plans), ctx.RepoRoot, preferredRunner, len(declaredCoveragePlans), len(impactPlans))

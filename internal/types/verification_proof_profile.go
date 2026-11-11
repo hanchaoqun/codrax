@@ -435,7 +435,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		return NormalizeVerificationProofLedger(out)
 	}
 	for _, artifact := range unique {
-		out.addVerificationReportLedgerItems(artifact.Report)
+		out.addVerificationReportLedgerItems(artifact.Plan, artifact.Report)
 		out.addChangedPathCoverageLedgerItems(artifact.Report)
 		// V5-1: an artifact without a loadable plan still passes through the
 		// witness-matrix choke point against the primary plan's contracts —
@@ -625,7 +625,7 @@ func verificationProofLedgerStateFromProfile(profile VerificationProofProfile) V
 	}
 }
 
-func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *ChangeReport) {
+func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(plan *ChangePlan, report *ChangeReport) {
 	if ledger == nil || report == nil {
 		return
 	}
@@ -648,7 +648,8 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 		ReasonCode:   firstNonEmptyVerificationProof(report.FailureReasonCode, string(report.FailureKind)),
 		Detail:       strings.TrimSpace(report.FailureSummary),
 	})
-	for _, cmd := range report.ExecutedCommands {
+	discoveryAdvisories := verificationDefaultDiscoveryAdvisories(plan, report)
+	for i, cmd := range report.ExecutedCommands {
 		class := verificationProofCommandClass(cmd)
 		if class == VerificationProofRunnerNone {
 			continue
@@ -661,6 +662,10 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 		if executedCommandFailed(cmd) && unavailableReasonCode == "" {
 			cmdStatus = VerificationProofLedgerItemFailed
 		}
+		reason := firstNonEmptyVerificationProof(unavailableReasonCode, cmd.ReasonCode, cmd.Outcome)
+		if discoveryAdvisories[i] {
+			cmdStatus, reason = VerificationProofLedgerItemAdvisory, verificationDefaultDiscoveryAdvisory
+		}
 		ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
 			ID:           verificationProofCommandLedgerID(report.PlanID, cmd),
 			Kind:         "executed_command",
@@ -668,7 +673,7 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 			Source:       firstNonEmptyVerificationProof(cmd.Source, "run_tests"),
 			ReportPlanID: strings.TrimSpace(report.PlanID),
 			Category:     string(class),
-			ReasonCode:   firstNonEmptyVerificationProof(unavailableReasonCode, cmd.ReasonCode, cmd.Outcome),
+			ReasonCode:   reason,
 			Path:         strings.TrimSpace(cmd.WorkingDir),
 			RelatedPath:  strings.TrimSpace(cmd.Suite),
 			EvidenceRef:  verificationProofCommandIdentity(cmd),

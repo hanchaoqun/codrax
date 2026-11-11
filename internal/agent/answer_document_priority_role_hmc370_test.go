@@ -91,6 +91,11 @@ func TestHMC370HoneybirdWholePriorityRolesKeepNativePartiesAndIntervals(t *testi
 	hmc370PriorityRoleLine(t, got, "priority_inversion_candidate",
 		[]string{"64176", "36.311ms", "dependency_scheduler_supply_before_downstream_wakeup"},
 		[]string{"running competitor", "after recorded wakeup"})
+	measured := finalMeasurementWindowLine(got, "  - subject=", "measured_state_occupancy=45.378ms")
+	if !strings.Contains(measured, "-64176") || !strings.Contains(measured, "locator_range=`11343.250704..11343.297396`") ||
+		!strings.Contains(measured, "dependency analysis window (not a continuous state interval)") || strings.Contains(measured, "window_projection=") {
+		t.Fatalf("full-capture dependency occupancy was confused with a query window: %s", measured)
+	}
 	hmc370PriorityRoleLine(t, got, "priority_inversion_runnable_wait",
 		[]string{"0.013ms", "same-CPU ready/run overlap", "ready thread main-64156", "running competitor", "-64176", "CPU4",
 			"[11343.297396, 11343.297409)", "after recorded wakeup (line 25227)", "25229"},

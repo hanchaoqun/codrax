@@ -51,7 +51,7 @@ func appendSyntheticJavaDirectCandidates(repoRoot string, cands []types.TestSurf
 	plan := runnerPlan{
 		Runner:    "java",
 		Root:      repoRoot,
-		Manifest:  "test-file convention",
+		Manifest:  types.TestSurfaceSourceFileConvention,
 		Priority:  15,
 		Framework: javaFrameworkDirectMain,
 	}
@@ -89,7 +89,7 @@ func appendSyntheticPythonCandidates(repoRoot string, cands []types.TestSurfaceC
 		seen[key] = true
 		plan := runnerPlan{Runner: "python", Root: repoRoot, Framework: framework, Priority: 7}
 		cand := testSurfaceCandidateForPlan(repoRoot, plan)
-		cand.Source = "test-file convention"
+		cand.Source = types.TestSurfaceSourceFileConvention
 		cands = append(cands, cand)
 	}
 	hasRootPython := false

@@ -991,7 +991,7 @@ func TestExecutedCommandOutcomeClassifiersDecideEveryMember(t *testing.T) {
 	} {
 		report := &ChangeReport{PlanID: "plan-k", Passed: true, VerificationStatus: VerificationStatusPassed, ExecutedCommands: []ExecutedCommand{baseline}}
 		ledger := &VerificationProofLedger{}
-		ledger.addVerificationReportLedgerItems(report)
+		ledger.addVerificationReportLedgerItems(nil, report)
 		for _, item := range ledger.Capabilities {
 			if item.Kind == "executed_command" && item.Status != VerificationProofLedgerItemCovered {
 				t.Fatalf("baseline evidence row must not be a failed/unavailable capability: %+v", item)
