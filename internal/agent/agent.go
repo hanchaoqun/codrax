@@ -2887,6 +2887,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		// Record assistant message with tool calls
+		answerAttemptStart := len(messages)
 		messages = append(messages, llm.Message{
 			Role:             "assistant",
 			Content:          resp.Content,
@@ -3129,6 +3130,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// tool-calling in the wrong direction. Throttling, dedup,
 		// budget, and idle-streak force-stop all live in LoopPolicy
 		// so the evaluator's Observe method stays detection-only.
+		answerAttemptHint := -1
 		if loopCtrl != nil {
 			idle, conts, midLoopInjects := policyState.snapshot()
 			obs := LoopObservation{
@@ -3160,6 +3162,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				sig.HintKey, result.Outcome, result.Reason)
 			switch result.Outcome {
 			case OutcomeInjectHint:
+				if repairTeaching != nil && strings.HasPrefix(sig.HintKey, "answer_doc.") {
+					answerAttemptHint = len(messages)
+				}
 				messages = append(messages, llm.Message{
 					Role:    "user",
 					Content: result.Hint,
@@ -3189,6 +3194,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			if result.CapSaturatedHintKey != "" {
 				b.escalateMidLoopCapSaturation(ctx, i, result.CapSaturatedHintKey, result.Reason)
 			}
+		}
+		if repairTeaching != nil && toolBatchGuardHint == "" && len(currentMCPResponses) == 0 {
+			repairTeaching.history.observe(ctx.Mutable, messages, answerAttemptStart, answerAttemptHint, currentToolResults)
 		}
 	}
 

@@ -7834,8 +7834,11 @@ const (
 	// uses it to distinguish a rolled-back call from a merged draft that became
 	// the retry-local patch base; it is guidance only and never answer evidence.
 	ToolRepairMetaAnswerDocumentPatchOutcome = "answer_document_patch_outcome"
-	AnswerDocumentPatchOutcomeNotStaged      = "not_staged"
-	AnswerDocumentPatchOutcomeStagedForRetry = "staged_for_retry"
+	// Set only when the staged draft went through the whole pre-emit check.
+	// Intermediate dependency stages do not supersede validation feedback.
+	ToolRepairMetaAnswerDocumentPatchFullyRevalidated = "answer_document_patch_fully_revalidated"
+	AnswerDocumentPatchOutcomeNotStaged               = "not_staged"
+	AnswerDocumentPatchOutcomeStagedForRetry          = "staged_for_retry"
 	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
 	// closed issue value for a visible call edge whose direction/endpoints are
 	// already supported by accepted typed evidence and whose only defect is a

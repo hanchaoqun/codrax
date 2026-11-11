@@ -252,6 +252,21 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	if msg := validateWriteBehaviorContractEnums(p.BehaviorContracts); msg != "" {
 		return errResult(t.Name(), msg), nil
 	}
+	for i := range p.BehaviorContracts {
+		contract := &p.BehaviorContracts[i]
+		// Source is a producer-owned authority, not an analyzer schema field.
+		contract.Source = "write_analyzer"
+		if !types.IsWriteBehaviorSourceOutline(*contract) {
+			continue
+		}
+		if contract.Required {
+			prefix := fmt.Sprintf("behavior_contracts[%d]", i)
+			return failEmitWithRepair(t.Name(), time.Now(), &types.ToolRepair{
+				Code: "write_behavior_source_outline_requires_assertion", Fields: []string{prefix + ".kind", prefix + ".operator", prefix + ".required"}, Hint: types.WriteBehaviorSourceOutlineTeaching,
+			}, "%s is not an independently checkable requirement. %s Keep all other grounded obligations.", prefix, types.WriteBehaviorSourceOutlineTeaching)
+		}
+		contract.Source = types.WriteBehaviorContractSourcePlanningOnlyOutline
+	}
 	contracts := types.NormalizeWriteBehaviorContracts(p.BehaviorContracts, expectedOutcomes)
 	ir := &types.WriteAnalysisIR{
 		Request: types.WriteRequestModel{
@@ -559,7 +574,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						},
 						"required": map[string]any{
 							"type":        "boolean",
-							"description": "True when this observable is required for task completion.",
+							"description": "True when this observable is required for task completion. " + types.WriteBehaviorSourceOutlineTeaching,
 						},
 					},
 					"required": []string{"id", "kind", "expected"},

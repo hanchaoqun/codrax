@@ -326,13 +326,7 @@ func postApplySourceContractEligible(contract types.WriteBehaviorContract) bool 
 		strings.TrimSpace(contract.Expected) == "" {
 		return false
 	}
-	switch contract.Operator {
-	case types.WriteBehaviorOpEquals, types.WriteBehaviorOpNotEquals,
-		types.WriteBehaviorOpContains, types.WriteBehaviorOpNotContains:
-		return true
-	default:
-		return false
-	}
+	return types.WriteBehaviorSourceLiteralOperator(contract.Operator)
 }
 
 func postApplySourceContractOwnedPaths(plan *types.ChangePlan) map[string]bool {

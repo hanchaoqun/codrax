@@ -130,6 +130,9 @@ const (
 	// controller/planner as a proposed boundary to investigate, but it must not
 	// become a verifier completion obligation merely because it was schema-valid.
 	WriteBehaviorContractSourcePlanningOnlyUngrounded = "quality_repaired:planning_only_ungrounded"
+	// A current analyzer declaration explicitly retained as a source outline,
+	// not as a completion assertion. It may still have precise citations.
+	WriteBehaviorContractSourcePlanningOnlyOutline = "write_analyzer:planning_only_source_outline"
 )
 
 type WriteBehaviorContractGeneration string
@@ -699,7 +702,8 @@ func IsPlanningOnlyWriteBehaviorContract(c WriteBehaviorContract) bool {
 		return true
 	}
 	for _, source := range strings.Split(c.Source, ";") {
-		if strings.TrimSpace(source) == WriteBehaviorContractSourcePlanningOnlyUngrounded {
+		switch strings.TrimSpace(source) {
+		case WriteBehaviorContractSourcePlanningOnlyUngrounded, WriteBehaviorContractSourcePlanningOnlyOutline:
 			return true
 		}
 	}

@@ -3287,7 +3287,14 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// typed candidates as unlisted additions); the next contract mints
 					// its own typed delta through the evaluator.
 					stageAnswerDocumentPatchGeneration(ctx.Mutable, merged, nil, &stagedByThisCall)
-					return failEmitWithRepair(t.Name(), now, withRuntimeMeasurementBindingRepair(emitFixHintsRepair(hardHints), merged, view),
+					repair := withRuntimeMeasurementBindingRepair(emitFixHintsRepair(hardHints), merged, view)
+					if repair != nil {
+						if repair.Metadata == nil {
+							repair.Metadata = map[string]string{}
+						}
+						repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchFullyRevalidated] = "true"
+					}
+					return failEmitWithRepair(t.Name(), now, repair,
 						"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 				}
 			}

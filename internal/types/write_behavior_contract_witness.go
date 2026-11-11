@@ -81,6 +81,47 @@ func WriteBehaviorWitnessSatisfies(kind WriteBehaviorContractKind, witness Write
 	return false
 }
 
+// WriteBehaviorSourceLiteralOperator is the exact source-line witness
+// vocabulary, not a proof that the location or expected value is grounded.
+func WriteBehaviorSourceLiteralOperator(op WriteBehaviorOperator) bool {
+	switch op {
+	case WriteBehaviorOpEquals, WriteBehaviorOpNotEquals, WriteBehaviorOpContains, WriteBehaviorOpNotContains:
+		return true
+	default:
+		return false
+	}
+}
+
+const WriteBehaviorSourceOutlineTeaching = "A bare source outline (kind=file_layout with operator=satisfies or omitted) is planning context: set required=false. A source citation does not prove runtime behavior. For a required source-line check, use equals/not_equals/contains/not_contains with a concrete literal and one source location; for required runtime behavior, choose the matching runtime kind and an observable assertion. If a source-layout outcome genuinely needs executed verification, describe its independently grounded comparator, transition observation, or typed placement instead of a bare satisfies outline."
+
+// IsWriteBehaviorSourceOutline identifies the weak source-observable shape
+// only at the current analyzer admission seam. Persisted contracts and
+// executable witness checks keep their existing meaning. No expected value,
+// source text or user wording is interpreted as a requirement type.
+func IsWriteBehaviorSourceOutline(c WriteBehaviorContract) bool {
+	kind := WriteBehaviorContractKind(strings.ToLower(strings.TrimSpace(string(c.Kind))))
+	op := WriteBehaviorOperator(strings.ToLower(strings.TrimSpace(string(c.Operator))))
+	if !WriteBehaviorWitnessSatisfies(kind, WriteBehaviorWitnessSourceText) || (op != "" && op != WriteBehaviorOpSatisfies) ||
+		strings.EqualFold(strings.TrimSpace(string(c.Polarity)), string(WriteBehaviorPolarityObserved)) {
+		return false
+	}
+	if NormalizeWriteRenderedTextPlacement(c.Placement, c.Expected) != nil {
+		return false
+	}
+	if cmp := normalizeWriteBehaviorComparator(c.Comparator, WriteBehaviorOpSatisfies); cmp != nil &&
+		cmp.Subject != "" && cmp.Expected != "" && cmp.EvidenceRef != "" && cmp.Operator != WriteBehaviorOpSatisfies {
+		return false
+	}
+	if transition := NormalizeWriteBehaviorTransition(c.Transition); transition != nil {
+		for _, step := range transition.Steps {
+			if (step.Phase == WriteBehaviorTransitionObservation || step.Phase == WriteBehaviorTransitionPostcondition) && step.EvidenceRef != "" && step.Expected != "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // verificationConfidenceContractCategories are the record categories that
 // speak about behavior contracts by contract_ref. Rendered-text placement
 // records bind placement_refs and stay on their own lane.

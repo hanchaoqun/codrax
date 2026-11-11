@@ -147,6 +147,7 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 type finalizerRepairTeaching struct {
 	draftSystem string
 	patchSystem string
+	history     finalizerRepairHistory
 }
 
 func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
@@ -165,6 +166,15 @@ func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluato
 	out[0].Content = t.patchSystem
 	logging.Debug("[diag finalizer] phase=repair_prompt_budget draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
 		err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(t.patchSystem))
+	if e.finalizerRequestByteError(ctx, out, tools) != nil {
+		if checkpoint := t.history.project(ctx.Mutable, out); checkpoint != nil {
+			before, after := llm.EstimateRequestBytes(out, tools), llm.EstimateRequestBytes(checkpoint, tools)
+			if after < before {
+				logging.Debug("[diag finalizer] phase=repair_generation_budget previous_bytes=%d current_bytes=%d allocation_bytes=%d", before, after, err.AllocatedBytes)
+				return checkpoint
+			}
+		}
+	}
 	return out
 }
 
