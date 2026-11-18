@@ -4006,7 +4006,17 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 	if types.CanonicalToolName(toolName) == "log_query" && !logQueryToolVisible(ctx) {
 		return true
 	}
-	return toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil)
+	if toolName != answerDocumentPatchToolName {
+		return false
+	}
+	// Decided here, where the tool list is built, so the budget plan, the
+	// schema filter and the first request all see the same single catalog.
+	if dispatch, ok := b.eval.(interface {
+		answerPatchOperandHidden(*types.AgentContext) bool
+	}); ok && dispatch.answerPatchOperandHidden(ctx) {
+		return true
+	}
+	return !answerDocumentPatchBaseAvailable(ctx, nil)
 }
 
 func sameStringSlice(a, b []string) bool {
@@ -4654,8 +4664,27 @@ func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContex
 	// 3. Append evaluator instruction (evaluator's dynamic supplement,
 	//    when non-empty; never restates the skill static contract).
 	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_dynamic_instruction")
+	// The lane-matched repair teaching depends only on the assembled prompt
+	// context. Resolving it before the dynamic instruction lets the planner
+	// record its exact saving. Every enforced finalizer dispatch keeps the
+	// attempt history, also when its teaching is not replaceable (a custom
+	// skill or assembler): that text is then never swapped.
+	var repairTeaching *finalizerRepairTeaching
+	if b.finalizerContentBudget && ctx != nil && ctx.Stage == types.StageFinalize &&
+		finalizerRequestBytePolicy(b.deps.AgentSettings) == types.FinalizerRequestByteEnforce {
+		repairTeaching = &finalizerRepairTeaching{}
+		if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && len(messages) > 0 && messages[0].Role == "system" {
+			if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
+				repairTeaching.draftSystem, repairTeaching.patchSystem = messages[0].Content, patch
+			}
+		}
+	}
 	if evaluator, ok := b.eval.(budgetedInitialInstructionEvaluator); ok && b.finalizerContentBudget && ctx != nil && ctx.Stage == types.StageFinalize {
-		instruction := evaluator.BuildInitialInstructionWithBudget(ctx, promptSkill, func() *finalizerPromptBudget { return b.initialFinalizerBudget(ctx, promptSkill, messages) })
+		instruction := evaluator.BuildInitialInstructionWithBudget(ctx, promptSkill, func() *finalizerPromptBudget {
+			budget := b.initialFinalizerBudget(ctx, promptSkill, messages)
+			budget.planRepairFrame(repairTeaching)
+			return budget
+		})
 		if instruction != "" {
 			messages = append(messages, llm.Message{Role: "user", Content: instruction})
 		}
@@ -4663,14 +4692,7 @@ func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContex
 		messages = AppendDynamicInstruction(messages, b.eval, ctx, promptSkill)
 	}
 	stopPreflight()
-	if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && b.finalizerContentBudget &&
-		finalizerRequestBytePolicy(b.deps.AgentSettings) == types.FinalizerRequestByteEnforce &&
-		len(messages) > 0 && messages[0].Role == "system" {
-		if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
-			return messages, &finalizerRepairTeaching{draftSystem: messages[0].Content, patchSystem: patch}
-		}
-	}
-	return messages, nil
+	return messages, repairTeaching
 }
 
 const (

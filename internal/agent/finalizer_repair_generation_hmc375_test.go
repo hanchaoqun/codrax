@@ -44,8 +44,17 @@ func (a *hmc375RepairAdapter) Chat(_ context.Context, messages []llm.Message, sc
 			ID: "full-emit-1", Name: "emit_answer_document", Params: json.RawMessage(`{"blocks":[]}`),
 		}}}, nil
 	case 2:
-		return llm.Response{Content: strings.Repeat("most recent patch attempt notes ", 1600+a.padding), ToolCalls: []llm.ToolCall{{
-			ID: "live-patch-2", Name: "emit_answer_document_patch", Params: json.RawMessage(`{"unchanged_block_ids":["s1"],"replace_blocks":[{"id":"path","kind":"ordered_list","surface_role":"principal","facet_ids":["current_code_path"],"claim_uses":[{"claim_form":"call_edge"}],"items":[{"id":"hop","label":"staged hop requiring a real edge","citation_ref":0}]}]}`),
+		// HMC376 re-base: the padding of the over-limit control used to sit in
+		// this attempt's free text. Free text that accompanies an answer attempt
+		// is now given up before a repair request is refused, so the control puts
+		// its bulk where every repair rung must keep it: the submitted patch
+		// arguments, which also become the staged draft. The assertions below are
+		// unchanged and keep their meaning: a transaction that is still over the
+		// allocation because of content that may not be dropped is neither sent
+		// nor published.
+		label, _ := json.Marshal("staged hop requiring a real edge" + strings.Repeat(" and one more retained clause", a.padding))
+		return llm.Response{Content: strings.Repeat("most recent patch attempt notes ", 1600), ToolCalls: []llm.ToolCall{{
+			ID: "live-patch-2", Name: "emit_answer_document_patch", Params: json.RawMessage(`{"unchanged_block_ids":["s1"],"replace_blocks":[{"id":"path","kind":"ordered_list","surface_role":"principal","facet_ids":["current_code_path"],"claim_uses":[{"claim_form":"call_edge"}],"items":[{"id":"hop","label":` + string(label) + `,"citation_ref":0}]}]}`),
 		}}}, nil
 	default:
 		return llm.Response{}, a.stop

@@ -24,7 +24,10 @@ type budgetedInitialInstructionEvaluator interface {
 // These are local content-byte allocations, not provider token measurements.
 // The soft ratio only sizes optional previews. Required facts may exceed that
 // target. One eighth of the derived byte window is explicitly unallocated for
-// density uncertainty and repair; it is NOT an invented output token limit.
+// density uncertainty only: no request, first or repair, may spend it, and it
+// is NOT an invented output token limit. A repair request is held to the same
+// allocation as the first request, so repair is planned inside the allocation
+// (the Repair* fields below).
 type finalizerPromptBudget struct {
 	Policy                  types.FinalizerRequestBytePolicy `json:"policy"`
 	WindowDerivedBytes      int                              `json:"window_derived_bytes"`
@@ -44,7 +47,31 @@ type finalizerPromptBudget struct {
 	EquivalentGroups        int                              `json:"equivalent_groups_compacted,omitempty"`
 	EquivalentSavedBytes    int                              `json:"equivalent_bytes_saved,omitempty"`
 	NativeLedgerPlan        *finalizerNativeLedgerPlan       `json:"native_ledger_plan,omitempty"`
-	protectedDynamicBytes   int
+	// Planned repair frame, enforce policy only (all zero otherwise). The
+	// envelope is what one repair round is planned to add. The dividend is the
+	// exact static teaching a lane-matched repair request no longer carries;
+	// zero when the teaching is not replaceable. The reserve is what optional
+	// previews and expanded equivalent forms must additionally leave free.
+	// The shortfall says by how much required units already sit inside the
+	// reserve: operator accounting, never a reason to drop a required unit.
+	RepairFrameEnvelopeBytes    int `json:"repair_frame_envelope_bytes"`
+	RepairTeachingDividendBytes int `json:"repair_teaching_dividend_bytes"`
+	RepairFrameReserveBytes     int `json:"repair_frame_reserve_bytes"`
+	RepairFrameShortfallBytes   int `json:"repair_frame_shortfall_bytes"`
+	protectedDynamicBytes       int
+}
+
+// planRepairFrame records the repair plan of one dispatch before its dynamic
+// instruction is built. Byte lengths only; nil-safe for an unknown window.
+func (p *finalizerPromptBudget) planRepairFrame(teaching *finalizerRepairTeaching) {
+	if p == nil || p.Policy != types.FinalizerRequestByteEnforce {
+		return
+	}
+	p.RepairFrameEnvelopeBytes, p.RepairTeachingDividendBytes = p.WindowDerivedBytes/8, 0
+	if teaching != nil && teaching.patchSystem != "" {
+		p.RepairTeachingDividendBytes = max(0, len(teaching.draftSystem)-len(teaching.patchSystem))
+	}
+	p.RepairFrameReserveBytes = max(0, p.RepairFrameEnvelopeBytes-p.RepairTeachingDividendBytes)
 }
 
 // Operator-only accounting for two closed alternatives. These contain no
@@ -110,8 +137,14 @@ func (b *BaseAgent) initialFinalizerBudget(ctx *types.AgentContext, sk *skill.Co
 	return budget
 }
 
+// Optional previews also leave the planned repair reserve free. The reserve
+// never applies to required units or to the dispatch guard.
 func (p *finalizerPromptBudget) optionalFits(nativeBytes int) bool {
-	return p == nil || nativeBytes <= p.OptionalTargetBytes-p.StaticBytes-p.SchemaBytes-p.TailBytes-len("user")-p.protectedDynamicBytes
+	if p == nil {
+		return true
+	}
+	target := min(p.OptionalTargetBytes, p.RequestAllocationBytes-p.RepairFrameReserveBytes)
+	return nativeBytes <= target-p.StaticBytes-p.SchemaBytes-p.TailBytes-len("user")-p.protectedDynamicBytes
 }
 
 func (p *finalizerPromptBudget) requiredFits(nativeBytes int) bool {
@@ -142,37 +175,65 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 }
 
 // finalizerRepairTeaching retains the two representations of the canonical
-// system message. The compact version is request-only: the durable history,
-// original rejected tool call, validation feedback and evidence stay intact.
+// system message and the attempt history of one dispatch. patchSystem is
+// empty when the teaching is not replaceable (a custom skill or assembler);
+// the history still serves that dispatch. Every projection is request-only:
+// the durable history, each submitted tool call, validation feedback and
+// evidence stay intact.
 type finalizerRepairTeaching struct {
 	draftSystem string
 	patchSystem string
 	history     finalizerRepairHistory
 }
 
+// project applies the repair ladder to one request. A request that fits is
+// returned untouched. Each rung runs only when the request is still over the
+// unchanged allocation after the rung before it:
+//
+//  1. lane-matched static teaching (patch-only lane, canonical teaching);
+//  2. the staged-draft checkpoint, where the latest call proves it;
+//  3. the free text that accompanied superseded answer attempts;
+//  4. the free text that accompanied the latest answer attempt.
+//
+// Rungs 3 and 4 apply in every lane and keep every submitted call with its
+// arguments, its paired result and every correction. What is still over the
+// allocation afterwards is refused by the unchanged dispatch guard.
 func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
 	e, ok := eval.(*answerDocumentEvaluator)
-	if !ok || e == nil || ctx == nil || ctx.Mutable == nil ||
-		!(e.preferPatchNext || e.emitFullDocFailStreak >= 2) || e.forceFullEmitNext ||
-		len(tools) != 1 || tools[0].Name != "emit_answer_document_patch" ||
-		len(messages) == 0 || messages[0].Role != "system" || messages[0].Content != t.draftSystem {
+	if !ok || e == nil || ctx == nil || ctx.Mutable == nil || len(messages) == 0 {
 		return messages
 	}
 	err, over := e.finalizerRequestByteError(ctx, messages, tools).(*AnswerContextByteBudgetError)
 	if !over || ctx.Mutable.AnswerDocumentV2() != nil {
 		return messages
 	}
-	out := append([]llm.Message(nil), messages...)
-	out[0].Content = t.patchSystem
-	logging.Debug("[diag finalizer] phase=repair_prompt_budget draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
-		err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(t.patchSystem))
-	if e.finalizerRequestByteError(ctx, out, tools) != nil {
+	out := messages
+	if t.patchSystem != "" && (e.preferPatchNext || e.emitFullDocFailStreak >= 2) && !e.forceFullEmitNext &&
+		len(tools) == 1 && tools[0].Name == answerDocumentPatchToolName &&
+		messages[0].Role == "system" && messages[0].Content == t.draftSystem {
+		out = append([]llm.Message(nil), messages...)
+		out[0].Content = t.patchSystem
+		logging.Debug("[diag finalizer] phase=repair_prompt_budget draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
+			err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(t.patchSystem))
+		if e.finalizerRequestByteError(ctx, out, tools) == nil {
+			return out
+		}
 		if checkpoint := t.history.project(ctx.Mutable, out); checkpoint != nil {
 			before, after := llm.EstimateRequestBytes(out, tools), llm.EstimateRequestBytes(checkpoint, tools)
 			if after < before {
 				logging.Debug("[diag finalizer] phase=repair_generation_budget previous_bytes=%d current_bytes=%d allocation_bytes=%d", before, after, err.AllocatedBytes)
-				return checkpoint
+				out = checkpoint
 			}
+		}
+	}
+	for _, latest := range []bool{false, true} {
+		if e.finalizerRequestByteError(ctx, out, tools) == nil {
+			return out
+		}
+		if projected, removed := t.history.projectFreeText(out, latest); projected != nil {
+			logging.Debug("[diag finalizer] phase=repair_free_text_budget previous_bytes=%d current_bytes=%d allocation_bytes=%d free_text_bytes=%d latest_attempt=%t",
+				llm.EstimateRequestBytes(out, tools), llm.EstimateRequestBytes(projected, tools), err.AllocatedBytes, removed, latest)
+			out = projected
 		}
 	}
 	return out
@@ -278,9 +339,13 @@ func (t *answerDocDynamicTrace) finishBudgeted(base string) string {
 	// Local resource-policy numbers belong to this dispatch and diagnostics,
 	// not answer evidence. Native omissions/completeness/navigation are still
 	// rendered by their actual fact groups, with no operational duplicate.
+	// Equivalent compact forms are lossless, so they also yield to the planned
+	// repair reserve; what required units still occupy of it is only recorded.
 	var instruction string
-	instruction, p.EquivalentGroups, p.EquivalentSavedBytes = compactEquivalentFinalizerSections(out.String(), relocated, p.DynamicAllocatedBytes)
+	planned := p.DynamicAllocatedBytes - p.RepairFrameReserveBytes
+	instruction, p.EquivalentGroups, p.EquivalentSavedBytes = compactEquivalentFinalizerSections(out.String(), relocated, planned)
 	p.DynamicPublishedBytes = len(instruction)
+	p.RepairFrameShortfallBytes = min(p.RepairFrameReserveBytes, max(0, len(instruction)-planned))
 	receipt, _ := json.Marshal(p)
 	logging.Debug("[diag finalizer] phase=prompt_byte_budget receipt=%s", receipt)
 	return instruction

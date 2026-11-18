@@ -34,8 +34,18 @@ func (a *hmc366RepairAdapter) Chat(_ context.Context, msgs []llm.Message, tools 
 	if a.before != nil {
 		a.before()
 	}
-	return llm.Response{Content: strings.Repeat("untrusted draft thought ", 1700), ToolCalls: []llm.ToolCall{{
-		ID: "public-emit-1", Name: "emit_answer_document", Params: json.RawMessage(`{"blocks":[]}`),
+	// HMC376 re-base: the bulk of this rejected attempt used to be its free
+	// text. Free text that accompanies an answer attempt is now given up before
+	// a repair request is refused, so the bulk sits in the submitted arguments,
+	// which every repair rung must keep. The assertions below are unchanged and
+	// keep their meaning: a request that is over the allocation because of
+	// content that may not be dropped is refused, and customer-authored
+	// workflow text is never replaced to make room. A short free text stays so
+	// the canonical lane still pins that lane-matched teaching alone is used
+	// when it is enough.
+	params, _ := json.Marshal(map[string]any{"blocks": []any{}, "caveats": []string{strings.Repeat("untrusted draft premise ", 1700)}})
+	return llm.Response{Content: strings.Repeat("untrusted draft thought ", 100), ToolCalls: []llm.ToolCall{{
+		ID: "public-emit-1", Name: "emit_answer_document", Params: params,
 	}}}, nil
 }
 

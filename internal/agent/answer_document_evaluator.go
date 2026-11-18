@@ -51,6 +51,11 @@ type answerDocumentEvaluator struct {
 	promptBudget        *finalizerPromptBudget
 	pendingPromptBudget func() *finalizerPromptBudget
 	requestBytePolicy   types.FinalizerRequestBytePolicy
+	// dispatchAnswerAttempts counts the answer-tool results this dispatch has
+	// observed for calls its own requests offered. It is the one statement of
+	// "this dispatch's history shows a draft and its feedback": reset with the
+	// dispatch, incremented only from typed tool results, never from text.
+	dispatchAnswerAttempts int
 	// maxRetries caps correction rounds. Set from
 	// AgentSettings.FinalizerMaxCorrectionRetries at construction.
 	maxRetries int
@@ -428,6 +433,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstructionWithBudget(ctx *types.A
 
 func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContext, sk *skill.Config, resolve func() *finalizerPromptBudget) (instruction string) {
 	e.promptBudget = nil
+	e.dispatchAnswerAttempts = 0
 	e.retriesUsed = 0
 	e.proseFallbackRequested = false
 	e.rejectHintsUsed = 0
@@ -15880,6 +15886,11 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 //
 // Filtering preserves orthogonal tools and never mutates the input slice.
 // Debug messages distinguish first-reject, streak, and reserved escape paths.
+//
+// One state is decided earlier, where the patch tool's visibility is built
+// (answerPatchOperandHidden): a dispatch without an answer attempt of its own
+// never receives the patch tool, so this filter and the budget plan both see
+// the complete answer tool alone.
 func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
 	if e == nil {
 		return schemas
@@ -16000,6 +16011,7 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 // continuation cap still applies as an outer safety net.
 func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
+		e.dispatchAnswerAttempts += observedAnswerAttempts(obs)
 		// emit_answer_document is the finalizer's terminal action —
 		// once it fires, stop immediately instead of burning one extra
 		// LLM round that would just produce a content-only soft-stop.
