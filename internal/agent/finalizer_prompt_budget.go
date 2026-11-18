@@ -192,12 +192,16 @@ type finalizerRepairTeaching struct {
 //
 //  1. lane-matched static teaching (patch-only lane, canonical teaching);
 //  2. the staged-draft checkpoint, where the latest call proves it;
-//  3. the free text that accompanied superseded answer attempts;
+//  3. the free text that accompanied superseded answer attempts and calls to
+//     an answer tool the request did not offer;
 //  4. the free text that accompanied the latest answer attempt.
 //
 // Rungs 3 and 4 apply in every lane and keep every submitted call with its
-// arguments, its paired result and every correction. What is still over the
-// allocation afterwards is refused by the unchanged dispatch guard.
+// arguments, its paired result and every correction. They give up the content
+// channel only: reasoning a provider returned on its own channel stays with
+// its tool call, so the request size still grows with that channel. What is
+// still over the allocation afterwards is refused by the unchanged dispatch
+// guard.
 func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
 	e, ok := eval.(*answerDocumentEvaluator)
 	if !ok || e == nil || ctx == nil || ctx.Mutable == nil || len(messages) == 0 {

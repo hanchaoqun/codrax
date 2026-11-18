@@ -3196,7 +3196,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		}
 		if repairTeaching != nil && toolBatchGuardHint == "" && len(currentMCPResponses) == 0 {
-			repairTeaching.history.observe(ctx.Mutable, messages, answerAttemptStart, answerAttemptHint, currentToolResults)
+			surface := LoopObservation{ToolSurfaceKnown: true, AvailableToolNames: effectiveToolNames}
+			repairTeaching.history.observe(ctx.Mutable, messages, answerAttemptStart, answerAttemptHint, currentToolResults, surface.ToolAvailable)
 		}
 	}
 

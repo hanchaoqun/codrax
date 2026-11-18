@@ -16046,6 +16046,12 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		if sig := e.memberSetCoverageRejectBreakerSignal(obs); sig.StopRequested {
 			return sig
 		}
+		// A patch call the request did not offer never reached the patch
+		// tool. It starts no patch lane: no latch, no patch preference and
+		// no patch correction. Its own result names the offered tools.
+		if answerPatchCallNotOffered(obs) {
+			return LoopSignal{}
+		}
 		if sig := e.emitSwitchToPatchSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}

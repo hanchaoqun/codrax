@@ -290,7 +290,7 @@ func TestHMC376SealedRepairNumbersReplay(t *testing.T) {
 					corrected = len(messages)
 					messages = append(messages, llm.Message{Role: "user", Content: pad(r.hint)})
 				}
-				teaching.history.observe(mutable, messages, start, corrected, []types.ToolResult{{ToolName: r.tool, Repair: &types.ToolRepair{}}})
+				teaching.history.observe(mutable, messages, start, corrected, []types.ToolResult{{ToolName: r.tool, Repair: &types.ToolRepair{}}}, nil)
 				superseded, latest = superseded+latest, r.freeText
 			}
 			// Whatever the logged request carried beyond these units is its

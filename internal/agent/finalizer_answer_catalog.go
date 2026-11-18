@@ -11,10 +11,18 @@ func isAnswerDocumentTool(name string) bool {
 	return name == answerDocumentToolName || name == answerDocumentPatchToolName
 }
 
-// observedAnswerAttempts counts the answer-tool results of one observed tool
-// batch. A call to a tool the request did not offer never reached that tool:
-// it submitted nothing a validator saw, so it is not an attempt. Direct
-// callers that report only the last result are counted from it.
+// answerAttemptResult is the one definition of an answer attempt: the result of
+// an answer-tool call the request offered. A call to a tool the request did
+// not offer never reached that tool: it submitted nothing a validator saw. The
+// dispatch counter, the repair history and the patch-lane signals all read
+// this same typed surface test. A nil test is an unknown surface (a direct
+// caller), which is not evidence that a tool was unavailable.
+func answerAttemptResult(toolName string, offered func(string) bool) bool {
+	return isAnswerDocumentTool(toolName) && (offered == nil || offered(toolName))
+}
+
+// observedAnswerAttempts counts the answer attempts of one observed tool
+// batch. Direct callers that report only the last result are counted from it.
 func observedAnswerAttempts(obs LoopObservation) int {
 	results := obs.CurrentToolResults
 	if len(results) == 0 && obs.LastToolResult != nil {
@@ -22,11 +30,20 @@ func observedAnswerAttempts(obs LoopObservation) int {
 	}
 	attempts := 0
 	for _, result := range results {
-		if isAnswerDocumentTool(result.ToolName) && obs.ToolAvailable(result.ToolName) {
+		if answerAttemptResult(result.ToolName, obs.ToolAvailable) {
 			attempts++
 		}
 	}
 	return attempts
+}
+
+// answerPatchCallNotOffered reports that the last observed result belongs to a
+// patch call the request did not offer. There is no patch transaction to
+// correct and no patch lane to continue: the result of that call already names
+// the tools the request offers, and it is the only correction.
+func answerPatchCallNotOffered(obs LoopObservation) bool {
+	return obs.LastToolResult != nil && obs.LastToolResult.ToolName == answerDocumentPatchToolName &&
+		!answerAttemptResult(answerDocumentPatchToolName, obs.ToolAvailable)
 }
 
 // retryStateRendersPreviousEmit reports whether the dynamic instruction of this
@@ -45,10 +62,14 @@ func retryStateRendersPreviousEmit(rs *types.RetryState) bool {
 // second answer tool. Typed dispatch state only — no request, model or
 // validator text is read.
 //
-// No in-dispatch counterpart is needed: once a dispatch has an attempt of its
-// own and a patch base exists, every rejection of a single answer call already
-// selects the patch tool alone for the next request, so two answer catalogs are
-// never published beside a recorded attempt.
+// No in-dispatch catalog choice is implemented. After a response that carried
+// a single answer call, a patch base and a rejection already select the patch
+// tool alone for the next request. The known exception is a response that
+// carried an answer call and also called a tool the stage does not offer: its
+// correction asks for the complete answer tool by name, so publishing the patch
+// catalog alone would contradict it. The next request keeps both answer tools,
+// that response is not recorded for the free-text rungs, and a request over the
+// allocation is refused as before.
 func (e *answerDocumentEvaluator) answerPatchOperandHidden(ctx *types.AgentContext) bool {
 	if e == nil || ctx == nil || ctx.Mutable == nil || ctx.Stage != types.StageFinalize || e.mu != ctx.Mutable {
 		return false

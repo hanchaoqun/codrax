@@ -18,9 +18,16 @@ type finalizerRepairAttempt struct {
 
 // finalizerAnswerCall is the recorded identity of one observed answer
 // exchange: the assistant message that carried exactly this one answer-tool
-// call, immediately followed by its result.
+// call, immediately followed by its result. occurrence is the call's place in
+// the conversation among all tool calls that carry the same id: an id alone
+// does not name a call, because calls recovered from assistant content are
+// numbered per response. attempt says the request offered that tool, so the
+// result is the tool's own outcome; a call to an answer tool the request did
+// not offer is recorded too, but it is never the latest attempt.
 type finalizerAnswerCall struct {
-	id, name string
+	id, name   string
+	occurrence int
+	attempt    bool
 }
 
 type finalizerRepairHistory struct {
@@ -33,9 +40,10 @@ type finalizerRepairHistory struct {
 	calls []finalizerAnswerCall
 }
 
-func (h *finalizerRepairHistory) observe(mut *types.MutableState, messages []llm.Message, start, hint int, results []types.ToolResult) {
+func (h *finalizerRepairHistory) observe(mut *types.MutableState, messages []llm.Message, start, hint int, results []types.ToolResult, offered func(string) bool) {
 	h.validatedBase = nil
 	if call, ok := observedAnswerCall(messages, start, results); ok {
+		call.attempt = answerAttemptResult(call.name, offered)
 		h.calls = append(h.calls, call)
 	}
 	if mut == nil || len(results) != 1 || results[0].Success || results[0].Repair == nil || len(results[0].OptionalCarrierOutcomes) != 0 || start < 0 || start+1 >= len(messages) {
@@ -148,6 +156,13 @@ func observedAnswerCall(messages []llm.Message, start int, results []types.ToolR
 	if call.id == "" || call.name != results[0].ToolName || !isAnswerDocumentTool(call.name) || !call.pairedAt(messages, start) {
 		return finalizerAnswerCall{}, false
 	}
+	for _, m := range messages[:start] {
+		for _, c := range m.ToolCalls {
+			if c.ID == call.id {
+				call.occurrence++
+			}
+		}
+	}
 	return call, true
 }
 
@@ -162,45 +177,60 @@ func (c finalizerAnswerCall) pairedAt(messages []llm.Message, i int) bool {
 }
 
 // projectFreeText stops re-sending the free text that accompanied recorded
-// answer attempts: every one except the latest, or all of them when
-// includeLatest is set. An attempt is addressed by its recorded call identity,
-// never by the wording of a message, so it also applies after the staged-draft
-// checkpoint has moved positions; an attempt that checkpoint already replaced
-// is simply absent. The call, its arguments, its paired result and every
-// correction stay. Any other mismatch (an identity owned or answered more
-// than once, a result that no longer follows its call, content parts, a
-// missing latest attempt) means no projection at all.
+// answer exchanges: every one except the latest attempt, or all of them when
+// includeLatest is set. An exchange is addressed by its position in the
+// conversation: the owner of its id at its recorded occurrence, which must be
+// one answer call directly followed by its result, without content parts. The
+// wording of a message is never read. The staged-draft checkpoint only replaces
+// exchanges whose id is unique, so it moves no occurrence; an exchange it
+// replaced is simply absent. The call, its arguments, its paired result and
+// every correction stay.
+//
+// A call whose pairing cannot be proven is left out and keeps its free text;
+// the other calls are still projected. That covers a call that is no longer
+// paired in place, and every call of an id that lost a recorded occurrence or
+// whose owners and results no longer balance. The last recorded exchange must
+// be present: without it the request is not the conversation that was recorded,
+// and nothing is projected.
 //
 // Only the content channel is dropped. Reasoning a provider returned on its
 // own channel stays with its tool call: a provider in native thinking mode may
 // reject a tool-call turn whose reasoning is not echoed back, whereas an
 // assistant tool-call message with empty content is a shape the loop already
-// sends.
+// sends. A request that is over the allocation because of that channel is
+// therefore still refused.
 func (h *finalizerRepairHistory) projectFreeText(messages []llm.Message, includeLatest bool) ([]llm.Message, int) {
-	if len(h.calls) == 0 || (!includeLatest && len(h.calls) < 2) {
+	if len(h.calls) == 0 {
 		return nil, 0
 	}
-	owners, responses, position := map[string]int{}, map[string]int{}, map[string]int{}
+	owners, responses := map[string][]int{}, map[string]int{}
 	for i, m := range messages {
 		for _, c := range m.ToolCalls {
-			owners[c.ID]++
-			position[c.ID] = i
+			owners[c.ID] = append(owners[c.ID], i)
 		}
 		if m.ToolCallID != "" {
 			responses[m.ToolCallID]++
 		}
 	}
-	var out []llm.Message
-	removed, last := 0, len(h.calls)-1
+	if last := h.calls[len(h.calls)-1]; last.occurrence >= len(owners[last.id]) {
+		return nil, 0
+	}
+	latest, expected := -1, map[string]int{}
 	for n, call := range h.calls {
-		if n != last && owners[call.id] == 0 && responses[call.id] == 0 {
+		if call.attempt {
+			latest = n
+		}
+		expected[call.id] = max(expected[call.id], call.occurrence+1)
+	}
+	var out []llm.Message
+	removed := 0
+	for n, call := range h.calls {
+		at := owners[call.id]
+		if len(at) < expected[call.id] || responses[call.id] != len(at) || !call.pairedAt(messages, at[call.occurrence]) {
 			continue
 		}
-		i := position[call.id]
-		if owners[call.id] != 1 || responses[call.id] != 1 || !call.pairedAt(messages, i) {
-			return nil, 0
-		}
-		if (n == last && !includeLatest) || messages[i].Content == "" {
+		i := at[call.occurrence]
+		if (n == latest && !includeLatest) || messages[i].Content == "" {
 			continue
 		}
 		if out == nil {

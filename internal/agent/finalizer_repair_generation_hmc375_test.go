@@ -139,7 +139,7 @@ func TestHMC375RepairHistoryNeedsExactWholeDraftAndPairedResults(t *testing.T) {
 			if mode == "optional outcome" {
 				first.OptionalCarrierOutcomes = []types.OptionalCarrierOutcome{{}}
 			}
-			history.observe(m, messages, 1, -1, []types.ToolResult{first})
+			history.observe(m, messages, 1, -1, []types.ToolResult{first}, nil)
 			latestID := "new"
 			if mode == "duplicate id" {
 				latestID = "old"
@@ -154,7 +154,7 @@ func TestHMC375RepairHistoryNeedsExactWholeDraftAndPairedResults(t *testing.T) {
 			if mode == "dependency stage" {
 				delete(latest.Repair.Metadata, types.ToolRepairMetaAnswerDocumentPatchFullyRevalidated)
 			}
-			history.observe(m, messages, 3, -1, []types.ToolResult{latest})
+			history.observe(m, messages, 3, -1, []types.ToolResult{latest}, nil)
 			surface := llm.Message{Role: "system", Content: "exact current tool surface"}
 			messages = append(messages, surface)
 			switch mode {

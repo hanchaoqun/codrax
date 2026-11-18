@@ -23,8 +23,9 @@ func hmc376Rejected(name string) []types.ToolResult {
 }
 
 // hmc376History records three answer attempts the way the loop does: each
-// exchange is observed right after its own correction was appended.
-func hmc376History(t *testing.T, change func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult)) (*finalizerRepairHistory, []llm.Message) {
+// exchange is observed right after its own correction was appended. unoffered
+// lists the exchanges whose request did not offer the tool that was called.
+func hmc376History(t *testing.T, change func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult), unoffered ...int) (*finalizerRepairHistory, []llm.Message) {
 	t.Helper()
 	mutable := types.NewMutableState("question stays byte-exact")
 	history := &finalizerRepairHistory{}
@@ -39,7 +40,13 @@ func hmc376History(t *testing.T, change func(n int, exchange []llm.Message, resu
 		start := len(messages)
 		messages = append(messages, exchange...)
 		if results != nil {
-			history.observe(mutable, messages, start, start+2, results)
+			surface := LoopObservation{ToolSurfaceKnown: true, AvailableToolNames: map[string]bool{hmc376Full: true, hmc376Patch: true}}
+			for _, index := range unoffered {
+				if index == n {
+					surface.AvailableToolNames = map[string]bool{"another_tool": true}
+				}
+			}
+			history.observe(mutable, messages, start, start+2, results, surface.ToolAvailable)
 		}
 	}
 	return history, append(messages, llm.Message{Role: "system", Content: "current tool surface"})
@@ -60,48 +67,118 @@ func hmc376Remove(messages []llm.Message, id string) []llm.Message {
 }
 
 // Every precondition of the free-text rungs is structural. Each row changes
-// one of them; cleared lists the call identities whose free text is dropped
-// (nil means no projection at all).
+// one of them; supersede and all list the call identities whose free text is
+// dropped (nil means no message is changed). A call whose pairing is not proven
+// keeps its free text and the other calls are still projected, so one such call
+// cannot switch the rungs off for the whole request. kept names free text that
+// must survive both rungs.
 func TestHMC376RepairFreeTextNeedsPairedRecordedAttempts(t *testing.T) {
 	cases := []struct {
 		name      string
 		record    func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult)
+		unoffered []int
 		request   func(messages []llm.Message) []llm.Message
 		recorded  []string
 		supersede []string
 		all       []string
+		kept      []string
 	}{
 		{name: "recorded attempts", recorded: []string{"one", "two", "three"}, supersede: []string{"one", "two"}, all: []string{"one", "two", "three"}},
+		// A call the request did not offer submitted nothing: it is never the
+		// latest attempt, and its free text goes with the superseded ones.
+		{name: "call the request did not offer is not the latest attempt", unoffered: []int{2},
+			recorded: []string{"one", "two", "three"}, supersede: []string{"one", "three"}, all: []string{"one", "two", "three"}},
+		{name: "unoffered call between two attempts", unoffered: []int{1},
+			recorded: []string{"one", "two", "three"}, supersede: []string{"one", "two"}, all: []string{"one", "two", "three"}},
+		{name: "no call was offered", unoffered: []int{0, 1, 2},
+			recorded: []string{"one", "two", "three"}, supersede: []string{"one", "two", "three"}, all: []string{"one", "two", "three"}},
 		{name: "single attempt", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
 			if n > 0 {
 				return nil, nil
 			}
 			return exchange, results
 		}, recorded: []string{"one"}, supersede: nil, all: []string{"one"}},
-		{name: "duplicate call identity", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+		// An identity that several calls share (an adapter that numbers recovered
+		// calls per response, a provider that reuses identities) is resolved by
+		// each call's position in the conversation. The latest attempt keeps its
+		// free text although an earlier call has its identity.
+		{name: "repeated call identity is paired by position", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
 			if n == 2 {
 				exchange[0].ToolCalls[0].ID, exchange[1].ToolCallID = "one", "one"
 			}
 			return exchange, results
-		}, recorded: []string{"one", "two", "one"}},
+		}, recorded: []string{"one", "two", "one"}, supersede: []string{"one", "two"}, all: []string{"one", "two", "one"}},
+		{name: "every call has the same identity", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			exchange[0].ToolCalls[0].ID, exchange[1].ToolCallID = "same", "same"
+			return exchange, results
+		}, recorded: []string{"same", "same", "same"}, supersede: []string{"same", "same"}, all: []string{"same", "same", "same"}},
+		{name: "repeated identity also owned by a call that was not recorded", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			if n == 1 {
+				// One response with two calls is not recorded, yet it owns "one".
+				exchange[0].ToolCalls = []llm.ToolCall{{ID: "one", Name: hmc376Patch}, {ID: "other", Name: "read_file"}}
+				exchange[1].ToolCallID = "one"
+				results = append(results, types.ToolResult{ToolName: "read_file"})
+			}
+			return exchange, results
+		}, recorded: []string{"one", "three"}, supersede: []string{"one"}, all: []string{"one", "three"}, kept: []string{"SECOND free text"}},
+		{name: "recorded call follows an unrecorded owner of its identity", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			if n == 0 {
+				exchange[0].ToolCalls = []llm.ToolCall{{ID: "two", Name: hmc376Patch}, {ID: "other", Name: "read_file"}}
+				exchange[1].ToolCallID = "two"
+				results = append(results, types.ToolResult{ToolName: "read_file"})
+			}
+			return exchange, results
+		}, recorded: []string{"two", "three"}, supersede: []string{"two"}, all: []string{"two", "three"}, kept: []string{"FIRST free text"}},
+		{name: "repeated identity with a recorded call removed from the request", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			if n == 1 {
+				exchange[0].ToolCalls[0].ID, exchange[1].ToolCallID = "one", "one"
+			}
+			return exchange, results
+		}, request: func(messages []llm.Message) []llm.Message {
+			return append(append([]llm.Message(nil), messages[:3]...), messages[6:]...)
+		}, recorded: []string{"one", "one", "three"}, all: []string{"three"}, kept: []string{"SECOND free text"}},
+		// The same tool at both occurrences: only the recorded occurrence can
+		// tell that the remaining message is not the first call.
+		{name: "repeated identity of one tool with its first call removed", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			if n == 1 {
+				exchange[0].ToolCalls[0].ID, exchange[1].ToolCallID = "one", "one"
+				exchange[0].ToolCalls[0].Name, results[0].ToolName = hmc376Full, hmc376Full
+			}
+			return exchange, results
+		}, request: func(messages []llm.Message) []llm.Message {
+			return append(append([]llm.Message(nil), messages[:3]...), messages[6:]...)
+		}, recorded: []string{"one", "one", "three"}, all: []string{"three"}, kept: []string{"SECOND free text"}},
+		{name: "repeated identity answered once too often", record: func(n int, exchange []llm.Message, results []types.ToolResult) ([]llm.Message, []types.ToolResult) {
+			if n == 1 {
+				exchange[0].ToolCalls[0].ID, exchange[1].ToolCallID = "one", "one"
+			}
+			return exchange, results
+		}, request: func(messages []llm.Message) []llm.Message {
+			return append(append([]llm.Message(nil), messages...), llm.Message{Role: "tool", ToolCallID: "one", Content: "third answer"})
+		}, recorded: []string{"one", "one", "three"}, all: []string{"three"}, kept: []string{"FIRST free text", "SECOND free text"}},
 		{name: "result no longer follows its call", request: func(messages []llm.Message) []llm.Message {
 			out := append([]llm.Message(nil), messages[:4]...)
 			out = append(out, llm.Message{Role: "user", Content: "inserted between a call and its result"})
 			return append(out, messages[4:]...)
-		}, recorded: []string{"one", "two", "three"}},
+		}, recorded: []string{"one", "two", "three"}, supersede: []string{"two"}, all: []string{"two", "three"}, kept: []string{"FIRST free text"}},
+		{name: "result of the latest attempt no longer follows its call", request: func(messages []llm.Message) []llm.Message {
+			out := append([]llm.Message(nil), messages[:10]...)
+			out = append(out, llm.Message{Role: "user", Content: "inserted between a call and its result"})
+			return append(out, messages[10:]...)
+		}, recorded: []string{"one", "two", "three"}, supersede: []string{"one", "two"}, all: []string{"one", "two"}, kept: []string{"THIRD free text"}},
 		{name: "identity answered twice", request: func(messages []llm.Message) []llm.Message {
 			return append(append([]llm.Message(nil), messages...), llm.Message{Role: "tool", ToolCallID: "two", Content: "second answer"})
-		}, recorded: []string{"one", "two", "three"}},
+		}, recorded: []string{"one", "two", "three"}, supersede: []string{"one"}, all: []string{"one", "three"}, kept: []string{"SECOND free text"}},
 		{name: "content parts", request: func(messages []llm.Message) []llm.Message {
 			out := append([]llm.Message(nil), messages...)
 			out[3].ContentParts = []llm.ContentPart{{Type: "text", Text: "part"}}
 			return out
-		}, recorded: []string{"one", "two", "three"}},
+		}, recorded: []string{"one", "two", "three"}, supersede: []string{"two"}, all: []string{"two", "three"}, kept: []string{"FIRST free text"}},
 		{name: "renamed call", request: func(messages []llm.Message) []llm.Message {
 			out := append([]llm.Message(nil), messages...)
 			out[3].ToolCalls = []llm.ToolCall{{ID: "one", Name: "read_file", Params: messages[3].ToolCalls[0].Params}}
 			return out
-		}, recorded: []string{"one", "two", "three"}},
+		}, recorded: []string{"one", "two", "three"}, supersede: []string{"two"}, all: []string{"two", "three"}, kept: []string{"FIRST free text"}},
 		{name: "latest attempt missing", request: func(messages []llm.Message) []llm.Message { return hmc376Remove(messages, "three") },
 			recorded: []string{"one", "two", "three"}},
 		{name: "attempt already replaced by the staged-draft checkpoint", request: func(messages []llm.Message) []llm.Message { return hmc376Remove(messages, "one") },
@@ -135,7 +212,7 @@ func TestHMC376RepairFreeTextNeedsPairedRecordedAttempts(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			history, messages := hmc376History(t, c.record)
+			history, messages := hmc376History(t, c.record, c.unoffered...)
 			var recorded []string
 			for _, call := range history.calls {
 				recorded = append(recorded, call.id)
@@ -181,6 +258,12 @@ func TestHMC376RepairFreeTextNeedsPairedRecordedAttempts(t *testing.T) {
 				if !reflect.DeepEqual(cleared, mode.want) || removed != bytes {
 					t.Fatalf("latest=%t: cleared %v (%d bytes reported, %d observed), want %v", mode.latest, cleared, removed, bytes, mode.want)
 				}
+				raw, _ := json.Marshal(got)
+				for _, text := range c.kept {
+					if !strings.Contains(string(raw), text) {
+						t.Fatalf("latest=%t: %q was given up for a call whose pairing is not proven", mode.latest, text)
+					}
+				}
 			}
 		})
 	}
@@ -217,7 +300,7 @@ func (l hmc376Ladder) run(t *testing.T, allocation int) (before, after []llm.Mes
 	for _, id := range []string{"one", "two", "three"} {
 		start := len(messages)
 		messages = append(messages, hmc376Exchange(id, hmc376Patch, strings.Repeat(id[:1], 200))...)
-		teaching.history.observe(mutable, messages, start, start+2, hmc376Rejected(hmc376Patch))
+		teaching.history.observe(mutable, messages, start, start+2, hmc376Rejected(hmc376Patch), nil)
 	}
 	if l.accepted {
 		mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "accepted", Kind: types.BlockSummary, Text: "accepted answer"}}})
@@ -375,6 +458,37 @@ func TestHMC376AnswerPatchOperandAndAttemptCountControls(t *testing.T) {
 		if got := observedAnswerAttempts(c.obs); got != c.want {
 			t.Errorf("%s: counted %d", c.name, got)
 		}
+	}
+	// The patch-lane signals read the same surface test. A patch result for a
+	// call the request did not offer starts no patch lane; an offered call, and
+	// a direct caller that reports no surface, keep the lane as before.
+	for _, c := range []struct {
+		name    string
+		known   bool
+		surface map[string]bool
+		lane    bool
+	}{
+		{"patch tool not offered", true, map[string]bool{hmc376Full: true}, false},
+		{"patch tool offered", true, map[string]bool{hmc376Full: true, hmc376Patch: true}, true},
+		{"surface not reported", false, nil, true},
+	} {
+		state := types.NewMutableState("question")
+		state.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+		local := &types.AgentContext{Stage: types.StageFinalize, Mutable: state}
+		lane := &answerDocumentEvaluator{mu: state}
+		result := rejected(hmc376Patch)
+		signal := lane.Observe(local, LoopObservation{Phase: PhaseMidLoop, LastToolResult: &result, CurrentToolResults: []types.ToolResult{result},
+			ToolSurfaceKnown: c.known, AvailableToolNames: c.surface})
+		if signal.HintRequested != c.lane || lane.preferPatchNext != c.lane || lane.emitPatchNudgeFired != c.lane || (lane.dispatchAnswerAttempts == 1) != c.lane {
+			t.Errorf("%s: correction=%t patch preference=%t patch latch=%t attempts=%d", c.name, signal.HintRequested, lane.preferPatchNext, lane.emitPatchNudgeFired, lane.dispatchAnswerAttempts)
+		}
+		if !c.lane && (signal != LoopSignal{} || lane.rejectHintsUsed != 0) {
+			t.Errorf("%s: an unoffered call produced a signal or used a correction: %+v", c.name, signal)
+		}
+	}
+	if answerPatchCallNotOffered(LoopObservation{ToolSurfaceKnown: true, AvailableToolNames: offered}) ||
+		answerPatchCallNotOffered(LoopObservation{LastToolResult: &types.ToolResult{ToolName: hmc376Full}, ToolSurfaceKnown: true, AvailableToolNames: map[string]bool{hmc376Patch: true}}) {
+		t.Error("only a patch result can be an unoffered patch call")
 	}
 	e := &answerDocumentEvaluator{mu: mutable, dispatchAnswerAttempts: 3}
 	e.Observe(ctx, LoopObservation{Phase: PhaseSoftStop, CurrentToolResults: []types.ToolResult{rejected(hmc376Full)}})

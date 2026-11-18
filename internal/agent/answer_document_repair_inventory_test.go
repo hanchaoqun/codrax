@@ -75,13 +75,22 @@ func TestAnswerRepairActualFinalizerRequestAfterRejectedPatch(t *testing.T) {
 	mut := types.NewMutableState("show records")
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "summary-1", Kind: types.BlockTable, Items: []types.AnswerBlockItem{{Text: "kept"}}}}}
 	mut.SetLastRejectedAnswerDocumentV2(doc)
+	// The retry lane restates the earlier draft, so the first request offers the
+	// patch tool and the rejected call below is a real patch attempt.
+	previous, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mut.SetRetryState(&types.RetryState{Attempt: 1, PrevEmitJSON: previous, PrevEmitSummary: types.RetryStateSummary{
+		BlockSummaries: []types.RetryBlockSummary{{ID: "summary-1", Kind: types.BlockTable, TextPreview: "kept"}},
+	}})
 	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut, AnalysisIR: &types.AnalysisIR{}}
 	reg := tool.NewRegistry()
 	reg.Register(&tool.EmitAnswerDocument{})
 	reg.Register(&tool.EmitAnswerDocumentPatch{})
 	adapter := &countRepairMessageCapture{traceTeachingCaptureLLM: traceTeachingCaptureLLM{stop: errors.New("captured actual repair request")}}
 	finalizer := NewFinalizerAgent(&Dependencies{LLM: adapter, Tools: reg, MaxIterations: 3})
-	_, err := finalizer.Execute(ctx, traceTeachingSkill(t, "answer-document-skill"))
+	_, err = finalizer.Execute(ctx, traceTeachingSkill(t, "answer-document-skill"))
 	if !errors.Is(err, adapter.stop) || adapter.round != 2 {
 		t.Fatalf("expected actual second request, round=%d err=%v", adapter.round, err)
 	}

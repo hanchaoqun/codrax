@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -520,22 +521,308 @@ func TestHMC376FinalizerPublicAttemptCountIsPerDispatch(t *testing.T) {
 }
 
 // A call to a tool the request did not offer submitted nothing: the dispatch
-// still has no attempt of its own and keeps its single answer tool.
+// still has no attempt of its own and keeps its single answer tool on every
+// later request. The result of that call names the offered tool and is the
+// only correction: nothing asks for a tool the request does not offer.
 func TestHMC376FinalizerPublicUnofferedPatchCallIsNotAnAttempt(t *testing.T) {
-	stop := errors.New("second request reached the adapter")
-	got := hmc376Run{window: 1_000_000, iterations: 2, before: func(mutable *types.MutableState) {
-		mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+	stop := errors.New("fourth request reached the adapter")
+	inherit := func(mutable *types.MutableState) { mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft()) }
+	got := hmc376Run{window: 1_000_000, iterations: 4, before: inherit, script: func(n int, _ *types.MutableState) (llm.Response, error) {
+		if n > 3 {
+			return llm.Response{}, stop
+		}
+		return llm.Response{ToolCalls: []llm.ToolCall{hmc376UnstagedPatch("unoffered-"+strconv.Itoa(n), "guess")}}, nil
+	}}.execute(t)
+	if !errors.Is(got.err, stop) || len(got.adapter.messages) != 4 {
+		t.Fatalf("fixture: calls=%d err=%v", len(got.adapter.messages), got.err)
+	}
+	if got.eval.dispatchAnswerAttempts != 0 || got.eval.preferPatchNext || got.eval.emitPatchNudgeFired || got.eval.rejectHintsUsed != 0 {
+		t.Fatalf("an unoffered call changed the dispatch: attempts=%d patch preference=%t patch latch=%t corrections=%d",
+			got.eval.dispatchAnswerAttempts, got.eval.preferPatchNext, got.eval.emitPatchNudgeFired, got.eval.rejectHintsUsed)
+	}
+	initial := len(got.adapter.messages[0])
+	for request := 1; request < 4; request++ {
+		if !reflect.DeepEqual(got.adapter.names(request), []string{hmc376Full}) {
+			t.Fatalf("request %d tools=%v", request+1, got.adapter.names(request))
+		}
+		results := 0
+		for _, message := range got.adapter.messages[request][initial:] {
+			switch message.Role {
+			case "assistant":
+			case "tool":
+				results++
+				if !strings.Contains(strings.ReplaceAll(message.Content, hmc376Patch, ""), hmc376Full) {
+					t.Fatalf("request %d: the result of the unoffered call does not name the offered tool: %q", request+1, message.Content)
+				}
+			default:
+				if strings.Contains(message.Content, hmc376Patch) {
+					t.Fatalf("request %d: a %s message names a tool the request does not offer: %q", request+1, message.Role, message.Content)
+				}
+			}
+		}
+		if results != request {
+			t.Fatalf("request %d carries %d results", request+1, results)
+		}
+	}
+
+	// Control: where the request offers the patch tool, a rejected patch call is
+	// an attempt and keeps its patch correction and the patch lane.
+	previous, _ := json.Marshal(hmc376Draft())
+	offered := hmc376Run{window: 1_000_000, iterations: 2, before: func(mutable *types.MutableState) {
+		inherit(mutable)
+		mutable.SetRetryState(&types.RetryState{Attempt: 1, PrevEmitJSON: previous, PrevEmitSummary: types.RetryStateSummary{
+			BlockSummaries: []types.RetryBlockSummary{{ID: "s1", Kind: types.BlockSummary, TextPreview: hmc376Draft().Blocks[0].Text}}, CitationsCount: 1,
+		}})
 	}, script: func(n int, _ *types.MutableState) (llm.Response, error) {
 		if n != 1 {
 			return llm.Response{}, stop
 		}
-		return llm.Response{ToolCalls: []llm.ToolCall{hmc376UnstagedPatch("unoffered-1", "guess")}}, nil
+		return llm.Response{ToolCalls: []llm.ToolCall{hmc376UnstagedPatch("offered-1", "guess")}}, nil
 	}}.execute(t)
-	if !errors.Is(got.err, stop) || len(got.adapter.messages) != 2 {
-		t.Fatalf("fixture: calls=%d err=%v", len(got.adapter.messages), got.err)
+	if !errors.Is(offered.err, stop) || len(offered.adapter.messages) != 2 || !reflect.DeepEqual(offered.adapter.names(0), []string{hmc376Full, hmc376Patch}) {
+		t.Fatalf("control fixture: calls=%d err=%v", len(offered.adapter.messages), offered.err)
 	}
-	if got.eval.dispatchAnswerAttempts != 0 || !reflect.DeepEqual(got.adapter.names(1), []string{hmc376Full}) {
-		t.Fatalf("an unoffered call changed the dispatch: attempts=%d tools=%v", got.eval.dispatchAnswerAttempts, got.adapter.names(1))
+	if offered.eval.dispatchAnswerAttempts != 1 || !offered.eval.preferPatchNext || !reflect.DeepEqual(offered.adapter.names(1), []string{hmc376Patch}) {
+		t.Fatalf("an offered patch call must stay on the patch lane: attempts=%d tools=%v", offered.eval.dispatchAnswerAttempts, offered.adapter.names(1))
+	}
+	corrected := false
+	for _, message := range offered.adapter.messages[1][len(offered.adapter.messages[0]):] {
+		corrected = corrected || (message.Role == "user" && strings.Contains(message.Content, hmc376Patch))
+	}
+	if !corrected {
+		t.Fatal("an offered patch call lost its patch correction")
+	}
+}
+
+// A call to a tool the request did not offer is not an attempt. Its free text
+// is given up with the superseded ones; the latest attempt that reached a
+// validator keeps its own until the last rung.
+func TestHMC376FinalizerPublicUnofferedCallIsNotTheLatestAttempt(t *testing.T) {
+	stop := errors.New("third request reached the adapter")
+	unoffered := hmc376Notes("UNOFFERED", 800)
+	run := func(window int) hmc376Result {
+		return hmc376Run{window: window, iterations: 3, script: func(n int, mutable *types.MutableState) (llm.Response, error) {
+			switch n {
+			case 1:
+				mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+				return llm.Response{Content: hmc376Notes("ATTEMPT", 2600), ToolCalls: []llm.ToolCall{{ID: "full-1", Name: hmc376Full, Params: json.RawMessage(`{"blocks":[]}`)}}}, nil
+			case 2:
+				// This request offers the patch tool alone.
+				return llm.Response{Content: unoffered, ToolCalls: []llm.ToolCall{{ID: "full-2", Name: hmc376Full, Params: json.RawMessage(`{"blocks":[],"caveats":["never submitted"]}`)}}}, nil
+			default:
+				return llm.Response{}, stop
+			}
+		}}.execute(t)
+	}
+	wide := run(1_000_000)
+	if !errors.Is(wide.err, stop) || len(wide.adapter.messages) != 3 || wide.eval.dispatchAnswerAttempts != 1 ||
+		!reflect.DeepEqual(wide.adapter.names(1), []string{hmc376Patch}) || !reflect.DeepEqual(wide.adapter.names(2), []string{hmc376Patch}) {
+		t.Fatalf("fixture must record one attempt and one unoffered call: calls=%d attempts=%d err=%v", len(wide.adapter.messages), wide.eval.dispatchAnswerAttempts, wide.err)
+	}
+	// Room for the last request once the lane-matched teaching is in use and
+	// one free text is given up: the one of the unoffered call is enough.
+	window := hmc376Window(wide.adapter.size(2) - wide.budget.RepairTeachingDividendBytes - len(unoffered) + 2000)
+	allocation := hmc376Allocation(window)
+	if allocation < wide.adapter.size(0) || allocation >= wide.adapter.size(2)-wide.budget.RepairTeachingDividendBytes {
+		t.Fatalf("fixture: allocation=%d first=%d last=%d dividend=%d", allocation, wide.adapter.size(0), wide.adapter.size(2), wide.budget.RepairTeachingDividendBytes)
+	}
+	tight := run(window)
+	var refused *AnswerContextByteBudgetError
+	if errors.As(tight.err, &refused) {
+		t.Fatalf("repair request was not sent: calls=%d actual=%d allocation=%d", len(tight.adapter.messages), refused.ActualBytes, refused.AllocatedBytes)
+	}
+	if !errors.Is(tight.err, stop) || len(tight.adapter.messages) != 3 || tight.adapter.size(2) > allocation {
+		t.Fatalf("unexpected: calls=%d err=%v", len(tight.adapter.messages), tight.err)
+	}
+	raw, _ := json.Marshal(tight.adapter.messages[2])
+	if !strings.Contains(string(raw), "ATTEMPT scratch reasoning") {
+		t.Error("the latest attempt lost its free text before the call that submitted nothing")
+	}
+	if strings.Contains(string(raw), "UNOFFERED scratch reasoning") {
+		t.Error("the free text of a call that submitted nothing is still sent")
+	}
+	for _, id := range []string{"full-1", "full-2"} {
+		gotCall, gotResult, _ := hmc376CallMessage(tight.adapter.messages[2], id)
+		wantCall, wantResult, ok := hmc376CallMessage(wide.adapter.messages[2], id)
+		if id == "full-2" {
+			wantCall.Content = ""
+		}
+		if !ok || !reflect.DeepEqual(gotCall, wantCall) || !reflect.DeepEqual(gotResult, wantResult) {
+			t.Errorf("call, arguments or result of %s changed", id)
+		}
+	}
+}
+
+// One response that carries an answer call and a call to a tool the stage does
+// not offer: the correction asks for the complete answer tool by name, and the
+// next request still offers that tool. This is why no patch-only catalog is
+// chosen for this state.
+func TestHMC376FinalizerPublicMixedBatchKeepsTheToolItsCorrectionNames(t *testing.T) {
+	stop := errors.New("second request reached the adapter")
+	got := hmc376Run{window: 1_000_000, iterations: 2, script: func(n int, mutable *types.MutableState) (llm.Response, error) {
+		if n != 1 {
+			return llm.Response{}, stop
+		}
+		mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+		return llm.Response{ToolCalls: []llm.ToolCall{
+			{ID: "full-1", Name: hmc376Full, Params: json.RawMessage(`{"blocks":[]}`)},
+			{ID: "read-1", Name: "read_file", Params: json.RawMessage(`{"path":"x.go"}`)},
+		}}, nil
+	}}.execute(t)
+	if !errors.Is(got.err, stop) || len(got.adapter.messages) != 2 || got.eval.dispatchAnswerAttempts != 1 {
+		t.Fatalf("fixture: calls=%d attempts=%d err=%v", len(got.adapter.messages), got.eval.dispatchAnswerAttempts, got.err)
+	}
+	var correction string
+	for _, message := range got.adapter.messages[1][len(got.adapter.messages[0]):] {
+		if message.Role == "user" {
+			correction = message.Content
+		}
+	}
+	if !strings.Contains(strings.ReplaceAll(correction, hmc376Patch, ""), "`"+hmc376Full+"`") {
+		t.Fatalf("fixture premise: the correction must ask for the complete answer tool: %q", correction)
+	}
+	if !reflect.DeepEqual(got.adapter.names(1), []string{hmc376Full, hmc376Patch}) {
+		t.Fatalf("the request after a mixed batch must still offer the tool its correction names: %v", got.adapter.names(1))
+	}
+}
+
+// Calls recovered from assistant content are numbered per response, so two
+// rounds of one dispatch can carry the same call identity. Each recorded call
+// is still addressed exactly, and the repair request stays sendable.
+func TestHMC376FinalizerPublicRepeatedCallIdentitiesStaySendable(t *testing.T) {
+	stop := errors.New("fourth request reached the adapter")
+	const recovered = "content_tool_call_0"
+	script := func(n int, mutable *types.MutableState) (llm.Response, error) {
+		switch n {
+		case 1:
+			mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+			return llm.Response{Content: hmc376Notes("ROUND1", 1200), ToolCalls: []llm.ToolCall{{ID: recovered, Name: hmc376Full, Params: json.RawMessage(`{"blocks":[]}`)}}}, nil
+		case 2:
+			return llm.Response{Content: hmc376Notes("ROUND2", 1200), ToolCalls: []llm.ToolCall{hmc376UnstagedPatch(recovered, "guess-two")}}, nil
+		case 3:
+			return llm.Response{Content: hmc376Notes("ROUND3", 300), ToolCalls: []llm.ToolCall{hmc376UnstagedPatch("native-3", "guess-three")}}, nil
+		default:
+			return llm.Response{}, stop
+		}
+	}
+	wide := hmc376Run{window: 1_000_000, script: script}.execute(t)
+	if !errors.Is(wide.err, stop) || len(wide.adapter.messages) != 4 || wide.eval.dispatchAnswerAttempts != 3 {
+		t.Fatalf("fixture: calls=%d attempts=%d err=%v", len(wide.adapter.messages), wide.eval.dispatchAnswerAttempts, wide.err)
+	}
+	// Fits once the lane-matched teaching is in use and the free text of the
+	// two superseded attempts is given up, as with distinct identities.
+	window := hmc376Window(wide.adapter.size(0) + 9000)
+	allocation := hmc376Allocation(window)
+	tight := hmc376Run{window: window, script: script}.execute(t)
+	var refused *AnswerContextByteBudgetError
+	if errors.As(tight.err, &refused) {
+		t.Fatalf("repair request was not sent: calls=%d actual=%d allocation=%d", len(tight.adapter.messages), refused.ActualBytes, refused.AllocatedBytes)
+	}
+	if !errors.Is(tight.err, stop) || len(tight.adapter.messages) != 4 || tight.adapter.size(3) > allocation {
+		t.Fatalf("unexpected: calls=%d err=%v", len(tight.adapter.messages), tight.err)
+	}
+	last, reference := tight.adapter.messages[3], wide.adapter.messages[3]
+	if len(last) != len(reference) {
+		t.Fatalf("message count changed: %d vs %d", len(last), len(reference))
+	}
+	var cleared []string
+	for i := 1; i < len(reference); i++ {
+		got, want := last[i], reference[i]
+		if reflect.DeepEqual(got, want) {
+			continue
+		}
+		want.Content = ""
+		if got.Role != "assistant" || len(got.ToolCalls) != 1 || !reflect.DeepEqual(got, want) {
+			t.Fatalf("message %d changed beyond the free text of a superseded attempt", i)
+		}
+		cleared = append(cleared, got.ToolCalls[0].Name+"#"+got.ToolCalls[0].ID)
+	}
+	if want := []string{hmc376Full + "#" + recovered, hmc376Patch + "#" + recovered}; !reflect.DeepEqual(cleared, want) {
+		t.Fatalf("free text given up for %v, want %v", cleared, want)
+	}
+	raw, _ := json.Marshal(last)
+	for _, kept := range []string{"guess-two", "guess-three", "native-3", "ROUND3 scratch reasoning"} {
+		if !strings.Contains(string(raw), kept) {
+			t.Errorf("repair request lost %q", kept)
+		}
+	}
+	if tight.state.AnswerDocumentV2() != nil || !reflect.DeepEqual(tight.adapter.tools, wide.adapter.tools) {
+		t.Fatal("an answer was published or the tool authority changed")
+	}
+}
+
+// The first response carries two recovered calls, so it is not a recorded
+// exchange, yet it owns the identity the later recovered calls reuse. Each
+// recorded call is paired by its position in the conversation: the unrecorded
+// owner is left alone and the rungs still apply to the calls that are proven.
+func TestHMC376FinalizerPublicRecoveredIdentityAlsoOwnedByAnUnrecordedResponse(t *testing.T) {
+	stop := errors.New("fourth request reached the adapter")
+	const recovered = "content_tool_call_0"
+	script := func(n int, mutable *types.MutableState) (llm.Response, error) {
+		switch n {
+		case 1:
+			mutable.SetLastRejectedAnswerDocumentV2(hmc376Draft())
+			return llm.Response{Content: hmc376Notes("UNRECORDED", 40), ToolCalls: []llm.ToolCall{
+				{ID: recovered, Name: hmc376Full, Params: json.RawMessage(`{"blocks":[]}`)},
+				{ID: "content_tool_call_1", Name: "read_file", Params: json.RawMessage(`{"path":"x.go"}`)},
+			}}, nil
+		case 2:
+			return llm.Response{Content: hmc376Notes("SUPERSEDED", 6000), ToolCalls: []llm.ToolCall{hmc376UnstagedPatch(recovered, "guess-two")}}, nil
+		case 3:
+			return llm.Response{Content: hmc376Notes("LATEST", 40), ToolCalls: []llm.ToolCall{hmc376UnstagedPatch(recovered, "guess-three")}}, nil
+		default:
+			return llm.Response{}, stop
+		}
+	}
+	wide := hmc376Run{window: 1_000_000, script: script}.execute(t)
+	if !errors.Is(wide.err, stop) || len(wide.adapter.messages) != 4 || wide.eval.dispatchAnswerAttempts != 3 {
+		t.Fatalf("fixture: calls=%d attempts=%d err=%v", len(wide.adapter.messages), wide.eval.dispatchAnswerAttempts, wide.err)
+	}
+	if !reflect.DeepEqual(wide.adapter.names(3), []string{hmc376Patch}) {
+		t.Fatalf("fixture: last request tools=%v", wide.adapter.names(3))
+	}
+	// Over the allocation with the lane-matched teaching in use, by less than
+	// the free text of the superseded attempt.
+	window := hmc376Window(wide.adapter.size(3) - wide.budget.RepairTeachingDividendBytes - 200)
+	allocation := hmc376Allocation(window)
+	if allocation < wide.adapter.size(1) {
+		t.Fatalf("fixture: allocation=%d second request=%d", allocation, wide.adapter.size(1))
+	}
+	tight := hmc376Run{window: window, script: script}.execute(t)
+	var refused *AnswerContextByteBudgetError
+	if errors.As(tight.err, &refused) {
+		t.Fatalf("repair request was not sent: calls=%d actual=%d allocation=%d", len(tight.adapter.messages), refused.ActualBytes, refused.AllocatedBytes)
+	}
+	if !errors.Is(tight.err, stop) || len(tight.adapter.messages) != 4 || tight.adapter.size(3) > allocation {
+		t.Fatalf("unexpected: calls=%d err=%v", len(tight.adapter.messages), tight.err)
+	}
+	last, reference := tight.adapter.messages[3], wide.adapter.messages[3]
+	if len(last) != len(reference) {
+		t.Fatalf("message count changed: %d vs %d", len(last), len(reference))
+	}
+	changed := 0
+	for i := 1; i < len(reference); i++ {
+		got, want := last[i], reference[i]
+		if reflect.DeepEqual(got, want) {
+			continue
+		}
+		changed++
+		if !strings.Contains(want.Content, "SUPERSEDED scratch reasoning") {
+			t.Errorf("message %d lost free text that is not the superseded attempt's", i)
+		}
+		want.Content = ""
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("message %d changed beyond its free text", i)
+		}
+	}
+	if changed != 1 {
+		t.Fatalf("%d messages changed, want the superseded attempt alone", changed)
+	}
+	raw, _ := json.Marshal(last)
+	for _, kept := range []string{"UNRECORDED scratch reasoning", "LATEST scratch reasoning", "guess-two", "guess-three"} {
+		if !strings.Contains(string(raw), kept) {
+			t.Errorf("repair request lost %q", kept)
+		}
 	}
 }
 
