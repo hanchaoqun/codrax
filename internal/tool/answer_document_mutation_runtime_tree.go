@@ -17108,6 +17108,9 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 			if runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject) != target {
 				continue
 			}
+			if runtimeTraceProjSemanticRowRecordsWait(row.Node) {
+				continue
+			}
 			count++
 			if value := runtimeTraceProjFamilyPublishedMS(row.Node); value > bestValue {
 				bestValue, best = value, row
@@ -17122,6 +17125,14 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 	// space after the badge glyph, no exempt compound token. Pin: the
 	// compound-token arm of the TestA2BadgeGlyphGeometry family.
 	return " " + runtimeTraceProjBadgeGlyph(best.Badge) + " [" + best.EvidenceTag + "]", count, bestValue
+}
+
+// runtimeTraceProjSemanticRowRecordsWait reports a row whose marker records the
+// target waiting for other work. Its value is the wait, so it is no part of the
+// running time the deterministic-work clause breaks down.
+func runtimeTraceProjSemanticRowRecordsWait(node types.TraceCausalProjectionNode) bool {
+	hit, ok := tracequery.TraceSpanVocabulary(strings.TrimSpace(node.SpanName))
+	return ok && hit.Stance == "waits"
 }
 
 // runtimeTraceProjFourStateSupplyPointer resolves the 供给折算影响 pointer:

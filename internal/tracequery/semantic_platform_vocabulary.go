@@ -505,7 +505,8 @@ type TraceSpanVocabularyHit struct {
 }
 
 // TraceSpanVocabulary is the exported thin wrapper over the vocabulary
-// lookup for deterministic display consumers (the trace census). It
+// lookup for deterministic display consumers (the trace census, and the running
+// breakdown that keeps a recorded wait out of running time). It
 // describes the name; whether the name carries a class is answered by
 // TraceSpanSemanticClass alone. It must never gate or promote anything.
 func TraceSpanVocabulary(name string) (TraceSpanVocabularyHit, bool) {

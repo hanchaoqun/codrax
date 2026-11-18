@@ -255,11 +255,13 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 	}
 }
 
-// The exported description has exactly one consumer outside this package: the
-// zero-model trace census. (The advisory wrapper beside it has the same one.)
+// The exported description has two display consumers outside this package: the
+// zero-model trace census, and the running breakdown sentence, which reads the
+// stance to keep a recorded wait out of running time. Neither gates or ranks
+// anything. (The advisory wrapper beside it has the census alone.)
 func TestHMC376ExportedVocabularyHasOnlyTheCensusConsumer(t *testing.T) {
 	for symbol, want := range map[string][]string{
-		"tracequery.TraceSpanVocabulary(":             {"tracediag/census.go"},
+		"tracequery.TraceSpanVocabulary(":             {"tool/answer_document_mutation_runtime_tree.go", "tracediag/census.go"},
 		"tracequery.TraceSpanNearMissesSemanticWork(": {"tracediag/census.go"},
 	} {
 		var got []string
