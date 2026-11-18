@@ -163,7 +163,7 @@ func projectNativeDiagramParticipants(blockProps map[string]any, view *types.Ans
 	if len(choices) == 0 {
 		return
 	}
-	props["runtime_participants_v1"] = map[string]any{"type": "array", "maxItems": 64, "items": map[string]any{"oneOf": choices}, "description": "Explicitly reuse existing sequence participants for current native threads, including note-only lanes. The system puts exactly bound messages and notes on one lane. Select every duplicate alias you intend to merge; labels alone never bind an unselected node. This does not prove note contents, requested business roles or extra edges. Stale selections must be reselected from current choices."}
+	props["runtime_participants_v1"] = map[string]any{"type": "array", "maxItems": 64, "items": map[string]any{"oneOf": choices}, "description": "Explicitly reuse existing sequence participants for current native threads, including note-only lanes. Several choices may show one recorded thread; any one of them selects its lifeline (the one-lifeline rule is stated with the runtime diagram anchors). The system puts exactly bound messages and notes on one lane. Select every duplicate alias you intend to merge; labels alone never bind an unselected node. This does not prove note contents, requested business roles or extra edges. Stale selections must be reselected from current choices."}
 }
 
 // The map is block-local display identity. It accepts only current native
@@ -171,9 +171,15 @@ func projectNativeDiagramParticipants(blockProps map[string]any, view *types.Ans
 // It never derives an identity from labels, note prose or a requested role.
 func runtimeDiagramParticipantBindings(block types.AnswerBlock, rows []RuntimeDiagramRelation) (map[string]string, error) {
 	lanes := runtimeNativeParticipantLanes(rows)
+	groups := runtimeDiagramThreadGroups(rows)
 	bindings := map[string]string{}
 	bind := func(node, lane string) error {
 		if previous := bindings[node]; previous != "" && previous != lane {
+			// Another published lane of the same recorded thread is the same
+			// participant; the first bound lane stays its representative.
+			if runtimeDiagramSameThreadGroup(groups, previous, lane) {
+				return nil
+			}
 			return fmt.Errorf("participant %q selects conflicting native threads", node)
 		}
 		bindings[node] = lane
@@ -298,7 +304,7 @@ func normalizeNativeDiagramParticipants(doc *types.AnswerDocumentV2, rows []Runt
 
 func preCheckNativeDiagramParticipants(doc *types.AnswerDocumentV2, ctx *types.BusContext) []emitFixHint {
 	if _, err := normalizeNativeDiagramParticipants(doc, runtimeDiagramRelationsForContext(ctx), nativeDiagramParticipantRequest(ctx)); err != nil {
-		return []emitFixHint{{Field: "diagram.runtime_participants_v1", ExpectedShape: "Select only current native_participant choices and unique existing sequence node_id declarations. Keep different native threads separate. Use an exact current schema branch to explicitly reselect an unavailable binding; display-only ensure_visible does not change selectors. Re-emit or replace this diagram only when the current schema permits it. Labels and Note text cannot supply identity.", Reason: err.Error(), ForceHard: true, HardSignal: preEmitHardSignalExactReceiptBinding}}
+		return []emitFixHint{{Field: "diagram.runtime_participants_v1", ExpectedShape: "Select only current native_participant choices and unique existing sequence node_id declarations. A selected node is the lifeline of that one recorded thread; another thread needs its own lifeline. Use an exact current schema branch to explicitly reselect an unavailable binding; display-only ensure_visible does not change selectors. Re-emit or replace this diagram only when the current schema permits it. Labels and Note text cannot supply identity.", Reason: err.Error(), ForceHard: true, HardSignal: preEmitHardSignalExactReceiptBinding}}
 	}
 	return nil
 }

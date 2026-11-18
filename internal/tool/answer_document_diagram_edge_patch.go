@@ -962,7 +962,7 @@ func applyModelAuthoredDiagramAtomicEditsWithNativeParticipants(
 		usedParticipantRefs[ref] = true
 		failure, ok := atomicDiagramLeaseParticipantVisibilityFailure(lease, ref)
 		if !ok || !failure.AllowsParticipantAction(strings.TrimSpace(edit.Action)) {
-			return fmt.Errorf("diagram_participant_edits[%d] participant_ref=%q is stale, unknown, or does not allow action=%q", i, ref, edit.Action)
+			return fmt.Errorf("diagram_participant_edits[%d] participant_ref=%q is stale, unknown, or does not allow action=%q. %s", i, ref, edit.Action, atomicDiagramPublishedParticipantOperations(lease))
 		}
 		blockID := strings.TrimSpace(failure.BlockID)
 		nodeKey := blockID + "\x00" + strings.TrimSpace(edit.NodeID)
@@ -1036,6 +1036,64 @@ func validateAtomicDiagramRelationProducerConflicts(edits []resolvedAtomicDiagra
 		}
 	}
 	return nil
+}
+
+// atomicDiagramPublishedParticipantOperations tells a caller whose
+// participant_ref was not accepted what this draft does publish: the exact
+// participant_ref values with their participants, or that none exists and
+// which local operations do. It reads only the live lease, so it never
+// advertises an operation the executor would refuse.
+func atomicDiagramPublishedParticipantOperations(lease *types.AnswerDiagramRelationRepairLease) string {
+	var refs, operations []string
+	if lease != nil {
+		for _, failure := range lease.ParticipantVisibilityFailures {
+			if ref := strings.TrimSpace(failure.ParticipantRef); ref != "" && len(failure.AllowedParticipantActions) > 0 {
+				actions := make([]string, 0, len(failure.AllowedParticipantActions))
+				for _, action := range failure.AllowedParticipantActions {
+					actions = append(actions, string(action))
+				}
+				refs = append(refs, fmt.Sprintf("%q for participant %q (%s)", ref, failure.Participant, strings.Join(actions, ", ")))
+			}
+		}
+		count := func(n int, operation string) {
+			if n > 0 {
+				operations = append(operations, fmt.Sprintf("%s (%d published)", operation, n))
+			}
+		}
+		failureRefs, additionRefs, boundaryRefs := 0, 0, 0
+		for _, failure := range lease.Failures {
+			if strings.TrimSpace(failure.FailureRef) != "" && len(failure.AllowedActions) > 0 {
+				failureRefs++
+			}
+		}
+		for _, candidate := range lease.AllowedAdditions {
+			if strings.TrimSpace(candidate.AdditionRef) != "" {
+				additionRefs++
+			}
+		}
+		for _, failure := range lease.ParticipantBoundaryFailures {
+			if strings.TrimSpace(failure.BoundaryRef) != "" && len(failure.AllowedBoundaryActions) > 0 {
+				boundaryRefs++
+			}
+		}
+		count(failureRefs, "diagram_edge_edits on a failure_ref")
+		count(additionRefs, "diagram_edge_edits action \"add\" with an addition_ref")
+		count(boundaryRefs, "diagram_boundary_edits on a boundary_ref")
+		count(len(lease.OptionalOrphanCleanups), "diagram_participant_edits on a listed participant_id")
+	}
+	if len(refs) > 0 {
+		const limit = 8
+		more := ""
+		if len(refs) > limit {
+			more = fmt.Sprintf(" and %d more in the current schema", len(refs)-limit)
+			refs = refs[:limit]
+		}
+		return "Published participant_ref values for this draft: " + strings.Join(refs, "; ") + more + ". Copy one exactly."
+	}
+	if len(operations) == 0 {
+		return "No participant_ref is published for this draft, and no other local diagram operation is; a participant_ref cannot be composed from a thread, node or participant name."
+	}
+	return "No participant_ref is published for this draft; a participant_ref cannot be composed from a thread, node or participant name. Operations this draft does publish: " + strings.Join(operations, "; ") + "."
 }
 
 func atomicDiagramLeaseParticipantVisibilityFailure(

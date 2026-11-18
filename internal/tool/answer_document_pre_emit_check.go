@@ -5576,6 +5576,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	collapsedEndpointMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	nodeIdentityConflictMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	otherMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
+	var runtimeLifelineParts []string
+	var runtimeLifelineMismatches []DiagramCallEdgeEvidenceMismatch
 	for _, mismatch := range mismatches {
 		part := fmt.Sprintf(
 			"block=%q issue=%s edge=%s(%s) -> %s(%s)",
@@ -5587,6 +5589,11 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		if mismatch.Issue == diagramTypedEndpointsCollapsedToSelfEdge {
 			collapsedEndpointParts = append(collapsedEndpointParts, part+" relation_kind="+string(mismatch.Relation))
 			collapsedEndpointMismatches = append(collapsedEndpointMismatches, mismatch)
+		} else if mismatch.Issue == diagramRuntimeLifelineHostsTwoThreads {
+			// Reader words only: the long instance ids stay in the patch
+			// schema, where the failure_ref already selects this exact arrow.
+			runtimeLifelineParts = append(runtimeLifelineParts, fmt.Sprintf("block=%q issue=%s: %s", mismatch.BlockID, mismatch.Issue, mismatch.runtimeLifelineDetail))
+			runtimeLifelineMismatches = append(runtimeLifelineMismatches, mismatch)
 		} else if mismatch.Issue == diagramEdgeAnchorNodeIdentityConflict {
 			nodePart := part + " relation_kind=" + string(mismatch.Relation)
 			if mismatch.FromNodeSymbol != "" || mismatch.ToNodeSymbol != "" {
@@ -5620,6 +5627,18 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Reason:                         "the structured anchor proves two non-equivalent endpoints while the model-authored body collapses both onto one visible alias. That changes a typed A-to-B relation into a reader-visible A-to-A loop. Invocation actor self-messages retain their separate ordered-operation contract; this check reads no diagram message, request text, reasoning, or answer prose.",
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationRepairDeltaJSON: relationRepairDelta,
+		})
+	}
+	if len(runtimeLifelineParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, runtimeLifelineMismatches),
+			ExpectedShape:                  runtimeDiagramLifelineRepairTeaching + strings.Join(runtimeLifelineParts, "; ") + ".",
+			Reason:                         "Each named arrow is one recorded event between two recorded threads, and it sits on the lifeline of another thread. Threads are told apart by their recorded thread number in the capture, never by a name or label. Nothing in the diagram was rewritten.",
+			DiagramRelationFailurePairs:    diagramRelationFailurePairFingerprints(runtimeLifelineMismatches),
+			DiagramRelationFailureIssues:   diagramRelationFailureIssueValues(runtimeLifelineMismatches),
+			DiagramRelationRepairDeltaJSON: diagramRelationRepairDeltaJSON(doc, pctx.ctx, runtimeLifelineMismatches, evidence, stagePrecedence),
 		})
 	}
 	if len(nodeIdentityConflictParts) > 0 {

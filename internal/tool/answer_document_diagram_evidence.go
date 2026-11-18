@@ -33,6 +33,9 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	// Keep them internal: model-authored mismatches cannot supply these rows.
 	matchedCallEvidence       []diagramCallRepairEvidence
 	nativeSequenceOrderDetail string
+	// Reader-language description of one recorded arrow that sits on a
+	// lifeline of another recorded thread; built from typed rows only.
+	runtimeLifelineDetail string
 }
 
 // IsRequestedStagePrecedenceSpineIncomplete exposes the typed completeness
@@ -77,6 +80,11 @@ const (
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 	diagramNativeSequenceEventOrderConflict   = types.DiagramRelationFailureNativeSequenceEventOrder
 	diagramNativeNoteBindingUnavailable       = types.DiagramRelationFailureNativeNoteBinding
+	// One diagram lifeline carries recorded arrows of two different recorded
+	// threads. Only the arrows that disagree with the lifeline's own thread
+	// carry this issue; the source-code direction class keeps
+	// diagramEdgeAnchorNodeIdentityConflict.
+	diagramRuntimeLifelineHostsTwoThreads = types.DiagramRelationFailureRuntimeLifelineTwoThreads
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -392,6 +400,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				})
 			}
 		}
+		lifelineOddArrows := runtimeDiagramLifelineOddArrows(runtimeRelations, *block)
 		for anchorIndex, anchor := range block.EdgeAnchors {
 			fromSymbol, toSymbol := diagramEvidenceAnchorEndpointSymbols(anchor, labels, evidence)
 			if block.Kind != types.BlockDiagram && block.Diagram == nil &&
@@ -441,9 +450,16 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
-			aliasConflict := block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence &&
-				(runtimeDiagramAliasBindingsConflict(runtimeRelations, block.EdgeAnchors, anchor.FromNode) || runtimeDiagramAliasBindingsConflict(runtimeRelations, block.EdgeAnchors, anchor.ToNode))
-			if runtimeDiagramAnchorAliasConflict(runtimeRelations, anchor) || aliasConflict {
+			// One lifeline per recorded thread: a recorded arrow whose thread
+			// differs from its lifeline's thread is named on its own, so the
+			// arrows that agree with the lifeline are not listed.
+			if detail, odd := lifelineOddArrows[anchorIndex]; odd {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramRuntimeLifelineHostsTwoThreads,
+					FromNode: anchor.FromNode, ToNode: anchor.ToNode, FromSymbol: anchor.FromIdentity, ToSymbol: anchor.ToIdentity, Relation: relation,
+					runtimeLifelineDetail: detail})
+				continue
+			}
+			if runtimeDiagramAnchorAliasConflict(runtimeRelations, anchor) {
 				out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
 					FromNode: anchor.FromNode, ToNode: anchor.ToNode, FromSymbol: anchor.FromIdentity, ToSymbol: anchor.ToIdentity, Relation: relation})
 				continue

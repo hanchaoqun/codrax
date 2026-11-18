@@ -3,7 +3,6 @@ package tool
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -99,26 +98,10 @@ func nativeParticipantBoundCandidate(edit emitAnswerDiagramEdgeEdit) *types.Answ
 	return &c
 }
 
-// A readable sequence node cannot represent two different producer lanes.
-// Repeated event-local endpoints can share it only when the provider supplies
-// exactly the same query/source/clock/thread lane. Names never participate.
+// A readable sequence node is one lifeline of one recorded thread. It may host
+// every published lane of that thread (lane ids differ per lookup and recorded
+// precision), never lanes of two different threads. A lane without typed
+// thread endpoints is only ever the same as itself. Names never participate.
 func runtimeDiagramAliasBindingsConflict(rows []RuntimeDiagramRelation, anchors []types.DiagramEdgeAnchor, node string) bool {
-	lane := ""
-	for _, a := range anchors {
-		for _, r := range rows {
-			if r.Kind != a.RelationKind || r.FromIdentity != a.FromIdentity || r.ToIdentity != a.ToIdentity {
-				continue
-			}
-			for _, side := range [][2]string{{a.FromNode, r.FromNode}, {a.ToNode, r.ToNode}} {
-				if side[0] != node || !strings.HasPrefix(side[1], "rt_thread_") {
-					continue
-				}
-				if lane != "" && lane != side[1] {
-					return true
-				}
-				lane = side[1]
-			}
-		}
-	}
-	return false
+	return len(runtimeDiagramLifelineOddSides(rows, runtimeDiagramThreadGroups(rows), anchors, node)) > 0
 }

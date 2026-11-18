@@ -158,6 +158,12 @@ func AssignAnswerDiagramRelationRepairFailureRefs(
 const DiagramRelationFailureNativeSequenceEventOrder = "native_sequence_event_order_conflict"
 const DiagramRelationFailureNativeNoteBinding = "native_note_binding_unavailable"
 
+// DiagramRelationFailureRuntimeLifelineTwoThreads names one recorded arrow
+// that sits on a diagram lifeline of another recorded thread. The arrow's own
+// typed tuple is proved; only its visible endpoint is on the wrong lifeline,
+// so the exact prior anchor may be re-attached (replace) or removed.
+const DiagramRelationFailureRuntimeLifelineTwoThreads = "runtime_lifeline_hosts_two_threads"
+
 func answerDiagramRelationRepairFailureCapabilities(
 	base *AnswerDocumentV2,
 	failure AnswerDiagramRelationRepairFailure,
@@ -297,7 +303,7 @@ func answerDiagramRelationRepairIssueAllowsReplacement(issue string) bool {
 	switch strings.TrimSpace(issue) {
 	case "call_reply_operator_conflict", "sequence_relation_reply_operator_conflict",
 		"typed_endpoints_collapsed_to_self_edge", "edge_anchor_node_identity_conflict",
-		"requested_stage_precedence_spine_incomplete":
+		"requested_stage_precedence_spine_incomplete", DiagramRelationFailureRuntimeLifelineTwoThreads:
 		return true
 	default:
 		// Fail closed for newly introduced issue values. A producer must classify

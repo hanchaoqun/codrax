@@ -341,7 +341,8 @@ func TestDiagramRelationIssueVocabularyCensus(t *testing.T) {
 		t.Fatalf("diagram relation issue vocabulary and lease decisions drifted:\n  %s", strings.Join(c.offenders, "\n  "))
 	}
 	if len(c.producer) < 20 || !c.explicitLease["typed_anchor_reversed_against_visible_edge"] ||
-		!c.explicitLease["typed_anchor_without_visible_edge"] || !c.replaceGrant["edge_anchor_node_identity_conflict"] {
+		!c.explicitLease["typed_anchor_without_visible_edge"] || !c.replaceGrant["edge_anchor_node_identity_conflict"] ||
+		!c.replaceGrant["runtime_lifeline_hosts_two_threads"] || c.producer["runtime_lifeline_hosts_two_threads"] == "" {
 		t.Fatalf("census did not bind the live sets: producer=%d explicit=%v replace=%v", len(c.producer), c.explicitLease, c.replaceGrant)
 	}
 

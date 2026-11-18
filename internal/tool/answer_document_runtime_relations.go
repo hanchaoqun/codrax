@@ -204,7 +204,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 	if rm != nil && rm.RuntimeArtifactScopeProfile != nil {
 		ledger.RuntimeArtifactScopeProfile = rm.RuntimeArtifactScopeProfile
 	}
-	wakeupRows := (wakeupDiagramRelationProvider{request: rm}).Relations(ledger)
+	wakeupRows := markRuntimeDiagramThreadLifecycleBoundaries((wakeupDiagramRelationProvider{request: rm}).Relations(ledger), ledger)
 	transactionRows := (transactionDiagramRelationProvider{request: rm}).Relations(ledger)
 	filterBusinessTarget := false
 	if rm != nil && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
@@ -222,6 +222,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 	}
 	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{request: rm, filterTarget: filterBusinessTarget}
 	rows := bindRequestedRuntimeParticipants(append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...), rm)
+	rows = propagateRequestedParticipantsAcrossEventCopies(rows)
 	return bindRequestedBusinessParticipants(rows, rm)
 }
 
@@ -265,8 +266,17 @@ func runtimeDiagramBodyRelationProved(rows []RuntimeDiagramRelation, anchors []t
 	return false
 }
 
+// A published node id carries only identities issued for it. A published
+// thread lane additionally hosts the identities issued on another published
+// lane of the same recorded thread; each event keeps its own exact credential.
 func runtimeDiagramAnchorAliasConflict(rows []RuntimeDiagramRelation, anchor types.DiagramEdgeAnchor) bool {
-	for _, endpoint := range [][2]string{{anchor.FromNode, anchor.FromIdentity}, {anchor.ToNode, anchor.ToIdentity}} {
+	from, to := runtimeDiagramAnchorAliasConflictSides(rows, anchor)
+	return from || to
+}
+
+func runtimeDiagramAnchorAliasConflictSides(rows []RuntimeDiagramRelation, anchor types.DiagramEdgeAnchor) (from, to bool) {
+	var groups map[string]string
+	for i, endpoint := range [][2]string{{anchor.FromNode, anchor.FromIdentity}, {anchor.ToNode, anchor.ToIdentity}} {
 		known, matches := false, false
 		for _, row := range rows {
 			for _, issued := range [][2]string{{row.FromNode, row.FromIdentity}, {row.ToNode, row.ToIdentity}} {
@@ -277,10 +287,26 @@ func runtimeDiagramAnchorAliasConflict(rows []RuntimeDiagramRelation, anchor typ
 			}
 		}
 		if known && !matches {
-			return true
+			if groups == nil {
+				groups = runtimeDiagramThreadGroups(rows)
+			}
+			if runtimeDiagramLaneJoined(groups, endpoint[0]) {
+				for _, row := range rows {
+					for _, issued := range [][2]string{{row.FromNode, row.FromIdentity}, {row.ToNode, row.ToIdentity}} {
+						matches = matches || issued[1] == endpoint[1] && groups[issued[0]] == groups[endpoint[0]]
+					}
+				}
+			}
+		}
+		if known && !matches {
+			if i == 0 {
+				from = true
+			} else {
+				to = true
+			}
 		}
 	}
-	return false
+	return from, to
 }
 
 // Only a provider-issued exact alias can recover an omitted identity. Reader
@@ -355,18 +381,18 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		}
 		return ""
 	}
-	const limit = 8
+	const limit = runtimeDiagramRecipeRowLimit
 	var b strings.Builder
 	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Exact producer node IDs receive the endpoint names below when their display label is omitted or still equals that ID; an authored business alias is preserved. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. For synchronous business elapsed-time accounting, do not add overlapping inclusive (child-including) durations. Proven mutually disjoint self segments, or their same-state intersections, may be added only with the same source, thread, query range and unit; a subtotal covers only participating measured segments, never omitted or unknown parts. This concerns elapsed time, not sample weights or a new causal permission.\n")
 	if runtimeDiagramRowsHaveObservedThreadLanes(rows) {
 		b.WriteString(runtimeDiagramUnmappedParticipantTeaching(authority, rm))
-		b.WriteString("During a local repair, a published from_native_participant/to_native_participant choice binds the selected event side to an existing declared sequence node, preserving that node's state notes. This explicitly selected native binding never follows a label match and cannot merge different producer lanes. An ensure_visible choice may relabel one existing declaration; it does not prove an unresolved business role.\n")
-		b.WriteString("For each known thread, reuse the same supplied native thread participant for its messages and state notes; a readable business alias is welcome. Do not create a second generic lane for that same known identity. A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
+		b.WriteString("During a local repair, a published from_native_participant/to_native_participant choice binds the selected event side to an existing declared sequence node, preserving that node's state notes. This explicitly selected native binding never follows a label match and never puts two different threads on one lifeline. An ensure_visible choice may relabel one existing declaration; it does not prove an unresolved business role.\n")
+		b.WriteString(runtimeDiagramLifelineTeaching + " A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
 	}
 	for _, row := range rows[:min(limit, len(rows))] {
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)
-		fmt.Fprintf(&b, "- %q → %q；%s；edge_anchor=%s\n", row.FromLabel, row.ToLabel, row.ScopeLabel, data)
+		fmt.Fprintf(&b, "- %s；edge_anchor=%s\n", runtimeDiagramRecipeRowText(row), data)
 		for _, side := range []struct {
 			node         string
 			participants []string
@@ -379,9 +405,24 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	}
 	fmt.Fprintf(&b, "- 展示 %d 条已证明直接关系，另省略 %d 条；省略不表示不存在其它关系，也不保证完整树。\n\n", min(limit, len(rows)), max(0, len(rows)-limit))
 	if repeated := len(authority) - len(rows); repeated > 0 {
-		fmt.Fprintf(&b, "同一观察的 %d 份重复查询凭证未重复展示；每行仍使用其原查询的完整凭证，不能混用端点。\n\n", repeated)
+		fmt.Fprintf(&b, "同一观察的 %d 份重复查询凭证未重复展示；每条箭头成对沿用它自己那一行的 from_identity/to_identity，不要把两行的凭证拼在一起。\n\n", repeated)
 	}
 	return b.String()
+}
+
+// The authoring capsule prints this many presented rows with their anchors.
+const runtimeDiagramRecipeRowLimit = 8
+
+// runtimeDiagramRecipeRowText is the reader text of one published row, shared
+// by the authoring capsule and by a repair that names that row. A wake row
+// states both thread numbers, so rows of one thread can be grouped without
+// reading a thread name.
+func runtimeDiagramRecipeRowText(row RuntimeDiagramRelation) string {
+	text := fmt.Sprintf("%q → %q；%s", row.FromLabel, row.ToLabel, row.ScopeLabel)
+	if e := row.threadEndpoints; e != nil && row.Kind == types.DiagramRelWakeup {
+		text += fmt.Sprintf("；发起线程号=%d；被唤醒线程号=%d", e.from.PID, e.to.PID)
+	}
+	return text
 }
 
 func runtimeDiagramRowsHaveObservedThreadLanes(rows []RuntimeDiagramRelation) bool {

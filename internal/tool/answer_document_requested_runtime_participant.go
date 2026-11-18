@@ -13,6 +13,11 @@ import (
 type runtimeDiagramThreadEndpoints struct {
 	source   types.ObservationSourceRef
 	from, to types.RuntimeWakeupThread
+	// What the current ledger records about exit and reuse of this side's
+	// thread number in this capture. Any value other than none means its
+	// lanes are never joined as one recorded thread. Private and never
+	// serialized, like the carrier.
+	fromLifecycle, toLifecycle runtimeDiagramThreadLifecycle
 }
 
 // Private provider-owned inventory, separate from a scheduling thread. The

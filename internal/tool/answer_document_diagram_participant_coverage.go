@@ -255,6 +255,21 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	if candidates != "" {
 		expected += ". Existing typed candidate map (choose only the relevant candidate edges needed for the failed participant or its typed join frontier; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
 	}
+	// A requested participant bound to a published runtime row needs one named
+	// row and one operation, not the general participant guidance above.
+	if endpointConflicts == "" && candidates == "" {
+		if compact := diagramParticipantRuntimeCompactRepair(doc, mismatches, runtimeDiagramRelationsForContext(pctx.ctx), participantRelationDelta); compact != "" {
+			expected = "Typed participant coverage mismatch: " + strings.Join(parts, "; ") + ". " + compact
+			// The correction above names the one operation. The general
+			// action rows describe a visible-label repair that publishes no
+			// local operation for this case, so they are not repeated.
+			compactDelta = diagramParticipantRepairDeltaJSON(
+				doc, pctx.ctx.AnalysisIR.RequestModel, mismatches, evidence,
+				diagramVerifiedReadModeStagePrecedence(pctx.ctx, view), "", endpointConflicts,
+				diagramExistingSourceBinding{evidence: evidence, required: view.RequiredMechanismAnchors},
+			)
+		}
+	}
 	return []emitFixHint{{
 		Field:                             "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
 		HardSignal:                        preEmitHardSignalTypedDiagramParticipantCoverage,
@@ -282,11 +297,24 @@ func diagramParticipantRepairAdditionDeltaJSON(
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || len(mismatches) == 0 {
 		return ""
 	}
-	blockIDs := diagramParticipantRepairAdditionTargetBlockIDs(doc, mismatches)
+	rm := ctx.AnalysisIR.RequestModel
+	// A requested participant bound to a published runtime row has the same
+	// exact addition candidate whether or not its identity is already
+	// visible. For targeting only, treat that mismatch like a missing typed
+	// edge; candidate selection below still reads the original issues.
+	targeting := append([]DiagramParticipantCoverageMismatch(nil), mismatches...)
+	if runtimeRows := runtimeDiagramRelationsForContext(ctx); len(runtimeRows) > 0 {
+		for i, mismatch := range targeting {
+			if mismatch.Issue == DiagramParticipantCoverageIdentityMissing &&
+				len(diagramParticipantMissingRuntimeRelations(runtimeRows, []DiagramParticipantCoverageMismatch{mismatch}, rm)) > 0 {
+				targeting[i].Issue = DiagramParticipantCoverageTypedEdgeMissing
+			}
+		}
+	}
+	blockIDs := diagramParticipantRepairAdditionTargetBlockIDs(doc, targeting)
 	if len(blockIDs) == 0 {
 		return ""
 	}
-	rm := ctx.AnalysisIR.RequestModel
 	if rm.DiagramHint == nil {
 		return ""
 	}

@@ -176,8 +176,8 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
           },
           "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."},
           "from_node_visible_label": {"type": "string", "description": "Optional model-authored reader-facing name for edge.from_node. Existing IDs require exact label replay; an explicit label on a new ID preserves that new declaration. Omitted labels follow the diagram-edge alias rule."},
-          "from_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly bind an existing sequence source node to this exact native lane; names are not identity."},
-          "to_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly bind an existing sequence target node to this exact native lane; names are not identity."},
+          "from_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly attach this event's source side to an existing sequence node, the lifeline of that recorded thread (the one-lifeline rule is stated with the runtime diagram anchors); names are not identity."},
+          "to_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly attach this event's target side to an existing sequence node, the lifeline of that recorded thread (the one-lifeline rule is stated with the runtime diagram anchors); names are not identity."},
           "to_node_visible_label": {"type": "string", "description": "Optional model-authored reader-facing name for edge.to_node. Existing IDs require exact label replay; an explicit label on a new ID preserves that new declaration. Omitted labels follow the diagram-edge alias rule."}
         },
         "required": ["action"],
