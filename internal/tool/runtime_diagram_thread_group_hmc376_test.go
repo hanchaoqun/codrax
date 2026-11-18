@@ -171,6 +171,9 @@ func TestRuntimeDiagramThreadGroupGatesHMC376(t *testing.T) {
 			{FromNode: "P", ToNode: "W", FromIdentity: rows[1].FromIdentity, ToIdentity: rows[1].ToIdentity, RelationKind: types.DiagramRelWakeup}}
 		return rows, anchors
 	}
+	aliasConflict := func(rows []RuntimeDiagramRelation, anchors []types.DiagramEdgeAnchor, node string) bool {
+		return len(runtimeDiagramLifelineOddSides(rows, runtimeDiagramThreadGroups(rows), anchors, node)) > 0
+	}
 	block := func(anchors []types.DiagramEdgeAnchor, selections ...types.RuntimeDiagramParticipantSelection) types.AnswerBlock {
 		return types.AnswerBlock{ID: "d", Kind: types.BlockDiagram, EdgeAnchors: anchors, Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence,
 			Body: "sequenceDiagram\n participant W\n participant P\n W->>P: a\n P->>W: b", RuntimeParticipantsV1: selections}}
@@ -182,10 +185,10 @@ func TestRuntimeDiagramThreadGroupGatesHMC376(t *testing.T) {
 	}{{"one recorded thread", 0, true}, {"two process numbers", 41, false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			rows, anchors := build(tc.tgid)
-			if got := runtimeDiagramAliasBindingsConflict(rows, anchors, "W"); got == tc.joined {
+			if got := aliasConflict(rows, anchors, "W"); got == tc.joined {
 				t.Fatalf("alias binding conflict=%t", got)
 			}
-			if runtimeDiagramAliasBindingsConflict(rows, anchors, "P") {
+			if aliasConflict(rows, anchors, "P") {
 				t.Fatal("the peer lifeline hosts one lane only")
 			}
 			published := types.DiagramEdgeAnchor{FromNode: "rt_thread_peer", ToNode: "rt_thread_a", FromIdentity: rows[1].FromIdentity, ToIdentity: rows[1].ToIdentity, RelationKind: types.DiagramRelWakeup}
@@ -222,7 +225,7 @@ func TestRuntimeDiagramThreadGroupGatesHMC376(t *testing.T) {
 	for i := range untyped {
 		untyped[i].threadEndpoints = nil
 	}
-	if !runtimeDiagramAliasBindingsConflict(untyped, anchors, "W") {
+	if !aliasConflict(untyped, anchors, "W") {
 		t.Fatal("untyped lanes joined")
 	}
 }
@@ -250,9 +253,11 @@ func TestMarkRuntimeDiagramThreadLifecycleBoundariesHMC376(t *testing.T) {
 	}{
 		{"no lifecycle record", nil, states{}},
 		{"another predicate", []types.ObservationRecord{{Predicate: "thread_selector_exact_name_mismatch", SourceRef: types.ObservationSourceRef{Path: capture}, RichNotes: []string{"conflict_tid=12"}}}, states{}},
-		{"that thread number in that capture, by query source", []types.ObservationRecord{record(capture, nil, "conflict_tid=12", "signal=sched_wakeup_new")}, states{reused, none, none, none}},
-		{"that thread number in that capture, by physical file", []types.ObservationRecord{record("/captures/elsewhere", []string{physical + ":6-8"}, "conflict_tid=12")}, states{reused, none, none, none}},
-		{"another thread number", []types.ObservationRecord{record(capture, nil, "conflict_tid=13")}, states{}},
+		{"that thread number in that capture, by query source", []types.ObservationRecord{record(capture, nil, "conflict_tid=12", "signal=sched_wakeup_new")}, states{reused, incomplete, none, none}},
+		{"that thread number in that capture, by physical file", []types.ObservationRecord{record("/captures/elsewhere", []string{physical + ":6-8"}, "conflict_tid=12")}, states{reused, incomplete, none, none}},
+		// The roster of one lookup is bounded and can stop silently, so a record
+		// for another number does not prove that this number was not reused.
+		{"another thread number of that capture", []types.ObservationRecord{record(capture, nil, "conflict_tid=13")}, states{incomplete, incomplete, none, none}},
 		{"another capture", []types.ObservationRecord{record("/captures/unrelated", nil, "conflict_tid=12")}, states{}},
 		{"a capped audit names no thread number", []types.ObservationRecord{record(capture, nil, "signal=lifecycle_audit_truncated")}, states{incomplete, incomplete, none, none}},
 		{"a capped audit with a selector number", []types.ObservationRecord{record(capture, nil, "conflict_tid=99", "signal=lifecycle_audit_truncated")}, states{incomplete, incomplete, none, none}},
@@ -333,7 +338,14 @@ func TestPropagateRequestedParticipantsHMC376(t *testing.T) {
 			if !reflect.DeepEqual(rows[0].requestedTo, []string{"requested"}) {
 				t.Fatalf("the proved copy lost its binding: %v", rows[0].requestedTo)
 			}
-			rows[1].requestedTo, rows[1].requestedFrom = nil, nil
+			// A copied binding is marked as copied; the lookup's own is not.
+			if len(tc.wantTo) > 0 && !reflect.DeepEqual(rows[1].requestedToCopied, tc.wantTo) {
+				t.Fatalf("the copied binding is not marked as copied: %v", rows[1].requestedToCopied)
+			}
+			if len(rows[0].requestedToCopied) != 0 {
+				t.Fatalf("the lookup's own binding was marked as copied: %v", rows[0].requestedToCopied)
+			}
+			rows[1].requestedTo, rows[1].requestedFrom, rows[1].requestedToCopied = nil, nil, nil
 			if !reflect.DeepEqual(rows[1], before) {
 				t.Fatal("propagation changed more than the request binding")
 			}
@@ -349,6 +361,14 @@ func TestPropagateRequestedParticipantsHMC376(t *testing.T) {
 		if len(row.requestedFrom)+len(row.requestedTo) != 0 {
 			t.Fatalf("a binding was minted without a proved copy: %+v", row)
 		}
+	}
+	// The waking side keeps the same guard as the woken side: copies that
+	// record two process numbers for it receive no binding.
+	wakerBound := bound()
+	wakerBound.requestedTo, wakerBound.requestedFrom = nil, []string{"requested"}
+	rows = propagateRequestedParticipantsAcrossEventCopies([]RuntimeDiagramRelation{wakerBound, other(func(r *RuntimeDiagramRelation) { r.threadEndpoints.from.TGID = 11 })})
+	if len(rows[1].requestedFrom) != 0 || len(rows[1].requestedFromCopied) != 0 {
+		t.Fatalf("a binding crossed copies that record two process numbers on the waking side: %+v", rows[1])
 	}
 	// The binding follows the side: a waker-side binding never lands on the
 	// woken side.

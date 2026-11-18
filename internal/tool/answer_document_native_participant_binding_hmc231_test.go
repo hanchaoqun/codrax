@@ -45,13 +45,25 @@ func TestNativeBindingHMC231VisibilityRelabelKeepsNotesAndUnprovenRole(t *testin
 func TestNativeBindingHMC231OnlySameProducerLane(t *testing.T) {
 	rows := []RuntimeDiagramRelation{{Kind: types.DiagramRelWakeup, FromIdentity: "event-a", ToIdentity: "event-b", FromNode: "rt_thread_source", ToNode: "rt_thread_worker"}, {Kind: types.DiagramRelWakeup, FromIdentity: "event-c", ToIdentity: "event-d", FromNode: "rt_thread_worker", ToNode: "rt_thread_main"}}
 	anchors := []types.DiagramEdgeAnchor{{FromNode: "S", ToNode: "W", FromIdentity: "event-a", ToIdentity: "event-b", RelationKind: types.DiagramRelWakeup}, {FromNode: "W", ToNode: "M", FromIdentity: "event-c", ToIdentity: "event-d", RelationKind: types.DiagramRelWakeup}}
-	if runtimeDiagramAliasBindingsConflict(rows, anchors, "W") {
+	// Asked of the production relation gate, so the pin guards the path that
+	// decides acceptance for lanes without typed thread endpoints.
+	conflict := func(rows []RuntimeDiagramRelation) bool {
+		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "graph", Kind: types.BlockDiagram, EdgeAnchors: anchors,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n participant S\n participant W\n participant M\n S->>W: first\n W->>M: second"}}}}
+		for _, mismatch := range diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, &types.AnswerSemanticView{}, nil, nil, nil, rows) {
+			if mismatch.Issue == diagramRuntimeLifelineHostsTwoThreads {
+				return true
+			}
+		}
+		return false
+	}
+	if conflict(rows) {
 		t.Fatal("same native thread's different event roles must reuse one lane")
 	}
 	for _, scope := range []string{"source", "window", "generation", "thread"} {
 		copyRows := append([]RuntimeDiagramRelation(nil), rows...)
 		copyRows[1].FromNode += "_different_" + scope
-		if !runtimeDiagramAliasBindingsConflict(copyRows, anchors, "W") {
+		if !conflict(copyRows) {
 			t.Fatal("foreign producer lane merged")
 		}
 	}

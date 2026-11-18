@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -26,7 +27,7 @@ const runtimeDiagramThreadGroupPrefix = "thread\x00"
 
 // The lifeline rule is taught in one place: the authoring capsule printed with
 // the published rows. Other surfaces point to it instead of restating it.
-const runtimeDiagramLifelineTeaching = "One lifeline per recorded thread: for each known thread, reuse the same supplied native thread participant, or one participant id of your own, for all of its arrows and state notes. Rows that show the same thread number in the same capture are that one thread even when their from_node/to_node ids differ (those ids are per lookup), unless that number is recorded with two process numbers or as exited and reused; keep each arrow's own from_identity/to_identity. Two different threads never share a lifeline."
+const runtimeDiagramLifelineTeaching = "One lifeline per recorded thread: for each known thread, reuse the same supplied native thread participant, or one participant id of your own, for all of its arrows and free-text notes; a runtime_notes_v1 selection follows its own node_id rule. Rows that show the same thread number in the same capture are that one thread even when their from_node/to_node ids differ (those ids are per lookup), unless two process numbers are recorded for that number or a lookup reports a thread exit and reuse in that capture; then keep each row's own ids as separate lifelines. Keep each arrow's own from_identity/to_identity. Two different threads never share a lifeline."
 
 // The repair text for arrows on another thread's lifeline. It names only the
 // odd arrows and one patch operation.
@@ -37,14 +38,15 @@ func (s runtimeDiagramThreadSubject) group() string {
 }
 
 // runtimeDiagramThreadLifecycle is what the current ledger records about exit
-// and reuse of one thread number in one capture. Any value other than none
-// withholds the join of that number's lanes.
+// and reuse in one capture, seen from one thread number. Any value other than
+// none withholds the join of that number's lanes.
 type runtimeDiagramThreadLifecycle uint8
 
 const (
 	runtimeDiagramThreadLifecycleNone runtimeDiagramThreadLifecycle = iota
-	// The capture's lifecycle record is capped: which thread numbers were
-	// reused is unknown, so no number of that capture is provably one task.
+	// The capture holds a lifecycle record that does not name this number. The
+	// records of one lookup are a bounded roster that can stop without saying
+	// so, so a number they omit is not proven to be one task.
 	runtimeDiagramThreadLifecycleIncomplete
 	// An exit and reuse of this thread number is recorded.
 	runtimeDiagramThreadLifecycleReused
@@ -98,8 +100,8 @@ type runtimeDiagramThreadIndex struct {
 // Lanes of one recorded thread share a group. The join is withheld, and the
 // lane stays its own group, when the lane has no typed endpoints, observes
 // more than one subject, or its subject is contradicted: two different
-// recorded process numbers (thread-number reuse across processes), or a
-// lifecycle record (exit and reuse) that covers that thread number.
+// recorded process numbers (thread-number reuse across processes), or any
+// lifecycle record (exit and reuse) in that capture.
 func runtimeDiagramThreadIndexOf(rows []RuntimeDiagramRelation) runtimeDiagramThreadIndex {
 	laneSubjects := map[string]map[runtimeDiagramThreadSubject]bool{}
 	processes := map[runtimeDiagramThreadSubject]map[int]bool{}
@@ -167,7 +169,9 @@ func runtimeDiagramLaneJoined(groups map[string]string, lane string) bool {
 // what the current ledger's thread lifecycle records (exit and reuse of one
 // thread number) say about that thread number in that capture. A recorded
 // reuse means the number may denote two tasks, so its lanes are never joined.
-// A lifecycle record that names no thread number (a capped lifecycle audit)
+// The records of one lookup are not a complete roster: the producer stops at
+// a small bound without a signal, so the absence of a record for a number is
+// no proof that the number was not reused. Any lifecycle record therefore
 // leaves every thread number of its capture unproven and withholds them all.
 func markRuntimeDiagramThreadLifecycleBoundaries(rows []RuntimeDiagramRelation, ledger types.ObservationLedger) []RuntimeDiagramRelation {
 	threads := map[string]map[int]bool{}
@@ -177,10 +181,10 @@ func markRuntimeDiagramThreadLifecycleBoundaries(rows []RuntimeDiagramRelation, 
 			continue
 		}
 		tid, err := strconv.Atoi(traceSupplementRichNoteValue(record.RichNotes, "conflict_tid"))
-		capped := err != nil || tid <= 0 || traceSupplementRichNoteValue(record.RichNotes, "signal") == "lifecycle_audit_truncated"
+		named := err == nil && tid > 0 && traceSupplementRichNoteValue(record.RichNotes, "signal") != "lifecycle_audit_truncated"
 		for _, capture := range runtimeDiagramLifecycleRecordCaptures(record) {
-			if capped {
-				whole[capture] = true
+			whole[capture] = true
+			if !named {
 				continue
 			}
 			if threads[capture] == nil {
@@ -189,7 +193,7 @@ func markRuntimeDiagramThreadLifecycleBoundaries(rows []RuntimeDiagramRelation, 
 			threads[capture][tid] = true
 		}
 	}
-	if len(threads) == 0 && len(whole) == 0 {
+	if len(whole) == 0 {
 		return rows
 	}
 	for i := range rows {
@@ -255,10 +259,12 @@ func runtimeDiagramWakeEventKey(row RuntimeDiagramRelation) (string, bool) {
 }
 
 // A request binding proved on one lookup's copy of a physical wake row also
-// describes the other current copies of that same row. Nothing else on a row
+// describes the other current copies of that same row, and only that row: a
+// copied binding is kept apart from a lookup's own binding so it never speaks
+// for the other wakes that share the copy's lane. Nothing else on a row
 // changes: no process number is filled in, no lane is merged and no binding
-// is minted where no copy was bound. A side whose copies record two
-// different process numbers is left as it is.
+// is minted where no copy was bound. A side whose copies record two different
+// process numbers is left as it is.
 func propagateRequestedParticipantsAcrossEventCopies(rows []RuntimeDiagramRelation) []RuntimeDiagramRelation {
 	type copies struct {
 		from, to                   []string
@@ -291,10 +297,10 @@ func propagateRequestedParticipantsAcrossEventCopies(rows []RuntimeDiagramRelati
 		}
 		c := byEvent[key]
 		if len(c.from) > 0 && len(c.fromProcesses) <= 1 {
-			rows[i].requestedFrom = runtimeDiagramMergeRequested(rows[i].requestedFrom, c.from)
+			rows[i].requestedFrom, rows[i].requestedFromCopied = runtimeDiagramCopyRequested(rows[i].requestedFrom, rows[i].requestedFromCopied, c.from)
 		}
 		if len(c.to) > 0 && len(c.toProcesses) <= 1 {
-			rows[i].requestedTo = runtimeDiagramMergeRequested(rows[i].requestedTo, c.to)
+			rows[i].requestedTo, rows[i].requestedToCopied = runtimeDiagramCopyRequested(rows[i].requestedTo, rows[i].requestedToCopied, c.to)
 		}
 	}
 	return rows
@@ -302,15 +308,23 @@ func propagateRequestedParticipantsAcrossEventCopies(rows []RuntimeDiagramRelati
 
 func runtimeDiagramMergeRequested(have, add []string) []string {
 	for _, value := range add {
-		found := false
-		for _, existing := range have {
-			found = found || existing == value
-		}
-		if !found {
+		if !slices.Contains(have, value) {
 			have = append(append([]string(nil), have...), value)
 		}
 	}
 	return have
+}
+
+// runtimeDiagramCopyRequested adds the participants this row does not bind
+// yet and remembers that their binding came from another copy of the event.
+func runtimeDiagramCopyRequested(have, copied, add []string) ([]string, []string) {
+	for _, value := range add {
+		if !slices.Contains(have, value) {
+			have = append(append([]string(nil), have...), value)
+			copied = append(append([]string(nil), copied...), value)
+		}
+	}
+	return have, copied
 }
 
 // runtimeDiagramLifelineOddSide is one end of one recorded wake arrow that
@@ -326,9 +340,13 @@ type runtimeDiagramLifelineOddSide struct {
 
 // runtimeDiagramLifelineOddSides checks one diagram node as a lifeline. The
 // node stands for the recorded thread whose published id it uses, or else for
-// the thread its first arrow in document order binds. Every later arrow end
-// on that node must record the same thread group; the ones that do not are
-// returned. Lanes without the "rt_thread_" prefix never bind a lifeline.
+// the thread its first arrow in document order binds. It may host every
+// published lane of that thread (lane ids differ per lookup and recorded
+// precision), never lanes of two different threads: every later arrow end on
+// that node must record the same thread group, and the ones that do not are
+// returned. A lane without typed thread endpoints is only ever the same as
+// itself, and lanes without the "rt_thread_" prefix never bind a lifeline.
+// Names never participate.
 func runtimeDiagramLifelineOddSides(rows []RuntimeDiagramRelation, groups map[string]string, anchors []types.DiagramEdgeAnchor, node string) []runtimeDiagramLifelineOddSide {
 	home, first := "", true
 	if _, published := groups[node]; published {

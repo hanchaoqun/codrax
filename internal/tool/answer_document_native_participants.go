@@ -163,7 +163,7 @@ func projectNativeDiagramParticipants(blockProps map[string]any, view *types.Ans
 	if len(choices) == 0 {
 		return
 	}
-	props["runtime_participants_v1"] = map[string]any{"type": "array", "maxItems": 64, "items": map[string]any{"oneOf": choices}, "description": "Explicitly reuse existing sequence participants for current native threads, including note-only lanes. Several choices may show one recorded thread; any one of them selects its lifeline (the one-lifeline rule is stated with the runtime diagram anchors). The system puts exactly bound messages and notes on one lane. Select every duplicate alias you intend to merge; labels alone never bind an unselected node. This does not prove note contents, requested business roles or extra edges. Stale selections must be reselected from current choices."}
+	props["runtime_participants_v1"] = map[string]any{"type": "array", "maxItems": 64, "items": map[string]any{"oneOf": choices}, "description": "Explicitly reuse existing sequence participants for current native threads, including note-only lanes. Several choices may show one recorded thread; any one of them selects its lifeline (the one-lifeline rule is stated with the runtime diagram anchors). The system puts exactly bound messages and notes on one lane. To merge duplicate aliases, give each of them the same native_participant choice; labels alone never bind an unselected node. This does not prove note contents, requested business roles or extra edges. Stale selections must be reselected from current choices."}
 }
 
 // The map is block-local display identity. It accepts only current native
@@ -229,6 +229,38 @@ func runtimeDiagramParticipantBindings(block types.AnswerBlock, rows []RuntimeDi
 	return bindings, nil
 }
 
+// Two selected participants may stand for two published lanes of one recorded
+// thread while each hosts only its own lane. A selected participant that also
+// hosts the lane another participant selected has no consistent display: one
+// of the two would be rewritten away while its selection stays. The draft goes
+// back for one model-authored choice instead of being rewritten.
+func runtimeDiagramSelectionsHostEachOther(block types.AnswerBlock, rows []RuntimeDiagramRelation) error {
+	if block.Diagram == nil {
+		return nil
+	}
+	selectedLane, laneOwner := map[string]string{}, map[string]string{}
+	for _, s := range block.Diagram.RuntimeParticipantsV1 {
+		selectedLane[s.NodeID] = s.NativeParticipant
+		if laneOwner[s.NativeParticipant] == "" {
+			laneOwner[s.NativeParticipant] = s.NodeID
+		}
+	}
+	for _, a := range block.EdgeAnchors {
+		for _, r := range rows {
+			if a.RelationKind != r.Kind || a.FromIdentity != r.FromIdentity || a.ToIdentity != r.ToIdentity {
+				continue
+			}
+			for _, side := range [][2]string{{a.FromNode, r.FromNode}, {a.ToNode, r.ToNode}} {
+				own, selected := selectedLane[side[0]]
+				if owner := laneOwner[side[1]]; selected && own != side[1] && owner != "" && owner != side[0] {
+					return fmt.Errorf("runtime_participants_v1: participants %q and %q are both selected for one recorded thread, and %q also carries an arrow recorded on the id selected for %q. Draw all arrows of that thread on one of these participants and keep only that participant's selection", side[0], owner, side[0], owner)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Validate every selected block before committing any change. Retained wire
 // selectors are rebound on every emit/patch, including JSON-restored drafts.
 func normalizeNativeDiagramParticipants(doc *types.AnswerDocumentV2, rows []RuntimeDiagramRelation, requests ...*types.RequestModel) (int, error) {
@@ -243,6 +275,9 @@ func normalizeNativeDiagramParticipants(doc *types.AnswerDocumentV2, rows []Runt
 		b = cloneAtomicDiagramPatchBlock(b)
 		bindings, err := runtimeDiagramParticipantBindings(b, rows)
 		if err != nil {
+			return 0, fmt.Errorf("block %q: %w", b.ID, err)
+		}
+		if err := runtimeDiagramSelectionsHostEachOther(b, rows); err != nil {
 			return 0, fmt.Errorf("block %q: %w", b.ID, err)
 		}
 		if len(requests) == 1 && requests[0] != nil && requests[0].DiagramHint != nil {

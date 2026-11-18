@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -203,20 +204,23 @@ func requestedRuntimeParticipantScope(ref types.ObservationSourceRef) string {
 }
 
 // Only current provider endpoints are additional presentation surfaces. Exact
-// event identities continue to gate every visible edge and local repair.
+// event identities continue to gate every visible edge and local repair. A
+// lookup's own binding covers its lane; a binding copied from another lookup's
+// copy of one event covers that event's instance alone.
 func requestedRuntimeParticipantSurfaces(identity string, rows []RuntimeDiagramRelation) []string {
 	out := []string{identity}
-	add := func(values []string, node, instance string) {
-		for _, value := range values {
-			if value == identity {
-				out = append(out, node, instance)
-				return
-			}
+	add := func(values, copied []string, node, instance string) {
+		if !slices.Contains(values, identity) {
+			return
 		}
+		if !slices.Contains(copied, identity) {
+			out = append(out, node)
+		}
+		out = append(out, instance)
 	}
 	for _, row := range rows {
-		add(row.requestedFrom, row.FromNode, row.FromIdentity)
-		add(row.requestedTo, row.ToNode, row.ToIdentity)
+		add(row.requestedFrom, row.requestedFromCopied, row.FromNode, row.FromIdentity)
+		add(row.requestedTo, row.requestedToCopied, row.ToNode, row.ToIdentity)
 	}
 	return out
 }

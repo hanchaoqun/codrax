@@ -35,6 +35,10 @@ type RuntimeDiagramRelation struct {
 	threadEndpoints            *runtimeDiagramThreadEndpoints
 	businessEndpoints          *runtimeDiagramBusinessEndpoints
 	requestedFrom, requestedTo []string
+	// The subset of requestedFrom/requestedTo copied from another lookup's copy
+	// of this physical event. Such a binding proves this event only, never the
+	// lane the copy was published on.
+	requestedFromCopied, requestedToCopied []string
 }
 
 // RuntimeDiagramRelationProvider keeps producer validation separate from
@@ -387,8 +391,9 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	if runtimeDiagramRowsHaveObservedThreadLanes(rows) {
 		b.WriteString(runtimeDiagramUnmappedParticipantTeaching(authority, rm))
 		b.WriteString("During a local repair, a published from_native_participant/to_native_participant choice binds the selected event side to an existing declared sequence node, preserving that node's state notes. This explicitly selected native binding never follows a label match and never puts two different threads on one lifeline. An ensure_visible choice may relabel one existing declaration; it does not prove an unresolved business role.\n")
-		b.WriteString(runtimeDiagramLifelineTeaching + " A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
+		b.WriteString(runtimeDiagramLifelineTeaching + " A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events, and the arrows of one lifeline whichever lookup published them, in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
 	}
+	bindingExplained := false
 	for _, row := range rows[:min(limit, len(rows))] {
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)
@@ -399,7 +404,12 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		}{{row.FromNode, row.requestedFrom}, {row.ToNode, row.requestedTo}} {
 			for _, participant := range side.participants {
 				binding, _ := json.Marshal(map[string]string{"participant": participant, "native_node": side.node})
-				fmt.Fprintf(&b, "  requested_participant_binding=%s; this exact selected native instance satisfies the requested identity; keep the native node/instance anchors with a readable label, not a second unproven role lane. This does not grant a causal claim.\n", binding)
+				fmt.Fprintf(&b, "  requested_participant_binding=%s", binding)
+				if !bindingExplained {
+					bindingExplained = true
+					b.WriteString("; this exact selected native instance satisfies the requested identity; keep the native node/instance anchors with a readable label, not a second unproven role lane. This does not grant a causal claim. The same applies to every requested_participant_binding below.")
+				}
+				b.WriteString("\n")
 			}
 		}
 	}

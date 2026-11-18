@@ -72,8 +72,9 @@ func diagramParticipantRuntimeCompactRepair(
 				}
 			}
 		}
+		boundary := diagramParticipantRuntimeStaleBoundaryClause(doc, mismatch)
 		if drawn {
-			parts = append(parts, fmt.Sprintf("Participant %q is the recorded endpoint %q. Its arrow (%s) is already drawn but is not accepted as drawn: repair that arrow instead of adding another one", mismatch.Participant, endpoint, event))
+			parts = append(parts, fmt.Sprintf("Participant %q is the recorded endpoint %q. Its arrow (%s) is already drawn but is not accepted as drawn: repair that arrow instead of adding another one%s", mismatch.Participant, endpoint, event, boundary))
 			continue
 		}
 		// Name only an operation that exists: the addition published for
@@ -94,9 +95,25 @@ func diagramParticipantRuntimeCompactRepair(
 		if len(operations) == 0 {
 			return ""
 		}
-		parts = append(parts, fmt.Sprintf("Participant %q is the recorded endpoint %q, and no accepted arrow of that endpoint is in this diagram. Published row to draw: %s. Add it as one arrow whose %s is that endpoint's lifeline: %s", mismatch.Participant, endpoint, event, field, strings.Join(operations, "; ")))
+		parts = append(parts, fmt.Sprintf("Participant %q is the recorded endpoint %q, and no accepted arrow of that endpoint is in this diagram. Published row to draw: %s. Add it as one arrow whose %s is that endpoint's lifeline: %s%s", mismatch.Participant, endpoint, event, field, strings.Join(operations, "; "), boundary))
 	}
 	return strings.Join(parts, ". ") + "."
+}
+
+// Once the participant's recorded arrow is accepted, an unproven boundary row
+// for that participant contradicts it, so one repair must change both.
+func diagramParticipantRuntimeStaleBoundaryClause(doc *types.AnswerDocumentV2, mismatch DiagramParticipantCoverageMismatch) string {
+	for _, block := range doc.Blocks {
+		if block.ID != mismatch.BlockID {
+			continue
+		}
+		for _, boundary := range block.ParticipantBoundaries {
+			if strings.EqualFold(strings.TrimSpace(boundary.Participant), strings.TrimSpace(mismatch.Participant)) {
+				return fmt.Sprintf(". The same repair must also drop this participant's unproven boundary row: in that patch send diagram_boundary_replacements for block %q with the complete participant_boundaries array minus that row; in a full re-emit omit that row", block.ID)
+			}
+		}
+	}
+	return ""
 }
 
 func diagramParticipantRuntimeRequested(participants []string, identity string) bool {

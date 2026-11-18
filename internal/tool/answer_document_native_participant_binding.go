@@ -97,11 +97,3 @@ func nativeParticipantBoundCandidate(edit emitAnswerDiagramEdgeEdit) *types.Answ
 	}
 	return &c
 }
-
-// A readable sequence node is one lifeline of one recorded thread. It may host
-// every published lane of that thread (lane ids differ per lookup and recorded
-// precision), never lanes of two different threads. A lane without typed
-// thread endpoints is only ever the same as itself. Names never participate.
-func runtimeDiagramAliasBindingsConflict(rows []RuntimeDiagramRelation, anchors []types.DiagramEdgeAnchor, node string) bool {
-	return len(runtimeDiagramLifelineOddSides(rows, runtimeDiagramThreadGroups(rows), anchors, node)) > 0
-}

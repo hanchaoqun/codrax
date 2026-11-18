@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -38,6 +39,16 @@ func TestHMC376PublicCapsuleBindsPresentedCopy(t *testing.T) {
 	}
 	if strings.Count(text, runtimeDiagramLifelineTeaching) != 1 || strings.Count(text, "One lifeline per recorded thread") != 1 {
 		t.Fatalf("the lifeline rule must be stated exactly once: %s", text)
+	}
+	// The explanation of a binding is printed once; each later row keeps only
+	// its exact binding.
+	if strings.Count(text, "this exact selected native instance satisfies the requested identity") != 1 {
+		t.Fatalf("the binding explanation must be stated exactly once: %s", text)
+	}
+	// A typed note keeps its exact owner rule; the lifeline rule must not
+	// promise that any joined lifeline accepts it.
+	if !strings.Contains(runtimeDiagramLifelineTeaching, "all of its arrows and free-text notes; a runtime_notes_v1 selection follows its own node_id rule") || strings.Contains(runtimeDiagramLifelineTeaching, "state notes") {
+		t.Fatalf("the lifeline rule overstates typed notes: %s", runtimeDiagramLifelineTeaching)
 	}
 	for _, gone := range []string{"cannot merge different producer lanes", "Do not create a second generic lane", "不能混用端点"} {
 		if strings.Contains(text, gone) {
@@ -270,6 +281,52 @@ func TestHMC376PublicMissingWakeArrowOneAddition(t *testing.T) {
 	if got == nil || len(got.Blocks[1].EdgeAnchors) != 2 || !strings.Contains(got.Blocks[1].Diagram.Body, "->>T42: 唤醒0") || !strings.Contains(got.Blocks[1].Diagram.Body, "T42->>T12: 唤醒1") ||
 		strings.Index(got.Blocks[1].Diagram.Body, "->>T42: 唤醒0") > strings.Index(got.Blocks[1].Diagram.Body, "T42->>T12: 唤醒1") {
 		t.Fatalf("repair lost or misplaced a recorded wake arrow: %+v", got)
+	}
+}
+
+// An unproven boundary row left on the requested participant contradicts the
+// arrow the repair asks for. The one rejection names both changes, and one
+// patch carrying them both is accepted.
+func TestHMC376PublicMissingWakeArrowNamesTheStaleBoundary(t *testing.T) {
+	ctx, rows := lifelineFixtureHMC376(t, lifelineBothRolesTraceHMC376, "wakeup_chain", "event_search")
+	presented := lifelinePresentedWakesHMC376(rows)
+	doc := lifelineDocHMC376(rows, presented[1:2], lifelinePerThreadNodeHMC376)
+	doc.Blocks[1].ParticipantBoundaries = []types.DiagramParticipantBoundary{{Participant: hmc242ParticipantQuote, Status: types.DiagramParticipantBoundaryUnproven}}
+	out := lifelineEmitHMC376(t, ctx, doc)
+	if issues := lifelineIssuesHMC376(out.Summary); out.Success || len(issues) != 1 || issues[0] != string(DiagramParticipantCoverageIdentityMissing) {
+		t.Fatalf("want only the missing participant arrow, got success=%t %v: %s", out.Success, issues, out.Summary)
+	}
+	hint := lifelineHintHMC376(t, out.Summary, string(DiagramParticipantCoverageIdentityMissing))
+	blockID := doc.Blocks[1].ID
+	for _, want := range []string{"The same repair must also drop this participant's unproven boundary row", fmt.Sprintf("diagram_boundary_replacements for block %q", blockID), "in a full re-emit omit that row"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("repair text lacks %q: %s", want, hint)
+		}
+	}
+	lease := lifelineInstallRejectionLeaseHMC376(t, ctx, out)
+	if schema := string((&EmitAnswerDocumentPatch{}).parametersForContext(nil, ctx.Mutable, ctx)); !strings.Contains(schema, `"diagram_boundary_replacements"`) {
+		t.Fatalf("the named boundary operation is not published: %s", schema)
+	}
+	var addition *types.AnswerDiagramRelationRepairCandidate
+	for i, candidate := range lease.AllowedAdditions {
+		if candidate.RelationKind == presented[0].Kind && candidate.Source == strings.Join(presented[0].SupportRefs, "; ") {
+			addition = &lease.AllowedAdditions[i]
+		}
+	}
+	if addition == nil {
+		t.Fatalf("the named row has no published addition: %+v", lease.AllowedAdditions)
+	}
+	raw, _ := json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary", "table"},
+		"diagram_boundary_replacements": []any{map[string]any{"block_id": blockID, "participant_boundaries": []any{}}},
+		"diagram_edge_edits": []any{map[string]any{"addition_ref": addition.AdditionRef, "action": "add", "placement_ref": sequencePlacementPublicRef(t, ctx, "T42->>T12: 唤醒1"),
+			"from_node_visible_label": "loader-11", "to_native_participant": addition.ToNativeParticipant,
+			"edge": map[string]any{"from_node": addition.FromNodeIDs[0], "to_node": "T42", "visible_label": "唤醒0"}}}})
+	patched, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, raw)
+	if err != nil || !patched.Success {
+		t.Fatalf("the two named changes did not repair the diagram in one patch: %v %s", err, patched.Summary)
+	}
+	if got := ctx.Mutable.AnswerDocumentV2(); got == nil || len(got.Blocks[1].ParticipantBoundaries) != 0 || len(got.Blocks[1].EdgeAnchors) != 2 {
+		t.Fatalf("repair kept the stale boundary or lost a recorded wake arrow: %+v", got)
 	}
 }
 
