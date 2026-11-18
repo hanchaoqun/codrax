@@ -16,7 +16,8 @@ import (
 // counters and typed UnparsedSamples — TDIAG B2/B4, §28.13, 2026-07-09;
 // formerly the Index face, which put whole-file censuses under the 250K
 // index event budget) — classification is the engine's own (Event.Type from
-// classifyEventType, TraceSpanSemanticClass/TraceSpanNearMissesSemanticWork
+// classifyEventType, TraceSpanSemanticClass/TraceSpanVocabulary/
+// TraceSpanNearMissesSemanticWork
 // for face ⑦), never a reimplemented parser (anti-parallel-subsystem red
 // line). Output is aggregate statistics plus bounded samples only: every
 // list carries a top-N cap and a total disclosure, same honesty family as
@@ -573,9 +574,16 @@ func renderFormatCensus(c *formatCensus, emit func(string)) {
 		// semantic classification — semantic_class=X (classified) or the
 		// advisory near-miss flag (semantic vocabulary, no known pattern —
 		// the naming-drift blind-spot list). One classifier, exported.
+		// Between the two sits a third state: a name the platform vocabulary
+		// recognises without giving it a class (a collector cycle, a nested
+		// step, a related marker) is printed with its row and reader label,
+		// so "known and deliberately unclassified" is told apart from
+		// "unknown".
 		line := fmt.Sprintf("- span=%s count=%d", clampToken(nc.Name), nc.Count)
 		if class := tracequery.TraceSpanSemanticClass(nc.Name); class != "" {
 			line += " semantic_class=" + class
+		} else if hit, ok := tracequery.TraceSpanVocabulary(nc.Name); ok {
+			line += fmt.Sprintf(" recognised=%s (%s; %s)", hit.ID, hit.Role, hit.LabelZH)
 		} else if tracequery.TraceSpanNearMissesSemanticWork(nc.Name) {
 			line += " ⚠ near_miss(语义词汇命中但未匹配已知模式)"
 		}

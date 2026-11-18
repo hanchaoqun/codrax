@@ -403,3 +403,48 @@ func TestFormatCensusSeparatesReclassifiedClockFromStrictFrequencySamples(t *tes
 		t.Fatalf("reclassified clock row did not retain clock-track ownership: %+v", c.clockTracks)
 	}
 }
+
+// Span census, three states (zero-model public entry). A marker the platform
+// vocabulary mints carries its class; a marker it recognises without minting
+// (a nested step, a collector cycle) is printed with its row and reader
+// label; a marker that only looks like an operation is the naming-drift
+// suspect; an ordinary span carries no annotation.
+func TestFormatCensusPlatformVocabularyThreeStates(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "census.systrace")
+	trace := `        app-20   (   20) [001] .... 1.010000: print: B|20|H:FullGC::RunPhases;GCReason2;Sensitive0
+        app-20   (   20) [001] .... 1.020000: print: B|20|H:GC::MarkRoots
+        app-20   (   20) [001] .... 1.030000: print: E|20
+        app-20   (   20) [001] .... 1.040000: print: E|20
+     daemon-30   (   20) [002] .... 1.050000: print: B|20|Background concurrent copying GC
+     daemon-30   (   20) [002] .... 1.060000: print: E|20
+        app-20   (   20) [001] .... 1.070000: print: B|20|H:MyFullGC::RunPhases
+        app-20   (   20) [001] .... 1.080000: print: E|20
+        app-20   (   20) [001] .... 1.090000: print: B|20|Choreographer#doFrame
+        app-20   (   20) [001] .... 1.100000: print: E|20
+`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(dir, "census.yaml")
+	if err := os.WriteFile(scriptPath, []byte("version: 1\ndescription: \"span census\"\nsteps:\n  - {label: census, view: format_census}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	failed, err := Run(nil, Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf)
+	if err != nil || failed != 0 {
+		t.Fatalf("Run: failed=%d err=%v\n%s", failed, err, buf.String())
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"- span=H:FullGC::RunPhases;GCReason2;Sensitive0 count=1 semantic_class=gc_pause\n",
+		"- span=H:GC::MarkRoots count=1 recognised=arkts.gc.phase.gc (phase; ArkTS GC 步骤)\n",
+		"- span=Background concurrent copying GC count=1 recognised=art.gc.cc_background (cycle; ART 后台并发复制 GC 周期)\n",
+		"- span=H:MyFullGC::RunPhases count=1 ⚠ near_miss(语义词汇命中但未匹配已知模式)\n",
+		"- span=Choreographer#doFrame count=1\n",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("census report missing %q\n----\n%s", want, report)
+		}
+	}
+}

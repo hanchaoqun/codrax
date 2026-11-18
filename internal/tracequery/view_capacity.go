@@ -182,11 +182,14 @@ type ViewCapacity struct {
 	// generic/semantic trace-mark caps are DELIBERATELY two entries — v7 O1
 	// reserved semantic-class spans their own slots so a short JIT/verify
 	// span is not evicted by longer generic spans, and collapsing them into
-	// one number would revert that.
-	AdvisoryBackgroundThreads      int
-	AdvisoryBackgroundProcesses    int
-	AdvisoryGenericTraceMarkSpans  int
-	AdvisorySemanticTraceMarkSpans int
+	// one number would revert that. Spans classified only by the platform
+	// vocabulary have a third, separate entry for the same reason: they must
+	// never take one of the built-in semantic seats.
+	AdvisoryBackgroundThreads              int
+	AdvisoryBackgroundProcesses            int
+	AdvisoryGenericTraceMarkSpans          int
+	AdvisorySemanticTraceMarkSpans         int
+	AdvisoryPlatformSemanticTraceMarkSpans int
 }
 
 // ViewCompaction is the typed record of one result truncation, published on
@@ -263,15 +266,16 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
 	"window_stats": {
-		Execution:                      ExecutionIndexedTrace,
-		View:                           "window_stats",
-		HeavyView:                      true,
-		FallbackView:                   FallbackViewEventSearch,
-		FallbackEventTypes:             []string{string(EventTraceMark)},
-		AdvisoryBackgroundThreads:      4,
-		AdvisoryBackgroundProcesses:    8,
-		AdvisoryGenericTraceMarkSpans:  8,
-		AdvisorySemanticTraceMarkSpans: traceMarkSemanticSpanCap,
+		Execution:                              ExecutionIndexedTrace,
+		View:                                   "window_stats",
+		HeavyView:                              true,
+		FallbackView:                           FallbackViewEventSearch,
+		FallbackEventTypes:                     []string{string(EventTraceMark)},
+		AdvisoryBackgroundThreads:              4,
+		AdvisoryBackgroundProcesses:            8,
+		AdvisoryGenericTraceMarkSpans:          8,
+		AdvisorySemanticTraceMarkSpans:         traceMarkSemanticSpanCap,
+		AdvisoryPlatformSemanticTraceMarkSpans: traceMarkPlatformSemanticSpanCap,
 	},
 	"perf_stats": {
 		Execution:          ExecutionIndexedTrace,

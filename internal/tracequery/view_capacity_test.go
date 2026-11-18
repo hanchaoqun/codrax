@@ -82,6 +82,15 @@ func TestViewCapacityTablePinsCurrentBehavior(t *testing.T) {
 		t.Fatalf("semantic span advisory cap %d must mirror traceMarkSemanticSpanCap %d",
 			stats.AdvisorySemanticTraceMarkSpans, traceMarkSemanticSpanCap)
 	}
+	// Spans classified only by the platform vocabulary sit in a third,
+	// separate bucket (8 seats); it never borrows from the 16 above.
+	if stats.AdvisoryPlatformSemanticTraceMarkSpans != 8 {
+		t.Fatalf("platform semantic span advisory cap = %d, want 8", stats.AdvisoryPlatformSemanticTraceMarkSpans)
+	}
+	if stats.AdvisoryPlatformSemanticTraceMarkSpans != traceMarkPlatformSemanticSpanCap {
+		t.Fatalf("platform semantic span advisory cap %d must mirror traceMarkPlatformSemanticSpanCap %d",
+			stats.AdvisoryPlatformSemanticTraceMarkSpans, traceMarkPlatformSemanticSpanCap)
+	}
 	// event_search IS the C3 escape hatch: it must never advertise a fallback
 	// view of its own (suggesting it switch views would fight 133520c1).
 	search := ViewCapacityFor("event_search")

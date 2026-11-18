@@ -396,8 +396,11 @@ func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (lane sem
 	// R3-IMPL (§29.88.1): the no-overlap fall-through's host-edge arm — the
 	// span must hold a POSITIVE pre-edge share (a span at/after the boundary
 	// is 边后=解除 and keeps the legacy lane; no fabricated overlap: depth/
-	// state stay zero/empty, same discipline as the self lane).
-	if anchor, ok := hostSemanticSpanEdgeAnchor(chain, span.Thread); ok && span.StartTs < anchor.boundaryTs {
+	// state stay zero/empty, same discipline as the self lane). The same
+	// shared bar as the single-span arm applies: a wait minted by the platform
+	// vocabulary on a thread other than the target never takes this lane
+	// (semanticSpanAdmitsHostEdgeLane).
+	if anchor, ok := hostSemanticSpanEdgeAnchor(chain, span.Thread); ok && span.StartTs < anchor.boundaryTs && semanticSpanAdmitsHostEdgeLane(span.Name) {
 		return semanticSpanLaneChainEdgeAnchored, 0, ""
 	}
 	return semanticSpanLaneOff, projection.ChainDepth, projection.DominantState

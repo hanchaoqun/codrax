@@ -1,0 +1,466 @@
+# Verbatim lines of a real cold-start capture: an ArkTS full collection runs on the queried process main thread (tid 55300).
+# Original capture: sha256 d27ff641787dfa0768928e0ce3d11a7d2a6caa0f2910c941fae3e97f2256e22e, 245420208 bytes; the kept lines are original lines 161434..170252.
+# Cut rule: every line timestamped 2493.670..2493.765 that is recorded by a thread of process 55300 (marker, sched_switch, sched_wakeup, sched_waking, sched_blocked_reason) or is a scheduler line referencing one of its threads; the capture's own header lines follow. No line is edited.
+# tracer: nop
+#                                          _-----=> irqs-off
+#                                         / _----=> need-resched
+#                                        | / _---=> hardirq/softirq
+#                                        || / _--=> preempt-depth
+#                                        ||| /     delay
+#           TASK-PID       TGID    CPU#  ||||   TIMESTAMP  FUNCTION
+#              | |           |       |   ||||      |         |
+   tppmgr-idle-1-219     (      2) [001] ....  2493.678578: sched_wakeup: comm=OS_FFRT_Delay pid=55445 prio=40 target_cpu=001
+   OS_FFRT_Delay-55445   (  55300) [001] ....  2493.678592: sched_switch: prev_comm=tppmgr-idle-1 prev_pid=0 prev_prio=-2 prev_state=R+ ==> next_comm=OS_FFRT_Delay next_pid=55445 next_prio=40 next_info=e,0,1,0,0,1,0
+   OS_FFRT_Delay-55445   (  55300) [001] ....  2493.678667: sched_wakeup: comm=OS_FFRT_3_5 pid=55956 prio=20 target_cpu=001
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.678677: sched_switch: prev_comm=OS_FFRT_Delay prev_pid=55445 prev_prio=40 prev_state=R+ ==> next_comm=OS_FFRT_3_5 next_pid=55956 next_prio=20 next_info=e,0,1,0,0,1,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.678713: tracing_mark_write: B|55300|H:[746e657665004e4,1c36006,1]#TriggerMainThreadLocalGC|I39
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.678757: sched_wakeup: comm=pGalleryService pid=55300 prio=40 target_cpu=001
+   OS_FFRT_Delay-55445   (  55300) [001] ....  2493.678777: sched_switch: prev_comm=OS_FFRT_3_5 prev_pid=55956 prev_prio=20 prev_state=S ==> next_comm=OS_FFRT_Delay next_pid=55445 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.678842: sched_switch: prev_comm=OS_FFRT_Delay prev_pid=55445 prev_prio=40 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.678980: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [001] ....  2493.679366: sched_wakeup: comm=udk-irq-1 pid=66 prio=142 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.679384: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,0,0,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679426: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=142 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679438: sched_wakeup: comm=udk-irq-1 pid=66 prio=142 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.679449: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,0,0,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679481: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679485: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.679494: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,0,0,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679548: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679563: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.679577: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,0,0,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679614: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679619: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.679628: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,2,0,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679657: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.679887: tracing_mark_write: B|55300|H:FullGC::RunPhases;GCReason2;Sensitive0;IsInBackground0;Startup3;Young17825792;Old4194304;huge2359296;NonMov3670016;TotCommit34603008;ObjSizeBeforeSensitive0|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.679905: tracing_mark_write: B|55300|H:FullGC::Initialize|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680408: tracing_mark_write: C|55300|H:Heap size (KB)|52736|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680675: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680686: tracing_mark_write: B|55300|H:FullGC::Mark|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680689: tracing_mark_write: B|55300|H:GC::MarkRoots|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680697: tracing_mark_write: B|55300|H:VisitRootHandleStorage|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.680741: tracing_mark_write: C|55300|H:Heap size (KB)|52992|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.681042: sched_wakeup: comm=OS_GC_Thread pid=55457 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.681301: sched_wakeup: comm=OS_GC_Thread pid=55455 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.681764: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.682219: tracing_mark_write: C|55300|H:Heap size (KB)|53248|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.682706: tracing_mark_write: C|55300|H:Heap size (KB)|53504|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.682851: sched_wakeup: comm=kworker/u19:2 pid=43846 prio=41 target_cpu=007
+ pGalleryService-55300   (  55300) [001] ....  2493.683202: tracing_mark_write: C|55300|H:Heap size (KB)|53760|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.683589: tracing_mark_write: C|55300|H:Heap size (KB)|54016|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.683842: tracing_mark_write: B|55300|H:IterateConcurrentRoots|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.685696: tracing_mark_write: C|55300|H:Heap size (KB)|54272|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.687407: tracing_mark_write: C|55300|H:Heap size (KB)|54528|M47
+    OS_GC_Thread-55455   (  55300) [002] ....  2493.688116: sched_switch: prev_comm=NK_NK_0 ->NK_DN prev_pid=56877 prev_prio=20 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [002] ....  2493.688198: tracing_mark_write: C|55300|H:Heap size (KB)|54784|M47
+ NK_NK_0 ->NK_DN-56877   (  56824) [002] ....  2493.688523: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=S ==> next_comm=NK_NK_0 ->NK_DN next_pid=56877 next_prio=20 next_info=c,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.688528: sched_wakeup: comm=OS_GC_Thread pid=55455 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.689235: tracing_mark_write: C|55300|H:Heap size (KB)|55040|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.689492: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.689565: tracing_mark_write: B|55300|H:VisitRootGlobalRefHandle|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.690013: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.690033: sched_wakeup: comm=tppmgr-misc pid=67 prio=142 target_cpu=000
+   dh-irq-bind-1-83      (     63) [001] ....  2493.690055: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.690137: sched_switch: prev_comm=kworker/1:0 prev_pid=44792 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.690184: sched_switch: prev_comm=DB_TaskExecutor prev_pid=2142 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [001] ....  2493.690751: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.690814: sched_wakeup: comm=pGalleryService pid=55300 prio=40 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.690824: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.691278: sched_wakeup: comm=kworker/u17:3 pid=35697 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [001] ....  2493.692476: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.692505: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.694302: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.694326: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,0,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.694377: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [001] ....  2493.694830: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=D ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.694902: sched_wakeup: comm=pGalleryService pid=55300 prio=40 target_cpu=001
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.694903: sched_blocked_reason: pid=55300 iowait=0 caller=vregion_merge_prev+0x348/0x900[sysmgr.elf] delay=0
+ pGalleryService-55300   (  55300) [001] ....  2493.694914: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.694942: tracing_mark_write: C|55300|H:Heap size (KB)|55296|M47
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.695278: tracing_mark_write: C|55300|H:Heap size (KB)|55552|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697211: sched_switch: prev_comm=tp-io-2 prev_pid=56951 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697274: sched_wakeup: comm=udk-irq-2 pid=69 prio=301 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697288: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697320: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697325: sched_wakeup: comm=udk-irq-2 pid=69 prio=142 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697334: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697356: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697364: sched_wakeup: comm=udk-irq-2 pid=69 prio=301 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697373: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697401: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697416: sched_wakeup: comm=udk-irq-2 pid=69 prio=301 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697425: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697449: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697455: sched_wakeup: comm=udk-irq-2 pid=69 prio=301 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697464: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697485: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697514: sched_wakeup: comm=udk-irq-2 pid=69 prio=301 target_cpu=002
+       udk-irq-2-69      (      2) [002] ....  2493.697524: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-2 next_pid=69 next_prio=301 next_info=4,2,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697573: sched_switch: prev_comm=udk-irq-2 prev_pid=69 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.697617: tracing_mark_write: C|55300|H:Heap size (KB)|55808|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.698068: sched_wakeup: comm=FinalizerWatchd pid=56003 prio=16 target_cpu=002
+ FinalizerWatchd-56003   (  55977) [002] ....  2493.698088: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=FinalizerWatchd next_pid=56003 next_prio=16 next_info=c,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.698275: sched_switch: prev_comm=FinalizerWatchd prev_pid=56003 prev_prio=16 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.698661: tracing_mark_write: C|55300|H:Heap size (KB)|56064|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.699512: sched_wakeup: comm=kworker/u19:2 pid=43846 prio=41 target_cpu=007
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.699632: sched_wakeup: comm=dh-irq-bind-2 pid=84 prio=301 target_cpu=002
+   dh-irq-bind-2-84      (     63) [002] ....  2493.699649: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-2 next_pid=84 next_prio=301 next_info=4,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.699732: sched_switch: prev_comm=dh-irq-bind-2 prev_pid=84 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.699748: tracing_mark_write: C|55300|H:Heap size (KB)|56320|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.700044: sched_wakeup: comm=dh-irq-bind-2 pid=84 prio=301 target_cpu=002
+ pGalleryService-55300   (  55300) [001] ....  2493.700047: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.700052: sched_wakeup: comm=dh-irq-bind-3 pid=85 prio=301 target_cpu=003
+   dh-irq-bind-2-84      (     63) [002] ....  2493.700058: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-2 next_pid=84 next_prio=301 next_info=4,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.700064: sched_wakeup: comm=udk_timer pid=80 prio=140 target_cpu=000
+   dh-irq-bind-3-85      (     63) [003] ....  2493.700065: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-3 next_pid=85 next_prio=301 next_info=8,0,1,0,0,0,0
+   dh-irq-bind-1-83      (     63) [001] ....  2493.700078: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.700117: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.700127: sched_switch: prev_comm=udk_timer prev_pid=80 prev_prio=140 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.700145: sched_switch: prev_comm=kworker/2:2 prev_pid=44165 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.702605: tracing_mark_write: C|55300|H:Heap size (KB)|56576|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.702678: tracing_mark_write: C|55300|H:Heap size (KB)|56832|M47
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.702794: tracing_mark_write: C|55300|H:Heap size (KB)|57088|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.705492: tracing_mark_write: C|55300|H:Heap size (KB)|57344|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.705610: tracing_mark_write: C|55300|H:Heap size (KB)|57600|M47
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.705745: tracing_mark_write: C|55300|H:Heap size (KB)|57856|M47
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.707936: sched_wakeup: comm=kworker/u17:3 pid=35697 prio=20 target_cpu=000
+         tp-io-2-56951   (  56888) [003] ....  2493.708060: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=tp-io-2 next_pid=56951 next_prio=20 next_info=ff,552,2,0,0,4,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.709656: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.709661: sched_wakeup: comm=udk-irq-3 pid=70 prio=142 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.709673: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,0,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.709727: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.709730: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.709740: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,0,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.709765: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.710002: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.710014: sched_wakeup: comm=dh-irq-bind-2 pid=84 prio=301 target_cpu=002
+       udk-irq-3-70      (      2) [003] ....  2493.710015: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.710027: sched_wakeup: comm=tppmgr-misc pid=67 prio=142 target_cpu=000
+   dh-irq-bind-2-84      (     63) [002] ....  2493.710046: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-2 next_pid=84 next_prio=301 next_info=4,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.710133: sched_switch: prev_comm=tppmgr-misc prev_pid=67 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.710177: sched_switch: prev_comm=kworker/3:0 prev_pid=26969 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.716053: sched_wakeup: comm=ImgInvlMonitor pid=14638 prio=20 target_cpu=000
+           <...>-71      (      2) [001] ....  2493.716055: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=tppmgr-common-m next_pid=71 next_prio=20 next_info=f,4,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.716068: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.716080: sched_switch: prev_comm=tppmgr-common-m prev_pid=71 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.716157: sched_wakeup: comm=kworker/u19:2 pid=43846 prio=41 target_cpu=007
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.716265: sched_wakeup: comm=dh-irq-bind-2 pid=84 prio=301 target_cpu=002
+   dh-irq-bind-2-84      (     63) [002] ....  2493.716277: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-2 next_pid=84 next_prio=301 next_info=4,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.716358: sched_switch: prev_comm=dh-irq-bind-2 prev_pid=84 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.718044: tracing_mark_write: C|55300|H:Heap size (KB)|58112|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.718602: tracing_mark_write: C|55300|H:Heap size (KB)|58368|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.719188: tracing_mark_write: C|55300|H:Heap size (KB)|58624|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.719440: sched_wakeup: comm=OS_FFRT_Delay pid=1030 prio=41 target_cpu=007
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.719805: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.719824: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.720047: sched_wakeup: comm=dh-irq-bind-3 pid=85 prio=301 target_cpu=003
+   dh-irq-bind-3-85      (     63) [003] ....  2493.720060: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-3 next_pid=85 next_prio=301 next_info=8,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.720341: sched_switch: prev_comm=rcu_sched prev_pid=111 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.720797: sched_switch: prev_comm=SaInit0 prev_pid=2220 prev_prio=20 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.721324: sched_wakeup: comm=composer@2.1-se pid=54263 prio=20 target_cpu=000
+     logd.writer-54118   (  54109) [001] ....  2493.721678: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=logd.writer next_pid=54118 next_prio=10 next_info=b,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.721719: sched_switch: prev_comm=logd.writer prev_pid=54118 prev_prio=10 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.721854: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.721867: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722026: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722261: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.722275: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722304: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722315: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.722325: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722347: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722355: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.722364: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722388: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722397: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.722405: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.722453: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.722770: tracing_mark_write: C|55300|H:Heap size (KB)|58880|M47
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.722882: tracing_mark_write: C|55300|H:Heap size (KB)|59136|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.723410: tracing_mark_write: C|55300|H:Heap size (KB)|59392|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.724585: sched_wakeup: comm=kworker/u17:3 pid=35697 prio=20 target_cpu=000
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.726133: tracing_mark_write: C|55300|H:Heap size (KB)|59648|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.726434: tracing_mark_write: C|55300|H:Heap size (KB)|59904|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.727297: tracing_mark_write: C|55300|H:Heap size (KB)|60160|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728570: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.728593: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728633: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728638: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.728647: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728669: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728719: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.728732: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728789: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728794: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.728803: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.728828: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.729907: tracing_mark_write: C|55300|H:Heap size (KB)|60416|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.729971: tracing_mark_write: C|55300|H:Heap size (KB)|60672|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.730014: sched_wakeup: comm=dh-irq-bind-3 pid=85 prio=301 target_cpu=003
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.730025: sched_wakeup: comm=tppmgr-misc pid=67 prio=142 target_cpu=000
+   dh-irq-bind-3-85      (     63) [003] ....  2493.730032: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-3 next_pid=85 next_prio=301 next_info=8,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.730187: sched_switch: prev_comm=rcu_sched prev_pid=111 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730438: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730458: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730498: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730502: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730511: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730535: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730540: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730549: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730579: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730629: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730640: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730683: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730741: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730752: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730792: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730795: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.730803: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,6,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.730829: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.731750: tracing_mark_write: C|55300|H:Heap size (KB)|60928|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732039: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=142 target_cpu=001
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.732053: sched_wakeup: comm=df_v2.0.58_bg0 pid=547 prio=40 target_cpu=000
+   dh-irq-bind-1-83      (     63) [001] ....  2493.732055: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732201: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732206: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=142 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.732214: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732273: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732349: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.732357: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.732414: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+   OS_IPC_1_1215-3329    (   1191) [001] ....  2493.732438: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=OS_IPC_1_1215 next_pid=3329 next_prio=51 next_info=ff,24,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.732656: sched_wakeup: comm=udk-irq-3 pid=70 prio=142 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.732677: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732740: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732745: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.732756: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [002] ....  2493.732799: sched_wakeup: comm=kworker/u20:3 pid=44233 prio=41 target_cpu=006
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732801: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732805: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+ pGalleryService-55300   (  55300) [001] ....  2493.732815: sched_switch: prev_comm=OS_IPC_1_1215 prev_pid=3329 prev_prio=51 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+       udk-irq-3-70      (      2) [003] ....  2493.732816: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732850: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732854: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.732863: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [003] ....  2493.732890: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+ uawei.hwid.core-55977   (  55977) [002] ....  2493.734102: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=D ==> next_comm=uawei.hwid.core next_pid=55977 next_prio=20 next_info=c,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.734120: sched_wakeup: comm=OS_GC_Thread pid=55457 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [001] ....  2493.734122: sched_blocked_reason: pid=55457 iowait=0 caller=mprotect_range+0xf38/0x1938[sysmgr.elf] delay=12715
+ pGalleryService-55300   (  55300) [001] ....  2493.734142: tracing_mark_write: C|55300|H:Heap size (KB)|61184|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.736076: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.736134: tracing_mark_write: C|55300|H:Heap size (KB)|61440|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.737297: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.737317: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [001] ....  2493.737453: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.738123: tracing_mark_write: C|55300|H:Heap size (KB)|61696|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.739908: tracing_mark_write: C|55300|H:Heap size (KB)|61952|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.740049: sched_wakeup: comm=dh-irq-bind-3 pid=85 prio=301 target_cpu=003
+    OS_GC_Thread-55455   (  55300) [002] ....  2493.740056: sched_switch: prev_comm=uawei.hwid.core prev_pid=55977 prev_prio=20 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+   dh-irq-bind-3-85      (     63) [003] ....  2493.740063: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-3 next_pid=85 next_prio=301 next_info=8,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.740104: sched_switch: prev_comm=dh-irq-bind-3 prev_pid=85 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [002] ....  2493.740569: tracing_mark_write: C|55300|H:Heap size (KB)|62208|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.741233: sched_wakeup: comm=kworker/u17:3 pid=35697 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [001] ....  2493.741546: sched_wakeup: comm=sensors@1.3-ser pid=54355 prio=20 target_cpu=000
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.741565: sched_wakeup: comm=dh-irq-bind-3 pid=85 prio=301 target_cpu=003
+   dh-irq-bind-3-85      (     63) [003] ....  2493.741583: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-3 next_pid=85 next_prio=301 next_info=8,0,1,0,0,0,0
+     poll_report-1413    (   1269) [001] ....  2493.741849: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=poll_report next_pid=1413 next_prio=20 next_info=e,6,0,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.742209: sched_switch: prev_comm=poll_report prev_pid=1413 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.742366: sched_switch: prev_comm=android.ui prev_pid=54602 prev_prio=22 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.742973: tracing_mark_write: C|55300|H:Heap size (KB)|62464|M47
+ pGalleryService-55300   (  55300) [001] ....  2493.743991: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.744013: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+ pGalleryService-55300   (  55300) [002] ....  2493.744052: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.744212: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.744301: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.744312: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.745335: sched_switch: prev_comm=tp-io-1 prev_pid=56950 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.745377: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.745395: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.745467: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.745517: tracing_mark_write: C|55300|H:Heap size (KB)|62720|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.745913: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.745930: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.746078: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.746468: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.746482: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.746590: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.747001: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.747012: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.747114: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+   tppmgr-idle-1-219     (      2) [001] ....  2493.747452: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=D ==> next_comm=tppmgr-idle-1 next_pid=0 next_prio=-2 next_info=2,0,0,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.747507: sched_wakeup: comm=OS_GC_Thread pid=55455 prio=25 target_cpu=001
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.747509: sched_blocked_reason: pid=55455 iowait=0 caller=vregion_merge_prev+0x348/0x900[sysmgr.elf] delay=30199
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.747517: sched_switch: prev_comm=tppmgr-idle-1 prev_pid=0 prev_prio=-2 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.747547: tracing_mark_write: C|55300|H:Heap size (KB)|62976|M47
+ pGalleryService-55300   (  55300) [002] ....  2493.748287: tracing_mark_write: C|55300|H:Heap size (KB)|63232|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749351: sched_wakeup: comm=udk-irq-1 pid=66 prio=142 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.749375: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749420: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749426: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.749435: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749485: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749517: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.749527: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749566: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749572: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+   dh-irq-bind-1-83      (     63) [001] ....  2493.749580: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.749662: sched_switch: prev_comm=dh-irq-bind-1 prev_pid=83 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.749978: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.750003: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.750009: sched_wakeup: comm=dh-irq-bind-1 pid=83 prio=301 target_cpu=001
+ pGalleryService-55300   (  55300) [002] ....  2493.750017: sched_wakeup: comm=dh-irq-bind-2 pid=84 prio=301 target_cpu=002
+   dh-irq-bind-1-83      (     63) [001] ....  2493.750033: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=R+ ==> next_comm=dh-irq-bind-1 next_pid=83 next_prio=301 next_info=2,0,1,0,0,0,0
+   dh-irq-bind-2-84      (     63) [002] ....  2493.750040: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=dh-irq-bind-2 next_pid=84 next_prio=301 next_info=4,0,1,0,0,0,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.750074: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.750105: sched_switch: prev_comm=tppmgr-misc prev_pid=67 prev_prio=142 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [002] ....  2493.750190: sched_switch: prev_comm=statsd.writer prev_pid=54222 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+  HeapTaskDaemon-56000   (  55977) [003] ....  2493.751028: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=25 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=56000 next_prio=16 next_info=c,0,1,0,0,0,0
+         tp-io-1-56950   (  56888) [002] ....  2493.751117: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=S ==> next_comm=tp-io-1 next_pid=56950 next_prio=20 next_info=ff,498,2,0,0,4,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.751389: sched_wakeup: comm=OS_GC_Thread pid=55456 prio=25 target_cpu=001
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751611: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55456 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751616: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.751626: sched_switch: prev_comm=OS_GC_Thread prev_pid=55456 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751653: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55456 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751657: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.751666: sched_switch: prev_comm=OS_GC_Thread prev_pid=55456 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751693: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55456 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55456   (  55300) [003] ....  2493.751697: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.751706: sched_switch: prev_comm=OS_GC_Thread prev_pid=55456 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.751908: sched_wakeup: comm=pGalleryService pid=55300 prio=40 target_cpu=001
+    OS_GC_Thread-55456   (  55300) [001] ....  2493.751931: sched_switch: prev_comm=OS_GC_Thread prev_pid=55455 prev_prio=25 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55456 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.751932: sched_switch: prev_comm=tp-io-1 prev_pid=56950 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+   tppmgr-idle-1-219     (      2) [001] ....  2493.751947: sched_switch: prev_comm=OS_GC_Thread prev_pid=55456 prev_prio=25 prev_state=S ==> next_comm=tppmgr-idle-1 next_pid=0 next_prio=-2 next_info=2,0,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.751954: tracing_mark_write: B|55300|H:GC::MarkJitCodeMap|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.751958: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.751962: tracing_mark_write: B|55300|H:FullGC::MarkUntilFixPoint|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.751965: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.751966: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.751968: tracing_mark_write: B|55300|H:FullGC::Sweep|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.752119: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.752133: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752199: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752204: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.752214: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,2,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752248: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752304: sched_wakeup: comm=udk-irq-3 pid=70 prio=301 target_cpu=003
+       udk-irq-3-70      (      2) [003] ....  2493.752314: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=R+ ==> next_comm=udk-irq-3 next_pid=70 next_prio=301 next_info=8,4,0,0,0,0,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752341: sched_switch: prev_comm=udk-irq-3 prev_pid=70 prev_prio=301 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.752775: tracing_mark_write: B|55300|H:ProcessReferencesNum:178;ConcurrentNum:7520|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.753839: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.754303: sched_wakeup: comm=OS_GC_Thread pid=55457 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [003] ....  2493.754312: sched_wakeup: comm=OS_GC_Thread pid=55455 prio=25 target_cpu=001
+    OS_GC_Thread-55457   (  55300) [001] ....  2493.754318: sched_switch: prev_comm=tppmgr-idle-1 prev_pid=0 prev_prio=-2 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=25 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [003] ....  2493.754326: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.754331: tracing_mark_write: B|55300|H:FullGC::Finish|M47
+    OS_GC_Thread-55457   (  55300) [001] ....  2493.754335: tracing_mark_write: B|55300|H:ConcurrentSweeper::Sweep|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.754977: sched_wakeup: comm=OS_GC_Thread pid=55456 prio=25 target_cpu=001
+ pGalleryService-55300   (  55300) [003] ....  2493.754997: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.755543: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.755635: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.755848: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.755944: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.755988: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.756068: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.756124: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [003] ....  2493.756144: tracing_mark_write: B|55300|H:PartialGC::Finish0;Reason2;Sensitive0;IsInBackground0;Startup0;ConMark0;Young262144;Old10747904;TotalCommit23592960;NativeBindingSize9011;NativeLimitSize69289067|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.756148: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.756156: tracing_mark_write: B|55300|H:InvokeNativeFinalizeCallbacks num:109|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.756269: sched_wakeup: comm=OS_FFRT_0_0 pid=55515 prio=5 target_cpu=001
+ pGalleryService-55300   (  55300) [003] ....  2493.756279: tracing_mark_write: E|55300|M47
+ pGalleryService-55300   (  55300) [003] ....  2493.756312: sched_wakeup: comm=OS_FFRT_3_5 pid=55956 prio=20 target_cpu=001
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756329: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=20 prev_state=R+ ==> next_comm=OS_FFRT_3_5 next_pid=55956 next_prio=20 next_info=e,0,1,0,0,1,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756340: tracing_mark_write: E|55300|I39
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.756365: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55457 next_prio=20 next_info=e,0,1,0,0,1,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756403: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756719: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.756739: sched_switch: prev_comm=OS_FFRT_3_5 prev_pid=55956 prev_prio=20 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756797: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_FFRT_3_5 next_pid=55956 next_prio=20 next_info=e,0,1,0,0,1,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756936: sched_wakeup: comm=OS_IPC_7_595 pid=595 prio=20 target_cpu=001
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.756956: sched_wakeup: comm=OS_FFRT_Delay pid=55445 prio=40 target_cpu=001
+    OS_IPC_7_595-595     (    536) [001] ....  2493.756967: sched_switch: prev_comm=OS_FFRT_3_5 prev_pid=55956 prev_prio=20 prev_state=S ==> next_comm=OS_IPC_7_595 next_pid=595 next_prio=20 next_info=ff,12,2,0,0,0,0
+    OS_IPC_7_595-595     (    536) [001] ....  2493.758036: sched_wakeup: comm=OS_FFRT_3_5 pid=55956 prio=20 target_cpu=001
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758076: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758088: tracing_mark_write: B|55300|H:ConcurrentSweeper::Sweep|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758092: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758132: tracing_mark_write: B|55300|H:AsyncClearTask::Run|M47
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.758137: sched_switch: prev_comm=OS_IPC_7_595 prev_pid=595 prev_prio=20 prev_state=S ==> next_comm=OS_FFRT_3_5 next_pid=55956 next_prio=20 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758226: tracing_mark_write: C|55300|H:Heap size (KB)|62976|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758429: tracing_mark_write: C|55300|H:Heap size (KB)|62720|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758574: tracing_mark_write: C|55300|H:Heap size (KB)|62464|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758716: tracing_mark_write: C|55300|H:Heap size (KB)|62208|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758851: tracing_mark_write: C|55300|H:Heap size (KB)|61952|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.758987: tracing_mark_write: C|55300|H:Heap size (KB)|61696|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759108: sched_wakeup: comm=android.io pid=54603 prio=20 target_cpu=005
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759155: tracing_mark_write: C|55300|H:Heap size (KB)|61440|M47
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.759285: sched_wakeup: comm=OS_IPC_16_20788 pid=20788 prio=20 target_cpu=001
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759315: tracing_mark_write: C|55300|H:Heap size (KB)|61184|M47
+ OS_IPC_16_20788-20788   (    539) [001] ....  2493.759315: sched_switch: prev_comm=OS_FFRT_3_5 prev_pid=55956 prev_prio=20 prev_state=S ==> next_comm=OS_IPC_16_20788 next_pid=20788 next_prio=20 next_info=f,40,0,0,0,3,0
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759444: tracing_mark_write: C|55300|H:Heap size (KB)|60928|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759668: tracing_mark_write: C|55300|H:Heap size (KB)|60672|M47
+    OS_GC_Thread-55457   (  55300) [003] ....  2493.759841: tracing_mark_write: C|55300|H:Heap size (KB)|60416|M47
+       utimermgr-40      (      2) [003] ....  2493.760068: sched_switch: prev_comm=OS_GC_Thread prev_pid=55457 prev_prio=20 prev_state=R+ ==> next_comm=utimermgr next_pid=40 next_prio=157 next_info=f,0,1,0,0,0,0
+   OS_FFRT_Delay-55445   (  55300) [003] ....  2493.760105: sched_switch: prev_comm=utimermgr prev_pid=40 prev_prio=157 prev_state=S ==> next_comm=OS_FFRT_Delay next_pid=55445 next_prio=40 next_info=e,0,1,0,0,1,0
+  HeapTaskDaemon-56000   (  55977) [003] ....  2493.760178: sched_switch: prev_comm=OS_FFRT_Delay prev_pid=55445 prev_prio=40 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=56000 next_prio=16 next_info=c,0,1,0,0,0,0
+ OS_IPC_16_20788-20788   (    539) [001] ....  2493.761662: sched_wakeup: comm=OS_FFRT_3_5 pid=55956 prio=20 target_cpu=001
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.761772: sched_switch: prev_comm=OS_IPC_16_20788 prev_pid=20788 prev_prio=20 prev_state=S ==> next_comm=OS_FFRT_3_5 next_pid=55956 next_prio=20 next_info=e,0,1,0,0,1,0
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.761904: tracing_mark_write: B|55300|H:[746e657665004e4,1c36006,1]#TriggerMainThreadSharedGC|I39
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.761945: sched_wakeup: comm=pGalleryService pid=55300 prio=40 target_cpu=001
+     OS_FFRT_3_5-55956   (  55300) [001] ....  2493.761956: tracing_mark_write: E|55300|I39
+ pGalleryService-55300   (  55300) [001] ....  2493.762023: sched_switch: prev_comm=OS_FFRT_3_5 prev_pid=55956 prev_prio=20 prev_state=S ==> next_comm=pGalleryService next_pid=55300 next_prio=40 next_info=e,0,1,0,0,1,0
+ pGalleryService-55300   (  55300) [001] ....  2493.762190: sched_wakeup: comm=hilogd.server pid=510 prio=20 target_cpu=000
+ pGalleryService-55300   (  55300) [001] ....  2493.762240: sched_wakeup: comm=OS_GC_Thread pid=55454 prio=20 target_cpu=001
+   hilogd.server-510     (    502) [001] ....  2493.762294: sched_switch: prev_comm=pGalleryService prev_pid=55300 prev_prio=40 prev_state=S ==> next_comm=hilogd.server next_pid=510 next_prio=20 next_info=f,8,0,0,0,3,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762392: sched_switch: prev_comm=hilogd.server prev_pid=510 prev_prio=20 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55454 next_prio=20 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762406: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.762421: sched_switch: prev_comm=OS_GC_Thread prev_pid=55454 prev_prio=20 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762475: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55454 next_prio=20 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762496: tracing_mark_write: B|55300|H:SuspendAll|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762509: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762575: tracing_mark_write: B|55300|H:SharedFullGC::RunPhases;GCReason2;Sensitive0;IsInBackground0;Startup3;Old7077888;huge1835008;NonMov262144;TotCommit9437184;NativeBindingSize0;NativeLimitGC1073741824;NativeLimitCM314572800|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762926: sched_wakeup: comm=npth-worker pid=56965 prio=20 target_cpu=006
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.762927: sched_blocked_reason: pid=56965 iowait=0 caller=vfs_path_open_ng+0x1f3c/0xc8b0[sysmgr.elf] delay=7947
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763263: tracing_mark_write: B|55300|H:SharedFullGC::Initialize|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763311: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.763327: sched_switch: prev_comm=OS_GC_Thread prev_pid=55454 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763389: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55454 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763764: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763771: tracing_mark_write: B|55300|H:SharedFullGC::Mark|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763775: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkRoots|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763778: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkSendableGlobalStorage|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763780: tracing_mark_write: B|55300|H:Runtime::VisitRootSendableGlobalRefHandle|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763791: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763792: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763794: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkSerializeRoots|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763795: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763797: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkSharedModule|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763799: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763801: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkStringCache|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763821: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763829: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkLocalVMRoots|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763919: tracing_mark_write: B|55300|H:VisitRootHandleStorage|M47
+    OS_GC_Thread-55454   (  55300) [001] ....  2493.763959: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
+       udk-irq-1-66      (      2) [001] ....  2493.763981: sched_switch: prev_comm=OS_GC_Thread prev_pid=55454 prev_prio=25 prev_state=R+ ==> next_comm=udk-irq-1 next_pid=66 next_prio=301 next_info=2,4,0,0,0,0,0
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764065: sched_switch: prev_comm=PPS-DC-Cal-pool prev_pid=56798 prev_prio=20 prev_state=R+ ==> next_comm=OS_GC_Thread next_pid=55454 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764130: tracing_mark_write: C|55300|H:Heap size (KB)|60672|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764264: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764281: tracing_mark_write: B|55300|H:IterateConcurrentRoots|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764427: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764438: tracing_mark_write: B|55300|H:VisitRootGlobalRefHandle|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764582: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764604: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764606: tracing_mark_write: B|55300|H:SharedGCMarkerBase::CollectLocalVMRSet|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764647: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764650: tracing_mark_write: B|55300|H:SharedGCMarkerBase::MarkLocalVMRoots|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764669: tracing_mark_write: B|55300|H:IterateConcurrentRoots|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764742: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764750: tracing_mark_write: B|55300|H:VisitRootGlobalRefHandle|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764762: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764777: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764778: tracing_mark_write: B|55300|H:SharedGCMarkerBase::CollectLocalVMRSet|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764790: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764793: tracing_mark_write: E|55300|M47
+    OS_GC_Thread-55454   (  55300) [002] ....  2493.764794: tracing_mark_write: B|55300|H:SharedGCMarker::ProcessRSet|M47
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.764983: sched_switch: prev_comm=udk-irq-1 prev_pid=66 prev_prio=301 prev_state=S ==> next_comm=OS_GC_Thread next_pid=55455 next_prio=25 next_info=e,0,1,0,0,1,0
+    OS_GC_Thread-55455   (  55300) [001] ....  2493.764990: sched_wakeup: comm=udk-irq-1 pid=66 prio=301 target_cpu=001
