@@ -5147,7 +5147,8 @@ func traceCausalProjectionContextValueSeat(node TraceCausalProjectionNode) bool 
 
 // traceCausalProjectionSortContextBucket applies the two-class context-bucket
 // order: value seats first (value order), context rows after (legacy
-// classified order — the hop comparator).
+// classified order — the hop comparator). Yielding rows follow both, so the
+// bucket cap reaches them first.
 func traceCausalProjectionSortContextBucket(nodes []TraceCausalProjectionNode, pathIndex map[string]int) []TraceCausalProjectionNode {
 	sort.SliceStable(nodes, func(i, j int) bool {
 		aSeat, bSeat := traceCausalProjectionContextValueSeat(nodes[i]), traceCausalProjectionContextValueSeat(nodes[j])
@@ -5163,7 +5164,7 @@ func traceCausalProjectionSortContextBucket(nodes []TraceCausalProjectionNode, p
 		// post-aggregation resort (one comparator, two call sites).
 		return traceCausalProjectionClassifiedLess(nodes[i], nodes[j], pathIndex)
 	})
-	return nodes
+	return TraceCausalProjectionYieldingNodesLast(nodes)
 }
 
 // traceCausalProjectionLimitContextNodesFold — RNB-1 D1 修复轮: the zero-
@@ -5214,20 +5215,33 @@ func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit in
 // optimization point and a root-cause candidate, so a projection-level
 // nodes[:16] cut would silently remove causal facts before report rendering.
 // Off-chain rows remain bounded and can still appear in the background
-// context bucket under its independent capacity policy.
+// context bucket under its independent capacity policy. A yielding row takes
+// only the off-chain capacity every other row left free, and follows them.
 func traceCausalProjectionSelectSemanticSpans(nodes []TraceCausalProjectionNode, offChainLimit int) []TraceCausalProjectionNode {
 	if len(nodes) == 0 {
 		return nil
 	}
 	out := make([]TraceCausalProjectionNode, 0, len(nodes))
+	var yielding []TraceCausalProjectionNode
 	offChain := 0
 	for _, node := range nodes {
 		if traceCausalProjectionNodeOnChain(node) {
 			out = append(out, node)
 			continue
 		}
+		if TraceCausalProjectionNodeYieldsBoundedSeat(node) {
+			yielding = append(yielding, node)
+			continue
+		}
 		if offChainLimit <= 0 || offChain >= offChainLimit {
 			continue
+		}
+		out = append(out, node)
+		offChain++
+	}
+	for _, node := range yielding {
+		if offChainLimit <= 0 || offChain >= offChainLimit {
+			break
 		}
 		out = append(out, node)
 		offChain++

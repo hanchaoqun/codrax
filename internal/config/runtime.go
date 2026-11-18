@@ -63,10 +63,10 @@ type RuntimeSettings struct {
 	// shader_compile, runtime_compile, texture_upload, gc_pause); unknown
 	// classes are ignored by the
 	// trace layer. The patterns are advisory classification inputs, never hard
-	// gates. Built-in patterns and the built-in platform vocabulary are
-	// consulted first: a pattern cannot reclassify a name they classify, nor
-	// give a class to a name the vocabulary recognises as a collector cycle,
-	// a nested step or a related marker.
+	// gates. Built-in patterns and the classes the built-in platform
+	// vocabulary assigns are consulted first: a pattern cannot reclassify a
+	// name they classify. It may give a class to a name the vocabulary only
+	// recognises (a collector cycle, a nested step, a related marker).
 	TraceSemanticSpanPatterns []TraceSemanticSpanPattern `yaml:"trace_semantic_span_patterns"`
 
 	// trace_supplement_* — SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): the

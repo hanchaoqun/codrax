@@ -1,6 +1,14 @@
 package tracequery
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func init() {
+	types.RegisterTraceSemanticSeatYieldingSpan(semanticSpanMintedByPlatformVocabulary)
+}
 
 // Platform vocabulary for deterministic semantic work.
 //
@@ -63,8 +71,10 @@ const (
 type semanticVocabBoundary uint8
 
 const (
-	// semanticVocabBoundaryNonLetter: the byte after the head is not an
-	// ASCII letter (end of name, a digit, ';', ' ', '(', '_' ...).
+	// semanticVocabBoundaryNonLetter: the bytes after the head do not extend
+	// the operation name (end of name, a digit, ';', ' ', '(', '|', "_1234").
+	// A letter, or "::" or "_" followed by a letter, continues the name and
+	// is a different operation (semanticVocabContinuesOperation).
 	semanticVocabBoundaryNonLetter semanticVocabBoundary = iota + 1
 	// semanticVocabBoundaryEnd: whole-name equality.
 	semanticVocabBoundaryEnd
@@ -202,13 +212,19 @@ var semanticPlatformVocabulary = []semanticVocabEntry{
 	{"hwui.shadercache.ram", "hwui_skia", "shader_compile", vocabRelated, 0, "hwui ram cache:", vocabPrefix,
 		"shader memory cache note", "着色器内存缓存记录", vocabSeen, "368 spans in 15 of 15 paired captures"},
 	{"rs.shaderdfx", "rs_ddgr", "shader_compile", vocabRelated, 0, "shaderdfx", vocabPrefix,
-		"shader diagnostics note", "着色器诊断记录", vocabSeen, "seen in 4 of 15 paired captures"},
+		"shader diagnostics wrapper around the pipeline request it describes", "着色器诊断包裹区间（记录其内的管线请求）", vocabSeen,
+		"seen in 4 of 15 paired captures; in the render-service capture named on vk.pipeline.create each one encloses one pipeline creation"},
 	{"art.jit.memregion_init", "art_runtime", "jit_compile", vocabRelated, 0, "bool art::jit::jitmemoryregion::initialize", vocabWord,
 		"JIT code-cache memory region initialisation (not a compilation)", "JIT 代码缓存内存区初始化（不是编译）", vocabSeen, "39 spans in 15 of 15 paired captures"},
 
 	// --- Shader modules and pipelines.
 	{"rs.shader.create_modules", "rs_ddgr", "shader_compile", vocabOp, vocabRuns, "ddgr createshadermodules", vocabWord,
 		"render-service shader module creation", "渲染服务着色器模块创建", vocabSeen, "39 marker lines in 17 of 75 captures"},
+	// Recorded as "H:vkCreateGraphicsPipelines|I38": the level tag after '|'
+	// ends the operation name.
+	{"vk.pipeline.create", "vulkan", "shader_compile", vocabOp, vocabRuns, "vkcreategraphicspipelines", vocabWord,
+		"Vulkan graphics pipeline creation", "Vulkan 图形管线创建", vocabSeen,
+		"5 spans, 27.767 ms in total, on 3 render-service threads of one real capture (record_trace_20260805095530@1461-612550000); outside the 75-capture census"},
 	// Reference-only rows. A pipeline creation is shader compilation by
 	// definition, so they mint; none of them has been seen in a capture.
 	// The reference tool lists the bare tokens and matches them anywhere in
@@ -216,8 +232,6 @@ var semanticPlatformVocabulary = []semanticVocabEntry{
 	// prefix and the render-service wrapper in the plural, so those
 	// spellings have rows of their own (a bare-token row cannot match them
 	// at the head).
-	{"vk.pipeline.create", "vulkan", "shader_compile", vocabOp, vocabRuns, "vkcreategraphicspipelines", vocabWord,
-		"Vulkan graphics pipeline creation", "Vulkan 图形管线创建", vocabRefOnly, vocabRefOnlyPrefix + "reference vocabulary, shader-compile group"},
 	{"rs.pipeline.create", "rs_ddgr", "shader_compile", vocabOp, vocabRuns, "creategraphicspipeline", vocabWord,
 		"graphics pipeline creation", "图形管线创建", vocabRefOnly, vocabRefOnlyPrefix + "reference vocabulary, shader-compile group"},
 	{"rs.pipelines.create", "rs_ddgr", "shader_compile", vocabOp, vocabRuns, "creategraphicspipelines", vocabWord,
@@ -308,7 +322,26 @@ func (e *semanticVocabEntry) matchesHead(head string) bool {
 	case semanticVocabBoundaryEnd:
 		return rest == ""
 	case semanticVocabBoundaryNonLetter:
-		return rest == "" || !semanticVocabASCIILetter(rest[0])
+		return !semanticVocabContinuesOperation(rest)
+	}
+	return false
+}
+
+// semanticVocabContinuesOperation reports that the bytes after a head extend
+// the operation name: a letter ("RunPhasesExtra"), or a separator followed by
+// a letter ("RunPhases::Sweep", "Pipeline_Cache"). A separator followed by
+// anything else ends it, so a numeric stamp ("_20260805_vs_1a") and the
+// parameter tails of the real markers still match.
+func semanticVocabContinuesOperation(rest string) bool {
+	switch {
+	case rest == "":
+		return false
+	case semanticVocabASCIILetter(rest[0]):
+		return true
+	case rest[0] == '_':
+		return len(rest) > 1 && semanticVocabASCIILetter(rest[1])
+	case strings.HasPrefix(rest, "::"):
+		return len(rest) > 2 && semanticVocabASCIILetter(rest[2])
 	}
 	return false
 }
@@ -381,17 +414,81 @@ func semanticSpanAdmitsHostEdgeLane(name string) bool {
 	return !ok || entry.Stance != semanticVocabWaits
 }
 
-// semanticSpanSeatTier orders the platform seat pool by a typed identity,
-// never by duration alone: 0 = recorded on the query target thread, 1 = work
-// executed on another thread, 2 = a wait recorded on another thread.
-func semanticSpanSeatTier(span TraceSpanSummary, targetPID int) int {
-	if targetPID > 0 && span.Thread.PID == targetPID {
+// semanticSeatQuery is what the platform seat pool reads from the query: the
+// resolved target thread and the typed dependency windows of the chain members
+// (present only on a sweep that runs after the chain was built).
+type semanticSeatQuery struct {
+	target       ThreadRef
+	resolve      func() ThreadRef // resolves target on first use; nil = target is final
+	chainWindows map[int][]TimeWindow
+}
+
+// semanticSeatQueryFor binds the pool to the query. The target is the identity
+// the wakeup chain resolves, so a thread addressed by name and the same thread
+// addressed by id are seated alike. Resolving scans the index and is deferred
+// until the pool actually overflows.
+func semanticSeatQueryFor(idx *Index, q Query) semanticSeatQuery {
+	seats := semanticSeatQuery{chainWindows: q.chainAnchorWindowsByPID}
+	if q.PID > 0 {
+		seats.target = ThreadRef{PID: q.PID}
+		return seats
+	}
+	if strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread)) == "" {
+		return seats
+	}
+	seats.resolve = func() ThreadRef {
+		resolution := resolveThreadSelection(idx, q)
+		if resolution.Ambiguous {
+			return ThreadRef{}
+		}
+		return resolution.Thread
+	}
+	return seats
+}
+
+// tierOf returns the pool's tier function, resolving the target once.
+func (s semanticSeatQuery) tierOf() func(TraceSpanSummary) int {
+	return func(span TraceSpanSummary) int {
+		if s.resolve != nil {
+			s.target, s.resolve = s.resolve(), nil
+		}
+		return semanticSpanSeatTier(span, s)
+	}
+}
+
+// semanticSpanSeatTier orders the platform seat pool by typed identities,
+// never by duration alone. Tier 0 holds the spans the dependency chain of the
+// target can reach: the target's own, and a chain member's span that intersects
+// one of its typed chain windows. Tier 1 is other work executed on another
+// thread, tier 2 a wait recorded on another thread.
+func semanticSpanSeatTier(span TraceSpanSummary, seats semanticSeatQuery) int {
+	if sameThreadRef(span.Thread, seats.target) ||
+		anchorWindowsOverlapMs(seats.chainWindows[span.Thread.PID], span.StartTs, span.EndTs) > 0 {
 		return 0
 	}
 	if !semanticSpanAdmitsHostEdgeLane(span.Name) {
 		return 2
 	}
 	return 1
+}
+
+// semanticFamilyMintedByPlatformVocabulary reports that every member of the
+// family carries its class only because of the vocabulary.
+func semanticFamilyMintedByPlatformVocabulary(members []TraceSpanSummary) bool {
+	for _, member := range members {
+		if !semanticSpanMintedByPlatformVocabulary(member.Name) {
+			return false
+		}
+	}
+	return len(members) > 0
+}
+
+// rootCauseItemYieldsBoardSeat reports an off-chain rank row of
+// vocabulary-classified work. Such a row never takes a board seat from a row
+// that would have been published without the vocabulary: it sorts and survives
+// the board cap after every other row.
+func rootCauseItemYieldsBoardSeat(item RootCauseRankItem) bool {
+	return item.platformVocabularyMinted && !rootCauseItemIsOnChain(item)
 }
 
 // TraceSpanVocabularyHit is the reader-facing description of a vocabulary

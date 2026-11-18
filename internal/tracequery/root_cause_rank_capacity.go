@@ -158,6 +158,9 @@ func sideValueFirstSort(rows []RootCauseRankItem, valueDesc bool) {
 		return
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
+		if yi, yj := rootCauseItemYieldsBoardSeat(rows[i]), rootCauseItemYieldsBoardSeat(rows[j]); yi != yj {
+			return yj
+		}
 		vi, vj := rootCauseEffectiveImpactMs(rows[i]), rootCauseEffectiveImpactMs(rows[j])
 		if (vi > 0) != (vj > 0) {
 			return vi > 0
@@ -203,7 +206,8 @@ func capSurvivalLanePriority(item RootCauseRankItem) int {
 // dies to the cap while any non-chain/background row holds a candidate slot),
 // ② ◇ adjacent valued seats (eff desc), ③ ▒ background valued seats
 // (eff desc); within equal (lane, eff) the incoming board position decides
-// (stable). The cap ONLY selects who appears — survivors are re-emitted in
+// (stable). Off-chain rows of vocabulary-classified work survive after all of
+// these (rootCauseItemYieldsBoardSeat). The cap ONLY selects who appears — survivors are re-emitted in
 // their ORIGINAL board order, so 榜序数 (根因排序#N / 邻近影响#N) and every
 // in-lane sort key are untouched (排序语义零动).
 //
@@ -219,7 +223,11 @@ func capSurvivalLanePriority(item RootCauseRankItem) int {
 // effective value on their lane, and a below-the-cut semantic row is still
 // the independent semantic-optimization disclosure channel's job.
 func selectRootCauseRankCapSurvivors(candidates []RootCauseRankItem, limit int) (survivors, capDead []RootCauseRankItem) {
-	if limit <= 0 || len(candidates) <= limit {
+	if limit <= 0 {
+		return candidates, nil
+	}
+	limit += rootCauseRankPlatformVocabularyOnChainSeats(candidates)
+	if len(candidates) <= limit {
 		return candidates, nil
 	}
 	order := make([]int, len(candidates))
@@ -228,6 +236,9 @@ func selectRootCauseRankCapSurvivors(candidates []RootCauseRankItem, limit int) 
 	}
 	sort.Slice(order, func(a, b int) bool {
 		ia, ib := order[a], order[b]
+		if ya, yb := rootCauseItemYieldsBoardSeat(candidates[ia]), rootCauseItemYieldsBoardSeat(candidates[ib]); ya != yb {
+			return yb
+		}
 		pa, pb := capSurvivalLanePriority(candidates[ia]), capSurvivalLanePriority(candidates[ib])
 		if pa != pb {
 			return pa < pb
@@ -252,6 +263,21 @@ func selectRootCauseRankCapSurvivors(candidates []RootCauseRankItem, limit int) 
 		}
 	}
 	return survivors, capDead
+}
+
+// rootCauseRankPlatformVocabularyOnChainSeats counts the on-chain rows of
+// vocabulary-classified work. They are additional to the board cap, so that no
+// row that would have been published without the vocabulary loses its seat to
+// one of them. At most one row per platform seat exists, which bounds the
+// growth of the board.
+func rootCauseRankPlatformVocabularyOnChainSeats(candidates []RootCauseRankItem) int {
+	seats := 0
+	for i := range candidates {
+		if candidates[i].platformVocabularyMinted && rootCauseItemIsOnChain(candidates[i]) {
+			seats++
+		}
+	}
+	return seats
 }
 
 // rootCauseRankCapDeathLaneWords is the CAPFIX-1 件2 zh/EN lane word-face

@@ -1,0 +1,316 @@
+# tracer: nop
+# Trace-marker names, begin and end times, nesting, scheduler slices and wakeups exported from the callstack,
+# sched_slice and instant tables of a real capture, for the five vkCreateGraphicsPipelines spans, their ancestors
+# and their direct children.
+# Source database: tests/fixtures/consumer_jank/consumer_render_jank.db of the reference tool (sha256 10e92dabfd149e87b4ef2dff0265f067a63cffe77c373137e3c3b58c9460ba55, 26210304 bytes).
+# Original capture named by the database: record_trace_20260805095530@1461-612550000.sys (parsed by trace_streamer 4.3.7).
+# Only the idle side of each sched_switch line and the wakeup prio and target_cpu fields are placeholders.
+       swapper/7-0     (      0) [007] .... 1474.453500157: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.453553438: tracing_mark_write: B|1833|H:Et:1833,1474453432969,1474453432969,,1,[rs_uni_render_thread.cpp(PostTask:357)]|I40
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.453563282: tracing_mark_write: B|1833|H:RenderFrame|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.454077813: tracing_mark_write: B|1833|H:Render vsyncId:65194|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.454137188: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable::OnDraw[0][7872675053568] zoomed(0), currentFrameDirty(1303, 0, 17, 2848), screen(1320, 2848), active(0, 0, 1320, 2848), vsyncRefreshRate(60), gpuTile(0, 0)|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457020938: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable Flush|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457200469: tracing_mark_write: B|1833|H:Submit|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457225938: tracing_mark_write: B|1833|H:GrDrawingManager::Flush|I38
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457440938: tracing_mark_write: B|1833|H:ShaderDfx: isNeedSearch: 0, isUber: 0, pipelineKey: 15613981270037230703, fp:[], dump:{'packed':1153515515763753092,'unpacked':{'primType':'RECT_SHADOW','paintStyle':'FILL_AND_STROKE','fillType':'SOLID','fillRule':'NON_ZERO','isAA':0,'clipInfo':[],'ycbcr':0,'ycbcrIdt':0,'ColorSpMask':0,'unpremul':0,'text':0,'flipY':0,'alphaOnly':1,'gray':0,'strict':0,'shaderType':'UNKNOWN','needUV':0,'cubic':0,'persp':0,'uber':0,'vertInput':'ENCODE_VERTEX_INPUT','stencil':'NO_STENCIL','depth':0,'needMultiSample':0,
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457445157: tracing_mark_write: B|1833|H:vkCreateGraphicsPipelines|I38
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.457465313: tracing_mark_write: B|1833|H:Load/Compile Shaders|I38
+ RSUniRenderThre-2424  (   1833) [007] .... 1474.458345938: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.458897344: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.458935313: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.459381719: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.459606563: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.459665157: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.459954219: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.460115157: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.460129688: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.460201719: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.460315938: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.460359532: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.460436250: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.460597032: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/8-0     (      0) [008] .... 1474.460633438: sched_switch: prev_comm=swapper/8 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [008] .... 1474.460759688: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/8 next_pid=0 next_prio=120
+       udk-irq-8-88    (     88) [000] .... 1474.460968282: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.461009375: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.461152813: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.461312813: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.461364844: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.461974844: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.462117188: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/11-0     (      0) [011] .... 1474.462690782: sched_switch: prev_comm=swapper/11 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [011] .... 1474.462793438: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/11 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.462904375: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.462927813: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.462990625: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.463077188: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.463094063: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.463131875: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.463216875: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.463487813: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.463542969: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.463625782: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.463640938: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.463675157: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.463766250: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.463780313: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.463811407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.463904688: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.463918282: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.463951407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.464074219: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.464090938: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.464120782: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.464204688: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.465417500: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.465544219: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.465707657: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/11-0     (      0) [011] .... 1474.465738438: sched_switch: prev_comm=swapper/11 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.465871407: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466018125: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466021563: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466302500: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466397188: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466491407: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466576563: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466672344: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466755938: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.466759219: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [011] .... 1474.469046407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/11 next_pid=0 next_prio=120
+  render_service-1833  (   1833) [000] .... 1474.483728594: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.483749219: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.483878282: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/4 next_pid=0 next_prio=120
+  render_service-1833  (   1833) [000] .... 1474.487235000: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.487274063: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.487313907: tracing_mark_write: B|1833|H:Et:1833,1474487206563,1474487206563,,1,[rs_uni_render_thread.cpp(PostTask:357)]|I40
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.487324063: tracing_mark_write: B|1833|H:RenderFrame|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.488076875: tracing_mark_write: B|1833|H:Render vsyncId:65196|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.488130625: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable::OnDraw[0][7872675053568] zoomed(0), currentFrameDirty(1219, 0, 101, 2848), screen(1320, 2848), active(0, 0, 1320, 2848), vsyncRefreshRate(60), gpuTile(0, 0)|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.490572344: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable Flush|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.490715157: tracing_mark_write: B|1833|H:Submit|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.490748594: tracing_mark_write: B|1833|H:GrDrawingManager::Flush|I38
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.492571250: tracing_mark_write: B|1833|H:ShaderDfx: isNeedSearch: 0, isUber: 0, pipelineKey: 3503908900815041696, fp:[{'fp':{'class_id':23,'code_hash':6522289435687617345,'use_highp_coords':1,'coord_depth':1,'is_opaque':0,'uniform_size':284,'uniforms':['iResolution','highLightDirection','highLightAngleDeg','highLightFeatherDeg','highLightWidthPx','highLightFeatherPx','maxColor','envLightWidth','envLightFeatherPx','innerSdWidth','innerSdFeatherPx','refractOutPx','refractInPx','refractRate','refractCoeff','refractDistort','weightNeg','weigh
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.492576094: tracing_mark_write: B|1833|H:vkCreateGraphicsPipelines|I38
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.492598750: tracing_mark_write: B|1833|H:Load/Compile Shaders|I38
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.493694219: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.494246094: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.494280782: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [007] .... 1474.494419375: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.494519532: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.494550000: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.494656563: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.494756250: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.494801407: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.494886563: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.494988750: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.495025313: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.495107032: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.495206719: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.495241875: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.495315157: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.495419844: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.495456563: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.495534532: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.495635938: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.495669219: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.495747969: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.495832500: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.495882188: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.495993282: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.496203750: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.496276407: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.496450938: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/10 next_pid=0 next_prio=120
+       udk-irq-0-74    (     74) [000] .... 1474.496657188: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.496669844: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.496739532: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.496910782: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.496912969: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497064532: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497143750: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497229844: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497294532: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497303125: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.497336407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/10 next_pid=0 next_prio=120
+ gpu-work-server-2994  (   2994) [000] .... 1474.497347032: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+      swapper/10-0     (      0) [010] .... 1474.497366719: sched_switch: prev_comm=swapper/10 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497410000: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.497411875: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [010] .... 1474.497437969: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/10 next_pid=0 next_prio=120
+  render_service-1833  (   1833) [000] .... 1474.500195157: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/5-0     (      0) [005] .... 1474.500237344: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [005] .... 1474.500336094: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/5 next_pid=0 next_prio=120
+  render_service-1833  (   1833) [000] .... 1474.501796875: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.501828438: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.501866250: tracing_mark_write: B|1833|H:Et:1833,1474501784532,1474501784532,,1,[rs_uni_render_thread.cpp(PostTask:357)]|I40
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.501872657: tracing_mark_write: B|1833|H:RenderFrame|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.502426875: tracing_mark_write: B|1833|H:Render vsyncId:65197|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.502487344: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable::OnDraw[0][7872675053568] zoomed(0), currentFrameDirty(1185, 0, 135, 2848), screen(1320, 2848), active(0, 0, 1320, 2848), vsyncRefreshRate(60), gpuTile(0, 0)|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.505477344: tracing_mark_write: B|1833|H:RSScreenRenderNodeDrawable Flush|M0538
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.505620469: tracing_mark_write: B|1833|H:Submit|M0538
+ RSUniRenderThre-2424  (   2424) [000] .... 1474.505691250: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+ RSUniRenderThre-2424  (   2424) [000] .... 1474.505710313: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.505719844: tracing_mark_write: B|1833|H:GrDrawingManager::Flush|I38
+       swapper/3-0     (      0) [003] .... 1474.505720782: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [000] .... 1474.505741250: tracing_mark_write: B|1833|H:DDGR::TaskQueue Execute Task|I38
+       swapper/4-0     (      0) [004] .... 1474.505743594: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+     DDGRTask__0-2997  (   1833) [000] .... 1474.505766719: tracing_mark_write: B|1833|H:DDGR::TaskQueue Execute Task|I38
+     DDGRTask__1-2998  (   1833) [000] .... 1474.505984532: tracing_mark_write: B|1833|H:ShaderDfx: isNeedSearch: 0, isUber: 0, pipelineKey: 6789337801192041678, fp:[{'fp':{'class_id':23,'code_hash':11408800371814304869,'use_highp_coords':0,'coord_depth':0,'is_opaque':0,'uniform_size':36,'uniforms':['ubo_rate','ubo_degree','ubo_posr','ubo_posg','ubo_posb','ubo_negr','ubo_negg','ubo_negb','ubo_headroom']},'childFp':[{'fp':{'class_id':27},'childFp':[]},{'fp':{'class_id':28},'childFp':[]}]}], dump:{'packed':1153515240885862407,'unpacked':{'primType':'CIRCLE','paintStyle':'FILL','fillType'
+     DDGRTask__1-2998  (   1833) [000] .... 1474.505993750: tracing_mark_write: B|1833|H:vkCreateGraphicsPipelines|I38
+     DDGRTask__1-2998  (   1833) [000] .... 1474.506032969: tracing_mark_write: B|1833|H:Load/Compile Shaders|I38
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.506209844: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120
+     DDGRTask__1-2998  (   1833) [003] .... 1474.506779532: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.507262500: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.507289844: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [003] .... 1474.507323594: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.507412344: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+     DDGRTask__0-2997  (   2997) [000] .... 1474.507422813: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.507428907: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+       swapper/7-0     (      0) [007] .... 1474.507433907: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.507475938: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+     DDGRTask__0-2997  (   1833) [000] .... 1474.507525469: tracing_mark_write: B|1833|H:ShaderDfx: isNeedSearch: 0, isUber: 0, pipelineKey: 2119358687217970382, fp:[{'fp':{'class_id':23,'code_hash':11408800371814304869,'use_highp_coords':0,'coord_depth':0,'is_opaque':0,'uniform_size':36,'uniforms':['ubo_rate','ubo_degree','ubo_posr','ubo_posg','ubo_posb','ubo_negr','ubo_negg','ubo_negb','ubo_headroom']},'childFp':[{'fp':{'class_id':27},'childFp':[]},{'fp':{'class_id':28},'childFp':[]}]}], dump:{'packed':1153515240885862471,'unpacked':{'primType':'CIRCLE','paintStyle':'STROKE','fillTyp
+     DDGRTask__0-2997  (   1833) [000] .... 1474.507531563: tracing_mark_write: B|1833|H:vkCreateGraphicsPipelines|I38
+     DDGRTask__0-2997  (   1833) [000] .... 1474.507561250: tracing_mark_write: B|1833|H:Load/Compile Shaders|I38
+       udk-irq-7-86    (     86) [000] .... 1474.507569532: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.507593594: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.507625782: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.507714375: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.507729688: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.507753282: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.507837032: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.507847032: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.507887657: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+     DDGRTask__0-2997  (   1833) [004] .... 1474.508051719: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=S ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.508067344: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.508077500: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   2998) [000] .... 1474.508220469: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.508232657: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.508247344: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=S ==> next_comm=swapper/7 next_pid=0 next_prio=120
+     DDGRTask__0-2997  (   2997) [000] .... 1474.508251407: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.508258750: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   1833) [007] .... 1474.508469219: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=S ==> next_comm=swapper/7 next_pid=0 next_prio=120
+     DDGRTask__0-2997  (   1833) [002] .... 1474.508588125: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.508712657: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.508723750: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+     DDGRTask__0-2997  (   1833) [004] .... 1474.508765782: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.508821875: tracing_mark_write: B|1833|H:ShaderDfx: isNeedSearch: 0, isUber: 0, pipelineKey: 6877633596894213231, fp:[], dump:{'packed':1153515515767357572,'unpacked':{'primType':'RECT_SHADOW','paintStyle':'FILL_AND_STROKE','fillType':'SOLID','fillRule':'NON_ZERO','isAA':0,'clipInfo':[{'type':'G2_VERTICAL_CAPSULE','isAA':1,'op':'CLIP_OUT'}],'ycbcr':0,'ycbcrIdt':0,'ColorSpMask':0,'unpremul':0,'text':0,'flipY':0,'alphaOnly':1,'gray':0,'strict':0,'shaderType':'UNKNOWN','needUV':0,'cubic':0,'persp':0,'uber':0,'vertInput':'ENCODE_VERTEX_INPUT'
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.508824532: tracing_mark_write: B|1833|H:vkCreateGraphicsPipelines|I38
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.508841407: tracing_mark_write: B|1833|H:Load/Compile Shaders|I38
+       udk-irq-4-82    (     82) [000] .... 1474.508954532: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.508970782: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+     DDGRTask__0-2997  (   2997) [000] .... 1474.509091719: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.509096250: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__0-2997  (   1833) [000] .... 1474.509130469: tracing_mark_write: E|1833
+     DDGRTask__0-2997  (   1833) [004] .... 1474.509241250: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=S ==> next_comm=swapper/4 next_pid=0 next_prio=120
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.509245157: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+     DDGRTask__1-2998  (   1833) [007] .... 1474.509255157: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=D ==> next_comm=swapper/7 next_pid=0 next_prio=120
+       udk-irq-7-86    (     86) [000] .... 1474.509431407: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/7-0     (      0) [007] .... 1474.509445782: sched_switch: prev_comm=swapper/7 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+     DDGRTask__1-2998  (   2998) [000] .... 1474.509546719: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+     DDGRTask__1-2998  (   2998) [000] .... 1474.509556875: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.509572500: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+       swapper/2-0     (      0) [002] .... 1474.509578438: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+     DDGRTask__0-2997  (   1833) [002] .... 1474.509598750: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120
+     DDGRTask__1-2998  (   1833) [000] .... 1474.509615938: tracing_mark_write: E|1833
+     DDGRTask__1-2998  (   1833) [007] .... 1474.509631719: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=S ==> next_comm=swapper/7 next_pid=0 next_prio=120
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.509723750: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.509831875: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.509844375: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.509868594: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.509971719: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.509986875: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.510015000: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/3 next_pid=0 next_prio=120
+       udk-irq-3-80    (     80) [000] .... 1474.510136094: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.510160313: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.510225469: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.510320469: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.510348750: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.510416407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.510575157: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.510584688: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   2424) [000] .... 1474.510653438: sched_wakeup: comm=DDGRTask__0 pid=2997 prio=120 target_cpu=000
+ RSUniRenderThre-2424  (   2424) [000] .... 1474.510659219: sched_wakeup: comm=DDGRTask__1 pid=2998 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.510664688: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__0 next_pid=2997 next_prio=51
+       swapper/5-0     (      0) [005] .... 1474.510672344: sched_switch: prev_comm=swapper/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=DDGRTask__1 next_pid=2998 next_prio=51
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.510807657: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+     DDGRTask__0-2997  (   1833) [000] .... 1474.510906407: tracing_mark_write: E|1833
+     DDGRTask__0-2997  (   1833) [000] .... 1474.510908282: tracing_mark_write: E|1833
+     DDGRTask__0-2997  (   1833) [000] .... 1474.510916563: tracing_mark_write: E|1833
+     DDGRTask__1-2998  (   1833) [000] .... 1474.510922969: tracing_mark_write: E|1833
+     DDGRTask__0-2997  (   1833) [003] .... 1474.510925000: sched_switch: prev_comm=DDGRTask__0 prev_pid=2997 prev_prio=51 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+     DDGRTask__1-2998  (   1833) [000] .... 1474.510925469: tracing_mark_write: E|1833
+     DDGRTask__1-2998  (   1833) [000] .... 1474.510930938: tracing_mark_write: E|1833
+       udk-irq-4-82    (     82) [000] .... 1474.510932344: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.510939844: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+     DDGRTask__1-2998  (   1833) [005] .... 1474.510941563: sched_switch: prev_comm=DDGRTask__1 prev_pid=2998 prev_prio=51 prev_state=S ==> next_comm=swapper/5 next_pid=0 next_prio=120
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.510965469: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511050938: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511061875: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511083907: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511166719: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511178282: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511205157: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511293594: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511303907: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511326094: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511444688: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511467813: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511510000: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511596250: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511615469: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511655000: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511738125: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511757969: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511805313: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.511885938: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.511906407: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.511948125: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.512046875: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.512075313: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.512142032: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.512310000: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.512332500: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.512746094: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.512903282: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.512912969: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.512988907: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.513170782: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.513192969: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.513265313: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.513402188: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.513422500: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.513466094: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.513566407: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/2-0     (      0) [002] .... 1474.513585938: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [002] .... 1474.513626250: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/2 next_pid=0 next_prio=120
+       udk-irq-2-78    (     78) [000] .... 1474.513751563: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.513771875: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.513836407: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.513932500: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.513958282: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.514001563: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.514102344: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.514124375: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.514165313: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.514266563: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.514286250: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.514337657: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.514432344: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.514454063: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.514501250: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.514602813: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/4-0     (      0) [004] .... 1474.514623125: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [004] .... 1474.514678282: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=D ==> next_comm=swapper/4 next_pid=0 next_prio=120
+       udk-irq-4-82    (     82) [000] .... 1474.514831719: sched_wakeup: comm=RSUniRenderThre pid=2424 prio=120 target_cpu=000
+       swapper/3-0     (      0) [003] .... 1474.514854688: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=RSUniRenderThre next_pid=2424 next_prio=52
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.515120000: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.515379844: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.515384219: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.515809688: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.515973907: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.516210313: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.516344844: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.516372188: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.516497032: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [000] .... 1474.516501407: tracing_mark_write: E|1833
+ RSUniRenderThre-2424  (   1833) [003] .... 1474.516539219: sched_switch: prev_comm=RSUniRenderThre prev_pid=2424 prev_prio=52 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120

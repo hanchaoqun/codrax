@@ -416,7 +416,8 @@ func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (lane sem
 // Families emit in FIRST-MEMBER APPEARANCE order (the span inventory is
 // already duration-ranked by the stats bound, and appearance order keeps the
 // degenerate all-singles shape byte-identical to the pre-RCM per-span
-// iteration on both consumers); members inside a family sort largest first
+// iteration on both consumers), off-chain families classified only by the
+// platform vocabulary last; members inside a family sort largest first
 // (Members[0] is the representative).
 func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []SemanticSpanFamily {
 	type laneKey struct {
@@ -429,6 +430,10 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		subcategory string
 		lane        semanticSpanChainLane
 		source      string
+		// platformOffChain keeps an off-chain span classified only by the
+		// platform vocabulary out of the family of a span classified without
+		// it, so the value of that family stays what it was.
+		platformOffChain bool
 	}
 	type acc struct {
 		family  SemanticSpanFamily
@@ -441,7 +446,8 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			continue
 		}
 		lane, depth, state := semanticSpanFamilyLane(chain, span)
-		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), subcategory: span.Subcategory, lane: lane, source: span.SourcePath}
+		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), subcategory: span.Subcategory, lane: lane, source: span.SourcePath,
+			platformOffChain: lane == semanticSpanLaneOff && semanticSpanMintedByPlatformVocabulary(span.Name)}
 		group, ok := groups[key]
 		if !ok {
 			basis := ""
@@ -490,6 +496,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			return group.members[i].StartLine < group.members[j].StartLine
 		})
 		fam.Members = group.members
+		fam.platformVocabularyMinted = semanticFamilyMintedByPlatformVocabulary(group.members)
 		intervals := make([]foldInterval, 0, len(group.members))
 		clipped := false
 		for _, member := range group.members {
@@ -635,7 +642,16 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		}
 		out = append(out, fam)
 	}
+	// Both consumers read this order under a row cap: an off-chain family
+	// classified only by the platform vocabulary comes after every other one.
+	sort.SliceStable(out, func(i, j int) bool {
+		return !semanticFamilyYieldsSeat(out[i]) && semanticFamilyYieldsSeat(out[j])
+	})
 	return out
+}
+
+func semanticFamilyYieldsSeat(fam SemanticSpanFamily) bool {
+	return fam.platformVocabularyMinted && !fam.OnChain
 }
 
 // rootCauseItemFromSemanticSpanFamily mints the ONE rank contender for a

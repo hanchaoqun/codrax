@@ -317,7 +317,9 @@ func Run(idx *Index, q Query) Result {
 	// chain's typed anchor windows. The shared getStats memo stays anchor-
 	// less on its own (the plain window_stats view must never trigger a
 	// chain build); the rank lane keeps its own anchored memo — the exported
-	// faces of the two stats are identical (anchored sums ride unexported
+	// faces of the two stats are identical except for which spans hold the
+	// platform vocabulary seats when that pool overflows (the anchored sweep
+	// also seats chain members' spans first; anchored sums ride unexported
 	// fields), so no view-order dependence can leak.
 	//
 	// RSPA-HYG 件② (§29.77 立案②, 2026-07-14): the anchored sweep BACKFEEDS
@@ -10721,7 +10723,7 @@ func computeTraceMarksWithTree(idx *Index, q Query, max int, tree *traceMarkerTr
 	// census key on the refined subcategory, so one whole outcome family can
 	// never be silently trimmed behind its sibling (verify wf_7f51ef7c-02d).
 	stampShaderCacheOutcomeSubcategories(spans, spans)
-	spans, semanticBound = boundTraceMarkSpansForTarget(spans, max, q.PID)
+	spans, semanticBound = boundTraceMarkSpansForTarget(spans, max, semanticSeatQueryFor(idx, q))
 	counterList := make([]TraceCounterSummary, 0, len(counters))
 	for _, c := range counters {
 		counterList = append(counterList, c)
@@ -10878,9 +10880,12 @@ func clipTraceMarkSpanToQueryWindow(span TraceSpanSummary, q Query) (TraceSpanSu
 // verification, shader/runtime compile, texture upload, GC pause) separately from the generic
 // duration-ranked cap in boundTraceMarkSpans, so a short compile/verify span
 // is not silently evicted by longer unrelated spans before
-// traceSpanSemanticWorkClass ever gets to classify it. Matches
-// traceCausalProjectionSemanticSpanLimit so a semantic span that survives
-// here is not re-truncated by a smaller cap further down the handoff chain.
+// traceSpanSemanticWorkClass ever gets to classify it. It equals the projection's
+// off-chain semantic capacity, but the two bounds are not one: spans of both seat
+// pools reach the projection, where on-chain rows are unbounded and off-chain rows
+// compete for its seats (off-chain platform vocabulary rows only after every other
+// row, see rootCauseItemYieldsBoardSeat and
+// types.TraceCausalProjectionNodeYieldsBoundedSeat).
 const traceMarkSemanticSpanCap = 16
 
 // boundTraceMarkSpans truncates spans (already duration-sorted by the
@@ -10922,15 +10927,17 @@ func (info traceMarkSemanticBoundInfo) caveat() string {
 // families exist, the exact omitted count and a bounded family roster travel
 // in the caveat above; loss is never silent.
 func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpanSummary, traceMarkSemanticBoundInfo) {
-	return boundTraceMarkSpansForTarget(spans, max, 0)
+	return boundTraceMarkSpansForTarget(spans, max, semanticSeatQuery{})
 }
 
 // traceMarkPlatformSemanticSpanCap is the SEPARATE seat pool of spans whose
 // class comes only from the platform vocabulary
 // (semantic_platform_vocabulary.go). The built-in pool keeps its 16 seats and
-// its selection order unchanged, so a platform span can never take a seat
-// from a span that was classified before the vocabulary existed, and no
-// previously published family total can shrink because of one.
+// its selection order unchanged, so at this bound a platform span can never
+// take a seat from a span that was classified before the vocabulary existed.
+// This pool protects this bound only. Every later bounded face (the rank board,
+// the causal projection, the semantic inventories) orders an off-chain platform
+// row after every other row by its own rule.
 const traceMarkPlatformSemanticSpanCap = 8
 
 // traceMarkSpanPools is the complete span population of one window BEFORE any
@@ -10966,19 +10973,19 @@ func partitionTraceMarkSpansBySemanticOwner(spans []TraceSpanSummary) traceMarkS
 //   - built-in semantic spans: 16 seats, one representative of every
 //     (thread,class) family first, then the next largest members — the
 //     selection that existed before the platform vocabulary, unchanged;
-//   - platform semantic spans: 8 seats of their own, same family-first rule,
-//     walked in typed tiers so that the query target's own spans are seated
-//     before work executed on other threads, and those before waits recorded
-//     on other threads (semanticSpanSeatTier).
+//   - platform semantic spans: 8 seats of their own, walked in typed tiers
+//     (semanticSpanSeatTier). Every span the target's dependency chain can
+//     reach is seated first, one representative of every such family and then
+//     the rest of them; only then does other work on other threads get seats,
+//     and waits recorded on other threads after it.
 //
-// targetPID is the query's thread id (in process scope it is the process id,
-// which is also the main thread's id); zero means no target is known and the
-// first tier is empty.
+// seats carries the resolved query target and the chain members' typed windows;
+// its zero value means no target is known and the first tier is empty.
 //
 // The 16-seat pool itself still does not look at the query target: with more
 // than 16 built-in families in a window the target's own family can be among
 // the omitted ones (disclosed by the caveat, not prevented here).
-func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, targetPID int) ([]TraceSpanSummary, traceMarkSemanticBoundInfo) {
+func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, seats semanticSeatQuery) ([]TraceSpanSummary, traceMarkSemanticBoundInfo) {
 	if max <= 0 || len(spans) <= max {
 		return spans, traceMarkSemanticBoundInfo{}
 	}
@@ -10988,9 +10995,7 @@ func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, targetPID i
 		generic = generic[:max]
 	}
 	builtIn := boundSemanticSeatPool(pools.builtIn, traceMarkSemanticSpanCap, nil)
-	platform := boundSemanticSeatPool(pools.platform, traceMarkPlatformSemanticSpanCap, func(span TraceSpanSummary) int {
-		return semanticSpanSeatTier(span, targetPID)
-	})
+	platform := boundSemanticSeatPool(pools.platform, traceMarkPlatformSemanticSpanCap, seats.tierOf())
 	info := semanticSeatBoundInfo(builtIn, platform)
 	out := make([]TraceSpanSummary, 0, len(generic)+len(builtIn.kept)+len(platform.kept))
 	out = append(out, generic...)
@@ -11023,11 +11028,13 @@ type semanticSeatPoolBound struct {
 	omitted []TraceSpanSummary
 }
 
-// boundSemanticSeatPool seats at most seatCap spans of one pool: first one
+// boundSemanticSeatPool seats at most seatCap spans of one pool: one
 // representative of every family, then the next largest members, so family
 // totals remain as complete as the cap allows. tierOf (nil = one tier) orders
-// both passes by a typed tier before duration; inside a tier the pool's order
-// decides.
+// the seating: tier 0 is seated completely (representatives, then members)
+// before any other tier, and the remaining tiers then take representatives
+// first and spare members last, each pass walking the tiers in order. Inside a
+// tier the pool's order decides.
 func boundSemanticSeatPool(pool []TraceSpanSummary, seatCap int, tierOf func(TraceSpanSummary) int) semanticSeatPoolBound {
 	if len(pool) <= seatCap {
 		return semanticSeatPoolBound{kept: pool}
@@ -11047,7 +11054,7 @@ func boundSemanticSeatPool(pool []TraceSpanSummary, seatCap int, tierOf func(Tra
 	}
 	seated := 0
 	familyKept := map[string]bool{}
-	for tier := 0; tier <= lastTier; tier++ {
+	seatRepresentatives := func(tier int) {
 		for i := range pool {
 			if tiers[i] != tier || familyKept[families[i]] || seated >= seatCap {
 				continue
@@ -11057,17 +11064,22 @@ func boundSemanticSeatPool(pool []TraceSpanSummary, seatCap int, tierOf func(Tra
 			seated++
 		}
 	}
-	for tier := 0; tier <= lastTier && seated < seatCap; tier++ {
+	seatMembers := func(tier int) {
 		for i := range pool {
-			if seated >= seatCap {
-				break
-			}
-			if selected[i] || tiers[i] != tier {
+			if selected[i] || tiers[i] != tier || seated >= seatCap {
 				continue
 			}
 			selected[i] = true
 			seated++
 		}
+	}
+	seatRepresentatives(0)
+	seatMembers(0)
+	for tier := 1; tier <= lastTier; tier++ {
+		seatRepresentatives(tier)
+	}
+	for tier := 1; tier <= lastTier; tier++ {
+		seatMembers(tier)
 	}
 	bound := semanticSeatPoolBound{kept: make([]TraceSpanSummary, 0, seated)}
 	for i, span := range pool {
@@ -16792,6 +16804,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	for _, fam := range FoldSemanticSpanFamilies(&chain, stats.TraceSpans) {
 		if len(fam.Members) == 1 {
 			if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, fam.Members[0], hasCausalChain); ok {
+				item.platformVocabularyMinted = fam.platformVocabularyMinted
 				items = append(items, item)
 				// R3-IMPL (§29.88.1 跨边按边界二分): a host-edge-anchored
 				// span crossing its credential boundary seats the pre-edge
@@ -16805,6 +16818,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			continue
 		}
 		if item, ok := rootCauseItemFromSemanticSpanFamily(q, fam, hasCausalChain); ok {
+			item.platformVocabularyMinted = fam.platformVocabularyMinted
 			items = append(items, item)
 			// R3-IMPL: same bisection clone at family grain (the remainder
 			// extent is the family's post-boundary member union).
@@ -18735,6 +18749,9 @@ func normalizeRootCauseEffectiveImpact(items []RootCauseRankItem) {
 
 func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 	sort.SliceStable(items, func(i, j int) bool {
+		if yi, yj := rootCauseItemYieldsBoardSeat(items[i]), rootCauseItemYieldsBoardSeat(items[j]); yi != yj {
+			return yj
+		}
 		ri, rj := 0, 0
 		if chainAware {
 			ri = rootCauseChainRelevanceSortRank(items[i])
@@ -22613,10 +22630,9 @@ var customTraceSemanticSpanPatterns atomic.Value // stores []SemanticSpanPattern
 // SetSemanticSpanPatterns installs deployment-specific semantic span patterns.
 // Unknown classes and empty patterns are ignored. Built-in patterns always win,
 // so config can add missing ROM/app names without weakening stable defaults.
-// The built-in platform vocabulary is consulted before config as well: a name
-// it mints keeps that class, and a name it recognises without minting (a
-// collector cycle, a nested step, a related marker) cannot be given a class
-// by config.
+// A name the built-in platform vocabulary mints keeps that class as well; a name
+// it only recognises (a collector cycle, a nested step, a related marker) may be
+// given a class by config.
 func SetSemanticSpanPatterns(patterns []SemanticSpanPattern) {
 	customTraceSemanticSpanPatterns.Store(normalizeSemanticSpanPatterns(patterns))
 }
@@ -22711,9 +22727,9 @@ const (
 
 // traceSpanSemanticWorkClassWithOwner is the one classifier. Order: every
 // built-in arm first (unchanged conditions, unchanged order), then the
-// platform vocabulary, then operator-configured patterns. A name the
-// vocabulary recognises without minting (a collector cycle, a nested step, a
-// related marker) is deliberately not a class and stops there.
+// vocabulary rows that mint, then operator-configured patterns. A name the
+// vocabulary only recognises (a collector cycle, a nested step, a related
+// marker) carries no class of its own, so an operator pattern may give it one.
 func traceSpanSemanticWorkClassWithOwner(name string) (traceSpanSemanticWork, traceSpanSemanticOwner, bool) {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if lower == "" {
@@ -22735,11 +22751,8 @@ func traceSpanSemanticWorkClassWithOwner(name string) (traceSpanSemanticWork, tr
 	case traceSpanLooksLikeGCPause(lower, tokens):
 		return traceSpanSemanticWorkOwnedBy("gc_pause", traceSpanSemanticOwnerBuiltIn)
 	default:
-		if entry, ok := semanticPlatformVocabularyLookup(name); ok {
-			if entry.Role == semanticVocabOperation {
-				return traceSpanSemanticWorkOwnedBy(entry.Family, traceSpanSemanticOwnerPlatformVocabulary)
-			}
-			return traceSpanSemanticWork{}, traceSpanSemanticOwnerNone, false
+		if entry, ok := semanticPlatformVocabularyLookup(name); ok && entry.Role == semanticVocabOperation {
+			return traceSpanSemanticWorkOwnedBy(entry.Family, traceSpanSemanticOwnerPlatformVocabulary)
 		}
 		if class, ok := customTraceSpanSemanticClass(lower, tokens); ok {
 			return traceSpanSemanticWorkOwnedBy(class, traceSpanSemanticOwnerOperatorPattern)

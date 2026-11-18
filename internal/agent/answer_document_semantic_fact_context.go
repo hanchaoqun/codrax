@@ -115,6 +115,16 @@ func renderAnswerDocBoundedSemanticFacts(ctx *types.AgentContext, ledger types.O
 		// digest follows the capture path, not the capture content.
 		return types.TraceObservationCoordinateLess(facts[i].node.EvidenceID, facts[j].node.EvidenceID)
 	})
+	// The family limit below reaches off-chain rows of vocabulary-classified
+	// work first, and on-chain ones are additional to it.
+	nodes := make([]types.TraceCausalProjectionNode, 0, len(facts))
+	for _, item := range facts {
+		nodes = append(nodes, item.node)
+	}
+	familyLimit := types.TraceCausalProjectionBoundedSeatLimit(nodes, traceSemanticFactFamilyLimit)
+	sort.SliceStable(facts, func(i, j int) bool {
+		return !types.TraceCausalProjectionNodeYieldsBoundedSeat(facts[i].node) && types.TraceCausalProjectionNodeYieldsBoundedSeat(facts[j].node)
+	})
 	var b strings.Builder
 	b.WriteString("## Bounded Semantic Span Facts (Noncausal Inventory)\n\n")
 	b.WriteString("- " + types.AnswerControlMetadataVisibilityGuide + "\n")
@@ -123,7 +133,7 @@ func renderAnswerDocBoundedSemanticFacts(ctx *types.AgentContext, ledger types.O
 	b.WriteString("- Keep the span host separate from the query target. Target-host work alone proves no dependency; adjacent/background work has relationship_to_target=unknown, not proven unrelated. Do not infer a blocker, complete cause decomposition, or cross-row additivity. A target-only search returning zero cannot negate these other-thread observations.\n")
 	rendered := 0
 	for _, item := range facts {
-		if rendered == traceSemanticFactFamilyLimit {
+		if rendered == familyLimit {
 			break
 		}
 		node, ref := item.node, item.ref

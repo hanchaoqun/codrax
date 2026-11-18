@@ -1129,7 +1129,8 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 		}
 		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
 	})
-	if limit > 0 && len(out) > limit {
+	out = types.TraceCausalProjectionYieldingNodesLast(out)
+	if limit = types.TraceCausalProjectionBoundedSeatLimit(out, limit); limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
 	return out
@@ -1163,7 +1164,8 @@ func traceDecisionSemanticOptimizationSpans(projection types.TraceCausalProjecti
 		}
 		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
 	})
-	if limit > 0 && len(out) > limit {
+	out = types.TraceCausalProjectionYieldingNodesLast(out)
+	if limit = types.TraceCausalProjectionBoundedSeatLimit(out, limit); limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
 	return out

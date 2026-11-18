@@ -4230,7 +4230,11 @@ const (
 )
 
 type RootCauseRankItem struct {
-	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	// platformVocabularyMinted: every span of this semantic row is classified
+	// only by the platform vocabulary. Never published; it orders the row on
+	// the board (rootCauseItemYieldsBoardSeat).
+	platformVocabularyMinted bool
+	MeasurementSources       *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	// PriorityOverlap is a current-query display witness, not an addition to
 	// the stable native rank JSON or an input to ranking.
 	PriorityOverlap *types.TraceRunnablePriorityOverlap `json:"-"`
@@ -5357,6 +5361,9 @@ type SemanticSpanFamily struct {
 	// P3M double-booking the batch-one review caught).
 	edgeAnchorPreIntervals  []foldInterval
 	edgeAnchorPostIntervals []foldInterval
+	// platformVocabularyMinted: every member is classified only by the
+	// platform vocabulary (semanticFamilyMintedByPlatformVocabulary).
+	platformVocabularyMinted bool
 	// Members are the VERBATIM window-clipped member spans, largest first —
 	// the lossless roster (§24.7.1 ①: distinguishing keys — here the span
 	// names — must never be dropped). Members[0] is the family representative

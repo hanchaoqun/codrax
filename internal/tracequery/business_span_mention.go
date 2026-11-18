@@ -185,7 +185,9 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		start, end int
 	}
 	bounded := make(map[spanIdentity]bool, len(stats.TraceSpans))
+	seatedSemanticFamilies := make(map[string]bool, len(stats.TraceSpans))
 	for _, s := range stats.TraceSpans {
+		seatedSemanticFamilies[semanticSeatFamilyKey(s)] = true
 		bounded[spanIdentity{s.Thread.PID, s.Name, s.StartLine, s.EndLine}] = true
 	}
 	// Per-thread typed credential memo. "" = no credential (never mentioned).
@@ -227,11 +229,20 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		// never the ◈ name-dimension face (the dual-identity double-count
 		// reading is eliminated by construction; the former ◈→席 mutual chip
 		// of §29.175.2 is retired with it).
-		if firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name)) != "" {
+		//
+		// The one exception is a family the platform vocabulary classifies
+		// that lost every member at the seat bound: it holds no seat, so this
+		// face is where its on-chain work stays visible.
+		class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
+		omittedPlatformFamily := class != "" && semanticSpanMintedByPlatformVocabulary(span.Name) && !seatedSemanticFamilies[semanticSeatFamilyKey(span)]
+		if class != "" && !omittedPlatformFamily {
 			continue
 		}
 		basis, boundary := threadBasis(span.Thread)
 		if basis == "" {
+			continue
+		}
+		if omittedPlatformFamily && basis == BusinessSpanMentionBasisHostWakeupEdge && !semanticSpanAdmitsHostEdgeLane(span.Name) {
 			continue
 		}
 		if basis == BusinessSpanMentionBasisHostWakeupEdge && (span.StartTs >= boundary || span.EndTs > boundary) {
