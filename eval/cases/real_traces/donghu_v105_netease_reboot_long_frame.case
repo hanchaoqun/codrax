@@ -1,0 +1,14 @@
+# Whole original from the Donghu baseline: 105版本 / 网易云音乐 / 终端重启后冷启动 / capture 5.
+# Source SHA256: 48cf2fd8b91a81f2276a16a5988ef14729c078e5d1f23615eb166d2f6e2c8cbc (104144939 bytes, 693960 lines)
+#
+# The range is one closed frame-callback marker of the main thread (lines 572357 to 573592).
+# The capability fixture was not cut from this capture. Smoke check only; acceptance is the human audit against the raw oracle.
+ID="donghu_v105_netease_reboot_long_frame"
+NAME="Whole NetEase Cloud Music reboot cold start — one long frame callback on the main thread"
+QUESTION="请分析这份网易云音乐手机重启后冷启动的采集：153.763595 到 153.887340 秒之间，主线程（tid 11077）有一帧处理了很久。这段时间主线程的时间主要花在了哪里？能定位到哪些具体原因，各自影响多久？请按影响大小排序说明。"
+: "${CODRAX_HMC376_NETEASE_REBOOT_FRAME:?set CODRAX_HMC376_NETEASE_REBOOT_FRAME to the pinned complete NetEase Cloud Music reboot cold-start ftrace}"
+HTRACE_FILE="$CODRAX_HMC376_NETEASE_REBOOT_FRAME"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="11077"
