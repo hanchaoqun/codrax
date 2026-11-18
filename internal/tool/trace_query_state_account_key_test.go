@@ -106,3 +106,88 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 		t.Fatalf("model query plus exact system supplement must retain one canonical account: %+v", items)
 	}
 }
+
+// A rank seat publishes the identity of the measured account it shows exactly
+// once: as state_account_key where it is priced at that account, and as
+// measured_state_account_key where its price is something else. A row never
+// carries the hash twice, and one-seat convergence reads only the first key.
+func TestTraceQueryPublishesMeasuredStateAccountKeyOnlyWherePricingKeyIsWithheld(t *testing.T) {
+	const key = "state_account:v2:0123456789abcdef0123456789abcdef"
+	seat := func(pricing, measured string, effective float64) []types.ObservationRecord {
+		result := tracequery.Result{
+			View:       "root_cause_rank",
+			SourcePath: "/traces/app.systrace",
+			RootCauseRank: &tracequery.RootCauseRankResult{
+				Window: tracequery.TimeWindow{StartTs: 11, EndTs: 11.008},
+				Items: []tracequery.RootCauseRankItem{{
+					Rank: 1, Tier: "primary", Type: "runnable_wait",
+					Thread:          tracequery.ThreadRef{Comm: "dep", PID: 21},
+					StateAccountKey: pricing, MeasuredStateAccountKey: measured,
+					DominantState: string(tracequery.StateRunnable), RunnableMs: 5,
+					ImpactMs: effective, EffectiveImpactMs: effective,
+					Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+					LineStart: 4, LineEnd: 23,
+				}},
+			},
+		}
+		return traceQueryTypedObservations(result, "trace", "/blobs/trace.json", "", "", time.Now())
+	}
+	notes := func(rows []types.ObservationRecord) (pricing, measured []string) {
+		seats := 0
+		for _, row := range rows {
+			if row.Predicate != "root_cause_primary" || row.Subject != "dep-21" {
+				continue
+			}
+			seats++
+			for _, note := range row.RichNotes {
+				note = strings.TrimSpace(note)
+				switch {
+				case strings.HasPrefix(note, "state_account_key="):
+					pricing = append(pricing, note)
+				case strings.HasPrefix(note, "measured_state_account_key="):
+					measured = append(measured, note)
+				}
+			}
+		}
+		if seats != 1 {
+			t.Fatalf("fixture must publish exactly one primary seat row, got %d", seats)
+		}
+		return pricing, measured
+	}
+
+	// Priced at 3 ms while the measured runnable account is 5 ms.
+	rows := seat("", key, 3)
+	pricing, measured := notes(rows)
+	if len(pricing) != 0 || len(measured) != 1 || measured[0] != "measured_state_account_key="+key {
+		t.Fatalf("a seat priced differently from its measurement publishes only the measured identity: pricing=%q measured=%q", pricing, measured)
+	}
+	// Priced exactly at the account: the same single note as before this
+	// identity existed, and no second carriage of the hash.
+	pricing, measured = notes(seat(key, key, 5))
+	if len(pricing) != 1 || pricing[0] != "state_account_key="+key || len(measured) != 0 {
+		t.Fatalf("a seat priced at its account publishes only state_account_key: pricing=%q measured=%q", pricing, measured)
+	}
+	// No identity proved: neither note.
+	if pricing, measured = notes(seat("", "", 3)); len(pricing) != 0 || len(measured) != 0 {
+		t.Fatalf("no native identity, no note: pricing=%q measured=%q", pricing, measured)
+	}
+
+	// The compiled node carries the measured identity on its own field and
+	// answers through the accessor; the pricing field stays empty.
+	projection := types.TraceCausalProjectionFromObservationRecords(rows)
+	compiled := 0
+	for _, group := range [][]types.TraceCausalProjectionNode{projection.PrimaryRootCauses, projection.RankedSeats, projection.OnChainCauses} {
+		for _, node := range group {
+			if node.Subject != "dep-21" {
+				continue
+			}
+			compiled++
+			if node.StateAccountKey != "" || node.MeasuredStateAccountKey != key || node.MeasuredStateFactKey() != key {
+				t.Fatalf("compiled seat: pricing=%q measured=%q accessor=%q", node.StateAccountKey, node.MeasuredStateAccountKey, node.MeasuredStateFactKey())
+			}
+		}
+	}
+	if compiled == 0 {
+		t.Fatal("the seat did not compile into the projection")
+	}
+}

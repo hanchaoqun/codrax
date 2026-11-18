@@ -1401,6 +1401,11 @@ type TraceCausalProjectionNode struct {
 	// inventory identity. One-seat convergence compares it verbatim across a
 	// rank row and wakeup-impact row; empty/ambiguous identities stay split.
 	StateAccountKey string `json:"state_account_key,omitempty"`
+	// MeasuredStateAccountKey is the same producer hash for the MEASURED state
+	// account of a seat whose price differs from that measurement. Display
+	// identity only, read through MeasuredStateFactKey; never a seat, rank,
+	// merge or causal input, and not part of the projection JSON.
+	MeasuredStateAccountKey string `json:"-"`
 	// StateAccountComplete certifies a raw state census throughout StartTs..EndTs,
 	// not a selection of examples. Used only for nested-account containment;
 	// it grants no causal qualification and does not authorize partial unions.
@@ -4575,6 +4580,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	node.StateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountKey))
+	node.MeasuredStateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMeasuredStateAccountKey))
 	node.StateAccountComplete = traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountComplete) == "true"
 	return node
 }

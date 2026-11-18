@@ -4273,6 +4273,18 @@ type RootCauseRankItem struct {
 	// this token verbatim; it is never reconstructed from prose, equal values,
 	// or line envelopes. Empty means identity was absent or ambiguous.
 	StateAccountKey string `json:"state_account_key,omitempty"`
+	// MeasuredStateAccountKey is the same exact segment-inventory identity for
+	// the seat's MEASURED dominant-state account, minted whether or not the
+	// seat's price equals that measurement. It answers only "do these rows
+	// show the same measured account?": it stays off the stable rank JSON and
+	// is never a rank, pricing, admission or merge input.
+	MeasuredStateAccountKey string `json:"-"`
+	// measuredStateIntervals / measuredStateWindow are the complete clamped
+	// dominant-state inventory and its statistics window, copied by
+	// construction from the wakeup impact this seat was built from. Only the
+	// measured-identity mint reads them.
+	measuredStateIntervals []foldInterval
+	measuredStateWindow    TimeWindow
 	// PhysicalSourcePath is the bundle-local physical artifact identity behind
 	// duration rows. Logical Source (window_stats/semantic/...) describes the
 	// producer lane; this field prevents lookalike intervals from different

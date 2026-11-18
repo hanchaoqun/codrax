@@ -17,8 +17,14 @@ import (
 
 func samplingBundleContextHMC241(t *testing.T) (*types.AgentContext, types.ToolResult) {
 	t.Helper()
+	return samplingBundleContextInHMC241(t, t.TempDir())
+}
+
+// samplingBundleContextInHMC241 builds the prepared bundle inside a directory
+// chosen by the caller, so path text is a test input instead of an accident.
+func samplingBundleContextInHMC241(t *testing.T, dir string) (*types.AgentContext, types.ToolResult) {
+	t.Helper()
 	ctx := samplingSelectionAnalysisContext(t)
-	dir := t.TempDir()
 	child := filepath.Join(dir, "physical-samples.perftrace")
 	body := []byte(strings.ReplaceAll(ctx.AttachedHitrace, "tid=11 ", "tid=11 thread_identity_known=true "))
 	if err := os.WriteFile(child, body, 0600); err != nil {

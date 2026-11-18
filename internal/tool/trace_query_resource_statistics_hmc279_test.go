@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"html"
 	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -314,8 +317,212 @@ func TestHMC279ResourceStatisticsBroadFreshnessAndMutation(t *testing.T) {
 	}
 }
 
+// resourceStatisticsRawHMC279 is recomputed with plain SQL that shares no code
+// with the product: the event totals of the query window, and every number of
+// the separate statistic report table that must never be added to them.
+type resourceStatisticsRawHMC279 struct {
+	events, knownSize int64
+	report            []int64
+}
+
+func (r resourceStatisticsRawHMC279) reports(token string) bool {
+	for _, value := range r.report {
+		if token == strconv.FormatInt(value, 10) {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceStatisticsRawOracleHMC279(t *testing.T, capture string, startNs, endNs int64) resourceStatisticsRawHMC279 {
+	t.Helper()
+	// Query a private copy so the oracle cannot touch the queried source.
+	body, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := filepath.Join(t.TempDir(), "oracle.data")
+	if err := os.WriteFile(copied, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var raw resourceStatisticsRawHMC279
+	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN heap_size >= 0 THEN heap_size END), 0) FROM native_hook WHERE start_ts >= ? AND start_ts < ?`, startNs, endNs).Scan(&raw.events, &raw.knownSize); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Query(`SELECT apply_count, release_count, apply_size, release_size FROM native_hook_statistic`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a, b, c, d int64
+		if err := rows.Scan(&a, &b, &c, &d); err != nil {
+			t.Fatal(err)
+		}
+		raw.report = append(raw.report, a, b, c, d)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if raw.events == 0 || len(raw.report) == 0 {
+		t.Fatal("raw oracle found no window event or no statistic report; fixture drifted")
+	}
+	return raw
+}
+
+var resourceStatisticsDigitsHMC279 = regexp.MustCompile(`[0-9]+`)
+
+// resourceStatisticsCarriersHMC279 parses the rendered page into the lines
+// that carry one distribution group each. The page as a whole also prints the
+// source paths and a source version made of file times, so it is never
+// searched for a bare number.
+func resourceStatisticsCarriersHMC279(rendered string, kind types.AnswerBlockKind) []string {
+	var carriers []string
+	for _, line := range strings.Split(html.UnescapeString(rendered), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch kind {
+		case types.BlockSummary:
+			if strings.HasPrefix(trimmed, "- 观测主体: ") {
+				carriers = append(carriers, trimmed)
+			}
+		case types.BlockTable:
+			if strings.HasPrefix(trimmed, "| ") && !strings.HasPrefix(trimmed, "| 观测主体 ") && !strings.HasPrefix(trimmed, "| --- ") {
+				carriers = append(carriers, trimmed)
+			}
+		}
+	}
+	return carriers
+}
+
+// resourceStatisticsViolationsHMC279 is the oracle for "the separate statistic
+// report was not added to the event statistics". It returns the violations
+// instead of failing so the same function serves the positive cases and the
+// tamper control.
+func resourceStatisticsViolationsHMC279(raw resourceStatisticsRawHMC279, table types.RuntimeMeasurementTable, rendered string, kind types.AnswerBlockKind) []string {
+	var bad []string
+	fail := func(format string, args ...any) { bad = append(bad, fmt.Sprintf(format, args...)) }
+	col := map[string]int{}
+	for i, name := range table.Columns {
+		col[name] = i
+	}
+	for _, name := range []string{"事件次数", "大小状态次数", "已知非负大小合计"} {
+		if _, ok := col[name]; !ok {
+			return append(bad, "distribution lost column "+name)
+		}
+	}
+	// (1) Bound cells: the groups add up to the event table of the window,
+	// and no cell spells a statistic report number.
+	var events, known int64
+	for i, row := range table.Rows {
+		count, err := strconv.ParseInt(row[col["事件次数"]], 10, 64)
+		if err != nil {
+			fail("group %d event count is not an integer: %q", i+1, row[col["事件次数"]])
+		}
+		events += count
+		var states int64
+		for _, part := range strings.Split(row[col["大小状态次数"]], "；") {
+			_, value, _ := strings.Cut(part, "=")
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				fail("group %d size-state counter is not an integer: %q", i+1, part)
+			}
+			states += n
+		}
+		if states != count {
+			fail("group %d size states cover %d events, the group counts %d", i+1, states, count)
+		}
+		if size, err := strconv.ParseInt(row[col["已知非负大小合计"]], 10, 64); err == nil {
+			known += size
+		} else if row[col["已知非负大小合计"]] != "未知（没有已知非负大小）" {
+			fail("group %d size total is neither an integer nor the declared unknown: %q", i+1, row[col["已知非负大小合计"]])
+		}
+		for j, cell := range row {
+			for _, token := range resourceStatisticsDigitsHMC279.FindAllString(cell, -1) {
+				if raw.reports(token) {
+					fail("group %d cell %s spells statistic report number %s", i+1, table.Columns[j], token)
+				}
+			}
+		}
+	}
+	if events != raw.events {
+		fail("groups count %d events, the event table holds %d in the query window", events, raw.events)
+	}
+	if known != raw.knownSize {
+		fail("groups total %d known bytes, the event table holds %d in the query window", known, raw.knownSize)
+	}
+	// (2) Bound notes. The audit note names the prepared path first; its
+	// typed remainder starts at the query window.
+	for _, note := range table.Notes {
+		text := note
+		if rest, ok := strings.CutPrefix(note, "审计来源："); ok {
+			if _, text, ok = strings.Cut(rest, "；原查询窗口 "); !ok {
+				fail("audit note lost its query window: %q", note)
+			}
+		}
+		for _, token := range resourceStatisticsDigitsHMC279.FindAllString(text, -1) {
+			if raw.reports(token) {
+				fail("note states statistic report number %s", token)
+			}
+		}
+	}
+	// (3) Rendered form: exactly the bound groups, one carrier each.
+	carriers := resourceStatisticsCarriersHMC279(rendered, kind)
+	if len(carriers) != len(table.Rows) {
+		fail("rendered %d group carriers for %d bound groups", len(carriers), len(table.Rows))
+	}
+	for i, row := range table.Rows {
+		if i >= len(carriers) {
+			break
+		}
+		probe := carriers[i]
+		if kind == types.BlockTable {
+			probe = strings.ReplaceAll(probe, " | ", " | | ") // every cell individually delimited
+		}
+		for j, value := range row {
+			want := table.Columns[j] + ": " + value
+			if kind == types.BlockTable {
+				want = "| " + value + " |"
+			}
+			if !strings.Contains(probe, want) {
+				fail("rendered carrier %d lost bound cell %s=%q", i+1, table.Columns[j], value)
+			}
+		}
+	}
+	return bad
+}
+
+// resourceStatisticsPathNoiseHMC279 names the directory of the path-noise
+// control; it spells two numbers of the separate statistic report.
+const resourceStatisticsPathNoiseHMC279 = "run-777777-999999"
+
+// HMC376 re-base: the former guard searched the whole rendered page for two
+// numbers of the separate statistic report. The page prints the source paths
+// and a source version built from file times, so that guard failed whenever
+// the environment spelled either number, and it could not see a report number
+// that had been added into a total. The same claim is now read from bound
+// cells, bound notes and parsed group carriers against the raw event table.
 func TestHMC279ResourceStatisticsSubtypesUnitsAndTrueZero(t *testing.T) {
-	bus, _, view := resourceMeasurementContextHMC249(t, false, 0, func(db *sql.DB) {
+	for _, tc := range []struct{ name, sub string }{{"default_path", ""}, {"path_noise", resourceStatisticsPathNoiseHMC279}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.sub != "" {
+				dir = filepath.Join(dir, tc.sub)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			resourceStatisticsSubtypesUnitsAndTrueZeroHMC279(t, dir, tc.sub)
+		})
+	}
+}
+
+func resourceStatisticsSubtypesUnitsAndTrueZeroHMC279(t *testing.T, dir, noise string) {
+	bus, _, view := resourceMeasurementContextInHMC249(t, dir, false, 0, func(db *sql.DB) {
 		for _, statement := range []string{
 			`INSERT INTO data_dict VALUES (0,''),(8,'缓存|纹理'),(9,NULL),(10,'first'),(10,'second')`,
 			`UPDATE native_hook SET sub_type_id=CASE rowid WHEN 1 THEN 0 WHEN 2 THEN 8 WHEN 3 THEN 9 WHEN 4 THEN 10 END`,
@@ -370,21 +577,51 @@ func TestHMC279ResourceStatisticsSubtypesUnitsAndTrueZero(t *testing.T) {
 	if len(seen) != 6 {
 		t.Fatal("duplicate group rows")
 	}
+	// The public query window of this fixture is [10, 10.05) seconds.
+	raw := resourceStatisticsRawOracleHMC279(t, bus.RepoRoot+"/capture.data", 10_000_000_000, 10_050_000_000)
 	for _, kind := range []types.AnswerBlockKind{types.BlockSummary, types.BlockTable} {
 		ref := &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}
 		if !types.BindRuntimeMeasurementReceipt(ref, view.RuntimeMeasurementContract) {
 			t.Fatal("bind")
 		}
 		out := render.RenderAnswerDocument(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "statistics", Kind: kind, RuntimeMeasurement: ref}}}, "zh")
-		if strings.Contains(out, "777777") || strings.Contains(out, "999999") {
-			t.Fatal("unproven statistic report was summed")
+		for _, v := range resourceStatisticsViolationsHMC279(raw, *ref.BoundTable, out, kind) {
+			t.Errorf("unproven statistic report was summed: %s", v)
+		}
+		if noise != "" && !strings.Contains(out, "777777") {
+			t.Fatal("path noise no longer reaches the reader page; this control is vacuous")
+		}
+		// Tamper control: one report number added into a group total spells
+		// none of the report numbers, which is why the retired page scan
+		// could never see it. The oracle must.
+		tampered := ref.BoundTable.Clone()
+		sizeColumn := -1
+		for i, name := range tampered.Columns {
+			if name == "已知非负大小合计" {
+				sizeColumn = i
+			}
+		}
+		summed := false
+		for i := range tampered.Rows {
+			if size, err := strconv.ParseInt(tampered.Rows[i][sizeColumn], 10, 64); err == nil && size > 0 {
+				cell := strconv.FormatInt(size+raw.report[0], 10)
+				if raw.reports(cell) {
+					t.Fatalf("fixture changed: the tampered total %s spells a report number; re-derive this control", cell)
+				}
+				tampered.Rows[i][sizeColumn] = cell
+				summed = true
+				break
+			}
+		}
+		if !summed || len(resourceStatisticsViolationsHMC279(raw, tampered, out, kind)) == 0 {
+			t.Fatal("oracle accepted a statistic report number added into a group total")
 		}
 	}
 	// A real executed empty query retains its selector and zero population;
 	// no fabricated group row or unknown-size zero is introduced.
 	query := map[string]any{"source": "path", "path": bus.RepoRoot + "/capture.data", "view": "resource_stack", "time_start": 10.041, "time_end": 10.042}
-	raw, _ := json.Marshal(query)
-	result, err := (&TraceQuery{}).Execute(bus, raw)
+	raw2, _ := json.Marshal(query)
+	result, err := (&TraceQuery{}).Execute(bus, raw2)
 	if err != nil || !result.Success {
 		t.Fatal(err, result.Summary)
 	}

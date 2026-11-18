@@ -2,6 +2,9 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,7 +14,14 @@ import (
 
 func filteredSamplingContextHMC242(t *testing.T, direct bool, patterns ...string) (*types.AgentContext, types.ToolResult) {
 	t.Helper()
-	ctx, prepared := samplingBundleContextHMC241(t)
+	return filteredSamplingContextInHMC242(t, t.TempDir(), direct, patterns...)
+}
+
+// filteredSamplingContextInHMC242 runs the same public filtered query on a
+// bundle inside a directory chosen by the caller.
+func filteredSamplingContextInHMC242(t *testing.T, dir string, direct bool, patterns ...string) (*types.AgentContext, types.ToolResult) {
+	t.Helper()
+	ctx, prepared := samplingBundleContextInHMC241(t, dir)
 	var path string
 	for _, r := range prepared.Observations {
 		if p, ok := tool.DecodeTracePerfSamplingTree(r); ok {
@@ -140,11 +150,90 @@ func filteredSamplingNativeSectionHMC242(prompt string) string {
 	return part
 }
 
+// filteredSamplingMemberHMC242 is one member line of the native section. The
+// section as a whole also carries source paths, payload references and
+// content ids, so member claims are read from these parsed lines and never by
+// searching the section for a bare value.
+type filteredSamplingMemberHMC242 struct {
+	DSO   string `json:"dso"`
+	Value string `json:"value"`
+}
+
+func filteredSamplingNativeMembersHMC242(t *testing.T, part string) []filteredSamplingMemberHMC242 {
+	t.Helper()
+	var out []filteredSamplingMemberHMC242
+	for _, line := range strings.Split(part, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `{"source_ref":`) {
+			continue
+		}
+		var member filteredSamplingMemberHMC242
+		if err := json.Unmarshal([]byte(line), &member); err != nil {
+			t.Fatalf("native member line is not one JSON object: %v", err)
+		}
+		out = append(out, member)
+	}
+	return out
+}
+
+// filteredSamplingMixedMemberViolationsHMC242 is the oracle for "a valid
+// sibling neither qualifies an altered member nor is lost with it": the
+// published members must be exactly the unaltered ones. It returns the
+// violations so the same function serves the positive cases and the tamper
+// control.
+func filteredSamplingMixedMemberViolationsHMC242(members, valid []filteredSamplingMemberHMC242, alteredValue string) []string {
+	var bad []string
+	count := map[filteredSamplingMemberHMC242]int{}
+	for _, member := range valid {
+		count[member]++
+	}
+	for _, member := range members {
+		if member.Value == alteredValue {
+			bad = append(bad, fmt.Sprintf("altered member was published: %+v", member))
+		}
+		count[member]--
+	}
+	for member, n := range count {
+		switch {
+		case n > 0:
+			bad = append(bad, fmt.Sprintf("valid sibling lost: %+v", member))
+		case n < 0:
+			bad = append(bad, fmt.Sprintf("member published without a valid receipt: %+v", member))
+		}
+	}
+	return bad
+}
+
+// filteredSamplingPathNoiseHMC242 names the bundle directory of the path-noise
+// control; it spells the value written into the altered member.
+const filteredSamplingPathNoiseHMC242 = "run-424242"
+
+// HMC376 re-base (mixed_member): the former guard searched the native section
+// for the altered value. That section prints the bundle path, so the guard
+// failed whenever the temporary path spelled the value; it also accepted any
+// non-empty section, even one that had lost a valid sibling. The same claim is
+// now read from the parsed member lines.
 func TestFilteredSamplingFinalizerRequestBoundariesHMC242(t *testing.T) {
-	for _, name := range []string{"other_thread", "process_not_thread", "other_window", "missing_receipt", "wrong_source", "wrong_window", "mixed_member"} {
-		t.Run(name, func(t *testing.T) {
-			ctx, result := filteredSamplingContextHMC242(t, false)
-			switch name {
+	const alteredValue = "424242"
+	for _, tc := range []struct{ name, mode, sub string }{
+		{"other_thread", "other_thread", ""}, {"process_not_thread", "process_not_thread", ""}, {"other_window", "other_window", ""},
+		{"missing_receipt", "missing_receipt", ""}, {"wrong_source", "wrong_source", ""}, {"wrong_window", "wrong_window", ""},
+		{"mixed_member", "mixed_member", ""},
+		// Positive control for the retired section scan: the bundle path
+		// itself spells the altered value.
+		{"mixed_member_path_noise", "mixed_member", filteredSamplingPathNoiseHMC242},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.sub != "" {
+				dir = filepath.Join(dir, tc.sub)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, result := filteredSamplingContextInHMC242(t, dir, false)
+			var valid []filteredSamplingMemberHMC242
+			switch tc.mode {
 			case "other_thread":
 				ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 12
 			case "process_not_thread":
@@ -161,7 +250,7 @@ func TestFilteredSamplingFinalizerRequestBoundariesHMC242(t *testing.T) {
 					if _, ok, _ := tool.TraceQueryFilteredPerfMemberSelection(*r); !ok {
 						continue
 					}
-					switch name {
+					switch tc.mode {
 					case "missing_receipt":
 						var notes []string
 						for _, n := range r.RichNotes {
@@ -176,23 +265,44 @@ func TestFilteredSamplingFinalizerRequestBoundariesHMC242(t *testing.T) {
 						r.SourceRef.QueryWindowEndTs = 4
 					case "mixed_member":
 						if !changed {
-							r.Value = "424242"
+							r.Value = alteredValue
 							changed = true
+							continue
 						}
+						member := filteredSamplingMemberHMC242{Value: r.Value}
+						for _, n := range r.RichNotes {
+							if dso, ok := strings.CutPrefix(n, "dso="); ok {
+								member.DSO = dso
+							}
+						}
+						valid = append(valid, member)
 					}
 				}
 			}
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 			part := filteredSamplingNativeSectionHMC242(prompt)
-			if name == "mixed_member" {
-				if part == "" || strings.Contains(part, "424242") {
-					t.Fatal("valid sibling qualified an altered member or lost all valid members")
+			if tc.mode == "mixed_member" {
+				members := filteredSamplingNativeMembersHMC242(t, part)
+				if part == "" || len(valid) == 0 || len(members) == 0 {
+					t.Fatalf("valid sibling qualified an altered member or lost all valid members: valid=%d published=%d", len(valid), len(members))
+				}
+				for _, v := range filteredSamplingMixedMemberViolationsHMC242(members, valid, alteredValue) {
+					t.Errorf("valid sibling qualified an altered member or lost all valid members: %s", v)
+				}
+				if tc.sub != "" && !strings.Contains(part, alteredValue) {
+					t.Fatal("path noise no longer reaches the native section; this control is vacuous")
+				}
+				// Tamper control: the same section with one member line
+				// carrying the altered value must be rejected.
+				tampered := strings.Replace(part, `"value":"`+members[0].Value+`","unit"`, `"value":"`+alteredValue+`","unit"`, 1)
+				if tampered == part || len(filteredSamplingMixedMemberViolationsHMC242(filteredSamplingNativeMembersHMC242(t, tampered), valid, alteredValue)) == 0 {
+					t.Fatal("oracle accepted a published member carrying the altered value")
 				}
 				return
 			}
 			if part != "" {
-				t.Fatalf("unrequested/unbound filtered facts bypassed shared projection: %s", name)
+				t.Fatalf("unrequested/unbound filtered facts bypassed shared projection: %s", tc.name)
 			}
 		})
 	}

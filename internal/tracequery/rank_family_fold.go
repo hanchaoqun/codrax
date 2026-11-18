@@ -1404,6 +1404,10 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	merged.runnableCPU = runnableCPU
 	merged.runnableCPUKnown = runnableCPUKnown
 	merged.runnableIntervals = runnableIntervals
+	if len(members) != 1 {
+		// A family value is not its representative's measured state account.
+		merged.measuredStateIntervals = nil
+	}
 	// ORD: the merged row keeps the producer-disjointness proof only when
 	// every member had it (idempotent re-fold in the enrich pass).
 	merged.memberSegmentsProducerDisjoint = producerDisjoint

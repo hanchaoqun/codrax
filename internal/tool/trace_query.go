@@ -9959,6 +9959,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// B7-T2 exact scheduler-state account identity. The
 				// projection consumes only verbatim equality.
 				{types.TraceNoteKeyStateAccountKey, item.StateAccountKey},
+				// The same identity for a seat's measured account when its
+				// price is not that measurement; never beside the key above.
+				{types.TraceNoteKeyMeasuredStateAccountKey, traceQueryMeasuredStateAccountNote(item)},
 				// B4 exact cross-type rank-seat reconciliation: the absorbed
 				// io_burst_episode keeps publishing as a supporting observation
 				// with the same generic marker pair the projection's single G1/B4
@@ -16193,6 +16196,17 @@ func traceQueryTypedBool(v bool) string {
 		return ""
 	}
 	return "true"
+}
+
+// traceQueryMeasuredStateAccountNote publishes a rank seat's measured-account
+// identity only where the pricing identity is withheld. Both are the same
+// producer hash, so a row never carries it twice and every row that already
+// publishes state_account_key keeps its exact bytes.
+func traceQueryMeasuredStateAccountNote(item tracequery.RootCauseRankItem) string {
+	if strings.TrimSpace(item.StateAccountKey) != "" {
+		return ""
+	}
+	return strings.TrimSpace(item.MeasuredStateAccountKey)
 }
 
 // traceQueryChainCredentialCensusNote is THE single emission helper for the

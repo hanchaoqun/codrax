@@ -23,7 +23,13 @@ import (
 // tests enter the public tool boundary and use the real preparation service.
 func hmc17NamedPathContext(t *testing.T) (*types.BusContext, *traceinput.Coordinator, *atomic.Int32) {
 	t.Helper()
-	dir := t.TempDir()
+	return hmc17NamedPathContextIn(t, t.TempDir())
+}
+
+// hmc17NamedPathContextIn anchors the run in a directory chosen by the
+// caller, so path text is a test input instead of an accident.
+func hmc17NamedPathContextIn(t *testing.T, dir string) (*types.BusContext, *traceinput.Coordinator, *atomic.Int32) {
+	t.Helper()
 	conversions := &atomic.Int32{}
 	preparer := traceinput.NewCoordinator(traceinput.Options{
 		RuntimeAnchor: filepath.Join(dir, ".codrax"), PreviewBytes: 1024,

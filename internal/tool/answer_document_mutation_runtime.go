@@ -2145,6 +2145,8 @@ func runtimeTraceOccupancyPathCandidates(
 	zh bool,
 ) []runtimeTraceOccupancyCandidate {
 	seen := map[string]bool{}
+	// Displayed value of the row kept for each native account identity.
+	accountValue := map[string]float64{}
 	var out []runtimeTraceOccupancyCandidate
 	rows := append([]runtimeTraceProjTreeRow(nil), model.TreeRows...)
 	rows = append(rows, model.SelfRows...)
@@ -2198,6 +2200,13 @@ func runtimeTraceOccupancyPathCandidates(
 			accountKey = runtimeTraceOccupancyStateAccountKey(measured)
 			envelopeKey = runtimeTraceOccupancyExactStateEnvelopeKey(measured)
 		}
+		if kept, ok := accountValue[accountKey]; ok && accountKey != "" &&
+			math.Abs(kept-total) >= types.TraceCausalProjectionSameValueTieMS {
+			// One native account is one row only when both publications show
+			// the same number. A different number under one identity is a
+			// producer contradiction; it stays visible on its own row.
+			accountKey = ""
+		}
 		key := accountKey
 		if key == "" {
 			key = envelopeKey
@@ -2228,6 +2237,7 @@ func runtimeTraceOccupancyPathCandidates(
 		seen[key] = true
 		if accountKey != "" {
 			seen[accountKey] = true
+			accountValue[accountKey] = total
 		}
 		if envelopeKey != "" && len(envelopeAccountKeys[envelopeKey]) <= 1 {
 			seen[envelopeKey] = true
@@ -2417,11 +2427,12 @@ func runtimeTraceOccupancyPathNodeAdmitted(row runtimeTraceProjTreeRow) bool {
 		(node.ImpactMS > 0 || (known && measured > 0))
 }
 
-// runtimeTraceOccupancyStateAccountKey is the strong producer identity. It
+// runtimeTraceOccupancyStateAccountKey is the strong producer identity of the
+// MEASURED account a row shows, whether or not a seat is priced at it. It
 // also covers D-state/io_wait accounts whose view envelopes may differ; those
 // calibrated lanes never fall back to display geometry.
 func runtimeTraceOccupancyStateAccountKey(node types.TraceCausalProjectionNode) string {
-	if key := strings.TrimSpace(node.StateAccountKey); key != "" {
+	if key := node.MeasuredStateFactKey(); key != "" {
 		return "state_account\x00" + key
 	}
 	return ""

@@ -274,6 +274,10 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 		missing: "running,s_sleep,stopped,dead,unknown",
 		why:     "same B7-T2 admission matrix as the interval inventory; runnable/D/IO use their exact lane scalar, every unsupported state deliberately publishes no join credential",
 	},
+	"state_account_identity.go:rootCauseRankMeasuredStateAccountIdentity#1": {
+		missing: "stopped,dead,unknown",
+		why:     "HMC376 measured-account identity reads the five accounting lanes; stopped/dead/unknown publish no scheduler-state account, so no identity is minted for them",
+	},
 	"stream_search.go:addStreamStateClusterInterval#1": {
 		missing: "stopped,dead,unknown",
 		why:     "streaming twin of addStateChurnInterval — same five-lane booking, same upstream open gate",
@@ -349,7 +353,11 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// insufficient.
 	"state_account_identity.go:rootCauseRankStateIntervals#1":    "runnable,d_sleep,io_wait",
 	"state_account_identity.go:rootCauseRankStateAccountValue#1": "runnable,d_sleep,io_wait",
-	"query.go:summarizeThreadStateBreakdown#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
+	// HMC376: the measured-account identity is price-independent, so it reads
+	// all five accounting lanes (the copied wakeup-impact inventory covers
+	// running/S too); the hash itself still refuses any inexact inventory.
+	"state_account_identity.go:rootCauseRankMeasuredStateAccountIdentity#1": "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:summarizeThreadStateBreakdown#1":                              "running,runnable,s_sleep,d_sleep,io_wait",
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the boundary-fold lane-token
 	// mapping — stopped/dead/unknown own no account lane (§7.11 B-1) and fall
 	// through the default "" arm (a boundary segment in those states is never

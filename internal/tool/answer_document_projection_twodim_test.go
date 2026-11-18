@@ -374,6 +374,84 @@ func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *tes
 	}
 }
 
+// HMC376: a seat priced differently from its measured state account and the
+// wakeup view of that account are one occupancy row, but only on the native
+// producer identity. The shape under test is a cumulative runnable total over
+// a window with gaps, where the exact-envelope fallback is unavailable by
+// design.
+func TestTwoDimOccupancyMeasuredIdentityIsNativeOnly(t *testing.T) {
+	const key = "state_account:v2:measured-runnable-segments"
+	seat := types.TraceCausalProjectionNode{
+		EvidenceID: "priced-seat", Subject: "dep-21", Predicate: "root_cause_primary",
+		TypeToken: "priority_inversion_candidate", Object: "priority_inversion_candidate",
+		StateKind: "runnable", Rank: 1, ImpactMS: 36, EffectiveImpactMS: 36, EffectiveImpactPublished: true,
+		RunnableMS: 45, StartTs: 2.000, EndTs: 2.060, LineStart: 4, LineEnd: 90,
+		MeasuredStateAccountKey: key,
+	}
+	view := types.TraceCausalProjectionNode{
+		EvidenceID: "wakeup-view", Subject: "dep-21", Predicate: "wakeup_causal_impact",
+		StateKind: "runnable", ImpactMS: 45, EffectiveImpactMS: 36, EffectiveImpactPublished: true,
+		RunnableMS: 45, StartTs: 2.000, EndTs: 2.060, LineStart: 4, LineEnd: 90,
+		StateAccountKey: key,
+	}
+	table := func(nodes ...types.TraceCausalProjectionNode) []runtimeTraceOccupancyCandidate {
+		var rows []runtimeTraceProjTreeRow
+		for i, node := range nodes {
+			kind := runtimeTraceProjTreeRowChain
+			if i == 0 {
+				kind = runtimeTraceProjTreeRowCause
+			}
+			rows = append(rows, runtimeTraceProjTreeRow{Node: node, Kind: kind, HasData: true})
+		}
+		return runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: rows}, nil, true)
+	}
+
+	// (i) Same native identity, same displayed measurement: one row, and it is
+	// the measurement, with the estimate kept in the caption.
+	rows := table(seat, view)
+	if len(rows) != 1 || rows[0].totalMS != 45 || !strings.Contains(rows[0].caliber, "36.000ms") {
+		t.Fatalf("one measured account must render once with its measurement: %+v", rows)
+	}
+	// (v) The seat's priced estimate is never a value cell, in either order.
+	for _, order := range [][]types.TraceCausalProjectionNode{{seat, view}, {view, seat}} {
+		for _, row := range table(order...) {
+			if row.totalMS == 36 {
+				t.Fatalf("the priced estimate was shown as measured occupancy: %+v", row)
+			}
+		}
+	}
+
+	// (ii) No native identity on either row: equal subject, state, window and
+	// value never join.
+	bareSeat, bareView := seat, view
+	bareSeat.MeasuredStateAccountKey, bareView.StateAccountKey = "", ""
+	if rows = table(bareSeat, bareView); len(rows) != 2 {
+		t.Fatalf("equal value and name without a native identity must stay two rows: %+v", rows)
+	}
+	// One side without identity: still two rows.
+	if rows = table(seat, bareView); len(rows) != 2 {
+		t.Fatalf("a row without identity must not join a keyed row over a gapped window: %+v", rows)
+	}
+
+	// (iii) Different native identities, everything else equal: two rows.
+	otherView := view
+	otherView.StateAccountKey = "state_account:v2:other-runnable-segments"
+	if rows = table(seat, otherView); len(rows) != 2 {
+		t.Fatalf("different native accounts must stay two rows even when every displayed field is equal: %+v", rows)
+	}
+
+	// (iv) One identity, two different displayed numbers: a producer
+	// contradiction stays visible instead of hiding one number.
+	contradicting := view
+	contradicting.EvidenceID, contradicting.ImpactMS, contradicting.RunnableMS = "wakeup-view-other-value", 44, 44
+	if rows = table(seat, contradicting); len(rows) != 2 {
+		t.Fatalf("one identity with two displayed values must stay two rows: %+v", rows)
+	}
+	if rows = table(seat, view, contradicting); len(rows) != 2 {
+		t.Fatalf("the equal publication joins, the contradicting one stays: %+v", rows)
+	}
+}
+
 func TestTwoDimOccupancyExcludesNonWallClockCaliberRows(t *testing.T) {
 	pageCache := types.TraceCausalProjectionNode{
 		EvidenceID:        "count-equivalent-page-cache",

@@ -19433,6 +19433,8 @@ func rootCauseItemFromCausalImpactRole(impact WakeupCausalImpact, inversionSeat 
 	item.TargetImpactMs = impact.TargetBlockedMs
 	item.StartTs = impact.Window.StartTs
 	item.EndTs = impact.Window.EndTs
+	item.measuredStateIntervals = append([]foldInterval(nil), impact.stateAccountIntervals...)
+	item.measuredStateWindow = impact.Window
 	item.ActualStartTs = impact.ActualWindow.StartTs
 	item.ActualEndTs = impact.ActualWindow.EndTs
 	item.DominantState = impact.DominantState

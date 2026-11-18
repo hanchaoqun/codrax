@@ -424,6 +424,10 @@ var traceNoteKeyGoldenRows = []string{
 	"max_latency|io|display_only",
 	"max_runtime|sched_accounting|display_only",
 	"max_segment|state|soft_consumer",
+	// HMC376: measured-account identity of a rank seat whose price is not
+	// that measurement; the projection compile parses it into its own node
+	// field (display de-duplication only, never one-seat convergence).
+	"measured_state_account_key|state_account|hard_consumer",
 	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): engine same-thread family
 	// merge carriers — the projection compile parses them into the isolated
 	// FamilyMember* node lane (never MergedCount/MergedMaxMS).

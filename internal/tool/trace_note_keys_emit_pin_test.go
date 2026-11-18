@@ -776,7 +776,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Causality: tracequery.RootCauseCausalitySelfWallClock, ChainRelevance: "on_chain",
 				OnChainBasis:  tracequery.RootCauseOnChainBasisSelfWallClockInterval,
 				DominantState: "running", RunningMs: 70.0,
-				SupplyFoldDeficitMs: 20.0, SupplyFoldIdealMs: 50.0,
+				// HMC376: this seat is priced at 20 ms while its measured
+				// running account is 70 ms, so it publishes only the measured
+				// identity — exercises the measured_state_account_key
+				// contract key (the pricing key stays withheld).
+				MeasuredStateAccountKey: "state_account:v1:emit-fixture-measured",
+				SupplyFoldDeficitMs:     20.0, SupplyFoldIdealMs: 50.0,
 				SubjectIsAnalysisTarget: true,
 				SelfGapSemanticOverlaps: []tracequery.RootCauseSelfGapSemanticOverlap{
 					{OverlapMs: 1.402, LineStart: 120, LineEnd: 131},

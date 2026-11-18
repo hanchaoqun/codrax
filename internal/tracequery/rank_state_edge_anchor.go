@@ -575,6 +575,9 @@ func convertStateSeatToEdgeAnchored(item *RootCauseRankItem, anchor semanticHost
 		item.dioSegmentIntervals = append(append([]foldInterval(nil), dSegs...), ioSegs...)
 	}
 	item.familyMemberIntervals = nil
+	// The state totals above are now the pre-edge account; an inventory
+	// copied at construction no longer describes them.
+	item.measuredStateIntervals = nil
 	// TAILHYG-1 defensive clear (§29.156 备案): a successfully lane-switched
 	// seat never carries the PARTSPLIT R4-mirror refusal quartet. Invariant:
 	// 换道席永不携拒转记录 — the on-chain basis and a refusal-disclosure
@@ -638,6 +641,8 @@ func mintStateEdgeRemainderClone(clone RootCauseRankItem, anchor semanticHostEdg
 		clone.dioSegmentIntervals = append(append([]foldInterval(nil), dSegs...), ioSegs...)
 	}
 	clone.familyMemberIntervals = nil
+	// Same rule as the pre-edge half: the post-edge totals are a new account.
+	clone.measuredStateIntervals = nil
 	if split.postEnd > split.postStart {
 		clone.StartTs, clone.EndTs = split.postStart, split.postEnd
 	}

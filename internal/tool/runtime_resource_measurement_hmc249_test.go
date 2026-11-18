@@ -19,7 +19,14 @@ import (
 
 func resourceMeasurementContextHMC249(t *testing.T, nested bool, pid int, edits ...func(*sql.DB)) (*types.BusContext, types.ToolResult, *types.AnswerSemanticView) {
 	t.Helper()
-	dir := t.TempDir()
+	return resourceMeasurementContextInHMC249(t, t.TempDir(), nested, pid, edits...)
+}
+
+// resourceMeasurementContextInHMC249 runs the same public query from a
+// directory chosen by the caller, so path text is a test input instead of an
+// accident.
+func resourceMeasurementContextInHMC249(t *testing.T, dir string, nested bool, pid int, edits ...func(*sql.DB)) (*types.BusContext, types.ToolResult, *types.AnswerSemanticView) {
+	t.Helper()
 	rel := "capture.data"
 	if nested {
 		rel = "nested/capture.data"

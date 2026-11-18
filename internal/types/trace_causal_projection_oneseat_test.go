@@ -127,6 +127,57 @@ func TestOneSeatStateAccountDuplicateRankKeeperFailsOpen(t *testing.T) {
 	}
 }
 
+// HMC376: a seat that only SHOWS a measured account while being priced
+// differently is never that account's keeper. The measured-only identity is
+// not a convergence credential, so the estimate and the measurement stay two
+// separate facts through the whole presentation aggregation.
+func TestOneSeatNeverConvergesOnMeasuredOnlyIdentity(t *testing.T) {
+	const key = "state_account:v2:measured-only"
+	build := func() TraceCausalProjection {
+		rank := stateAccountOneSeatNode("E-rank", "root_cause_primary", "", 1, 4, 23)
+		rank.Object, rank.TypeToken, rank.MeasuredStateAccountKey = "priority_inversion_candidate", "priority_inversion_candidate", key
+		rank.ImpactMS, rank.EffectiveImpactMS, rank.RunnableMS = 3, 3, 5
+		impact := stateAccountOneSeatNode("E-impact", "wakeup_causal_impact", key, 0, 3, 23)
+		impact.EffectiveImpactMS, impact.RunnableMS = 3, 5
+		return TraceCausalProjection{
+			PrimaryRootCauses: []TraceCausalProjectionNode{rank},
+			OnChainCauses:     []TraceCausalProjectionNode{impact},
+		}
+	}
+	for name, converge := range map[string]func(*TraceCausalProjection){
+		"state-account arm":  traceCausalProjectionConvergeStateAccountPublications,
+		"whole presentation": traceCausalProjectionAggregateForPresentation,
+		"presentation run twice": func(p *TraceCausalProjection) {
+			traceCausalProjectionAggregateForPresentation(p)
+			traceCausalProjectionAggregateForPresentation(p)
+		},
+	} {
+		projection := build()
+		converge(&projection)
+		count, seats := oneSeatSeatCount(projection, "app-20")
+		if count != 2 {
+			t.Fatalf("%s: the priced seat and the measured view must both survive, got %d: %+v", name, count, seats)
+		}
+		for _, seat := range seats {
+			if len(seat.MergedEvidenceIDs) != 0 || seat.DuplicatePublications != 0 {
+				t.Fatalf("%s: nothing may be absorbed on a measured-only identity: %+v", name, seat)
+			}
+			switch seat.EvidenceID {
+			case "E-rank":
+				if seat.Rank != 1 || seat.ImpactMS != 3 || seat.StateAccountKey != "" || seat.MeasuredStateFactKey() != key {
+					t.Fatalf("%s: priced seat changed: %+v", name, seat)
+				}
+			case "E-impact":
+				if seat.ImpactMS != 5 || seat.StateAccountKey != key {
+					t.Fatalf("%s: measured view changed: %+v", name, seat)
+				}
+			default:
+				t.Fatalf("%s: unexpected seat %+v", name, seat)
+			}
+		}
+	}
+}
+
 // --- Carrier: valued equality twin (14704 archetype) — R1 pre-existing cover.
 
 func oneSeatEqualityRecords(rawValue string) []ObservationRecord {

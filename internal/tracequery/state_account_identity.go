@@ -7,6 +7,15 @@ package tracequery
 // the rows cover the same physical segments: disjoint waits may have the same
 // duration, and their line envelopes may overlap. This file mints an opaque
 // identity only from the complete, exact segment inventory.
+//
+// One inventory hash answers two different questions, so a rank seat carries
+// it on two fields:
+//   - StateAccountKey: "this seat is PRICED exactly at this account". Minted
+//     only when the seat's effective impact equals the measured state time;
+//     the projection's one-seat convergence folds on it.
+//   - MeasuredStateAccountKey: "this seat SHOWS this measured account".
+//     Minted regardless of price, so display rows of one measurement can be
+//     recognised without ever merging an estimate with a measurement.
 
 import (
 	"math"
@@ -78,6 +87,7 @@ func stampStateAccountPublicationKeys(chain *ChainResult, rank *RootCauseRankRes
 		for i := range rank.Items {
 			item := &rank.Items[i]
 			item.StateAccountKey = ""
+			item.MeasuredStateAccountKey = rootCauseRankMeasuredStateAccountIdentity(*item, rank.Window)
 			value := rootCauseRankStateAccountValue(*item)
 			if value <= 0 {
 				continue
@@ -90,8 +100,46 @@ func stampStateAccountPublicationKeys(chain *ChainResult, rank *RootCauseRankRes
 				item.Thread, item.DominantState, window,
 				rootCauseRankStateIntervals(*item), value,
 			)
+			if item.StateAccountKey != "" {
+				// A seat priced exactly at an account shows that account.
+				item.MeasuredStateAccountKey = item.StateAccountKey
+			}
 		}
 	}
+}
+
+// rootCauseRankMeasuredStateAccountIdentity mints the identity of the seat's
+// measured dominant-state account. It never reads the seat's price. The
+// inventory copied from the seat's own wakeup impact answers first; a seat
+// without one (or whose state totals were rewritten since) falls back to its
+// own per-state segment inventory. The hash refuses any inventory whose sum
+// differs from the published state time, that overlaps, or that leaves the
+// window, so a stale or partial inventory yields no identity.
+func rootCauseRankMeasuredStateAccountIdentity(item RootCauseRankItem, rankWindow TimeWindow) string {
+	var measured float64
+	switch strings.TrimSpace(strings.ToLower(item.DominantState)) {
+	case string(StateRunning):
+		measured = item.RunningMs
+	case string(StateRunnable):
+		measured = item.RunnableMs
+	case string(StateSSleep):
+		measured = item.SleepMs
+	case string(StateDSleep):
+		measured = item.DStateMs
+	case string(StateIOWait):
+		measured = item.IOWaitMs
+	}
+	if measured <= 0 {
+		return ""
+	}
+	if key := stateAccountIdentity(item.Thread, item.DominantState, item.measuredStateWindow, item.measuredStateIntervals, measured); key != "" {
+		return key
+	}
+	window := rankWindow
+	if item.StatsWindowEndTs > item.StatsWindowStartTs {
+		window = TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}
+	}
+	return stateAccountIdentity(item.Thread, item.DominantState, window, rootCauseRankStateIntervals(item), measured)
 }
 
 func stampResultStateAccountPublicationKeys(res *Result) {

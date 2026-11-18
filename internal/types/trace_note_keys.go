@@ -1358,6 +1358,12 @@ const (
 	// publication. The projection joins it verbatim; values, line envelopes,
 	// labels, request prose and answer prose are never fallback identities.
 	TraceNoteKeyStateAccountKey = "state_account_key"
+	// TraceNoteKeyMeasuredStateAccountKey: the same opaque inventory identity
+	// for a rank seat's MEASURED state account, published only where the
+	// seat's price differs from that measurement (so state_account_key is
+	// withheld). It answers "do these rows show the same measured account?";
+	// one-seat convergence never reads it.
+	TraceNoteKeyMeasuredStateAccountKey = "measured_state_account_key"
 	// Complete raw scheduler-state census inside the observation's exact span.
 	// This compact proof avoids shipping every segment to the language model.
 	TraceNoteKeyStateAccountComplete = "state_account_complete"
@@ -1745,6 +1751,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// this single registry row owns the shared cross-publication protocol.
 	{TraceNoteKeyStateAccountKey, "state_account", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyStateAccountComplete, "state_account", TraceNoteCarrierHardConsumer},
+	// Measured-account identity of a seat whose price is not that
+	// measurement; the projection compile parses it into its own node field.
+	{TraceNoteKeyMeasuredStateAccountKey, "state_account", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},

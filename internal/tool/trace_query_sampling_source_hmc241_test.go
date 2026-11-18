@@ -14,7 +14,13 @@ import (
 
 func samplingSourceBundleHMC241(t *testing.T) (string, string) {
 	t.Helper()
-	dir := t.TempDir()
+	return samplingSourceBundleInHMC241(t, t.TempDir())
+}
+
+// samplingSourceBundleInHMC241 builds the prepared bundle inside a directory
+// chosen by the caller, so path text is a test input instead of an accident.
+func samplingSourceBundleInHMC241(t *testing.T, dir string) (string, string) {
+	t.Helper()
 	child := filepath.Join(dir, "physical-samples.perftrace")
 	body, err := os.ReadFile("../../eval/fixtures/hmosperf_lossless_sampling/paths.perftrace")
 	if err != nil {

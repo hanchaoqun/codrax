@@ -2112,7 +2112,61 @@ func traceDecisionExactMeasurementScope(node types.TraceCausalProjectionNode, re
 		reflect.DeepEqual(node.MeasurementOrigins, types.TraceSchedulerMeasurementOriginsFromRecord(*matched)) {
 		return types.TraceObservationMeasurementWindowDisplayRole(*matched, zh)
 	}
-	return ""
+	return traceDecisionMeasuredFactScope(node, records, zh)
+}
+
+// traceDecisionMeasuredFactScope lets every publication of one native measured
+// state account state the scope its producer records prove, so the same fact
+// is never given two scopes or one publication left without any. The join is
+// the producer-minted account identity together with the identical subject and
+// half-open range, inside the artifact that owns the node's own record;
+// values, names and prose are never the join. Records that disagree on the
+// scope leave the neutral wording. Prompt-only: no timestamp, value or causal
+// credential changes.
+func traceDecisionMeasuredFactScope(node types.TraceCausalProjectionNode, records []types.ObservationRecord, zh bool) string {
+	key := node.MeasuredStateFactKey()
+	if _, known := node.PublishedStateOccupancy(); key == "" || !known {
+		return ""
+	}
+	artifact := ""
+	if id := strings.TrimSpace(node.EvidenceID); id != "" {
+		for i := range records {
+			if strings.TrimSpace(records[i].ID) != id {
+				continue
+			}
+			got := types.TraceCausalProjectionRecordArtifactIdentity(records[i])
+			if got == "" || (artifact != "" && artifact != got) {
+				return "" // No single source generation owns this row.
+			}
+			artifact = got
+		}
+	}
+	if artifact == "" {
+		return ""
+	}
+	role := ""
+	for i := range records {
+		record := records[i]
+		if record.SourceRef.Kind != types.ObservationSourceRuntimeArtifact ||
+			types.TraceCausalProjectionRecordArtifactIdentity(record) != artifact ||
+			strings.TrimSpace(record.Subject) != strings.TrimSpace(node.Subject) ||
+			record.Span.StartTs != node.StartTs || record.Span.EndTs != node.EndTs {
+			continue
+		}
+		recordKey := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyStateAccountKey))
+		if recordKey == "" {
+			recordKey = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyMeasuredStateAccountKey))
+		}
+		if recordKey != key {
+			continue
+		}
+		got := types.TraceObservationMeasurementWindowDisplayRole(record, zh)
+		if got == "" || (role != "" && role != got) {
+			return ""
+		}
+		role = got
+	}
+	return role
 }
 
 // renderTraceFinalSupplyFoldValueAuthority publishes the exact role equation

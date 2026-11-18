@@ -1120,6 +1120,20 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 			continue
 		}
 		seen[key] = true
+		// One native measured state account is one occupancy fact, however
+		// many typed publications (a priced seat, its wakeup view) carry it.
+		// The first row in pool order stays; identity is the producer's, never
+		// an equal value or name.
+		mirror := false
+		for _, kept := range out {
+			if types.TraceMeasuredStateFactSame(kept, node) {
+				mirror = true
+				break
+			}
+		}
+		if mirror {
+			continue
+		}
 		out = append(out, node)
 	}
 	out = traceDecisionPreferProjectionWindowNodes(projection, out)

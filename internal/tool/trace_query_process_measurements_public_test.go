@@ -3,9 +3,11 @@ package tool
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,19 +17,18 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestProcessMeasurementsPublicNativePreparationAndReceipt(t *testing.T) {
-	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_process_measurements/capture.data")
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, _, _ := hmc17NamedPathContext(t)
-	params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "process_measurements", "time_start": 1, "time_end": 2})
+// processMeasurementTablesHMC376 runs the public query and returns the typed
+// tables of its one process-measurement publication with the producer record.
+func processMeasurementTablesHMC376(t *testing.T, ctx *types.BusContext, path string, start, end float64) ([]types.RuntimeMeasurementTable, types.ObservationRecord) {
+	t.Helper()
+	params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "process_measurements", "time_start": start, "time_end": end})
 	result, err := (&TraceQuery{}).Execute(ctx, params)
 	if err != nil || !result.Success {
 		t.Fatalf("default process preparation/query failed: %v %s", err, result.Summary)
 	}
-	var found bool
+	var tables []types.RuntimeMeasurementTable
+	var record types.ObservationRecord
+	found := 0
 	for _, r := range result.Observations {
 		if r.Predicate != "process_measurements_observation" {
 			continue
@@ -36,26 +37,212 @@ func TestProcessMeasurementsPublicNativePreparationAndReceipt(t *testing.T) {
 		if !ok {
 			t.Fatalf("native row publication absent: %+v", r)
 		}
-		encoded, _ := json.Marshal(publication.Tables)
-		for _, want := range []string{"app.alpha", "app.beta", "9007199254740993", "unavailable"} {
-			if !strings.Contains(string(encoded), want) {
-				t.Errorf("lost native value or owner %q: %s", want, encoded)
+		tables, record = publication.Tables, r
+		found++
+	}
+	if found != 1 {
+		t.Fatalf("source-bound process measurement publications=%d, want 1", found)
+	}
+	return tables, record
+}
+
+// processMeasurementCellsHMC376 returns one named column of one published
+// view. Assertions read these typed cells: the encoded publication also holds
+// the prepared path and content ids, so it is never searched for a bare value.
+func processMeasurementCellsHMC376(t *testing.T, tables []types.RuntimeMeasurementTable, view types.RuntimeMeasurementView, column string) []string {
+	t.Helper()
+	for _, table := range tables {
+		if table.View != view {
+			continue
+		}
+		for i, name := range table.Columns {
+			if name != column {
+				continue
+			}
+			var cells []string
+			for _, row := range table.Rows {
+				cells = append(cells, row[i])
+			}
+			return cells
+		}
+	}
+	t.Fatalf("published view %s lost column %q", view, column)
+	return nil
+}
+
+// processMeasurementBoundaryViolationsHMC376 is the right-boundary oracle. It
+// returns the violations instead of failing so the same function is exercised
+// by the positive cases and by the widened-window control.
+func processMeasurementBoundaryViolationsHMC376(t *testing.T, tables []types.RuntimeMeasurementTable, startNs, endNs int64) []string {
+	t.Helper()
+	var bad []string
+	fail := func(format string, args ...any) { bad = append(bad, fmt.Sprintf(format, args...)) }
+	integer := func(what, cell string) (int64, bool) {
+		v, err := strconv.ParseInt(cell, 10, 64)
+		if err != nil {
+			fail("%s is not an integer nanosecond instant: %q", what, cell)
+		}
+		return v, err == nil
+	}
+	for _, view := range []types.RuntimeMeasurementView{types.RuntimeMeasurementMembers, types.RuntimeMeasurementTimeline} {
+		for i, cell := range processMeasurementCellsHMC376(t, tables, view, "窗口内起点(ns)") {
+			if v, ok := integer(string(view)+" in-window start", cell); ok && (v < startNs || v >= endNs) {
+				fail("%s row %d is observed at %d ns, outside the half-open query window [%d,%d)", view, i+1, v, startNs, endNs)
 			}
 		}
-		if strings.Contains(string(encoded), "9900") {
-			t.Fatal("included right boundary")
-		}
-		if r.SourceRef.QueryTargetThread != "" || r.SourceRef.QueryWindowStartTs != 1 || r.SourceRef.QueryWindowEndTs != 2 {
-			t.Fatalf("changed owner/window: %+v", r.SourceRef)
-		}
-		found = true
 	}
-	if !found {
-		t.Fatal("no source-bound process measurement table")
+	members := processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementMembers, "原起点(ns)")
+	for i, cell := range members {
+		if v, ok := integer("member source start", cell); ok && v >= endNs {
+			fail("member row %d starts at %d ns, at or after the right boundary %d", i+1, v, endNs)
+		}
+	}
+	// The per-series summary carries the same records as "start→value" pairs.
+	counts := processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementSummary, "保留记录数")
+	total := 0
+	for i, series := range processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementSummary, "原起点(ns)→原值（单位未提供）") {
+		entries := strings.Split(series, "; ")
+		if n, err := strconv.Atoi(counts[i]); err != nil || n != len(entries) {
+			fail("summary row %d declares %q records but lists %d", i+1, counts[i], len(entries))
+		}
+		total += len(entries)
+		for _, entry := range entries {
+			instant, _, ok := strings.Cut(entry, "→")
+			if !ok {
+				fail("summary row %d entry %q is not a start→value pair", i+1, entry)
+				continue
+			}
+			if v, ok := integer("summary source start", instant); ok && v >= endNs {
+				fail("summary row %d lists a record starting at %d ns, at or after the right boundary %d", i+1, v, endNs)
+			}
+		}
+	}
+	if total != len(members) {
+		fail("summary lists %d records, members table holds %d", total, len(members))
+	}
+	return bad
+}
+
+// processMeasurementPathNoiseHMC376 names the directory of the path-noise
+// control. It spells the raw value of the fixture record that starts exactly
+// on the right boundary.
+const processMeasurementPathNoiseHMC376 = "run-9900"
+
+var processMeasurementDigitsHMC376 = regexp.MustCompile(`[0-9]+`)
+
+// HMC376 re-base: the former guards searched the encoded publication for the
+// owners, two native values and the right-boundary value. That encoding also
+// carries the prepared path and content ids, so the right-boundary guard
+// failed whenever the temporary path spelled the value. The same claims are
+// now read from typed cells, with a path-noise case and a widened-window
+// control below.
+func TestProcessMeasurementsPublicNativePreparationAndReceipt(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_process_measurements/capture.data")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, sub string }{{"default_path", ""}, {"path_noise", processMeasurementPathNoiseHMC376}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.sub != "" {
+				dir = filepath.Join(dir, tc.sub)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, _, _ := hmc17NamedPathContextIn(t, dir)
+			tables, r := processMeasurementTablesHMC376(t, ctx, path, 1, 2)
+			owners := processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementMembers, "进程")
+			values := processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementMembers, "原始值（单位未提供）")
+			has := func(cells []string, match func(string) bool) bool {
+				for _, cell := range cells {
+					if match(cell) {
+						return true
+					}
+				}
+				return false
+			}
+			for _, want := range []string{"app.alpha", "app.beta"} {
+				if !has(owners, func(cell string) bool { return strings.HasPrefix(cell, want+" ") }) {
+					t.Errorf("lost native owner %q: %q", want, owners)
+				}
+			}
+			if !has(values, func(cell string) bool { return cell == "9007199254740993" }) {
+				t.Errorf("lost exact native value: %q", values)
+			}
+			if !has(values, func(cell string) bool { return strings.HasPrefix(cell, `"unavailable"`) }) {
+				t.Errorf("lost native text value: %q", values)
+			}
+			for _, v := range processMeasurementBoundaryViolationsHMC376(t, tables, 1_000_000_000, 2_000_000_000) {
+				t.Errorf("included right boundary: %s", v)
+			}
+			if has(values, func(cell string) bool { return cell == "9900" }) {
+				t.Fatal("included right boundary")
+			}
+			// The former search also covered the producer notes. They are
+			// read as typed strings; the one note that names the prepared
+			// path is identified by its own prefix and left out.
+			for _, table := range tables {
+				sourceNotes := 0
+				for _, note := range table.Notes {
+					if strings.HasPrefix(note, "Source: ") {
+						sourceNotes++
+						continue
+					}
+					for _, number := range processMeasurementDigitsHMC376.FindAllString(note, -1) {
+						if number == "9900" {
+							t.Fatalf("included right boundary in a %s note: %q", table.View, note)
+						}
+					}
+				}
+				if sourceNotes != 1 {
+					t.Fatalf("%s: want exactly one source note, got %d: %q", table.View, sourceNotes, table.Notes)
+				}
+			}
+			if r.SourceRef.QueryTargetThread != "" || r.SourceRef.QueryWindowStartTs != 1 || r.SourceRef.QueryWindowEndTs != 2 {
+				t.Fatalf("changed owner/window: %+v", r.SourceRef)
+			}
+			if tc.sub != "" {
+				encoded, _ := json.Marshal(tables)
+				if !strings.Contains(string(encoded), tc.sub) {
+					t.Fatal("path noise no longer reaches the encoded publication; this control is vacuous")
+				}
+			}
+		})
 	}
 	after, err := os.ReadFile(path)
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatal("source database mutated")
+	}
+}
+
+// Strong negative control: a publication that really includes the record
+// starting on the requested right boundary must be rejected by the same
+// oracle, and accepted once the oracle is told the wider window.
+func TestProcessMeasurementsBoundaryOracleRejectsRightBoundaryRecord(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_process_measurements/capture.data")
+	ctx, _, _ := hmc17NamedPathContext(t)
+	tables, _ := processMeasurementTablesHMC376(t, ctx, path, 1, 2.1)
+	leaked := false
+	for _, cell := range processMeasurementCellsHMC376(t, tables, types.RuntimeMeasurementMembers, "原始值（单位未提供）") {
+		leaked = leaked || cell == "9900"
+	}
+	if !leaked {
+		t.Fatal("fixture changed: the widened window no longer includes the right-boundary record; re-derive this control")
+	}
+	got := strings.Join(processMeasurementBoundaryViolationsHMC376(t, tables, 1_000_000_000, 2_000_000_000), "\n")
+	for _, want := range []string{
+		"members row", "timeline row", "outside the half-open query window",
+		"member row", "at or after the right boundary 2000000000",
+		"summary row 1 lists a record starting at 2000000000 ns",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("oracle missed %q on a real right-boundary record:\n%s", want, got)
+		}
+	}
+	if bad := processMeasurementBoundaryViolationsHMC376(t, tables, 1_000_000_000, 2_100_000_000); len(bad) != 0 {
+		t.Fatalf("oracle rejects a correct wider window, so it proves nothing: %v", bad)
 	}
 }
 
