@@ -1668,6 +1668,8 @@ HMC §314按用户后续明确指令在main工作，候选历史已快进合入�
 
 评测请求关联统一复用字节保真的 `eval/request_intervals.py`：没有request ID的重叠组在已证归零前保持歧义，未知model/非法时钟不替其它请求排空；使用正式spawn记录的时区偏移和整数微秒，不从进程重叠推断模型请求重叠。解析诊断、真实进程终态、机器判据和人工验收分开。
 
+HMC 批次的冻结清单、全仓统计、双例同起点启动、请求重叠与封存复验统一由仓内 `eval/hmc_tools/`（纯标准库 Python，用法与批次顺序见该目录 README）产生；这些工具不调用模型、不读取凭证、不读取问题或答案来作判断，也不写结论。
+
 §314冻结后唯一全仓98包PASS，图公开RED已闭合；自然A保3主体2唤醒/上CPU及50/52、31/35、2ms和47背景，但正文/图完成点与唤醒点混写、调查advisory与原生运行区间冲突仍FAIL，新显式重选未触发。两例完整人工0/2，不以正确表格或本地回归替代整答；详见[§314批汇总](../eval/parallel_selected_summary_hmc_repair_pairing_representative_20261029.md)。Trace因果投影、自动补齐及原查询总体不变，WAL生产NO-GO保留。
 
 HMC §315统一调查单元的原生引用状态：Extract不再因没有成文发布收据而固定传入false，而是与Finalize共用当前受理凭证及精确source/query/table/row重绑。地址当前、行实际发布和解释正确是三件不同的事。共享预览逐单元标明`current_exact_rows`、`unverified_address`或`no_native_row_address`；无引用的业务线索、合法计算及阴性分析原文仍保留，不借同一handoff另一单元的引用取得事实权。状态与原JSON、边界作为一个整体占用原预算，原七单元容量、旧前缀和兼容解释不变；不从support_refs、数字或邻近时间猜原生绑定。

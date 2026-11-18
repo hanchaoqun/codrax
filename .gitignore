@@ -47,3 +47,4 @@
 .codrax/
 
 /dist/
+__pycache__/
