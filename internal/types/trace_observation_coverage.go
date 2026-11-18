@@ -92,6 +92,12 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 		return TraceObservationCoverage{}
 	}
 	byDimension := map[string][]TraceObservationCoverageRecord{}
+	// HMC376: the coordinate half of the order below reads each record's
+	// publication ORDINAL, never the publication digest (the digest follows
+	// the capture path and the session's result location, not the capture
+	// content). One publication's rows stay together, in publication order.
+	var publications TraceObservationPublicationOrder
+	coordinateOrder := map[string]string{}
 	queryIDs := map[string]bool{}
 	var coverageRecords []TraceObservationCoverageRecord
 	var windows []string
@@ -106,6 +112,7 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 			continue
 		}
 		view := traceObservationCoverageRecordView(record, dimension)
+		coordinateOrder[view.ID] = publications.SortKey(view.ID)
 		coverageRecords = append(coverageRecords, view)
 		byDimension[dimension] = append(byDimension[dimension], view)
 		if id := strings.TrimSpace(record.SourceRef.ToolCallID); id != "" {
@@ -121,9 +128,9 @@ func TraceObservationCoverageFromObservationRecords(records []ObservationRecord)
 		return TraceObservationCoverage{}
 	}
 	sort.SliceStable(coverageRecords, func(i, j int) bool {
-		return traceObservationCoverageRecordLess(coverageRecords[i], coverageRecords[j])
+		return traceObservationCoverageRecordLess(coverageRecords[i], coverageRecords[j], coordinateOrder)
 	})
-	dimensions := traceObservationDimensionCoverageRows(byDimension)
+	dimensions := traceObservationDimensionCoverageRows(byDimension, coordinateOrder)
 	out := TraceObservationCoverage{
 		Active:                true,
 		TotalRecords:          len(coverageRecords),
@@ -255,7 +262,7 @@ func traceObservationCoverageRecordView(record ObservationRecord, dimension stri
 	}
 }
 
-func traceObservationDimensionCoverageRows(byDimension map[string][]TraceObservationCoverageRecord) []TraceObservationDimensionCoverage {
+func traceObservationDimensionCoverageRows(byDimension map[string][]TraceObservationCoverageRecord, coordinateOrder map[string]string) []TraceObservationDimensionCoverage {
 	dimensions := make([]string, 0, len(byDimension))
 	for dimension := range byDimension {
 		dimensions = append(dimensions, dimension)
@@ -267,7 +274,7 @@ func traceObservationDimensionCoverageRows(byDimension map[string][]TraceObserva
 	for _, dimension := range dimensions {
 		records := append([]TraceObservationCoverageRecord(nil), byDimension[dimension]...)
 		sort.SliceStable(records, func(i, j int) bool {
-			return traceObservationCoverageRecordLess(records[i], records[j])
+			return traceObservationCoverageRecordLess(records[i], records[j], coordinateOrder)
 		})
 		row := TraceObservationDimensionCoverage{
 			Dimension: dimension,
@@ -396,14 +403,24 @@ func traceObservationCoverageParseWindowEndpoint(raw string) (float64, bool, boo
 	return parsed, isMS, true
 }
 
-func traceObservationCoverageRecordLess(a, b TraceObservationCoverageRecord) bool {
+// coordinateOrder maps a record coordinate to its sort key
+// (TraceObservationPublicationOrder.SortKey); a coordinate without an entry
+// orders by itself, as every coordinate did before HMC376.
+func traceObservationCoverageRecordLess(a, b TraceObservationCoverageRecord, coordinateOrder map[string]string) bool {
 	if traceObservationDimensionRank(a.Dimension) != traceObservationDimensionRank(b.Dimension) {
 		return traceObservationDimensionRank(a.Dimension) < traceObservationDimensionRank(b.Dimension)
 	}
 	if traceObservationChainRelevanceRank(a.ChainRelevance) != traceObservationChainRelevanceRank(b.ChainRelevance) {
 		return traceObservationChainRelevanceRank(a.ChainRelevance) < traceObservationChainRelevanceRank(b.ChainRelevance)
 	}
-	return strings.TrimSpace(a.ID) < strings.TrimSpace(b.ID)
+	key := func(id string) string {
+		id = strings.TrimSpace(id)
+		if ordered, ok := coordinateOrder[id]; ok {
+			return ordered
+		}
+		return id
+	}
+	return key(a.ID) < key(b.ID)
 }
 
 func traceObservationDimensionRank(dimension string) int {

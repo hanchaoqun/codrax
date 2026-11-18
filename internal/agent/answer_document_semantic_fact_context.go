@@ -110,7 +110,10 @@ func renderAnswerDocBoundedSemanticFacts(ctx *types.AgentContext, ledger types.O
 		if facts[i].node.LineStart != facts[j].node.LineStart {
 			return facts[i].node.LineStart < facts[j].node.LineStart
 		}
-		return facts[i].node.EvidenceID < facts[j].node.EvidenceID
+		// HMC376: order key, never the raw coordinate. This order decides which
+		// facts fit under the family limit below; the coordinate's publication
+		// digest follows the capture path, not the capture content.
+		return types.TraceObservationCoordinateLess(facts[i].node.EvidenceID, facts[j].node.EvidenceID)
 	})
 	var b strings.Builder
 	b.WriteString("## Bounded Semantic Span Facts (Noncausal Inventory)\n\n")

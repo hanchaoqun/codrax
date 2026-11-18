@@ -209,7 +209,12 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 	if len(rows) == 0 {
 		return nil
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ObservationID < rows[j].ObservationID })
+	// HMC376: order key, never the raw coordinate — two queries' rows must not
+	// swap places when the same capture is read from another directory. Rows
+	// that tie stay in publication order.
+	sort.SliceStable(rows, func(i, j int) bool {
+		return TraceObservationCoordinateLess(rows[i].ObservationID, rows[j].ObservationID)
+	})
 	return &RuntimeWorkRelationContract{Rows: rows}
 }
 

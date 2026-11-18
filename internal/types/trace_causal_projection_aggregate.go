@@ -833,6 +833,10 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	include(survivor.CumulativeImpactMS, cumulativeFromLoser)
 	include(survivor.TargetImpactMS, loser.TargetImpactMS > original.TargetImpactMS)
 	survivor.IOValueCaliber = caliber
+	// HMC376: the absorbed publication's rank board keeps its membership of
+	// this account (runs last, after any seat/board adoption above, so a
+	// board the survivor just adopted as its own is never listed twice).
+	traceCausalProjectionAbsorbSameFactRankBoards(survivor, loser)
 }
 
 // traceCausalProjectionAppendMergedSubject records one merged member's thread
@@ -2279,6 +2283,10 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, targetIOCaliber, aggregate.TargetImpactMS)
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, effectiveIOCaliber, aggregate.EffectiveImpactMS)
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, nodes[first].IOValueCaliber, aggregate.ActualImpactMS)
+	// HMC376: the merged row never inherits the seed member's other-board
+	// membership as it stands — a board published the merged account only
+	// when it published every member.
+	aggregate.SameFactRankBoards = traceCausalProjectionMergedSameFactRankBoards(nodes, members, aggregate.ImpactMS)
 	return aggregate
 }
 

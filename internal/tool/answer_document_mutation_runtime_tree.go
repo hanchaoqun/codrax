@@ -17735,56 +17735,16 @@ func runtimeTraceProjSymptomAdmissionCandidates(model runtimeTraceProjTreeModel,
 // ID — deterministic). Returns the per-index exclusion set (candidates of
 // LOSING named boards; empty unless ≥2 named boards exist) and a carrier row
 // index of the winning/only named board (-1 = no named board).
+// HMC376: a board's sum is every candidate row that board published — the
+// election body and its membership rule live in
+// runtimeTraceProjSymptomBoardElection.
 func runtimeTraceProjSymptomBoardGroups(model runtimeTraceProjTreeModel) (map[int]bool, int) {
 	measurementEligible, _ := runtimeTraceProjWaitMeasurementEligibility(model)
 	return runtimeTraceProjSymptomBoardGroupsWithEligibility(model, measurementEligible)
 }
 
 func runtimeTraceProjSymptomBoardGroupsWithEligibility(model runtimeTraceProjTreeModel, measurementEligible []bool) (map[int]bool, int) {
-	candidates := runtimeTraceProjSymptomAdmissionCandidates(model, measurementEligible)
-	var named []*runtimeTraceProjTreeRow
-	rowIdx := map[*runtimeTraceProjTreeRow]int{}
-	for _, i := range candidates {
-		row := &model.SelfRows[i]
-		if strings.TrimSpace(row.Node.RankBoardTarget) == "" {
-			continue // identity-less: never provably foreign, always stays
-		}
-		named = append(named, row)
-		rowIdx[row] = i
-	}
-	if len(named) == 0 {
-		return nil, -1
-	}
-	boardIDs := runtimeTraceProjStableRankBoardIDs(named)
-	sums := map[string]float64{}
-	var order []string
-	for _, row := range named {
-		id := boardIDs[row]
-		if _, seen := sums[id]; !seen {
-			order = append(order, id)
-		}
-		sums[id] += row.Node.ImpactMS
-	}
-	sort.Strings(order)
-	best := order[0]
-	for _, id := range order[1:] {
-		if sums[id] > sums[best] {
-			best = id
-		}
-	}
-	carrier := -1
-	excluded := map[int]bool{}
-	for _, row := range named {
-		if boardIDs[row] == best {
-			if carrier < 0 || rowIdx[row] < carrier {
-				carrier = rowIdx[row]
-			}
-			continue
-		}
-		if len(order) >= 2 {
-			excluded[rowIdx[row]] = true
-		}
-	}
+	excluded, carrier, _, _ := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
 	return excluded, carrier
 }
 
@@ -17801,11 +17761,16 @@ func runtimeTraceProjSymptomBoardExclusions(model runtimeTraceProjTreeModel) map
 // admission candidates. ok=false when the denominator has no named board
 // (pure identity-less shapes).
 func runtimeTraceProjSymptomDenominatorBoard(model runtimeTraceProjTreeModel) (types.TraceCausalProjectionNode, bool) {
-	_, carrier := runtimeTraceProjSymptomBoardGroups(model)
-	if carrier < 0 {
+	measurementEligible, _ := runtimeTraceProjWaitMeasurementEligibility(model)
+	_, carrier, winner, ok := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
+	if !ok || carrier < 0 {
 		return types.TraceCausalProjectionNode{}, false
 	}
-	return model.SelfRows[carrier].Node, true
+	// HMC376: winner is the carrier row's own node whenever a candidate row
+	// wears the winning board (the legacy return). When the winning board is
+	// known only through folded publications, it is a bare node with that
+	// board's components — never the identity the carrier row happens to wear.
+	return winner, true
 }
 
 func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (float64, []bool, int, float64) {

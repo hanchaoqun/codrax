@@ -295,6 +295,11 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"RankBoardTarget":               {Status: "displayed", Ref: "板锚 chip 半 + 跨板互指句(XLANE-3)"},
 	"RankBoardParamsFingerprint":    {Status: "displayed", Ref: "参数# chip 半 + 板身份键(XLANE-3)"},
 	"MergedActualDonorCumulativeMS": {Status: "internal_gate", Ref: "W-6 纯判官字段(DISP-3 假⚠ carve-out)"},
+	// HMC376: the other rank boards whose own publication of the row's
+	// account was folded into the row by the same-fact merge. Consumed
+	// through the self-checking accessor by the per-board symptom
+	// denominator election.
+	"SameFactRankBoards": {Status: "internal_gate", Token: "CoPublishedRankBoards", Ref: "HMC376 同事实跨板并入的板成员资格:A2 分母按板选举;非排名/席位/值权威"},
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// ⚠/超出发生段/区间未发布 word-face containment judge (never printed raw).
 	"ActualWindowStartTs":   {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},
@@ -805,6 +810,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-refusal pre-edge-share
 	// disclosure faces (行2 分账 sub-line + ◎ non-seat mention block).
 	"answer_document_mutation_runtime_partsplit.go",
+	// HMC376: the per-board account membership of same-fact folded
+	// publications (symptom denominator election).
+	"answer_document_mutation_runtime_board_membership.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

@@ -96,7 +96,9 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 			if out[i].Seats[a].EffectiveImpactMS != out[i].Seats[b].EffectiveImpactMS {
 				return out[i].Seats[a].EffectiveImpactMS > out[i].Seats[b].EffectiveImpactMS
 			}
-			return out[i].Seats[a].EvidenceID < out[i].Seats[b].EvidenceID
+			// HMC376: order key, never the raw coordinate — its publication
+			// digest follows the capture path, not the capture content.
+			return TraceObservationCoordinateLess(out[i].Seats[a].EvidenceID, out[i].Seats[b].EvidenceID)
 		})
 		out[i].Complete, out[i].Status = traceRankRosterCompleteness(out[i].Seats)
 	}

@@ -1182,6 +1182,17 @@ type TraceCausalProjectionNode struct {
 	// claim and never fabricates an extra display row.
 	RankBoardTarget            string `json:"rank_board_target,omitempty"`
 	RankBoardParamsFingerprint string `json:"rank_board_params_fingerprint,omitempty"`
+	// SameFactRankBoards (HMC376): the OTHER rank boards whose own publication
+	// of this row's account was folded into the row by the same-fact merge
+	// (TraceSameFactRankBoard). The row itself keeps wearing one board's
+	// identity above; this roster lets a per-board account face count the row
+	// for every board that really published it, so the face no longer depends
+	// on which publication happened to keep the row. Read it through
+	// CoPublishedRankBoards (entries are self-checked against the row's
+	// current value). In-process display membership only — the projection is
+	// recompiled from records and never restored from JSON; never a rank,
+	// seat, value or causal input.
+	SameFactRankBoards []TraceSameFactRankBoard `json:"-"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
 	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —
 	// the actual channel travels verbatim from it and is never re-derived).
@@ -2497,7 +2508,9 @@ func traceCausalProjectionCollectRankedSeats(buckets ...[]TraceCausalProjectionN
 		if candidates[i].Subject != candidates[j].Subject {
 			return candidates[i].Subject < candidates[j].Subject
 		}
-		return candidates[i].EvidenceID < candidates[j].EvidenceID
+		// HMC376: order key, never the raw coordinate (see
+		// traceCausalProjectionNodeLess); full ties stay in publication order.
+		return TraceObservationCoordinateLess(candidates[i].EvidenceID, candidates[j].EvidenceID)
 	})
 	return candidates
 }
@@ -5015,7 +5028,13 @@ func traceCausalProjectionNodeLess(a, b TraceCausalProjectionNode) bool {
 	if a.Rank > 0 && b.Rank > 0 && a.Rank != b.Rank {
 		return a.Rank < b.Rank
 	}
-	return a.EvidenceID < b.EvidenceID
+	// HMC376: the last tie-break reads the coordinate's ORDER KEY, never the
+	// raw coordinate. A receipt-minted coordinate embeds a digest of the
+	// capture path and stored-result location; ordering two publications of
+	// one fact by it let the directory of the capture file choose which
+	// publication kept the row (and with it the row's rank board). Nodes that
+	// still tie stay in publication order — every caller sorts stably.
+	return TraceObservationCoordinateLess(a.EvidenceID, b.EvidenceID)
 }
 
 func traceCausalProjectionPrimaryLess(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {
