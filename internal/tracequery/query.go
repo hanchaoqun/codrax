@@ -10952,15 +10952,23 @@ type traceMarkSpanPools struct {
 
 // partitionTraceMarkSpansBySemanticOwner keeps the caller's (duration-sorted)
 // order inside every pool.
-func partitionTraceMarkSpansBySemanticOwner(spans []TraceSpanSummary) traceMarkSpanPools {
+//
+// Without the vocabulary a platform span competes with the generic spans for the
+// first durationSeats seats; one that falls past them is marked as seated by the
+// vocabulary alone.
+func partitionTraceMarkSpansBySemanticOwner(spans []TraceSpanSummary, durationSeats int) traceMarkSpanPools {
 	var pools traceMarkSpanPools
+	competing := 0
 	for _, span := range spans {
 		_, owner, ok := traceSpanSemanticWorkClassWithOwner(span.Name)
 		switch {
 		case !ok:
 			pools.generic = append(pools.generic, span)
+			competing++
 		case owner == traceSpanSemanticOwnerPlatformVocabulary:
+			span.seatedByVocabularyOnly = competing >= durationSeats
 			pools.platform = append(pools.platform, span)
+			competing++
 		default:
 			pools.builtIn = append(pools.builtIn, span)
 		}
@@ -10989,7 +10997,7 @@ func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, seats seman
 	if max <= 0 || len(spans) <= max {
 		return spans, traceMarkSemanticBoundInfo{}
 	}
-	pools := partitionTraceMarkSpansBySemanticOwner(spans)
+	pools := partitionTraceMarkSpansBySemanticOwner(spans, max)
 	generic := pools.generic
 	if len(generic) > max {
 		generic = generic[:max]
@@ -11008,6 +11016,22 @@ func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, seats seman
 		return out[i].StartLine < out[j].StartLine
 	})
 	return out, info
+}
+
+// criticalBlockingVocabularyRowsLast moves off-chain rows that reached the view
+// only through a vocabulary seat behind every other row, so the view's bound
+// never drops a row that would have been published without the vocabulary.
+func criticalBlockingVocabularyRowsLast(items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
+	kept := make([]CriticalBlockingCandidate, 0, len(items))
+	var yielding []CriticalBlockingCandidate
+	for _, item := range items {
+		if item.seatedByVocabularyOnly && item.ChainRelevance != "on_chain" {
+			yielding = append(yielding, item)
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return append(kept, yielding...)
 }
 
 // semanticSeatFamilyKey is the retention and census key of a semantic span.
@@ -23911,6 +23935,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	})
 	limit := ViewCapacityFor("critical_blocking_calls").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
+		res.Items = criticalBlockingVocabularyRowsLast(res.Items)
 		last := res.Items[limit-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "critical_blocking_calls",
@@ -24542,6 +24567,7 @@ func collectBlockingSpanRows(idx *Index, q Query, stats WindowStats) []blockingS
 		if !ok {
 			continue
 		}
+		cand.seatedByVocabularyOnly = span.seatedByVocabularyOnly
 		row := blockingSpanRow{cand: cand, spanName: span.Name, spanNsPID: span.SpanPID, payloadOwnerTid: cand.Peer.PID}
 		if cand.BlockingKind != "" && cand.Peer.PID > 0 {
 			merged := false
@@ -25254,6 +25280,7 @@ func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
 	if lockContentionInfoRichness(b.cand) > lockContentionInfoRichness(a.cand) {
 		survivor, folded = b, a
 	}
+	survivor.cand.seatedByVocabularyOnly = a.cand.seatedByVocabularyOnly && b.cand.seatedByVocabularyOnly
 	if folded.cand.DurationMs > survivor.cand.DurationMs {
 		survivor.cand.DurationMs = folded.cand.DurationMs
 		// F-1: the actual extent travels with the value that won the fold —

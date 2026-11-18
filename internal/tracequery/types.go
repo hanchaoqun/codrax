@@ -3624,6 +3624,10 @@ type PacingIdleSummary struct {
 }
 
 type TraceSpanSummary struct {
+	// seatedByVocabularyOnly marks a span the duration bound would have left out
+	// had the platform vocabulary not classified it. Never on the wire.
+	seatedByVocabularyOnly bool
+
 	SourcePath string    `json:"source_path,omitempty"`
 	Thread     ThreadRef `json:"thread"`
 	// Ordinary synchronous marker-local state account; not a query focus,
@@ -5652,6 +5656,10 @@ type CriticalBlockingResult struct {
 }
 
 type CriticalBlockingCandidate struct {
+	// seatedByVocabularyOnly carries TraceSpanSummary.seatedByVocabularyOnly to
+	// the view's own bound. Never on the wire.
+	seatedByVocabularyOnly bool
+
 	Type   string    `json:"type,omitempty"`
 	Thread ThreadRef `json:"thread,omitempty"`
 	// Peer is the counterpart thread: the binder receiver / IO completer, or —
