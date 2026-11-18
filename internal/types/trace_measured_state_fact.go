@@ -13,7 +13,10 @@ import (
 // seat priced at it, a rank seat priced differently, a wakeup view, a state
 // drilldown. The producer mints one inventory hash per account. It travels as
 // StateAccountKey where the seat's price IS that measurement, and as
-// MeasuredStateAccountKey where it is not.
+// MeasuredStateAccountKey where it is not. An account that spans several
+// occurrences has one hash over all their segments: its aggregate and rank seat
+// carry it as MeasuredStateAccountKey, and each occurrence row names it as
+// MeasuredOccurrenceGroupKey so a fold of the occurrences can show it.
 //
 // The two fields answer different questions. StateAccountKey alone decides
 // one-seat convergence, so an estimate is never folded into a measurement.
@@ -21,27 +24,59 @@ import (
 // account?" for tables and fact lists.
 
 // MeasuredStateFactKey returns the native identity of the measured state
-// account this row shows, or "" when the producer proved none. Compare it only
-// between rows of one artifact projection. It is not a rank, seat, merge or
-// causal credential.
+// account this row shows, or "" when the producer proved none. A ×N fold shows
+// its occurrences together, so it answers with their shared account and never
+// with the account of the member it was seeded from. Compare it only between
+// rows of one artifact projection. It is not a rank, seat, merge or causal
+// credential.
 func (n TraceCausalProjectionNode) MeasuredStateFactKey() string {
+	if n.MergedCount > 1 {
+		return strings.TrimSpace(n.MeasuredOccurrenceGroupKey)
+	}
 	if key := strings.TrimSpace(n.StateAccountKey); key != "" {
 		return key
 	}
 	return strings.TrimSpace(n.MeasuredStateAccountKey)
 }
 
+// measuredStateFactValue is the occupancy a row shows for its measured account.
+// A fold publishes no state partition of its own; when all its occurrences name
+// one account, its folded value is that account's occupancy.
+func (n TraceCausalProjectionNode) measuredStateFactValue() (float64, bool) {
+	if n.MergedCount > 1 {
+		value := n.ImpactMS
+		return value, !n.OnChainOverflowFold && n.MeasuredStateFactKey() != "" &&
+			value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+	}
+	return n.PublishedStateOccupancy()
+}
+
 // TraceMeasuredStateFactSame reports that two rows of ONE artifact projection
 // show the same measured scheduler-state account: the same producer-minted
-// native identity AND the same published state occupancy. Identity alone never
-// joins two different displayed numbers; an equal number, subject, state or
-// window is never identity.
+// native identity AND the same shown occupancy. Identity alone never joins two
+// different displayed numbers; an equal number, subject, state or window is
+// never identity.
 func TraceMeasuredStateFactSame(a, b TraceCausalProjectionNode) bool {
 	key := a.MeasuredStateFactKey()
 	if key == "" || key != b.MeasuredStateFactKey() {
 		return false
 	}
-	av, aok := a.PublishedStateOccupancy()
-	bv, bok := b.PublishedStateOccupancy()
+	av, aok := a.measuredStateFactValue()
+	bv, bok := b.measuredStateFactValue()
 	return aok && bok && math.Abs(av-bv) < TraceCausalProjectionSameValueTieMS
+}
+
+// traceCausalProjectionUnanimousOccurrenceGroupKey is the account a ×N fold
+// shows: the one every member names, or "" when any member names another or
+// none.
+func traceCausalProjectionUnanimousOccurrenceGroupKey(nodes []TraceCausalProjectionNode, members []int) string {
+	shared := ""
+	for _, index := range members {
+		key := strings.TrimSpace(nodes[index].MeasuredOccurrenceGroupKey)
+		if key == "" || (shared != "" && key != shared) {
+			return ""
+		}
+		shared = key
+	}
+	return shared
 }

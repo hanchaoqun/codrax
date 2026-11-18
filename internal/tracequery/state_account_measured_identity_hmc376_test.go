@@ -214,3 +214,191 @@ func TestMeasuredStateInventoryIsClearedWhereStateTotalsAreRewritten(t *testing.
 		t.Errorf("a one-member family is that member's own account and keeps its inventory: %v", single.measuredStateIntervals)
 	}
 }
+
+// A seat priced differently from its measurement, without an inventory copied
+// from a wakeup impact, answers from its own per-state segments. A stale copied
+// inventory must not stop that answer.
+func TestMeasuredStateAccountKeyFallsBackToTheSeatsOwnInventory(t *testing.T) {
+	window := TimeWindow{StartTs: 11, EndTs: 11.008}
+	intervals := stateAccountTestIntervals()
+	want := stateAccountIdentity(ThreadRef{Comm: "app", PID: 20}, string(StateRunnable), window, intervals, 5)
+	if want == "" {
+		t.Fatal("fixture inventory must mint an identity")
+	}
+	for name, copied := range map[string][]foldInterval{
+		"no copied inventory":    nil,
+		"stale copied inventory": {{start: 11.0003, end: 11.0013}},
+	} {
+		seat := measuredIdentitySeat(StateRunnable, 5, 3, window, copied)
+		seat.runnableIntervals = append([]foldInterval(nil), intervals...)
+		rank := RootCauseRankResult{Window: window, Items: []RootCauseRankItem{seat}}
+		stampStateAccountPublicationKeys(nil, &rank)
+		if got := rank.Items[0]; got.StateAccountKey != "" || got.MeasuredStateAccountKey != want {
+			t.Errorf("%s: pricing=%q measured=%q, want the seat's own account %q", name, got.StateAccountKey, got.MeasuredStateAccountKey, want)
+		}
+	}
+}
+
+func measuredAggregateOccurrence(start, end float64, intervals ...foldInterval) WakeupCausalImpact {
+	total := 0.0
+	for _, interval := range intervals {
+		total += (interval.end - interval.start) * 1000
+	}
+	return WakeupCausalImpact{
+		Thread: ThreadRef{Comm: "dep", PID: 21}, Window: TimeWindow{StartTs: start, EndTs: end},
+		ChainDepth: 1, DominantState: string(StateRunnable), DominantImpactMs: total,
+		TotalMs: total, RunnableMs: total, stateAccountIntervals: intervals,
+	}
+}
+
+// A multi-occurrence account has one identity across every occurrence, shared
+// by the aggregate, the rank seat built from it and each occurrence row. It is
+// proved from the physical segments, so any inexact shape fails open.
+func TestWakeupAggregateMeasuredAccountCoversEveryOccurrence(t *testing.T) {
+	first := foldInterval{start: 11.000, end: 11.002}
+	second := foldInterval{start: 11.004, end: 11.005}
+	third := foldInterval{start: 11.007, end: 11.010}
+	aggregateOf := func(impacts ...WakeupCausalImpact) ChainResult {
+		chain := ChainResult{CausalImpacts: impacts}
+		chain.AggregatedImpacts = aggregateWakeupCausalImpacts(&chain)
+		if len(chain.AggregatedImpacts) != 1 {
+			t.Fatalf("fixture must aggregate into one account, got %d", len(chain.AggregatedImpacts))
+		}
+		stampStateAccountPublicationKeys(&chain, nil)
+		return chain
+	}
+	thread := ThreadRef{Comm: "dep", PID: 21}
+	want := stateAccountIdentity(thread, string(StateRunnable), TimeWindow{StartTs: 11, EndTs: 11.010},
+		[]foldInterval{first, second, third}, 6)
+
+	chain := aggregateOf(
+		measuredAggregateOccurrence(11.000, 11.003, first),
+		measuredAggregateOccurrence(11.003, 11.010, second, third),
+	)
+	aggregate := chain.AggregatedImpacts[0]
+	if want == "" || aggregate.MeasuredStateAccountKey != want {
+		t.Fatalf("aggregate identity=%q, want the hash of every occurrence's segments %q", aggregate.MeasuredStateAccountKey, want)
+	}
+	for i, impact := range chain.CausalImpacts {
+		if impact.MeasuredOccurrenceGroupKey != want {
+			t.Errorf("occurrence %d: group identity=%q, want %q", i, impact.MeasuredOccurrenceGroupKey, want)
+		}
+		if impact.StateAccountKey == "" || impact.StateAccountKey == want {
+			t.Errorf("occurrence %d keeps its own account, got %q", i, impact.StateAccountKey)
+		}
+	}
+	// The seat is priced differently from the account it shows.
+	seat := rootCauseItemFromCausalAggregate(aggregate)
+	seat.EffectiveImpactMs = 4
+	rank := RootCauseRankResult{Window: TimeWindow{StartTs: 11, EndTs: 11.010}, Items: []RootCauseRankItem{seat}}
+	stampStateAccountPublicationKeys(nil, &rank)
+	if got := rank.Items[0]; got.StateAccountKey != "" || got.MeasuredStateAccountKey != want {
+		t.Errorf("aggregate seat: pricing=%q measured=%q, want measured %q", got.StateAccountKey, got.MeasuredStateAccountKey, want)
+	}
+	for name, value := range map[string]any{"aggregate": aggregate, "occurrence": chain.CausalImpacts[0], "seat": rank.Items[0]} {
+		wire, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(wire), want) {
+			t.Errorf("%s: the account identity reached the stable JSON: %s", name, wire)
+		}
+	}
+
+	// Branch windows that republish one physical segment are still one account.
+	repeated := aggregateOf(
+		measuredAggregateOccurrence(11.000, 11.003, first),
+		measuredAggregateOccurrence(11.000, 11.003, first),
+	)
+	unionKey := stateAccountIdentity(thread, string(StateRunnable), TimeWindow{StartTs: 11, EndTs: 11.003}, []foldInterval{first}, 2)
+	if got := repeated.AggregatedImpacts[0].MeasuredStateAccountKey; unionKey == "" || got != unionKey {
+		t.Errorf("a republished segment: identity=%q, want the union's %q", got, unionKey)
+	}
+
+	// Anything less than the exact published account mints nothing.
+	missing := measuredAggregateOccurrence(11.003, 11.010, second)
+	missing.stateAccountIntervals = nil
+	if got := aggregateOf(measuredAggregateOccurrence(11.000, 11.003, first), missing); got.AggregatedImpacts[0].MeasuredStateAccountKey != "" ||
+		got.CausalImpacts[0].MeasuredOccurrenceGroupKey != "" {
+		t.Errorf("an occurrence without an inventory leaves no account: %q", got.AggregatedImpacts[0].MeasuredStateAccountKey)
+	}
+	short := aggregateOf(measuredAggregateOccurrence(11.000, 11.003, first), measuredAggregateOccurrence(11.003, 11.010, second))
+	short.AggregatedImpacts[0].DominantImpactMs = 9
+	stampStateAccountPublicationKeys(&short, nil)
+	if got := short.AggregatedImpacts[0].MeasuredStateAccountKey; got != "" {
+		t.Errorf("segments that do not add up to the published time mint nothing: %q", got)
+	}
+	if got := wakeupAggregateStateAccountInventory(&chain, []int{0, 1}, string(StateSSleep)); got != nil {
+		t.Errorf("occurrences dominated by another state have no inventory for this one: %v", got)
+	}
+	if got := wakeupAggregateStateAccountInventory(&chain, []int{0, 9}, string(StateRunnable)); got != nil {
+		t.Errorf("a member outside the chain leaves no inventory: %v", got)
+	}
+
+	// A row outside the aggregation rule is not an occurrence of the account.
+	outside := aggregateOf(
+		measuredAggregateOccurrence(11.000, 11.003, first),
+		measuredAggregateOccurrence(11.003, 11.010, second, third),
+	)
+	root := measuredAggregateOccurrence(11.000, 11.003, first)
+	root.ChainDepth = 0
+	outside.CausalImpacts = append(outside.CausalImpacts, root)
+	stampStateAccountPublicationKeys(&outside, nil)
+	if got := outside.CausalImpacts[2].MeasuredOccurrenceGroupKey; got != "" {
+		t.Errorf("a row the aggregation excludes must not name the account: %q", got)
+	}
+}
+
+// The same identity on a real capture: a wider window turns one wakeup impact
+// into several occurrences of one account.
+func TestWakeupAggregateMeasuredAccountPublic(t *testing.T) {
+	idx, err := BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(view string) Result {
+		return Run(idx, Query{View: view, PID: 59566, TimeStart: 34579.480, TimeEnd: 34579.510, Limit: 40,
+			MaxBranches: 8, MaxChainNodes: 32, IncludeWindowStats: true, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	}
+	chain, rank := run("wakeup_chain"), run("root_cause_rank")
+	if chain.WakeupChain == nil || rank.RootCauseRank == nil {
+		t.Fatal("public queries returned no wakeup chain or rank")
+	}
+	checked := 0
+	for _, aggregate := range chain.WakeupChain.AggregatedImpacts {
+		if aggregate.Thread.PID != 60595 || aggregate.DominantState != string(StateRunnable) {
+			continue
+		}
+		checked++
+		if aggregate.MeasuredStateAccountKey == "" {
+			t.Fatal("the fixture's multi-occurrence runnable account minted no identity")
+		}
+		occurrences := 0
+		for _, impact := range chain.WakeupChain.CausalImpacts {
+			if impact.Thread.PID == 60595 && impact.DominantState == aggregate.DominantState {
+				occurrences++
+				if impact.MeasuredOccurrenceGroupKey != aggregate.MeasuredStateAccountKey {
+					t.Errorf("occurrence names %q, aggregate is %q", impact.MeasuredOccurrenceGroupKey, aggregate.MeasuredStateAccountKey)
+				}
+			}
+		}
+		if occurrences != aggregate.OccurrenceCount {
+			t.Errorf("occurrence rows=%d, aggregate counted %d", occurrences, aggregate.OccurrenceCount)
+		}
+		seats := 0
+		for _, item := range rank.RootCauseRank.Items {
+			if item.Thread.PID == 60595 && item.Source == "wakeup_chain.aggregated_impacts" {
+				seats++
+				if item.StateAccountKey != "" || item.MeasuredStateAccountKey != aggregate.MeasuredStateAccountKey {
+					t.Errorf("seat: pricing=%q measured=%q, aggregate is %q", item.StateAccountKey, item.MeasuredStateAccountKey, aggregate.MeasuredStateAccountKey)
+				}
+			}
+		}
+		if seats == 0 {
+			t.Fatal("the fixture no longer builds a rank seat from this aggregate")
+		}
+	}
+	if checked != 1 {
+		t.Fatalf("fixture changed: %d runnable aggregates for tid 60595", checked)
+	}
+}

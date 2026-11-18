@@ -603,3 +603,62 @@ func TestTwoDimCPUOccupancyTypedSideChannel(t *testing.T) {
 		t.Fatalf("cpu resource context must never add a causal/rank seat beside the seed root: %+v", projection)
 	}
 }
+
+// HMC376: a ×N fold of occurrences cannot state a raw occupancy of its own.
+// When a measured row already shows the fold's account, the fold adds only an
+// "unavailable" twin of that row; any weaker relation keeps the fold visible.
+func TestTwoDimOccupancyFoldOfAShownAccountAddsNoUnavailableRow(t *testing.T) {
+	const key = "state_account:v2:multi-occurrence-account"
+	seat := types.TraceCausalProjectionNode{
+		EvidenceID: "priced-seat", Subject: "dep-21", Predicate: "root_cause_primary",
+		TypeToken: "runnable_wait", Object: "runnable_wait",
+		StateKind: "runnable", Rank: 1, ImpactMS: 14, EffectiveImpactMS: 14, EffectiveImpactPublished: true,
+		RunnableMS: 13.7, StartTs: 2.000, EndTs: 2.060, LineStart: 4, LineEnd: 90,
+		MeasuredStateAccountKey: key,
+	}
+	fold := types.TraceCausalProjectionNode{
+		EvidenceID: "occurrence-fold", Subject: "dep-21", Predicate: "wakeup_causal_impact",
+		StateKind: "runnable", ImpactMS: 13.7, MergedCount: 3, StartTs: 2.000, EndTs: 2.060, LineStart: 4, LineEnd: 90,
+		StateAccountKey: "state_account:v2:seed-occurrence", MeasuredOccurrenceGroupKey: key,
+	}
+	table := func(kinds []string, nodes ...types.TraceCausalProjectionNode) []runtimeTraceOccupancyCandidate {
+		var rows []runtimeTraceProjTreeRow
+		for i, node := range nodes {
+			rows = append(rows, runtimeTraceProjTreeRow{Node: node, Kind: kinds[i], HasData: true})
+		}
+		return runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: rows}, nil, true)
+	}
+	listed := []string{runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowChain}
+
+	for name, order := range map[string][]types.TraceCausalProjectionNode{"seat_first": {seat, fold}, "fold_first": {fold, seat}} {
+		rows := table(listed, order...)
+		if len(rows) != 1 || rows[0].unavailable || rows[0].totalMS != 13.7 {
+			t.Fatalf("%s: the measured row alone must show the account: %+v", name, rows)
+		}
+	}
+	// The fold is the only row of its account: it stays.
+	if rows := table(listed[:1], fold); len(rows) != 1 || !rows[0].unavailable {
+		t.Fatalf("a fold without a measured row must stay visible: %+v", rows)
+	}
+	// A fold of only some occurrences shows another number.
+	partial := fold
+	partial.ImpactMS = 9
+	if rows := table(listed, seat, partial); len(rows) != 2 {
+		t.Fatalf("a partial fold must stay visible: %+v", rows)
+	}
+	// A fold whose members did not all name this account.
+	unproved := fold
+	unproved.MeasuredOccurrenceGroupKey = ""
+	if rows := table(listed, seat, unproved); len(rows) != 2 {
+		t.Fatalf("equal numbers without a shared account must stay two rows: %+v", rows)
+	}
+	other := fold
+	other.MeasuredOccurrenceGroupKey = "state_account:v2:other-account"
+	if rows := table(listed, seat, other); len(rows) != 2 {
+		t.Fatalf("a fold of another account must stay visible: %+v", rows)
+	}
+	// A measured row this table does not list cannot speak for the fold.
+	if rows := table([]string{"not_a_listed_row", runtimeTraceProjTreeRowChain}, seat, fold); len(rows) != 1 || !rows[0].unavailable {
+		t.Fatalf("a measured row outside the table must not hide the fold: %+v", rows)
+	}
+}

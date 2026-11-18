@@ -355,6 +355,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"DirectionConservationExcess": {Status: "displayed", Ref: "◎ 守恒违例行(ELIM-V2 守恒尾行)"},
 	"StateAccountKey":             {Status: "projection_gate", Ref: "B7-T2 精确状态段账目一席"},
 	"MeasuredStateAccountKey":     {Status: "internal_gate", Token: "MeasuredStateFactKey", Ref: "HMC376 同一已测状态账的展示去重身份(占用表,经 MeasuredStateFactKey 访问器);不入一席收敛、排名、因果"},
+	"MeasuredOccurrenceGroupKey":  {Status: "internal_gate", Token: "MeasuredStateFactKey", Ref: "HMC376 多发生账的展示身份:×N 折叠行全部成员同账时经 MeasuredStateFactKey 回答;不入一席收敛、排名、因果"},
 	"StateAccountComplete":        {Status: "projection_gate", Ref: "B201 完整状态统计对嵌套子窗的包含证明"},
 	"RankFamilyKey":               {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
 	"AbsorbedByRankFamily":        {Status: "displayed", Ref: "明细链上并入 + audit"},

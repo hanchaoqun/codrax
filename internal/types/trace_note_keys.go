@@ -1364,6 +1364,11 @@ const (
 	// withheld). It answers "do these rows show the same measured account?";
 	// one-seat convergence never reads it.
 	TraceNoteKeyMeasuredStateAccountKey = "measured_state_account_key"
+	// TraceNoteKeyMeasuredOccurrenceGroupKey: the identity of the
+	// multi-occurrence measured account one wakeup occurrence row belongs to.
+	// Only a display fold of every occurrence reads it; a single occurrence
+	// keeps its own state_account_key.
+	TraceNoteKeyMeasuredOccurrenceGroupKey = "measured_occurrence_group_key"
 	// Complete raw scheduler-state census inside the observation's exact span.
 	// This compact proof avoids shipping every segment to the language model.
 	TraceNoteKeyStateAccountComplete = "state_account_complete"
@@ -1754,6 +1759,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// Measured-account identity of a seat whose price is not that
 	// measurement; the projection compile parses it into its own node field.
 	{TraceNoteKeyMeasuredStateAccountKey, "state_account", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMeasuredOccurrenceGroupKey, "state_account", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},

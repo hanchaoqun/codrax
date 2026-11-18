@@ -191,3 +191,77 @@ func TestTraceQueryPublishesMeasuredStateAccountKeyOnlyWherePricingKeyIsWithheld
 		t.Fatal("the seat did not compile into the projection")
 	}
 }
+
+// A multi-occurrence account publishes one identity on the aggregate row and
+// names it on each occurrence row beside that occurrence's own account.
+func TestTraceQueryPublishesMultiOccurrenceAccountIdentity(t *testing.T) {
+	const account = "state_account:v2:00112233445566778899aabbccddeeff"
+	const own = "state_account:v2:ffeeddccbbaa99887766554433221100"
+	thread := tracequery.ThreadRef{Comm: "dep", PID: 21}
+	rows := func(group, aggregateKey string) []types.ObservationRecord {
+		return traceQueryTypedObservations(tracequery.Result{
+			View:       "wakeup_chain",
+			SourcePath: "/traces/app.systrace",
+			WakeupChain: &tracequery.ChainResult{
+				Window: tracequery.TimeWindow{StartTs: 11, EndTs: 11.008},
+				CausalImpacts: []tracequery.WakeupCausalImpact{{
+					Thread: thread, Window: tracequery.TimeWindow{StartTs: 11, EndTs: 11.004}, ChainDepth: 1, OnChain: true,
+					DominantState: string(tracequery.StateRunnable), DominantImpactMs: 2, TotalMs: 2, RunnableMs: 2,
+					StateAccountKey: own, MeasuredOccurrenceGroupKey: group,
+				}},
+				AggregatedImpacts: []tracequery.WakeupCausalAggregate{{
+					Thread: thread, OccurrenceCount: 2, ChainDepth: 1, DominantState: string(tracequery.StateRunnable),
+					DominantImpactMs: 5, TotalMs: 5, RunnableMs: 5, FirstTs: 11, LastTs: 11.008,
+					MeasuredStateAccountKey: aggregateKey,
+				}},
+			},
+		}, "trace", "/blobs/trace.json", "", "", time.Now())
+	}
+	notesOf := func(records []types.ObservationRecord, predicate string) []string {
+		for _, record := range records {
+			if record.Predicate == predicate {
+				return record.RichNotes
+			}
+		}
+		t.Fatalf("no %s row", predicate)
+		return nil
+	}
+	has := func(notes []string, want string) bool {
+		for _, note := range notes {
+			if strings.TrimSpace(note) == want {
+				return true
+			}
+		}
+		return false
+	}
+	records := rows(account, account)
+	impact, aggregate := notesOf(records, "wakeup_causal_impact"), notesOf(records, "wakeup_causal_aggregate")
+	if !has(impact, "state_account_key="+own) || !has(impact, "measured_occurrence_group_key="+account) {
+		t.Fatalf("occurrence must keep its own account and name its group: %q", impact)
+	}
+	if !has(aggregate, "measured_state_account_key="+account) {
+		t.Fatalf("aggregate must publish the account: %q", aggregate)
+	}
+	projection := types.TraceCausalProjectionFromObservationRecords(records)
+	compiled := 0
+	for _, node := range measuredFactProjectionNodesHMC376(projection) {
+		if node.Predicate == "wakeup_causal_impact" {
+			compiled++
+			if node.MeasuredOccurrenceGroupKey != account || node.MeasuredStateFactKey() != own {
+				t.Fatalf("compiled occurrence: group=%q accessor=%q", node.MeasuredOccurrenceGroupKey, node.MeasuredStateFactKey())
+			}
+		}
+	}
+	if compiled == 0 {
+		t.Fatal("the occurrence did not compile into the projection")
+	}
+	// No identity proved: neither note.
+	records = rows("", "")
+	for _, notes := range [][]string{notesOf(records, "wakeup_causal_impact"), notesOf(records, "wakeup_causal_aggregate")} {
+		for _, note := range notes {
+			if strings.HasPrefix(note, "measured_occurrence_group_key=") || strings.HasPrefix(note, "measured_state_account_key=") {
+				t.Fatalf("no native identity, no note: %q", note)
+			}
+		}
+	}
+}

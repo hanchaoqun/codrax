@@ -82,6 +82,7 @@ func stampStateAccountPublicationKeys(chain *ChainResult, rank *RootCauseRankRes
 				impact.stateAccountIntervals, impact.DominantImpactMs,
 			)
 		}
+		stampWakeupAggregateMeasuredAccountKeys(chain)
 	}
 	if rank != nil {
 		for i := range rank.Items {
@@ -108,13 +109,66 @@ func stampStateAccountPublicationKeys(chain *ChainResult, rank *RootCauseRankRes
 	}
 }
 
+// stampWakeupAggregateMeasuredAccountKeys mints each multi-occurrence account
+// and hands it to its occurrence rows, whose membership is the aggregation
+// rule itself. The rank census and the trimmed view are stamped alike because a
+// rank seat can outlive the display trim.
+func stampWakeupAggregateMeasuredAccountKeys(chain *ChainResult) {
+	groupKeys := map[string]string{}
+	stamp := func(aggregates []WakeupCausalAggregate) {
+		for i := range aggregates {
+			aggregate := &aggregates[i]
+			aggregate.MeasuredStateAccountKey = stateAccountIdentity(
+				aggregate.Thread, aggregate.DominantState,
+				TimeWindow{StartTs: aggregate.FirstTs, EndTs: aggregate.LastTs},
+				aggregate.stateAccountIntervals, aggregate.DominantImpactMs,
+			)
+			if aggregate.MeasuredStateAccountKey != "" {
+				groupKeys[wakeupCausalAggregateGroupKey(aggregate.Thread.PID, aggregate.DominantState)] = aggregate.MeasuredStateAccountKey
+			}
+		}
+	}
+	stamp(chain.rankAggregateCensus)
+	stamp(chain.AggregatedImpacts)
+	for i := range chain.CausalImpacts {
+		impact := &chain.CausalImpacts[i]
+		impact.MeasuredOccurrenceGroupKey = ""
+		if impact.Thread.PID > 0 && impact.ChainDepth > 0 && impact.TotalMs > 0 {
+			impact.MeasuredOccurrenceGroupKey = groupKeys[wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)]
+		}
+	}
+}
+
+// wakeupAggregateStateAccountInventory is the physical segment inventory of an
+// aggregate's dominant state: the union of its occurrences' complete
+// inventories, because branch windows can republish one physical segment. An
+// occurrence dominated by another state, or without a complete inventory,
+// leaves the aggregate without one. The identity hash then still refuses any
+// union whose length differs from the aggregate's published state time.
+func wakeupAggregateStateAccountInventory(chain *ChainResult, members []int, state string) []foldInterval {
+	var inventory []foldInterval
+	for _, index := range members {
+		if index < 0 || index >= len(chain.CausalImpacts) {
+			return nil
+		}
+		impact := &chain.CausalImpacts[index]
+		if !strings.EqualFold(strings.TrimSpace(impact.DominantState), strings.TrimSpace(state)) ||
+			len(impact.stateAccountIntervals) == 0 {
+			return nil
+		}
+		inventory = append(inventory, impact.stateAccountIntervals...)
+	}
+	union, _ := foldIntervalUnionWithDisjoint(inventory)
+	return union
+}
+
 // rootCauseRankMeasuredStateAccountIdentity mints the identity of the seat's
 // measured dominant-state account. It never reads the seat's price. The
-// inventory copied from the seat's own wakeup impact answers first; a seat
-// without one (or whose state totals were rewritten since) falls back to its
-// own per-state segment inventory. The hash refuses any inventory whose sum
-// differs from the published state time, that overlaps, or that leaves the
-// window, so a stale or partial inventory yields no identity.
+// inventory copied from the seat's own wakeup impact or aggregate answers
+// first; a seat without one (or whose state totals were rewritten since) falls
+// back to its own per-state segment inventory. The hash refuses any inventory
+// whose sum differs from the published state time, that overlaps, or that
+// leaves the window, so a stale or partial inventory yields no identity.
 func rootCauseRankMeasuredStateAccountIdentity(item RootCauseRankItem, rankWindow TimeWindow) string {
 	var measured float64
 	switch strings.TrimSpace(strings.ToLower(item.DominantState)) {

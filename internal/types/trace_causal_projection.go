@@ -1406,6 +1406,10 @@ type TraceCausalProjectionNode struct {
 	// identity only, read through MeasuredStateFactKey; never a seat, rank,
 	// merge or causal input, and not part of the projection JSON.
 	MeasuredStateAccountKey string `json:"-"`
+	// MeasuredOccurrenceGroupKey is the multi-occurrence account an occurrence
+	// row belongs to. On a ×N fold it survives only when every member names the
+	// same account. Display identity only, read through MeasuredStateFactKey.
+	MeasuredOccurrenceGroupKey string `json:"-"`
 	// StateAccountComplete certifies a raw state census throughout StartTs..EndTs,
 	// not a selection of examples. Used only for nested-account containment;
 	// it grants no causal qualification and does not authorize partial unions.
@@ -4581,6 +4585,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	node.StateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountKey))
 	node.MeasuredStateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMeasuredStateAccountKey))
+	node.MeasuredOccurrenceGroupKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMeasuredOccurrenceGroupKey))
 	node.StateAccountComplete = traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountComplete) == "true"
 	return node
 }

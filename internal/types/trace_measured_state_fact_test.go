@@ -85,3 +85,83 @@ func TestTraceMeasuredStateFactSame(t *testing.T) {
 		t.Fatal("an unpublished occupancy must not join")
 	}
 }
+
+// A ×N fold shows its occurrences together. It answers with the account every
+// member names and never with the account of the member it was seeded from.
+func TestMeasuredStateFactOfAFoldIsTheAccountAllItsOccurrencesName(t *testing.T) {
+	const account = "state_account:v2:group"
+	seat := measuredFactTestNode("", account, 13.699)
+	seat.Predicate, seat.ImpactMS, seat.EffectiveImpactMS, seat.Rank = "root_cause_primary", 13.737, 13.737, 1
+
+	fold := measuredFactTestNode("state_account:v2:seed-member", "", 7.843)
+	fold.MergedCount, fold.ImpactMS, fold.MeasuredOccurrenceGroupKey = 3, 13.699, account
+	if got := fold.MeasuredStateFactKey(); got != account {
+		t.Fatalf("fold identity=%q, want the shared account %q", got, account)
+	}
+	if !TraceMeasuredStateFactSame(seat, fold) || !TraceMeasuredStateFactSame(fold, seat) {
+		t.Fatal("a fold of every occurrence and the seat of that account are one measured fact")
+	}
+
+	bare := fold
+	bare.MeasuredOccurrenceGroupKey = ""
+	if got := bare.MeasuredStateFactKey(); got != "" {
+		t.Fatalf("a fold must not answer with its seed member's account: %q", got)
+	}
+	seedOnly := measuredFactTestNode("state_account:v2:seed-member", "", 13.699)
+	if TraceMeasuredStateFactSame(seedOnly, bare) {
+		t.Fatal("a fold without a shared account must not join its seed member's account")
+	}
+
+	partial := fold
+	partial.ImpactMS = 11.635 // two of the three occurrences
+	if TraceMeasuredStateFactSame(seat, partial) {
+		t.Fatal("a fold of only some occurrences shows another number and stays separate")
+	}
+	overflow := fold
+	overflow.OnChainOverflowFold = true
+	if TraceMeasuredStateFactSame(seat, overflow) {
+		t.Fatal("an overflow fold is a member maximum, not this account's occupancy")
+	}
+	other := fold
+	other.MeasuredOccurrenceGroupKey = "state_account:v2:other"
+	if TraceMeasuredStateFactSame(seat, other) {
+		t.Fatal("a fold of another account must not join on an equal number")
+	}
+
+	// A single occurrence row keeps its own account: the group it belongs to
+	// is not what that one row shows.
+	occurrence := measuredFactTestNode("state_account:v2:own", "", 7.843)
+	occurrence.MeasuredOccurrenceGroupKey = account
+	if got := occurrence.MeasuredStateFactKey(); got != "state_account:v2:own" {
+		t.Fatalf("occurrence identity=%q", got)
+	}
+	if TraceMeasuredStateFactSame(seat, occurrence) {
+		t.Fatal("one occurrence is not the whole account")
+	}
+}
+
+func TestUnanimousOccurrenceGroupKey(t *testing.T) {
+	node := func(key string) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{MeasuredOccurrenceGroupKey: key}
+	}
+	for _, tc := range []struct {
+		name string
+		keys []string
+		want string
+	}{
+		{"every member names one account", []string{"a", " a ", "a"}, "a"},
+		{"members name different accounts", []string{"a", "b"}, ""},
+		{"one member names none", []string{"a", ""}, ""},
+		{"the seed names none", []string{"", "a"}, ""},
+		{"no member names one", []string{"", ""}, ""},
+	} {
+		nodes := make([]TraceCausalProjectionNode, len(tc.keys))
+		members := make([]int, len(tc.keys))
+		for i, key := range tc.keys {
+			nodes[i], members[i] = node(key), i
+		}
+		if got := traceCausalProjectionUnanimousOccurrenceGroupKey(nodes, members); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

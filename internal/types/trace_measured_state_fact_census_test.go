@@ -46,6 +46,15 @@ var stateAccountIdentityFieldReaders = map[string][]string{
 		"types/trace_causal_projection.go",
 		"types/trace_measured_state_fact.go",
 	},
+	// Producer stamp, the wire emission, the projection compile, the ×N fold
+	// that keeps it only on unanimity, and the display accessor.
+	"MeasuredOccurrenceGroupKey": {
+		"tool/trace_query.go",
+		"tracequery/state_account_identity.go",
+		"types/trace_causal_projection.go",
+		"types/trace_causal_projection_aggregate.go",
+		"types/trace_measured_state_fact.go",
+	},
 }
 
 func TestStateAccountIdentityFieldsHaveDeclaredReaders(t *testing.T) {

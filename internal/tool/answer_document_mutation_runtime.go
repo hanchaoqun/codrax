@@ -2157,6 +2157,10 @@ func runtimeTraceOccupancyPathCandidates(
 	// exact envelope.  One/zero credential lets the uncredentialed mirror join;
 	// two different credentials are ambiguity and keep every account visible.
 	envelopeAccountKeys := map[string]map[string]bool{}
+	// Rows that show a measured value. A display fold cannot state a raw
+	// occupancy; when one of these already shows the fold's account, the fold
+	// adds only an "unavailable" twin of it.
+	var measuredRows []types.TraceCausalProjectionNode
 	for _, row := range rows {
 		node := row.Node
 		if !runtimeTraceOccupancyPathNodeAdmitted(row) {
@@ -2165,6 +2169,9 @@ func runtimeTraceOccupancyPathCandidates(
 		value, known, state, _ := runtimeTraceOccupancyPathMeasurement(node)
 		if !known {
 			continue
+		}
+		if runtimeTraceOccupancyPathRowKindListed(row.Kind) {
+			measuredRows = append(measuredRows, node)
 		}
 		node.ImpactMS, node.StateKind = value, state
 		envelopeKey := runtimeTraceOccupancyExactStateEnvelopeKey(node)
@@ -2178,12 +2185,7 @@ func runtimeTraceOccupancyPathCandidates(
 		envelopeAccountKeys[envelopeKey][accountKey] = true
 	}
 	for _, row := range rows {
-		switch row.Kind {
-		case runtimeTraceProjTreeRowChain,
-			runtimeTraceProjTreeRowCause,
-			runtimeTraceProjTreeRowDepthless,
-			runtimeTraceProjTreeRowSelf:
-		default:
+		if !runtimeTraceOccupancyPathRowKindListed(row.Kind) {
 			continue
 		}
 		node := row.Node
@@ -2191,6 +2193,9 @@ func runtimeTraceOccupancyPathCandidates(
 			continue
 		}
 		total, known, state, independentState := runtimeTraceOccupancyPathMeasurement(node)
+		if !known && runtimeTraceOccupancyFoldShownByMeasuredRow(node, measuredRows) {
+			continue
+		}
 		// This local display copy makes deduplication and ruler comparison read
 		// the same measurement as the value cell. The causal node is untouched.
 		measured := node
@@ -2320,6 +2325,26 @@ func runtimeTraceOccupancyPathCandidates(
 		out = out[:runtimeTraceOccupancyPathLimit]
 	}
 	return out
+}
+
+func runtimeTraceOccupancyPathRowKindListed(kind string) bool {
+	switch kind {
+	case runtimeTraceProjTreeRowChain,
+		runtimeTraceProjTreeRowCause,
+		runtimeTraceProjTreeRowDepthless,
+		runtimeTraceProjTreeRowSelf:
+		return true
+	}
+	return false
+}
+
+func runtimeTraceOccupancyFoldShownByMeasuredRow(fold types.TraceCausalProjectionNode, measuredRows []types.TraceCausalProjectionNode) bool {
+	for _, row := range measuredRows {
+		if types.TraceMeasuredStateFactSame(row, fold) {
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceOccupancyPathMeasurement selects a measurement, not a price.

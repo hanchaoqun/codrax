@@ -1096,6 +1096,15 @@ func traceDecisionAxesPresent(set types.TraceCausalProjectionSet) (actual, elimi
 }
 
 func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	return traceDecisionCollapseMeasuredFacts(traceDecisionActualOccupancyPublications(projection), limit)
+}
+
+// traceDecisionActualOccupancyPublications is every typed publication eligible
+// for Axis A, in pool order. Several publications may still show one measured
+// account: filters that judge a single publication (the window preference here,
+// the reader's target-symptom filter) run on this population, so a publication
+// they would reject can never stand in for one they would keep.
+func traceDecisionActualOccupancyPublications(projection types.TraceCausalProjection) []types.TraceCausalProjectionNode {
 	pool := make([]types.TraceCausalProjectionNode, 0,
 		len(projection.PrimaryRootCauses)+len(projection.OnChainCauses)+len(projection.SemanticSpans))
 	pool = append(pool, projection.PrimaryRootCauses...)
@@ -1120,29 +1129,59 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 			continue
 		}
 		seen[key] = true
-		// One native measured state account is one occupancy fact, however
-		// many typed publications (a priced seat, its wakeup view) carry it.
-		// The first row in pool order stays; identity is the producer's, never
-		// an equal value or name.
-		mirror := false
-		for _, kept := range out {
-			if types.TraceMeasuredStateFactSame(kept, node) {
-				mirror = true
+		out = append(out, node)
+	}
+	return traceDecisionPreferProjectionWindowNodes(projection, out)
+}
+
+// traceDecisionOccupancyRanksBefore is the Axis A order: larger published
+// impact first, typed identity as the stable tie-break.
+func traceDecisionOccupancyRanksBefore(a, b types.TraceCausalProjectionNode) bool {
+	if a.ImpactMS != b.ImpactMS {
+		return a.ImpactMS > b.ImpactMS
+	}
+	return traceDecisionNodeIdentity(a) < traceDecisionNodeIdentity(b)
+}
+
+// traceDecisionCollapseMeasuredFacts states one native measured state account
+// once, however many typed publications (a priced seat, its wakeup view) carry
+// it, and then applies the limit. Identity is the producer's, never an equal
+// value or name. The account keeps the list position of its best publication,
+// so a seat priced below its measurement cannot sink the measurement out of the
+// list. The row shown is the best-ranked seat, or the first publication in pool
+// order when no seat carries the account.
+func traceDecisionCollapseMeasuredFacts(publications []types.TraceCausalProjectionNode, limit int) []types.TraceCausalProjectionNode {
+	type measuredFact struct {
+		shown, lead types.TraceCausalProjectionNode
+	}
+	facts := make([]measuredFact, 0, len(publications))
+	for _, node := range publications {
+		mirror := -1
+		for index := range facts {
+			if types.TraceMeasuredStateFactSame(facts[index].shown, node) {
+				mirror = index
 				break
 			}
 		}
-		if mirror {
+		if mirror < 0 {
+			facts = append(facts, measuredFact{shown: node, lead: node})
 			continue
 		}
-		out = append(out, node)
-	}
-	out = traceDecisionPreferProjectionWindowNodes(projection, out)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].ImpactMS != out[j].ImpactMS {
-			return out[i].ImpactMS > out[j].ImpactMS
+		fact := &facts[mirror]
+		if traceDecisionOccupancyRanksBefore(node, fact.lead) {
+			fact.lead = node
 		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+		if node.Rank > 0 && (fact.shown.Rank <= 0 || node.Rank < fact.shown.Rank) {
+			fact.shown = node
+		}
+	}
+	sort.SliceStable(facts, func(i, j int) bool {
+		return traceDecisionOccupancyRanksBefore(facts[i].lead, facts[j].lead)
 	})
+	out := make([]types.TraceCausalProjectionNode, 0, len(facts))
+	for _, fact := range facts {
+		out = append(out, fact.shown)
+	}
 	out = types.TraceCausalProjectionYieldingNodesLast(out)
 	if limit = types.TraceCausalProjectionBoundedSeatLimit(out, limit); limit > 0 && len(out) > limit {
 		out = out[:limit]

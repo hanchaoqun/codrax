@@ -424,6 +424,10 @@ var traceNoteKeyGoldenRows = []string{
 	"max_latency|io|display_only",
 	"max_runtime|sched_accounting|display_only",
 	"max_segment|state|soft_consumer",
+	// HMC376: the multi-occurrence measured account one wakeup occurrence row
+	// belongs to; the projection compile parses it, and only a fold of every
+	// occurrence answers with it.
+	"measured_occurrence_group_key|state_account|hard_consumer",
 	// HMC376: measured-account identity of a rank seat whose price is not
 	// that measurement; the projection compile parses it into its own node
 	// field (display de-duplication only, never one-seat convergence).

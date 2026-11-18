@@ -1961,6 +1961,7 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 	aggregate.MergedMinMS = minMS
 	aggregate.MergedMaxMS = maxMS
 	aggregate.MergedValuelessCount = valuelessRows
+	aggregate.MeasuredOccurrenceGroupKey = traceCausalProjectionUnanimousOccurrenceGroupKey(nodes, members)
 	aggregate.ImpactMS = sum
 	aggregate.CumulativeImpactMS = sum
 	// COV §24.9 D-1: TargetImpactMS re-derives as the member MAX — the

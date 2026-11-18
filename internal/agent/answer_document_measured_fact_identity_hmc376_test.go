@@ -68,7 +68,8 @@ func measuredFactWithoutIdentityHMC376(results []types.ToolResult) []types.ToolR
 			out[i].Observations[j] = record
 			var notes []string
 			for _, note := range record.RichNotes {
-				if !strings.HasPrefix(note, types.TraceNoteKeyMeasuredStateAccountKey+"=") {
+				if !strings.HasPrefix(note, types.TraceNoteKeyMeasuredStateAccountKey+"=") &&
+					!strings.HasPrefix(note, types.TraceNoteKeyMeasuredOccurrenceGroupKey+"=") {
 					notes = append(notes, note)
 				}
 			}
@@ -250,5 +251,288 @@ func TestHMC376HoneybirdFinalizerStatesMeasuredRunnableOnce(t *testing.T) {
 	}
 	if strings.Join(seats, "/") != "36.311/3.868/2.600/0.013" {
 		t.Fatalf("on-chain seat impacts changed: %v", seats)
+	}
+}
+
+var measuredFactCardValueHMC376 = regexp.MustCompile(`^  - (.+?)：.*?已测 ([0-9.]+) 毫秒`)
+
+// measuredFactCardAccountsHMC376 counts the measured accounts the reader card
+// states, keyed by subject, cause label and value.
+func measuredFactCardAccountsHMC376(t *testing.T, instruction string) map[string]int {
+	t.Helper()
+	accounts := map[string]int{}
+	for _, entry := range measuredFactReaderCardHMC376(t, instruction, true) {
+		if m := measuredFactCardValueHMC376.FindStringSubmatch(entry); m != nil {
+			accounts[m[1]+" "+m[2]]++
+		}
+	}
+	return accounts
+}
+
+// The account identity is window-free, so one account can reach the finalizer
+// from queries over different windows. Stating it once must never cost the
+// account itself: whatever the reader card lists without the identity stays
+// listed with it, exactly once.
+func TestHMC376FinalizerKeepsAccountsMeasuredOverDifferentQueryWindows(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
+	const pid, start, end = 59566, 34579.490, 34579.500
+	query := func(view string, from, to float64) types.ToolResult {
+		dir := t.TempDir()
+		params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": view, "pid": pid, "time_start": from, "time_end": to, "trace_flavor": "harmony_hitrace"})
+		result, err := (&tool.TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
+		if err != nil || !result.Success {
+			t.Fatalf("public %s: %v %s", view, err, result.Summary)
+		}
+		return result
+	}
+	for _, tc := range []struct {
+		name                       string
+		rankStart, rankEnd         float64
+		chainStart, chainEnd       float64
+		reportedStart, reportedEnd float64
+	}{
+		{"rank_wider_report_narrow", start, end + 0.0002, start, end, start, end},
+		{"chain_wider_report_narrow", start, end, start, end + 0.0005, start, end},
+		{"chain_wider_report_wide", start, end, start, end + 0.001, start, end + 0.001},
+		{"rank_wider_both_sides", start - 0.0005, end + 0.0005, start, end, start, end},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rank, chain := query("root_cause_rank", tc.rankStart, tc.rankEnd), query("wakeup_chain", tc.chainStart, tc.chainEnd)
+			for order, results := range map[string][]types.ToolResult{"rank_first": {rank, chain}, "chain_first": {chain, rank}} {
+				instruction := measuredFactFinalizerInstructionHMC376(t, "zh", "com.baidu.tieba-59566", pid, tc.reportedStart, tc.reportedEnd, results)
+				restored := measuredFactFinalizerInstructionHMC376(t, "zh", "com.baidu.tieba-59566", pid, tc.reportedStart, tc.reportedEnd, measuredFactWithoutIdentityHMC376(results))
+				got, separate := measuredFactCardAccountsHMC376(t, instruction), measuredFactCardAccountsHMC376(t, restored)
+				if len(separate) == 0 {
+					t.Fatalf("%s: the reader card lists no measured account; the case exercises nothing", order)
+				}
+				for account := range separate {
+					if got[account] != 1 {
+						t.Errorf("%s: %q is listed %d times, want once:\n%s", order, account, got[account],
+							strings.Join(measuredFactReaderCardHMC376(t, instruction, true), "\n"))
+					}
+				}
+			}
+		})
+	}
+}
+
+// A multi-occurrence account reaches the finalizer as a seat and as a fold of
+// its occurrences. It is one measured fact with its value and scope, and the
+// fold's "occupancy unavailable" twin no longer takes a card slot.
+func TestHMC376FinalizerStatesMultiOccurrenceAccountOnce(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
+	const start, end = 34579.480, 34579.510
+	results := measuredFactPublicResultsHMC376(t, path, 59566, start, end)
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			zh := lang == "zh"
+			instruction := measuredFactFinalizerInstructionHMC376(t, lang, "com.baidu.tieba-59566", 59566, start, end, results)
+			measuredFactAssertOnceWithOneScopeHMC376(t, instruction, zh, "NetworkService-60595", "13.699")
+			measuredFactAssertOnceWithOneScopeHMC376(t, instruction, zh, "CookieMonsterCl-59843", "15.038")
+			unavailable := "original state occupancy not provided"
+			if zh {
+				unavailable = "原始状态占用未提供"
+			}
+			for _, entry := range measuredFactReaderCardHMC376(t, instruction, zh) {
+				if strings.Contains(entry, unavailable) &&
+					(strings.Contains(entry, "NetworkService-60595") || strings.Contains(entry, "CookieMonsterCl-59843")) {
+					t.Errorf("a measured account also appears as unavailable: %s", entry)
+				}
+			}
+			// The estimate stays a separate value on the rank line.
+			rank := measuredFactLineHMC376(instruction, "  - rank=#1; subject=`NetworkService-60595`;")
+			if !strings.Contains(rank, "effective_attribution=13.737ms") || !strings.Contains(rank, "measured_state_occupancy=13.699ms") {
+				t.Errorf("rank line merged or lost the estimate and the measurement: %s", rank)
+			}
+			// The identity is not model-facing text.
+			groups := 0
+			for _, result := range results {
+				for _, record := range result.Observations {
+					for _, note := range record.RichNotes {
+						if value, ok := strings.CutPrefix(note, types.TraceNoteKeyMeasuredOccurrenceGroupKey+"="); ok {
+							groups++
+							if strings.Contains(instruction, value) {
+								t.Errorf("the occurrence group identity %s reached the finalizer instruction", value)
+							}
+						}
+					}
+				}
+			}
+			if groups == 0 {
+				t.Fatal("no occurrence row names its account; the fixture no longer exercises this class")
+			}
+			if strings.Contains(instruction, types.TraceNoteKeyMeasuredOccurrenceGroupKey) {
+				t.Error("the occurrence group note reached the finalizer instruction")
+			}
+			// Without the identity nothing joins on equal values or names.
+			restored := measuredFactFinalizerInstructionHMC376(t, lang, "com.baidu.tieba-59566", 59566, start, end, measuredFactWithoutIdentityHMC376(results))
+			separate := 0
+			for _, entry := range measuredFactReaderCardHMC376(t, restored, zh) {
+				if strings.Contains(entry, "NetworkService-60595") {
+					separate++
+				}
+			}
+			if separate != 2 {
+				t.Errorf("without the native identity the fold must stay a separate entry: %d entries, want 2", separate)
+			}
+		})
+	}
+}
+
+func measuredFactSeatHMC376(evidence string, rank int, priced, measured float64, key string) types.TraceCausalProjectionNode {
+	return types.TraceCausalProjectionNode{
+		EvidenceID: evidence, Subject: "dep-21", Predicate: "root_cause_primary", StateKind: "runnable",
+		Rank: rank, ImpactMS: priced, EffectiveImpactMS: priced, RunnableMS: measured,
+		MeasuredStateAccountKey: key, StartTs: 2, EndTs: 2.06,
+	}
+}
+
+func measuredFactViewHMC376(evidence string, measured float64, key string) types.TraceCausalProjectionNode {
+	return types.TraceCausalProjectionNode{
+		EvidenceID: evidence, Subject: "dep-21", Predicate: "wakeup_causal_impact", StateKind: "runnable",
+		ImpactMS: measured, RunnableMS: measured, StateAccountKey: key, StartTs: 2, EndTs: 2.06,
+	}
+}
+
+func measuredFactEvidenceHMC376(nodes []types.TraceCausalProjectionNode) string {
+	ids := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.EvidenceID)
+	}
+	return strings.Join(ids, ",")
+}
+
+// The window preference judges each publication. A publication it would reject
+// must not stand in for the one it keeps, in either pool order.
+func TestHMC376WindowPreferenceChoosesAmongEveryPublicationOfAnAccount(t *testing.T) {
+	const key = "state_account:v2:account"
+	other := measuredFactSeatHMC376("seat-other-window", 1, 30, 40, key)
+	other.QueryWindowStartTs, other.QueryWindowEndTs = 2, 2.2
+	matching := measuredFactViewHMC376("view-report-window", 40, key)
+	matching.QueryWindowStartTs, matching.QueryWindowEndTs = 2, 2.1
+	for name, pool := range map[string][]types.TraceCausalProjectionNode{
+		"other_window_first":    {other, matching},
+		"matching_window_first": {matching, other},
+	} {
+		projection := types.TraceCausalProjection{WindowStartTs: 2, WindowEndTs: 2.1, OnChainCauses: pool}
+		if got := measuredFactEvidenceHMC376(traceDecisionActualOccupancyCandidates(projection, 8)); got != "view-report-window" {
+			t.Errorf("%s: measured list=%q, want the publication of the reported window", name, got)
+		}
+		if got := measuredFactEvidenceHMC376(traceFinalReaderActualOccupancyCandidates(projection, 6)); got != "view-report-window" {
+			t.Errorf("%s: reader card=%q, want the publication of the reported window", name, got)
+		}
+	}
+}
+
+// The reader's symptom filter also judges each publication: removing the
+// target's unpriced view leaves its positive ranked seat of the same account.
+func TestHMC376ReaderSymptomFilterKeepsTheRankedSeatOfTheAccount(t *testing.T) {
+	const key = "state_account:v2:account"
+	view := measuredFactViewHMC376("target-view", 30, key)
+	seat := measuredFactSeatHMC376("target-seat", 2, 10, 30, key)
+	projection := types.TraceCausalProjection{
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: "dep-21", TotalMS: 60},
+		OnChainCauses:      []types.TraceCausalProjectionNode{view, seat},
+	}
+	if got := measuredFactEvidenceHMC376(traceFinalReaderActualOccupancyCandidates(projection, 6)); got != "target-seat" {
+		t.Fatalf("reader card=%q, want the ranked seat", got)
+	}
+	// The measured list states the same account once, on the ranked seat.
+	if got := measuredFactEvidenceHMC376(traceDecisionActualOccupancyCandidates(projection, 8)); got != "target-seat" {
+		t.Fatalf("measured list=%q, want the ranked seat", got)
+	}
+}
+
+// One account keeps the list position of its best publication. A seat priced
+// far below its measurement cannot sink the measurement out of the cut, and
+// every other row keeps the order it has without the identity.
+func TestHMC376AccountKeepsTheListPositionOfItsBestPublication(t *testing.T) {
+	const key = "state_account:v2:account"
+	seat := measuredFactSeatHMC376("seat", 1, 0.4, 40, key)
+	view := measuredFactViewHMC376("view", 40, key)
+	projection := types.TraceCausalProjection{PrimaryRootCauses: []types.TraceCausalProjectionNode{seat}}
+	projection.OnChainCauses = append(projection.OnChainCauses, view)
+	for i := 1; i <= 8; i++ {
+		other := measuredFactViewHMC376(fmt.Sprintf("row-%d", i), float64(i), fmt.Sprintf("state_account:v2:other-%d", i))
+		other.Subject = fmt.Sprintf("other-%d", i)
+		projection.OnChainCauses = append(projection.OnChainCauses, other)
+	}
+	if got, want := measuredFactEvidenceHMC376(traceDecisionActualOccupancyCandidates(projection, 8)), "seat,row-8,row-7,row-6,row-5,row-4,row-3,row-2"; got != want {
+		t.Errorf("measured list=%q, want %q", got, want)
+	}
+	if got, want := measuredFactEvidenceHMC376(traceFinalReaderActualOccupancyCandidates(projection, 6)), "seat,row-8,row-7,row-6,row-5,row-4"; got != want {
+		t.Errorf("reader card=%q, want %q", got, want)
+	}
+	// Without the identity both publications stay, each at its own position.
+	bare := projection
+	bare.PrimaryRootCauses = []types.TraceCausalProjectionNode{measuredFactSeatHMC376("seat", 1, 0.4, 40, "")}
+	bare.OnChainCauses = append([]types.TraceCausalProjectionNode{measuredFactViewHMC376("view", 40, "")}, projection.OnChainCauses[1:]...)
+	if got, want := measuredFactEvidenceHMC376(traceDecisionActualOccupancyCandidates(bare, 0)), "view,row-8,row-7,row-6,row-5,row-4,row-3,row-2,row-1,seat"; got != want {
+		t.Errorf("without identity=%q, want %q", got, want)
+	}
+}
+
+// The scope one record proves reaches another publication of the same account
+// only through the producer's identity, inside one artifact, for one subject
+// and one half-open range. Every other record leaves the neutral wording.
+func TestHMC376MeasuredFactScopeJoinsOnlyTheSameAccount(t *testing.T) {
+	const key, other = "state_account:v2:account", "state_account:v2:other"
+	node := types.TraceCausalProjectionNode{
+		EvidenceID: "own", Subject: "dep-21", Predicate: "root_cause_primary", StateKind: "runnable",
+		RunnableMS: 45, StartTs: 2, EndTs: 2.06, MeasuredStateAccountKey: key,
+	}
+	record := func(id, artifact, subject string, start, end float64, keyNote, source string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Subject: subject, Predicate: "wakeup_causal_impact", Producer: "trace_query",
+			SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: artifact},
+			Span:      types.ObservationSpan{StartTs: start, EndTs: end},
+			RichNotes: []string{keyNote, types.TraceNoteKeySource + "=" + source},
+		}
+	}
+	// The node's own record proves no scope of its own, so whatever the
+	// resolver returns can only come from the sibling under test.
+	own := types.ObservationRecord{ID: "own", Subject: "dep-21", Predicate: "root_cause_primary", Producer: "trace_query",
+		SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "/traces/a.systrace"}}
+	const stateKey, measuredKey = types.TraceNoteKeyStateAccountKey + "=", types.TraceNoteKeyMeasuredStateAccountKey + "="
+	sibling := record("view", "/traces/a.systrace", "dep-21", 2, 2.06, stateKey+key, "")
+	role := types.TraceObservationMeasurementWindowDisplayRole(sibling, false)
+	if role == "" {
+		t.Fatal("the fixture record must prove a scope")
+	}
+	drilldown := record("drill", "/traces/a.systrace", "dep-21", 2, 2.06, stateKey+key, "")
+	drilldown.Predicate = "state_drilldown"
+	if got := types.TraceObservationMeasurementWindowDisplayRole(drilldown, false); got == "" || got == role {
+		t.Fatalf("the disagreement case needs a second scope, got %q beside %q", got, role)
+	}
+	measuredSibling := record("view", "/traces/a.systrace", "dep-21", 2, 2.06, measuredKey+key, "")
+	for _, tc := range []struct {
+		name    string
+		node    types.TraceCausalProjectionNode
+		records []types.ObservationRecord
+		want    string
+	}{
+		{"same account through the pricing note", node, []types.ObservationRecord{own, sibling}, role},
+		{"same account through the measured note", node, []types.ObservationRecord{own, measuredSibling}, role},
+		{"another artifact", node, []types.ObservationRecord{own, record("view", "/traces/b.systrace", "dep-21", 2, 2.06, stateKey+key, "")}, ""},
+		{"another subject", node, []types.ObservationRecord{own, record("view", "/traces/a.systrace", "dep-22", 2, 2.06, stateKey+key, "")}, ""},
+		{"another start", node, []types.ObservationRecord{own, record("view", "/traces/a.systrace", "dep-21", 2.01, 2.06, stateKey+key, "")}, ""},
+		{"another end", node, []types.ObservationRecord{own, record("view", "/traces/a.systrace", "dep-21", 2, 2.05, stateKey+key, "")}, ""},
+		{"another account", node, []types.ObservationRecord{own, record("view", "/traces/a.systrace", "dep-21", 2, 2.06, stateKey+other, "")}, ""},
+		{"no account on the record", node, []types.ObservationRecord{own, record("view", "/traces/a.systrace", "dep-21", 2, 2.06, "unrelated=1", "")}, ""},
+		{"records disagree on the scope", node, []types.ObservationRecord{own, sibling, drilldown}, ""},
+		{"records disagree in the other order", node, []types.ObservationRecord{own, drilldown, sibling}, ""},
+		{"the row has no account", func() types.TraceCausalProjectionNode { n := node; n.MeasuredStateAccountKey = ""; return n }(), []types.ObservationRecord{own, sibling}, ""},
+		{"the row has no published occupancy", func() types.TraceCausalProjectionNode { n := node; n.RunnableMS = 0; return n }(), []types.ObservationRecord{own, sibling}, ""},
+		{"the row has no record of its own", node, []types.ObservationRecord{sibling}, ""},
+		{"no artifact identifies the row or the record", node, []types.ObservationRecord{record("view", "", "dep-21", 2, 2.06, stateKey+key, "")}, ""},
+		{"the row's id belongs to two artifacts", node, []types.ObservationRecord{own, func() types.ObservationRecord {
+			twin := own
+			twin.SourceRef.Path = "/traces/b.systrace"
+			return twin
+		}(), sibling}, ""},
+	} {
+		if got := traceDecisionMeasuredFactScope(tc.node, tc.records, false); got != tc.want {
+			t.Errorf("%s: scope=%q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

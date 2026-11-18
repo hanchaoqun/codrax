@@ -136,7 +136,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
 		ActualWindow:    tracequery.TimeWindow{StartTs: 0.9, EndTs: 2.1},
 		StateAccountKey: "state_account:v1:emit-fixture",
-		ChainDepth:      1, ChainBranch: 1, OnChain: true, DominantState: string(tracequery.StateSSleep),
+		// HMC376: this occurrence belongs to the multi-occurrence account of
+		// the aggregate below — exercises measured_occurrence_group_key.
+		MeasuredOccurrenceGroupKey: "state_account:v1:emit-fixture-group",
+		ChainDepth:                 1, ChainBranch: 1, OnChain: true, DominantState: string(tracequery.StateSSleep),
 		DominantImpactMs: 4, ProjectedImpactMs: 4, TotalMs: 5, ProjectedTotalMs: 5,
 		ActualImpactMs: 6, ActualTotalMs: 7, TargetBlockedMs: 3,
 		FragmentCount: 2, StateSwitches: 3, MaxSegmentMs: 2, P95SegmentMs: 1,

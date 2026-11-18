@@ -6454,6 +6454,11 @@ type WakeupCausalImpact struct {
 	// scheduler state. It never serializes; the final result reconciler uses
 	// it to mint StateAccountKey without relying on a hull or display value.
 	stateAccountIntervals []foldInterval
+	// MeasuredOccurrenceGroupKey names the multi-occurrence account this row is
+	// one occurrence of: the MeasuredStateAccountKey of its aggregate. It stays
+	// off the stable JSON and only tells a display fold of the occurrences
+	// which measured account the fold shows.
+	MeasuredOccurrenceGroupKey string `json:"-"`
 	// GatedClusterTopology (CAP-2 §28.4/§28.5): typed cluster-topology source
 	// of the capability map that priced the discounted running component —
 	// CoreCapabilityTopology* tokens, empty on explicit/legacy records
@@ -6576,6 +6581,14 @@ type WakeupCausalAggregate struct {
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	Thread             ThreadRef                               `json:"thread"`
 	Path               string                                  `json:"path,omitempty"`
+	// MeasuredStateAccountKey is the exact segment-inventory identity of the
+	// aggregate's dominant-state account across all its occurrences. Like the
+	// rank seat's field of the same name it stays off the stable JSON and only
+	// tells display rows that they show one measured account.
+	MeasuredStateAccountKey string `json:"-"`
+	// stateAccountIntervals is the physical union of the occurrences' complete
+	// dominant-state inventories. Only the measured-identity mint reads it.
+	stateAccountIntervals []foldInterval
 	// ChainDepth is the MIN member depth; ChainBranch is the members' shared
 	// branch ordinal when ALL members were measured in ONE branch, 0 when the
 	// occurrences span branches (a cross-branch aggregate has no single branch

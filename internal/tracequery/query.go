@@ -14908,6 +14908,7 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		detectPeriodicWakeupSource(chain, &a.item, a.members)
 		reconcileWakeupAggregateOccurrenceOverlap(chain, &a.item, a.members)
 		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
+		a.item.stateAccountIntervals = wakeupAggregateStateAccountInventory(chain, a.members, a.item.DominantState)
 		if a.item.PeriodicSource {
 			totalLateness := reconciledWakeupAggregatePeriodicLateness(chain, a.members)
 			rawBlocking := aggregateBlockingMs(a.item)
@@ -19548,6 +19549,8 @@ func rootCauseItemFromCausalAggregateRole(aggregate WakeupCausalAggregate, inver
 	item.TargetImpactMs = basis.TargetBlockedMs
 	item.StartTs = basis.FirstTs
 	item.EndTs = basis.LastTs
+	item.measuredStateIntervals = append([]foldInterval(nil), basis.stateAccountIntervals...)
+	item.measuredStateWindow = TimeWindow{StartTs: basis.FirstTs, EndTs: basis.LastTs}
 	item.ActualStartTs = basis.ActualFirstTs
 	item.ActualEndTs = basis.ActualLastTs
 	item.DominantState = basis.DominantState

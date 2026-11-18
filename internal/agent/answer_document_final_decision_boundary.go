@@ -734,18 +734,15 @@ func traceFinalReaderActualCauseLabel(node types.TraceCausalProjectionNode, zh b
 // work remain eligible. The decision consumes only typed target identity,
 // numeric authority, and semantic/span carriers.
 func traceFinalReaderActualOccupancyCandidates(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
-	pool := traceDecisionActualOccupancyCandidates(projection, 0)
+	pool := traceDecisionActualOccupancyPublications(projection)
 	out := make([]types.TraceCausalProjectionNode, 0, len(pool))
 	for _, node := range pool {
 		if traceFinalReaderTargetSelfStateSymptom(projection, node) {
 			continue
 		}
 		out = append(out, node)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
 	}
-	return out
+	return traceDecisionCollapseMeasuredFacts(out, limit)
 }
 
 func traceFinalReaderTargetSelfStateSymptom(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode) bool {

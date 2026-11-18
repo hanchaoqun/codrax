@@ -257,3 +257,86 @@ func TestHMC376HoneybirdOccupancyShowsMeasuredRunnableOnce(t *testing.T) {
 		t.Fatalf("the target thread's own on-chain rows must stay on the table: %q", rows)
 	}
 }
+
+// A multi-occurrence account reaches the table as the rank seat built from its
+// aggregate and as the aggregate row itself. Both show the same exact segments,
+// so they are one row, and the five-row table keeps room for other accounts.
+func TestHMC376OccupancyShowsMultiOccurrenceAccountOncePublic(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
+	results := measuredFactPublicResultsHMC376(t, path, 59566, 34579.480, 34579.510)
+	for _, result := range results {
+		if strings.Contains(result.Summary, types.TraceNoteKeyMeasuredOccurrenceGroupKey) {
+			t.Fatalf("%s: the occurrence group identity reached the model-facing result text", result.ToolName)
+		}
+	}
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			zh := lang == "zh"
+			block, projection, before, after := measuredFactOccupancyHMC376(t, results, lang)
+			rows := measuredFactPathRowsHMC376(block, zh)
+			seen := map[string]int{}
+			for _, row := range rows {
+				seen[row[1]+" | "+row[2]]++
+			}
+			for row, n := range seen {
+				if n > 1 {
+					t.Errorf("one measured account shown %d times: %s", n, row)
+				}
+			}
+			for _, want := range [][2]string{
+				{"NetworkService-60595 / runnable", "13.699ms"},
+				{"CookieMonsterCl-59843 / sleep", "15.038ms"},
+				// Evicted from the five-row table while the two accounts above
+				// took two rows each.
+				{"com.baidu.tieba-59566 / running", "3.169ms"},
+				{"CookieMonsterCl-59843 / runnable", "2.154ms"},
+			} {
+				got := measuredFactRowsForHMC376(rows, want[0])
+				if len(got) != 1 || got[0][2] != want[1] {
+					t.Errorf("want one %s row of %s, got %q in %q", want[0], want[1], got, rows)
+				}
+			}
+			network := measuredFactRowsForHMC376(rows, "NetworkService-60595 / runnable")
+			if len(network) == 1 && !strings.Contains(network[0][6], "13.737ms") {
+				t.Errorf("the separately priced estimate must stay in the caption: %q", network[0])
+			}
+
+			// Protected: the seat keeps its price, the aggregate and the fold of
+			// the occurrences stay in the projection, and nothing is absorbed.
+			if !bytes.Equal(before, after) {
+				t.Fatal("occupancy display mutated the causal projection")
+			}
+			var seat, aggregate, fold *types.TraceCausalProjectionNode
+			nodes := measuredFactProjectionNodesHMC376(projection)
+			for i := range nodes {
+				n := &nodes[i]
+				if n.Subject != "NetworkService-60595" || n.StateKind != "runnable" {
+					continue
+				}
+				switch {
+				case n.Rank == 1:
+					seat = n
+				case n.Predicate == "wakeup_causal_aggregate":
+					aggregate = n
+				case n.Predicate == "wakeup_causal_impact" && n.MergedCount > 1:
+					fold = n
+				}
+			}
+			if seat == nil || fold == nil {
+				t.Fatalf("projection must keep the seat and the occurrence fold: seat=%v fold=%v", seat != nil, fold != nil)
+			}
+			if got := measuredFactMSHMC376(seat.ImpactMS); got != "13.737" || seat.StateAccountKey != "" {
+				t.Fatalf("priced seat changed: impact=%s pricing_key=%q", got, seat.StateAccountKey)
+			}
+			if seat.MeasuredStateFactKey() == "" || seat.MeasuredStateFactKey() != fold.MeasuredStateFactKey() {
+				t.Fatalf("seat account %q and fold account %q must be the producer's one identity", seat.MeasuredStateFactKey(), fold.MeasuredStateFactKey())
+			}
+			if !types.TraceMeasuredStateFactSame(*seat, *fold) {
+				t.Fatal("the seat and the fold of every occurrence show one measured fact")
+			}
+			if aggregate != nil && aggregate.MeasuredStateFactKey() != seat.MeasuredStateFactKey() {
+				t.Fatalf("aggregate account %q differs from the seat's %q", aggregate.MeasuredStateFactKey(), seat.MeasuredStateFactKey())
+			}
+		})
+	}
+}

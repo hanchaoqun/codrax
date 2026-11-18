@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -44,29 +47,163 @@ func filteredSamplingContextInHMC242(t *testing.T, dir string, direct bool, patt
 	return ctx, result
 }
 
+// filteredSamplingPublishedFactHMC242 is one published member joined to the
+// native notes its own native_fields_refs resolve to.
+type filteredSamplingPublishedFactHMC242 struct {
+	DSO, Value, Unit string
+	Samples          string
+	SampleWeight     string
+	ScopeWeight      float64
+	ScopeSamples     float64
+}
+
+var filteredSamplingNativeNoteHMC242 = regexp.MustCompile(`^native_note_ref="([^"]+)" value=(".*")$`)
+
+// filteredSamplingPublishedFactsHMC242 reads the native section as its two
+// typed line kinds. The note table values stay whole, so a fact is compared
+// with one exact note and never searched for in text that also prints paths.
+func filteredSamplingPublishedFactsHMC242(t *testing.T, part string) (facts []filteredSamplingPublishedFactHMC242, notes map[string]string) {
+	t.Helper()
+	notes = map[string]string{}
+	for _, line := range strings.Split(part, "\n") {
+		line = strings.TrimSpace(line)
+		if m := filteredSamplingNativeNoteHMC242.FindStringSubmatch(line); m != nil {
+			value, err := strconv.Unquote(m[2])
+			if err != nil {
+				t.Fatalf("native note %s is not one quoted value: %v", m[1], err)
+			}
+			notes[m[1]] = value
+		}
+	}
+	for _, line := range strings.Split(part, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `{"source_ref":`) {
+			continue
+		}
+		var member struct {
+			DSO   string   `json:"dso"`
+			Value string   `json:"value"`
+			Unit  string   `json:"unit"`
+			Refs  []string `json:"native_fields_refs"`
+		}
+		if err := json.Unmarshal([]byte(line), &member); err != nil {
+			t.Fatalf("native member line is not one JSON object: %v", err)
+		}
+		fact := filteredSamplingPublishedFactHMC242{DSO: member.DSO, Value: member.Value, Unit: member.Unit}
+		for _, ref := range member.Refs {
+			note, known := notes[ref]
+			if !known {
+				t.Fatalf("member names unresolved native note %q", ref)
+			}
+			key, value, _ := strings.Cut(note, "=")
+			switch key {
+			case "samples":
+				fact.Samples = value
+			case "sample_weight":
+				fact.SampleWeight = value
+			case "perf_quality_scope":
+				var scope struct {
+					Weight  float64 `json:"weight"`
+					Samples float64 `json:"samples"`
+				}
+				if err := json.Unmarshal([]byte(value), &scope); err != nil {
+					t.Fatalf("perf_quality_scope note is not JSON: %v", err)
+				}
+				fact.ScopeWeight, fact.ScopeSamples = scope.Weight, scope.Samples
+			}
+		}
+		facts = append(facts, fact)
+	}
+	return facts, notes
+}
+
+// filteredSamplingExactDSOViolationsHMC242 is the oracle for the dso=/app/A.so
+// query: the published members are exactly that library's three cohorts in the
+// query window, and no note of the section states another library or another
+// member's weight. It returns the violations so the positive cases and the
+// widened-filter control share one judge.
+func filteredSamplingExactDSOViolationsHMC242(t *testing.T, part string) []string {
+	t.Helper()
+	facts, notes := filteredSamplingPublishedFactsHMC242(t, part)
+	want := map[filteredSamplingPublishedFactHMC242]int{
+		{DSO: "/app/A.so", Value: "15", Unit: "sample_weight", Samples: "2", SampleWeight: "15", ScopeWeight: 15, ScopeSamples: 2}:    1,
+		{DSO: "/app/A.so", Value: "100", Unit: "sample_weight", Samples: "1", SampleWeight: "100", ScopeWeight: 100, ScopeSamples: 1}: 1,
+		{DSO: "/app/A.so", Value: "7", Unit: "sample_weight", Samples: "1", SampleWeight: "7", ScopeWeight: 7, ScopeSamples: 1}:       1,
+	}
+	var bad []string
+	for _, fact := range facts {
+		if want[fact] == 0 {
+			bad = append(bad, fmt.Sprintf("published member outside the query: %+v", fact))
+		}
+		want[fact]--
+	}
+	for fact, n := range want {
+		if n > 0 {
+			bad = append(bad, fmt.Sprintf("native filtered display lost %+v", fact))
+		}
+	}
+	for ref, note := range notes {
+		switch note {
+		case "dso=/app/B.so", "sample_weight=900", "sample_weight=20":
+			bad = append(bad, fmt.Sprintf("native note %s leaked %s", ref, note))
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// HMC376 re-base: the former guard searched the whole native section for
+// "/app/B.so". That section prints the bundle path, so the guard failed when
+// the temporary path spelled the literal. The same claims are now read from the
+// parsed member lines and the exact note values they reference.
 func TestFilteredSamplingExactDSOFinalizerHMC242(t *testing.T) {
-	ctx, result := filteredSamplingContextHMC242(t, false, "dso=/app/A.so")
+	for _, tc := range []struct{ name, sub string }{
+		{"default_path", ""},
+		// Positive control for the retired section scan: the bundle path itself
+		// spells the excluded library.
+		{"path_spells_excluded_dso", filepath.Join("app", "B.so")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.sub != "" {
+				dir = filepath.Join(dir, tc.sub)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, result := filteredSamplingContextInHMC242(t, dir, false, "dso=/app/A.so")
+			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
+			before, _ := json.Marshal(result.Observations)
+			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+			part := filteredSamplingNativeSectionHMC242(prompt)
+			for _, violation := range filteredSamplingExactDSOViolationsHMC242(t, part) {
+				t.Error(violation)
+			}
+			if tc.sub != "" && !strings.Contains(part, "/app/B.so") {
+				t.Fatal("path noise no longer reaches the native section; this control is vacuous")
+			}
+			after, _ := json.Marshal(result.Observations)
+			if string(before) != string(after) {
+				t.Fatal("display mutated original observations")
+			}
+			if decided, allowed := types.RuntimeTraceReportShapeAuthority(&ctx.AnalysisIR.RequestModel); !decided || allowed {
+				t.Fatal("filtered display gained causal authority")
+			}
+		})
+	}
+}
+
+// Negative control: the same oracle must reject a section that really does
+// publish the excluded library, which the wider symbol filter produces.
+func TestFilteredSamplingExactDSOOracleRejectsAWiderFilterHMC242(t *testing.T) {
+	ctx, result := filteredSamplingContextHMC242(t, false, "symbol=work")
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
-	before, _ := json.Marshal(result.Observations)
-	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	part := filteredSamplingNativeSectionHMC242(prompt)
-	for _, want := range []string{`"samples=2"`, `"sample_weight=15"`, `"sample_weight=100"`, `"sample_weight=7"`, `"weight":15`, `"weight":100`, `"weight":7`} {
-		// JSON notes are themselves JSON strings inside this native envelope.
-		if !strings.Contains(part, want) && !strings.Contains(part, strings.ReplaceAll(want, `"`, `\"`)) {
-			t.Errorf("native filtered display lost %s", want)
+	part := filteredSamplingNativeSectionHMC242((&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil))
+	joined := strings.Join(filteredSamplingExactDSOViolationsHMC242(t, part), "\n")
+	for _, want := range []string{"DSO:/app/B.so", "native note", "dso=/app/B.so", "sample_weight=20"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("oracle did not report %q for the wider filter:\n%s", want, joined)
 		}
-	}
-	for _, bad := range []string{"/app/B.so", `"sample_weight=900"`, `"sample_weight=20"`} {
-		if strings.Contains(part, bad) {
-			t.Errorf("native filtered display leaked %s", bad)
-		}
-	}
-	after, _ := json.Marshal(result.Observations)
-	if string(before) != string(after) {
-		t.Fatal("display mutated original observations")
-	}
-	if decided, allowed := types.RuntimeTraceReportShapeAuthority(&ctx.AnalysisIR.RequestModel); !decided || allowed {
-		t.Fatal("filtered display gained causal authority")
 	}
 }
 

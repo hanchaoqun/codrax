@@ -11960,6 +11960,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// impact.Window (the observation span). Consumers must also verify
 		// that their displayed value still uses this raw, unmodified account.
 		{types.TraceNoteKeyStateAccountComplete, traceQueryTypedBool(impact.StateAccountKey != "")},
+		{types.TraceNoteKeyMeasuredOccurrenceGroupKey, impact.MeasuredOccurrenceGroupKey},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
 		// PTV5 Q1 (#68 用户裁定 2026-07-05, 上游根治): every wakeup_causal_impact
 		// row publishes its effective attribution with the SAME semantics as
@@ -12278,6 +12279,7 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{"occurrences", traceQueryTypedCount(aggregate.OccurrenceCount)},
 		{"aggregation_caliber", aggregate.AggregationCaliber},
 		{types.TraceNoteKeyDominantState, aggregate.DominantState},
+		{types.TraceNoteKeyMeasuredStateAccountKey, aggregate.MeasuredStateAccountKey},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(aggregate.DominantImpactMs)},
 		{types.TraceNoteKeyEffectiveImpactMS, effectiveNote},
 		{types.TraceNoteKeyProjectedImpact, traceQueryObservationMSValue(aggregate.ProjectedImpactMs)},
