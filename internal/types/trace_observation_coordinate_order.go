@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -85,4 +86,26 @@ func (o *TraceObservationPublicationOrder) SortKey(id string) string {
 // publication carried them keep the order in which they were published.
 func TraceObservationCoordinateLess(a, b string) bool {
 	return TraceObservationCoordinateOrderKey(a) < TraceObservationCoordinateOrderKey(b)
+}
+
+// TraceObservationIDsInPublicationOrder returns the distinct non-empty ids of one
+// record set, given in that set's own order: publications in order of first
+// appearance, and one publication's rows together in their producer's order.
+func TraceObservationIDsInPublicationOrder(ids []string) []string {
+	var order TraceObservationPublicationOrder
+	keys := make(map[string]string, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, seen := keys[id]; seen {
+			continue
+		}
+		keys[id] = order.SortKey(id)
+		out = append(out, id)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return keys[out[i]] < keys[out[j]] })
+	return out
 }

@@ -82,6 +82,8 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 	all = types.DedupTraceFrequencyLimitAuthorities(all, len(all))
 	ledger := answerDocObservationLedger(ctx)
 	groups := map[string]*answerDocFrequencySourceJoinGroup{}
+	// Groups read in ledger order: their keys hash where the capture was read from.
+	keys := []string{}
 	for _, r := range ledger.Records {
 		if r.Origin != types.AnswerEvidenceOriginRuntimeArtifact || !types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) || r.Predicate != "target_cpu_running" || strings.TrimSpace(r.Subject) == "" {
 			continue
@@ -100,6 +102,7 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 			g = &answerDocFrequencySourceJoinGroup{key: key, subject: strings.TrimSpace(r.Subject), record: r,
 				scope: types.TraceRuntimeAccountRecordScope(r), targets: map[int][]types.ObservationRecord{}, frequencies: map[int]map[int64]bool{}, seen: map[string]bool{}}
 			groups[key] = g
+			keys = append(keys, key)
 		}
 		// Different values/statuses remain independent, even when a producer
 		// reused a record ID. Equal display facts within one complete receipt
@@ -136,11 +139,6 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 		}
 		g.frequencies[cpu][freq] = true
 	}
-	keys := make([]string, 0, len(groups))
-	for key := range groups {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 	// Optional call/capture enrichment may let a source witness match more
 	// than one fully identified ledger group. Preserve that compatibility
 	// for a single consistent result, but never use it to choose among
@@ -224,8 +222,8 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 			// Sort conflicting facts for stable disclosure, never to select a
 			// winner. Every different original measurement is still displayed.
 			sort.SliceStable(targets, func(i, j int) bool {
-				a, _ := json.Marshal(targets[i])
-				b, _ := json.Marshal(targets[j])
+				a, _ := json.Marshal([]any{targets[i].Value, targets[i].Unit, targets[i].Object, targets[i].RichNotes})
+				b, _ := json.Marshal([]any{targets[j].Value, targets[j].Unit, targets[j].Object, targets[j].RichNotes})
 				return string(a) < string(b)
 			})
 			if len(targets) == 0 {

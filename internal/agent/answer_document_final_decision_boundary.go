@@ -919,7 +919,7 @@ func traceFinalDifferentWindowRankedSeats(projection types.TraceCausalProjection
 		if out[i].EffectiveImpactMS != out[j].EffectiveImpactMS {
 			return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
 		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+		return traceDecisionNodeTieBefore(out[i], out[j])
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
@@ -2343,7 +2343,7 @@ func traceFinalFixDirectionLeaderGroups(projection types.TraceCausalProjection, 
 			if group.rows[i].Rank != group.rows[j].Rank {
 				return group.rows[i].Rank < group.rows[j].Rank
 			}
-			return traceDecisionNodeIdentity(group.rows[i]) < traceDecisionNodeIdentity(group.rows[j])
+			return traceDecisionNodeTieBefore(group.rows[i], group.rows[j])
 		})
 		ordered = append(ordered, group.rows...)
 	}
@@ -2447,5 +2447,5 @@ func traceFinalDirectionSeatBefore(candidate, current types.TraceCausalProjectio
 	if candidate.Rank != current.Rank {
 		return candidate.Rank < current.Rank
 	}
-	return traceDecisionNodeIdentity(candidate) < traceDecisionNodeIdentity(current)
+	return traceDecisionNodeTieBefore(candidate, current)
 }

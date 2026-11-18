@@ -97,7 +97,7 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 	for _, key := range keys {
 		candidates := groups[key]
 		byInterval := map[string]traceBlockingWallClockCandidate{}
-		idsByInterval := map[string]map[string]bool{}
+		idsByInterval := map[string][]string{}
 		truncated := false
 		for _, candidate := range candidates {
 			intervalKey := fmt.Sprintf("%.9f\x00%.9f", candidate.startTs, candidate.endTs)
@@ -105,12 +105,7 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 			if !exists || traceBlockingWallClockCandidateRichness(candidate) > traceBlockingWallClockCandidateRichness(existing) {
 				byInterval[intervalKey] = candidate
 			}
-			if idsByInterval[intervalKey] == nil {
-				idsByInterval[intervalKey] = map[string]bool{}
-			}
-			if candidate.recordID != "" {
-				idsByInterval[intervalKey][candidate.recordID] = true
-			}
+			idsByInterval[intervalKey] = append(idsByInterval[intervalKey], candidate.recordID)
 			truncated = truncated || candidate.truncated
 		}
 
@@ -123,10 +118,9 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 				Peer:       candidate.peer,
 				Flags:      candidate.flags,
 			}
-			for id := range idsByInterval[intervalKey] {
-				occurrence.RecordIDs = append(occurrence.RecordIDs, id)
+			if ids := TraceObservationIDsInPublicationOrder(idsByInterval[intervalKey]); len(ids) > 0 {
+				occurrence.RecordIDs = ids
 			}
-			sort.Strings(occurrence.RecordIDs)
 			occurrences = append(occurrences, occurrence)
 		}
 		sort.SliceStable(occurrences, func(i, j int) bool {

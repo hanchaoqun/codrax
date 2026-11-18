@@ -83,7 +83,18 @@ func TestHMC376BusinessAccountsAreIndependentOfCapturePathPublic(t *testing.T) {
 // order, once the locators themselves are masked.
 func TestHMC376FinalizerInstructionIsIndependentOfCapturePathPublic(t *testing.T) {
 	observedAt := regexp.MustCompile(`20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:]+[-+][0-9:]+`)
-	shortDigest := regexp.MustCompile(`[0-9a-f]{8,}`)
+	// A file generation token ends in a sub-second change time of any length,
+	// so the token is masked whole rather than field by field.
+	// A stored result's name is a digest that the row budget may cut short.
+	shortDigest := regexp.MustCompile(`strong:[0-9a-z<>:]+|trace-query-result-[0-9a-f]*|[0-9a-f]{8,}`)
+	// Prompt budgets charge locator bytes. One short root keeps every copy
+	// inside the same budget whatever temporary directory the run was given.
+	root, err := os.MkdirTemp("/tmp", "h376")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Setenv("TMPDIR", root)
 	var first, firstDir string
 	for i := 0; i < 8; i++ {
 		ctx, path := hmc323BusinessBudgetContext(t)

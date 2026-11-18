@@ -152,7 +152,13 @@ func projectNativeDiagramParticipants(blockProps map[string]any, view *types.Ans
 	for id := range lanes {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	// A lane id hashes where the capture was read from; the thread label does not.
+	sort.Slice(ids, func(i, j int) bool {
+		if lanes[ids[i]] != lanes[ids[j]] {
+			return lanes[ids[i]] < lanes[ids[j]]
+		}
+		return ids[i] < ids[j]
+	})
 	var choices []any
 	for _, id := range ids {
 		choices = append(choices, map[string]any{"type": "object", "additionalProperties": false, "required": []string{"node_id", "native_participant"}, "description": fmt.Sprintf("Current observed thread %q. Display choice only, not a business-role mapping or causal permission.", lanes[id]), "properties": map[string]any{

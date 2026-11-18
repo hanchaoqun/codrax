@@ -1026,7 +1026,7 @@ func traceDecisionEvidenceBoundaries(projection types.TraceCausalProjection, lim
 		if out[i].StartTs != out[j].StartTs {
 			return out[i].StartTs < out[j].StartTs
 		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+		return traceDecisionNodeTieBefore(out[i], out[j])
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
@@ -1140,7 +1140,7 @@ func traceDecisionOccupancyRanksBefore(a, b types.TraceCausalProjectionNode) boo
 	if a.ImpactMS != b.ImpactMS {
 		return a.ImpactMS > b.ImpactMS
 	}
-	return traceDecisionNodeIdentity(a) < traceDecisionNodeIdentity(b)
+	return traceDecisionNodeTieBefore(a, b)
 }
 
 // traceDecisionCollapseMeasuredFacts states one native measured state account
@@ -1215,7 +1215,7 @@ func traceDecisionSemanticOptimizationSpans(projection types.TraceCausalProjecti
 		if out[i].ImpactMS != out[j].ImpactMS {
 			return out[i].ImpactMS > out[j].ImpactMS
 		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+		return traceDecisionNodeTieBefore(out[i], out[j])
 	})
 	out = types.TraceCausalProjectionYieldingNodesLast(out)
 	if limit = types.TraceCausalProjectionBoundedSeatLimit(out, limit); limit > 0 && len(out) > limit {
@@ -1399,7 +1399,7 @@ func traceDecisionNonCausalContextRows(projection types.TraceCausalProjection, l
 		if out[i].node.ImpactMS != out[j].node.ImpactMS {
 			return out[i].node.ImpactMS > out[j].node.ImpactMS
 		}
-		return traceDecisionNodeIdentity(out[i].node) < traceDecisionNodeIdentity(out[j].node)
+		return traceDecisionNodeTieBefore(out[i].node, out[j].node)
 	})
 	if limit > 0 && len(out) > limit {
 		kept := append([]traceDecisionContextRow(nil), out[:limit]...)
@@ -1448,6 +1448,14 @@ func traceDecisionBusinessSpanCandidates(in []types.TraceCausalProjectionBusines
 		out = out[:limit]
 	}
 	return out
+}
+
+// traceDecisionNodeTieBefore breaks a tie between two equally placed rows. An
+// evidence id names a publication and hashes where the capture was read from, so
+// only its in-publication part may order rows. Rows still tied keep publication
+// order under the callers' stable sorts.
+func traceDecisionNodeTieBefore(a, b types.TraceCausalProjectionNode) bool {
+	return types.TraceObservationCoordinateLess(traceDecisionNodeIdentity(a), traceDecisionNodeIdentity(b))
 }
 
 func traceDecisionNodeIdentity(node types.TraceCausalProjectionNode) string {

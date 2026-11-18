@@ -110,7 +110,7 @@ func traceFinalRankDisplayGroups(projection types.TraceCausalProjection, populat
 			if key == "" {
 				// Sorting for bounded display grants no shared identity. The
 				// original selector already owns exact row deduplication.
-				key = "\xff" + traceDecisionNodeIdentity(node)
+				key = "\xff" + types.TraceObservationCoordinateOrderKey(traceDecisionNodeIdentity(node))
 			} else {
 				byKey[key] = index
 			}

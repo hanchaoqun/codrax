@@ -74,15 +74,13 @@ func BuildTraceValueOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 	for _, key := range keys {
 		candidates := groups[key]
 		intervals := map[string]traceValueOccurrenceCandidate{}
-		recordIDs := map[string]bool{}
+		recordIDs := make([]string, 0, len(candidates))
 		for _, candidate := range candidates {
 			intervalKey := fmt.Sprintf("%.9f\x00%.9f", candidate.startTs, candidate.endTs)
 			if _, exists := intervals[intervalKey]; !exists {
 				intervals[intervalKey] = candidate
 			}
-			if id := strings.TrimSpace(candidate.recordID); id != "" {
-				recordIDs[id] = true
-			}
+			recordIDs = append(recordIDs, candidate.recordID)
 		}
 		base := candidates[0]
 		authority := TraceValueOccurrenceAuthority{
@@ -92,10 +90,9 @@ func BuildTraceValueOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 			ValueMS:       base.valueMS,
 			OccurrenceN:   len(intervals),
 		}
-		for id := range recordIDs {
-			authority.RecordIDs = append(authority.RecordIDs, id)
+		if ids := TraceObservationIDsInPublicationOrder(recordIDs); len(ids) > 0 {
+			authority.RecordIDs = ids
 		}
-		sort.Strings(authority.RecordIDs)
 		if len(intervals) == 1 {
 			authority.Status = "exact"
 			for _, candidate := range intervals {

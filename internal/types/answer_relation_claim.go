@@ -283,7 +283,7 @@ func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit 
 		if seats[i].EffectiveImpactMS != seats[j].EffectiveImpactMS {
 			return seats[i].EffectiveImpactMS > seats[j].EffectiveImpactMS
 		}
-		return traceAnswerDecisionNodeIdentity(seats[i]) < traceAnswerDecisionNodeIdentity(seats[j])
+		return TraceObservationCoordinateLess(traceAnswerDecisionNodeIdentity(seats[i]), traceAnswerDecisionNodeIdentity(seats[j]))
 	})
 	if limit > 0 && len(seats) > limit {
 		seats = seats[:limit]
