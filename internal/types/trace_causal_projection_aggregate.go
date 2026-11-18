@@ -1694,6 +1694,9 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		if TraceCausalProjectionOccurrenceDomainsConflict(members) {
 			continue
 		}
+		if traceCausalProjectionSpanMembersNest(members) {
+			continue
+		}
 		if len(g.members) < traceCausalProjectionSameKindAggregateMin {
 			// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane
 			// same-window mirror PAIR merges below the ≥3 economy threshold —
@@ -3057,4 +3060,31 @@ func traceCausalProjectionResortAfterAggregation(out *TraceCausalProjection) {
 	// individual rows).
 	out.AdjacentCauses = traceCausalProjectionSortContextBucket(out.AdjacentCauses, pathIndex)
 	out.BackgroundCauses = traceCausalProjectionSortContextBucket(out.BackgroundCauses, pathIndex)
+}
+
+// traceCausalProjectionSpanMembersNest reports trace-span rows of one thread,
+// read from one query window, whose recorded intervals overlap without being the
+// same interval. A phase inside its collection is not a repeated occurrence of
+// it, so such rows stay separate and their durations never add up. Copies of one
+// interval and rows of different query windows keep their own merge rules.
+func traceCausalProjectionSpanMembersNest(members []TraceCausalProjectionNode) bool {
+	for _, member := range members {
+		if traceCausalProjectionCanonicalNode(member.Object) != "trace_span" {
+			return false
+		}
+	}
+	for i, a := range members {
+		for _, b := range members[i+1:] {
+			if a.QueryWindowStartTs != b.QueryWindowStartTs || a.QueryWindowEndTs != b.QueryWindowEndTs {
+				continue
+			}
+			if a.StartTs == b.StartTs && a.EndTs == b.EndTs {
+				continue
+			}
+			if a.StartTs < b.EndTs && b.StartTs < a.EndTs {
+				return true
+			}
+		}
+	}
+	return false
 }
