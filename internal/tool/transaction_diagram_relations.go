@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"path/filepath"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -72,12 +72,11 @@ func (p transactionDiagramRelationProvider) Relations(ledger types.ObservationLe
 			if f.Window.EndInclusive {
 				right = "]"
 			}
-			out = append(out, RuntimeDiagramRelation{Kind: types.DiagramRelObserve, FromIdentity: from, ToIdentity: to, FromNode: runtimeDiagramNode(from), ToNode: runtimeDiagramNode(to), FromLabel: label(s, "应用提交"), ToLabel: label(c, "服务消费"), ScopeLabel: fmt.Sprintf("仅已发布记录内协议键[tid=%d, seq=%s]对应；不证明整帧/等待/根因；查询=[%.9f,%.9f%s秒", h.TID, h.Sequence, f.Window.StartTs, f.Window.EndTs, right), SupportRefs: []string{fmt.Sprintf("%s:%d", s.SourcePath, s.SourceLine), fmt.Sprintf("%s:%d", c.SourcePath, c.SourceLine)}})
+			out = append(out, RuntimeDiagramRelation{Kind: types.DiagramRelObserve, FromIdentity: from, ToIdentity: to, FromNode: runtimeDiagramNode(from), ToNode: runtimeDiagramNode(to), FromLabel: label(s, "应用提交"), ToLabel: label(c, "服务消费"), ScopeLabel: fmt.Sprintf("仅已发布记录内协议键[tid=%d, seq=%s]对应；不证明整帧/等待/根因；查询=[%.9f,%.9f%s秒", h.TID, h.Sequence, f.Window.StartTs, f.Window.EndTs, right), SupportRefs: []string{fmt.Sprintf("%s:%d", s.SourcePath, s.SourceLine), fmt.Sprintf("%s:%d", c.SourcePath, c.SourceLine)},
+				displayOrder: runtimeDiagramDisplayOrder(filepath.Base(s.SourcePath), f.Window.StartTs, f.Window.EndTs, s.Ts, c.Ts, s.TID, c.TID, h.TID, h.Sequence)})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].FromIdentity+out[i].ToIdentity < out[j].FromIdentity+out[j].ToIdentity
-	})
+	sortRuntimeDiagramRelations(out)
 	return out
 }
 

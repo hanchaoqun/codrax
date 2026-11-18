@@ -1193,6 +1193,14 @@ type TraceCausalProjectionNode struct {
 	// recompiled from records and never restored from JSON; never a rank,
 	// seat, value or causal input.
 	SameFactRankBoards []TraceSameFactRankBoard `json:"-"`
+	// RankBoardPartAccounts (HMC376): on a ×N row whose members were published
+	// by different rank boards, what each board that published only SOME of the
+	// members accounts for on its own (TraceRankBoardPartAccount). The row value
+	// is the merge over all members and is no single board's account. Read it
+	// through PublishedRankBoardParts (entries are self-checked against the
+	// row's current value). In-process display membership only, same contract
+	// as SameFactRankBoards.
+	RankBoardPartAccounts []TraceRankBoardPartAccount `json:"-"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
 	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —
 	// the actual channel travels verbatim from it and is never re-derived).
@@ -6173,6 +6181,8 @@ func traceCausalProjectionAbsorbSemanticPhysicalEvidence(survivor *TraceCausalPr
 	if survivor.LineStart <= 0 && loser.LineStart > 0 {
 		survivor.LineStart, survivor.LineEnd = loser.LineStart, loser.LineEnd
 	}
+	// HMC376: one physical span published by two boards stays on both accounts.
+	traceCausalProjectionAbsorbSameFactRankBoards(survivor, loser)
 }
 
 func traceCausalProjectionSemanticAliasPublicationKey(node TraceCausalProjectionNode) string {

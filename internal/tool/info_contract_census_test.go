@@ -300,6 +300,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// through the self-checking accessor by the per-board symptom
 	// denominator election.
 	"SameFactRankBoards": {Status: "internal_gate", Token: "CoPublishedRankBoards", Ref: "HMC376 同事实跨板并入的板成员资格:A2 分母按板选举;非排名/席位/值权威"},
+	// HMC376: each board's own part of a ×N row whose members several boards
+	// published; the per-board account faces read it instead of the row total.
+	"RankBoardPartAccounts": {Status: "internal_gate", Token: "PublishedRankBoardParts", Ref: "HMC376 跨板 ×N 合并行的逐板分账:A2 分母/同板Σ/周期节拍;非排名/席位/值权威"},
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// ⚠/超出发生段/区间未发布 word-face containment judge (never printed raw).
 	"ActualWindowStartTs":   {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},

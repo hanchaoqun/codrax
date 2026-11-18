@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -24,6 +25,10 @@ type RuntimeDiagramRelation struct {
 	// Soft presentation sampling only. Neither field participates in proof,
 	// endpoint recovery, or alias ownership. Empty keys keep the row distinct.
 	presentationKey, presentationQuery string
+	// displayOrder is what the provider measured, in reading order. The
+	// identities hash the capture path and payload reference, so they may break
+	// a tie between rows that read the same but never set the order of others.
+	displayOrder string
 	// Native point-event ordering is separate from relation proof. Only a
 	// provider-validated event may populate this private carrier.
 	eventOrder                 *runtimeDiagramEventOrder
@@ -129,12 +134,26 @@ func (provider businessTreeDiagramRelationProvider) Relations(ledger types.Obser
 				runtimeBusinessStartLabel(parent.record, parent.fact), runtimeBusinessStartLabel(child.record, child.fact)),
 			SupportRefs:       append(append([]string(nil), parent.record.SupportRefs...), child.record.SupportRefs...),
 			businessEndpoints: endpoints,
+			displayOrder: runtimeDiagramDisplayOrder(filepath.Base(n.SourcePath), child.fact.Window.StartTs, child.fact.Window.EndTs,
+				n.Thread.PID, p.StartLine, n.StartLine, p.Name, n.Name),
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].FromIdentity+out[i].ToIdentity < out[j].FromIdentity+out[j].ToIdentity
-	})
+	sortRuntimeDiagramRelations(out)
 	return out
+}
+
+func runtimeDiagramDisplayOrder(fields ...any) string {
+	data, _ := json.Marshal(fields)
+	return string(data)
+}
+
+func sortRuntimeDiagramRelations(rows []RuntimeDiagramRelation) {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].displayOrder != rows[j].displayOrder {
+			return rows[i].displayOrder < rows[j].displayOrder
+		}
+		return rows[i].FromIdentity+rows[i].ToIdentity < rows[j].FromIdentity+rows[j].ToIdentity
+	})
 }
 
 // SupportRefs already use physical source-local coordinates. Never display a

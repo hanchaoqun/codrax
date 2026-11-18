@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -56,10 +57,29 @@ func traceSameFactRankBoardOf(node TraceCausalProjectionNode) (TraceSameFactRank
 	}, true
 }
 
+// window is the query window that names the board: the publication's own, else
+// the pair a merge preserved for its rank ordinal (the board-chip rule).
+func (board TraceSameFactRankBoard) window() (float64, float64, bool) {
+	if TraceCausalProjectionWindowPresent(board.QueryWindowStartTs, board.QueryWindowEndTs) {
+		return board.QueryWindowStartTs, board.QueryWindowEndTs, true
+	}
+	if TraceCausalProjectionWindowPresent(board.RankQueryWindowStartTs, board.RankQueryWindowEndTs) {
+		return board.RankQueryWindowStartTs, board.RankQueryWindowEndTs, true
+	}
+	return 0, 0, false
+}
+
 func (board TraceSameFactRankBoard) sameBoard(other TraceSameFactRankBoard) bool {
-	return board.Target == other.Target && board.ParamsFingerprint == other.ParamsFingerprint &&
-		board.QueryWindowStartTs == other.QueryWindowStartTs && board.QueryWindowEndTs == other.QueryWindowEndTs &&
-		board.RankQueryWindowStartTs == other.RankQueryWindowStartTs && board.RankQueryWindowEndTs == other.RankQueryWindowEndTs
+	if board.Target != other.Target || board.ParamsFingerprint != other.ParamsFingerprint {
+		return false
+	}
+	start, end, ok := board.window()
+	otherStart, otherEnd, otherOK := other.window()
+	if ok != otherOK {
+		return false
+	}
+	return !ok || (math.Abs(start-otherStart) <= TraceCausalProjectionSameWindowToleranceS &&
+		math.Abs(end-otherEnd) <= TraceCausalProjectionSameWindowToleranceS)
 }
 
 // CoPublishedRankBoards returns the rank boards recorded as publishers of the
@@ -163,4 +183,186 @@ func traceCausalProjectionMergedSameFactRankBoards(nodes []TraceCausalProjection
 		out = append(out, board)
 	}
 	return out
+}
+
+// TraceRankBoardPartAccount is one board's own part of a ×N row whose members
+// were published by different rank boards.
+//
+// The same-kind merge groups by subject and object, not by board, so two boards
+// that each measured one wait at their own threshold fold into one row whose
+// value adds both measurements. That total is what the row displays, but it is
+// what no board published: an account per board has to read each board's own
+// part. The part is the same merge restricted to the members that board
+// published, so it equals what the board would have displayed by itself.
+//
+// An entry with an empty Target is the part no named board claims (members
+// without a rank board): it belongs to every board's account, like any other
+// identity-less row.
+type TraceRankBoardPartAccount struct {
+	TraceSameFactRankBoard
+	CumulativeMS float64
+	EffectiveMS  float64
+	// RowMS is the merged row value this split speaks for. A later change of
+	// the row's value retires the entry.
+	RowMS float64
+}
+
+// PublishedRankBoardParts returns the per-board parts recorded for the value
+// this row currently displays.
+func (n TraceCausalProjectionNode) PublishedRankBoardParts() []TraceRankBoardPartAccount {
+	if len(n.RankBoardPartAccounts) == 0 || n.ImpactMS <= 0 {
+		return nil
+	}
+	account := traceSameFactAccountKey(n.ImpactMS)
+	var out []TraceRankBoardPartAccount
+	for _, part := range n.RankBoardPartAccounts {
+		if traceSameFactAccountKey(part.RowMS) == account {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// traceRankBoardMemberPart is what one board published of one merge member. The
+// member's own value when the board published the member whole, its recorded
+// part when the member is itself a cross-board merge.
+func traceRankBoardMemberPart(member TraceCausalProjectionNode, board TraceSameFactRankBoard) (TraceCausalProjectionNode, bool) {
+	parts := member.PublishedRankBoardParts()
+	unclaimed := -1
+	for i, part := range parts {
+		if strings.TrimSpace(part.Target) == "" {
+			unclaimed = i
+			continue
+		}
+		if part.sameBoard(board) {
+			return traceRankBoardMemberWithAccount(member, part), true
+		}
+	}
+	if own, ok := traceSameFactRankBoardOf(member); ok && own.sameBoard(board) {
+		return member, true
+	}
+	for _, other := range member.CoPublishedRankBoards() {
+		if other.sameBoard(board) {
+			return member, true
+		}
+	}
+	if unclaimed >= 0 {
+		return traceRankBoardMemberWithAccount(member, parts[unclaimed]), true
+	}
+	if _, named := traceSameFactRankBoardOf(member); !named {
+		return member, true // identity-less: never provably another board's
+	}
+	return TraceCausalProjectionNode{}, false
+}
+
+func traceRankBoardMemberWithAccount(member TraceCausalProjectionNode, part TraceRankBoardPartAccount) TraceCausalProjectionNode {
+	member.ImpactMS = part.AccountMS
+	member.CumulativeImpactMS = part.CumulativeMS
+	member.EffectiveImpactMS = part.EffectiveMS
+	return member
+}
+
+// traceCausalProjectionMergedRankBoardParts splits a merged ×N row into each
+// board's own part. Nil when every named board published every member: the row
+// value is then every publisher's account, as it always was.
+func traceCausalProjectionMergedRankBoardParts(nodes []TraceCausalProjectionNode, members []int, backgroundLane bool, merged TraceCausalProjectionNode) []TraceRankBoardPartAccount {
+	if len(members) < 2 || merged.ImpactMS <= 0 {
+		return nil
+	}
+	var boards []TraceSameFactRankBoard
+	addBoard := func(board TraceSameFactRankBoard) {
+		if strings.TrimSpace(board.Target) == "" {
+			return
+		}
+		for _, known := range boards {
+			if known.sameBoard(board) {
+				return
+			}
+		}
+		boards = append(boards, board)
+	}
+	unnamedMember := false
+	for _, idx := range members {
+		member := nodes[idx]
+		own, named := traceSameFactRankBoardOf(member)
+		if named {
+			addBoard(own)
+		} else {
+			unnamedMember = true
+		}
+		for _, board := range member.CoPublishedRankBoards() {
+			addBoard(board)
+		}
+		for _, part := range member.PublishedRankBoardParts() {
+			if strings.TrimSpace(part.Target) == "" {
+				unnamedMember = true
+			}
+			addBoard(part.TraceSameFactRankBoard)
+		}
+	}
+	if len(boards) == 0 {
+		return nil
+	}
+	// One restricted merge: the members this board published, through the same
+	// value calibers as the whole row.
+	partOf := func(board TraceSameFactRankBoard, selected []TraceCausalProjectionNode) (TraceRankBoardPartAccount, bool) {
+		if len(selected) == 0 {
+			return TraceRankBoardPartAccount{}, false
+		}
+		value := selected[0]
+		if len(selected) > 1 {
+			indices := make([]int, len(selected))
+			for i := range selected {
+				indices[i] = i
+			}
+			value = traceCausalProjectionMergeSameKindMemberValues(selected, 0, indices, backgroundLane)
+		}
+		board.AccountMS = value.ImpactMS
+		if board.AccountMS <= 0 {
+			board.AccountMS = value.CumulativeImpactMS
+		}
+		if board.AccountMS <= 0 {
+			return TraceRankBoardPartAccount{}, false
+		}
+		return TraceRankBoardPartAccount{TraceSameFactRankBoard: board, CumulativeMS: value.CumulativeImpactMS,
+			EffectiveMS: value.EffectiveImpactMS, RowMS: merged.ImpactMS}, true
+	}
+	var parts []TraceRankBoardPartAccount
+	split := false
+	for _, board := range boards {
+		var selected []TraceCausalProjectionNode
+		for _, idx := range members {
+			if member, ok := traceRankBoardMemberPart(nodes[idx], board); ok {
+				selected = append(selected, member)
+			}
+		}
+		split = split || len(selected) != len(members)
+		if part, ok := partOf(board, selected); ok {
+			parts = append(parts, part)
+		}
+	}
+	if unnamedMember {
+		var selected []TraceCausalProjectionNode
+		for _, idx := range members {
+			member := nodes[idx]
+			if _, named := traceSameFactRankBoardOf(member); !named {
+				selected = append(selected, member)
+				continue
+			}
+			for _, part := range member.PublishedRankBoardParts() {
+				if strings.TrimSpace(part.Target) == "" {
+					selected = append(selected, traceRankBoardMemberWithAccount(member, part))
+					break
+				}
+			}
+		}
+		if part, ok := partOf(TraceSameFactRankBoard{}, selected); ok {
+			parts = append(parts, part)
+			split = true
+		}
+	}
+	if !split {
+		return nil
+	}
+	return parts
 }

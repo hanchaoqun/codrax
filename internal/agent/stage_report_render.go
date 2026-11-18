@@ -96,7 +96,8 @@ func renderExplorerStageReportWithFlowCoverage(
 ) string {
 	var b strings.Builder
 
-	externalObservations := externalObservationsForStageReport(observations)
+	ledgerOrderedExternal := externalObservationsForStageReport(observations)
+	externalObservations := externalObservationsInReportOrder(ledgerOrderedExternal)
 
 	b.WriteString("## Investigation Summary\n")
 	fmt.Fprintf(&b, "- question_kind: %s\n", emptyAsDash(questionKind))
@@ -152,7 +153,7 @@ func renderExplorerStageReportWithFlowCoverage(
 		b.WriteString("## External Observations\n")
 		b.WriteString("These facts came from runtime/MCP/external observation lanes, not current-source citations. " +
 			"`evidence_items: 0` only means no current-source EvidenceItem rows were emitted; it does not erase these external observations.\n\n")
-		if coverage := renderTraceObservationCoverageForStageReport(types.TraceObservationCoverageFromObservationRecords(externalObservations)); coverage != "" {
+		if coverage := renderTraceObservationCoverageForStageReport(types.TraceObservationCoverageFromObservationRecords(ledgerOrderedExternal)); coverage != "" {
 			b.WriteString(coverage)
 		}
 		const topN = 10
@@ -525,12 +526,20 @@ func externalObservationsForStageReport(records []types.ObservationRecord) []typ
 		}
 		out = append(out, record)
 	}
+	return out
+}
+
+// externalObservationsInReportOrder is the display order of the section: by
+// source line, then by the coordinate's order key (its publication digest
+// follows the capture path, not the capture content). Ties keep ledger order.
+func externalObservationsInReportOrder(records []types.ObservationRecord) []types.ObservationRecord {
+	out := append([]types.ObservationRecord(nil), records...)
 	sort.SliceStable(out, func(i, j int) bool {
 		li, lj := observationLineKey(out[i]), observationLineKey(out[j])
 		if li != lj {
 			return li < lj
 		}
-		return out[i].ID < out[j].ID
+		return types.TraceObservationCoordinateLess(out[i].ID, out[j].ID)
 	})
 	return out
 }

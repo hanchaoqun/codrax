@@ -1,6 +1,7 @@
 package tracefinding
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -66,5 +67,47 @@ func TestCompileCandidateContractKeepsContextOutOfPrimaryRoster(t *testing.T) {
 func TestCandidateCausalityUnprovenNeverDefaultsToProven(t *testing.T) {
 	if candidateCausalityExplicitlyProven("unproven") {
 		t.Fatal("unproven must not be matched as proven")
+	}
+}
+
+// Candidates that share a rank are ordered by what the trace says about them.
+// The candidate id hashes the artifact path and the evidence coordinates, so a
+// directory or a digest must never decide the order, and with it the scope the
+// contract takes from its first candidate.
+func TestCompileCandidateContractSameRankOrderIgnoresLocationIdentity(t *testing.T) {
+	digestA, digestB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	compile := func(artifactPath, strongDigest, weakDigest string) *types.TraceFindingContract {
+		t.Helper()
+		strong, weak := "trace_query:publication-"+strongDigest+"#root_cause_rank:1", "trace_query:publication-"+weakDigest+"#root_cause_rank:2"
+		ledger := types.ObservationLedger{Records: []types.ObservationRecord{{ID: strong}, {ID: weak}}}
+		set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+			ArtifactPath: artifactPath, ArtifactLabel: "capture.systrace",
+			RankedSeats: []types.TraceCausalProjectionNode{
+				{EvidenceID: weak, Subject: "worker-2", TypeToken: "scheduler_latency", Rank: 2, ImpactMS: 6, ChainRelevance: "on_chain"},
+				{EvidenceID: strong, Subject: "worker-1", TypeToken: "scheduler_latency", Rank: 2, ImpactMS: 8, ChainRelevance: "on_chain", ChainDepth: 1},
+			},
+		}}}
+		contract, err := CompileCandidateContract(ledger, set, SeatFrameCausalityAuthority{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contract
+	}
+	for _, tc := range []struct{ path, strong, weak string }{
+		{"/a/capture.systrace", digestA, digestB},
+		{"/a/capture.systrace", digestB, digestA},
+		{"/zz/other/dir/capture.systrace", digestA, digestB},
+		{"/zz/other/dir/capture.systrace", digestB, digestA},
+	} {
+		contract := compile(tc.path, tc.strong, tc.weak)
+		if len(contract.Candidates) != 2 {
+			t.Fatalf("%s: control: both seats must compile, got %d", tc.path, len(contract.Candidates))
+		}
+		if first := contract.Candidates[0].Decision; first.SubjectName != "worker-1" || first.Magnitude.Value != 8 {
+			t.Fatalf("%s: the larger account leads a shared rank, got %s %.3f", tc.path, first.SubjectName, first.Magnitude.Value)
+		}
+		if contract.Scope.Phase != "pre_wakeup_dependency" {
+			t.Fatalf("%s: the scope comes from the leading candidate, got %q", tc.path, contract.Scope.Phase)
+		}
 	}
 }

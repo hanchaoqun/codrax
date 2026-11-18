@@ -255,6 +255,9 @@ func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
 			sem.EffectiveImpactMS = donor.EffectiveImpactMS
 			sem.EffectiveImpactPublished = sem.EffectiveImpactPublished || donor.EffectiveImpactPublished
 		}
+		// HMC376: the semantic bucket keeps its own copy of the row; the boards
+		// that published this span travel with the seat it adopted.
+		traceCausalProjectionAbsorbSameFactRankBoards(sem, *donor)
 	}
 }
 
@@ -1033,6 +1036,8 @@ func traceCausalProjectionAbsorbPeerAlias(named *TraceCausalProjectionNode, pidV
 	for _, id := range pidVariant.MergedEvidenceIDs {
 		appendID(id)
 	}
+	// HMC376: same membership rule as the same-fact absorb.
+	traceCausalProjectionAbsorbSameFactRankBoards(named, pidVariant)
 }
 
 // --- V4: duplicate-publication dedup (pre-R2) ---------------------------------
@@ -1321,6 +1326,10 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 	traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, original.IOValueCaliber, survivor.EffectiveImpactMS)
 	traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, original.IOValueCaliber, survivor.ActualImpactMS)
 	survivor.IOValueCaliber = caliber
+	// HMC376: same membership rule as the same-fact absorb. Only a publication
+	// of the survivor's exact value joins, so the near lane (which re-values
+	// the row) stays out.
+	traceCausalProjectionAbsorbSameFactRankBoards(survivor, dup)
 }
 
 // --- WO-G2: zero-value instant-marker fold ----------------------------------
@@ -1742,6 +1751,18 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 // 复核 F-B same-window cross-record mirror caliber; false is byte-identical
 // to the legacy form (the tree-side occurrence merge and every other bucket).
 func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
+	aggregate := traceCausalProjectionMergeSameKindMemberValues(nodes, first, members, backgroundLane)
+	// HMC376: a board published the merged account only when it published
+	// every member; a board that published some members keeps its own part.
+	aggregate.SameFactRankBoards = traceCausalProjectionMergedSameFactRankBoards(nodes, members, aggregate.ImpactMS)
+	aggregate.RankBoardPartAccounts = traceCausalProjectionMergedRankBoardParts(nodes, members, backgroundLane, aggregate)
+	return aggregate
+}
+
+// traceCausalProjectionMergeSameKindMemberValues is the merge body without the
+// per-board rosters, so one board's own part of a merge can run through exactly
+// the same value calibers.
+func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
 	coverIndex, covered := traceCausalProjectionCompleteStateCover(nodes, members)
 	if covered {
 		// The complete census also owns the surviving summary and state
@@ -2283,10 +2304,9 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, targetIOCaliber, aggregate.TargetImpactMS)
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, effectiveIOCaliber, aggregate.EffectiveImpactMS)
 	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, nodes[first].IOValueCaliber, aggregate.ActualImpactMS)
-	// HMC376: the merged row never inherits the seed member's other-board
-	// membership as it stands — a board published the merged account only
-	// when it published every member.
-	aggregate.SameFactRankBoards = traceCausalProjectionMergedSameFactRankBoards(nodes, members, aggregate.ImpactMS)
+	// The seed member's per-board rosters never speak for the merged row.
+	aggregate.SameFactRankBoards = nil
+	aggregate.RankBoardPartAccounts = nil
 	return aggregate
 }
 

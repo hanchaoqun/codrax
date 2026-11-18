@@ -251,6 +251,8 @@ func traceCausalProjectionOneSeatAbsorbEvidence(out *TraceCausalProjection, keep
 			if node.StateKind == "" && stateWord != "" {
 				node.StateKind = stateWord
 			}
+			// HMC376: same membership rule as the same-fact absorb.
+			traceCausalProjectionAbsorbSameFactRankBoards(node, loser)
 		}
 	}
 }
@@ -797,6 +799,8 @@ func traceCausalProjectionOneSeatAbsorbMergedTwin(out *TraceCausalProjection, ke
 			for _, id := range loser.MergedEvidenceIDs {
 				appendID(id)
 			}
+			// HMC376: same membership rule as the same-fact absorb.
+			traceCausalProjectionAbsorbSameFactRankBoards(node, loser)
 			// V4 disclosure lane: the seat was published twice (existing
 			// typed channel, zero new words).
 			if node.DuplicatePublications < 1 {

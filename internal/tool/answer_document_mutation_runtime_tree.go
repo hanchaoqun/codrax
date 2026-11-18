@@ -4582,10 +4582,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// board and stays byte-identical.
 	if model.WindowMS > 0 {
 		seats, boardIDs := runtimeTraceProjSigmaFaceSeats(&model)
-		sums := map[string]float64{}
-		for _, row := range seats {
-			sums[boardIDs[row]] += row.Node.EffectiveImpactMS
-		}
+		sums := runtimeTraceProjBoardEffectiveSums(seats, boardIDs)
 		for _, sum := range sums {
 			if sum > model.WindowMS && sum > model.RankBoardEffSumMS {
 				model.RankBoardEffSumMS = sum
@@ -4643,13 +4640,17 @@ func runtimeTraceProjSigmaFaceSeats(model *runtimeTraceProjTreeModel) ([]*runtim
 // reports (multi=false) keep every legacy consumer byte-identical: the scope
 // only ever bites on multi-board fusions.
 type runtimeTraceProjCoverageBoardScope struct {
-	multi     bool
-	subjectOK bool
-	target    string
-	fp        string
-	winStart  float64
-	winEnd    float64
-	winOK     bool
+	multi bool
+	// publishedMulti: the seats were published by ≥2 boards, counting boards
+	// whose publications were folded into a row wearing another board. Which
+	// board a shared seat wears follows the query order; this does not.
+	publishedMulti bool
+	subjectOK      bool
+	target         string
+	fp             string
+	winStart       float64
+	winEnd         float64
+	winOK          bool
 }
 
 // rowOnSubjectBoard reports whether a node PROVABLY sits on the subject
@@ -4679,6 +4680,16 @@ func (scope runtimeTraceProjCoverageBoardScope) rowOnSubjectBoard(node types.Tra
 	return true
 }
 
+// subjectBoardAccount reads the subject board's own account of a row; ok=false
+// when the row cannot prove the subject board published any of it.
+func (scope runtimeTraceProjCoverageBoardScope) subjectBoardAccount(node types.TraceCausalProjectionNode) (runtimeTraceProjBoardRowAccount, bool) {
+	if !scope.subjectOK {
+		return runtimeTraceProjBoardRowAccount{}, false
+	}
+	ref := runtimeTraceProjRankBoardRef{target: scope.target, fp: scope.fp, winStart: scope.winStart, winEnd: scope.winEnd, winOK: scope.winOK}
+	return runtimeTraceProjRowBoardAccount(node, ref, scope.rowOnSubjectBoard(node))
+}
+
 // adoptBoardOf stamps the subject board components from a carrier node.
 func (scope *runtimeTraceProjCoverageBoardScope) adoptBoardOf(node types.TraceCausalProjectionNode) {
 	scope.target = strings.TrimSpace(node.RankBoardTarget)
@@ -4693,8 +4704,9 @@ func runtimeTraceProjCoverageBoardScopeFor(model runtimeTraceProjTreeModel) runt
 	for _, row := range seats {
 		distinct[boardIDs[row]] = true
 	}
-	scope := runtimeTraceProjCoverageBoardScope{multi: len(distinct) >= 2}
-	if !scope.multi {
+	roster, _ := runtimeTraceProjPublishedBoardRoster(seats, boardIDs)
+	scope := runtimeTraceProjCoverageBoardScope{multi: len(distinct) >= 2, publishedMulti: len(roster) >= 2}
+	if !scope.multi && !scope.publishedMulti {
 		return scope
 	}
 	// The A2 denominator board first: the coverage sentence's subject IS the
@@ -17744,8 +17756,8 @@ func runtimeTraceProjSymptomBoardGroups(model runtimeTraceProjTreeModel) (map[in
 }
 
 func runtimeTraceProjSymptomBoardGroupsWithEligibility(model runtimeTraceProjTreeModel, measurementEligible []bool) (map[int]bool, int) {
-	excluded, carrier, _, _ := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
-	return excluded, carrier
+	vote := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
+	return vote.excluded, vote.carrier
 }
 
 // runtimeTraceProjSymptomBoardExclusions is the admission-facing half of the
@@ -17762,15 +17774,15 @@ func runtimeTraceProjSymptomBoardExclusions(model runtimeTraceProjTreeModel) map
 // (pure identity-less shapes).
 func runtimeTraceProjSymptomDenominatorBoard(model runtimeTraceProjTreeModel) (types.TraceCausalProjectionNode, bool) {
 	measurementEligible, _ := runtimeTraceProjWaitMeasurementEligibility(model)
-	_, carrier, winner, ok := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
-	if !ok || carrier < 0 {
+	vote := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
+	if !vote.named || vote.carrier < 0 {
 		return types.TraceCausalProjectionNode{}, false
 	}
 	// HMC376: winner is the carrier row's own node whenever a candidate row
 	// wears the winning board (the legacy return). When the winning board is
 	// known only through folded publications, it is a bare node with that
 	// board's components — never the identity the carrier row happens to wear.
-	return winner, true
+	return vote.winner, true
 }
 
 func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (float64, []bool, int, float64) {
@@ -17795,7 +17807,8 @@ func runtimeTraceProjTargetSymptomAdmissionWithEligibility(model runtimeTracePro
 	// legacy and single-step shapes are byte-identical). The excluded rows
 	// flow into the C-3 census as 未计入分母 members through the admitted
 	// flags, and their values stay untouched on their own rendered rows.
-	boardExcluded, _ := runtimeTraceProjSymptomBoardGroupsWithEligibility(model, measurementEligible)
+	vote := runtimeTraceProjSymptomBoardElection(model, measurementEligible)
+	boardExcluded := vote.excluded
 	for i, row := range model.SelfRows {
 		if boardExcluded[i] || (measurementEligible != nil && !measurementEligible[i]) {
 			continue // A2: another board's account — never summed into this denominator
@@ -17818,7 +17831,13 @@ func runtimeTraceProjTargetSymptomAdmissionWithEligibility(model runtimeTracePro
 			continue // running/stateless rows are not wait symptom time
 		}
 		if row.Node.ImpactMS > 0 {
-			total += row.Node.ImpactMS
+			// HMC376: a merge across boards counts for the winning board's
+			// own part only; the row value adds what other boards measured.
+			value := row.Node.ImpactMS
+			if part, split := vote.parts[i]; split {
+				value = part
+			}
+			total += value
 			admitted[i] = true
 			if row.Node.IsSleepState() {
 				sleepStateAdmitted = true
@@ -18456,14 +18475,23 @@ func runtimeTraceProjPeriodicCadenceMS(model runtimeTraceProjTreeModel) float64 
 		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData || !row.Node.PeriodicSource {
 			continue
 		}
-		if scope.multi && !scope.rowOnSubjectBoard(row.Node) {
-			continue
-		}
-		raw := row.Node.CumulativeImpactMS
+		raw, effective := row.Node.CumulativeImpactMS, row.Node.EffectiveImpactMS
 		if raw <= 0 {
 			raw = runtimeTraceProjNodeDisplayImpact(row.Node)
 		}
-		if d := raw - row.Node.EffectiveImpactMS; d > 0 {
+		if scope.publishedMulti {
+			account, ok := scope.subjectBoardAccount(row.Node)
+			if !ok {
+				continue
+			}
+			if account.cumulativeMS > 0 {
+				raw = account.cumulativeMS
+			} else if account.impactMS != row.Node.ImpactMS {
+				raw = account.impactMS
+			}
+			effective = account.effectiveMS
+		}
+		if d := raw - effective; d > 0 {
 			total += d
 		}
 	}

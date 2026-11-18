@@ -87,11 +87,7 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	contract.PrimaryCandidateIDs = sortedUnique(contract.PrimaryCandidateIDs)
 	contract.ContributorCandidateIDs = sortedUnique(contract.ContributorCandidateIDs)
 	sort.SliceStable(contract.Candidates, func(i, j int) bool {
-		a, b := contract.Candidates[i].Decision, contract.Candidates[j].Decision
-		if a.Rank != b.Rank {
-			return rankSortValue(a.Rank) < rankSortValue(b.Rank)
-		}
-		return a.CandidateID < b.CandidateID
+		return candidateDecisionLess(contract.Candidates[i].Decision, contract.Candidates[j].Decision)
 	})
 	if len(contract.Candidates) > 0 {
 		first := contract.Candidates[0].Decision
@@ -371,6 +367,56 @@ func candidateID(projection types.TraceCausalProjection, node types.TraceCausalP
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return "candidate-" + hex.EncodeToString(sum[:16])
+}
+
+// candidateDecisionLess orders candidates by what the trace says about them.
+// The candidate id hashes the artifact path and the evidence coordinates, so it
+// must never decide an order: the first candidate supplies the contract scope,
+// and the same capture read from another directory has to give the same roster.
+// Candidates equal on every typed property stay in compile order.
+func candidateDecisionLess(a, b types.TraceCauseDecision) bool {
+	if a.Rank != b.Rank {
+		return rankSortValue(a.Rank) < rankSortValue(b.Rank)
+	}
+	if av, bv := candidateMagnitudeValue(a), candidateMagnitudeValue(b); av != bv {
+		return av > bv
+	}
+	for _, pair := range [][2]string{
+		{a.ArtifactLabel, b.ArtifactLabel},
+		{a.SubjectName, b.SubjectName},
+		{a.Token.Token, b.Token.Token},
+		{a.BoardFingerprint, b.BoardFingerprint},
+		{a.ResourceName, b.ResourceName},
+		{a.PhaseName, b.PhaseName},
+		{a.BlockingKind, b.BlockingKind},
+		{a.CausalShape, b.CausalShape},
+		{a.Phase, b.Phase},
+		{a.SubjectRole, b.SubjectRole},
+		{a.UpstreamRole, b.UpstreamRole},
+		{string(a.Status), string(b.Status)},
+		{candidateEvidenceOrderKey(a), candidateEvidenceOrderKey(b)},
+	} {
+		if pair[0] != pair[1] {
+			return pair[0] < pair[1]
+		}
+	}
+	return false
+}
+
+func candidateMagnitudeValue(decision types.TraceCauseDecision) float64 {
+	if decision.Magnitude == nil {
+		return 0
+	}
+	return decision.Magnitude.Value
+}
+
+func candidateEvidenceOrderKey(decision types.TraceCauseDecision) string {
+	keys := make([]string, 0, len(decision.EvidenceRefs))
+	for _, ref := range decision.EvidenceRefs {
+		keys = append(keys, types.TraceObservationCoordinateOrderKey(ref))
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x00")
 }
 
 func acceptedEvidenceIDs(ledger types.ObservationLedger) []string {

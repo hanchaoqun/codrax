@@ -128,3 +128,68 @@ func TestHMC376SymptomBoardMembershipIsTypedOnly(t *testing.T) {
 		t.Fatalf("a redundant own-board entry must not split the board: total=%.3f admitted=%v", total, admitted)
 	}
 }
+
+// hmc376SplitRow is a merged row of several boards: it displays the sum of the
+// members and records what each board published of it.
+func hmc376SplitRow(id, worn string, parts map[string]float64) runtimeTraceProjTreeRow {
+	row := hmc376SelfRow(id, worn, 0)
+	total := 0.0
+	for _, ms := range parts {
+		total += ms
+	}
+	row.Node.ImpactMS, row.Node.EffectiveImpactMS, row.Node.MergedCount = total, total, len(parts)
+	for fingerprint, ms := range parts {
+		row.Node.RankBoardPartAccounts = append(row.Node.RankBoardPartAccounts, types.TraceRankBoardPartAccount{
+			TraceSameFactRankBoard: types.TraceSameFactRankBoard{Target: "worker-10", ParamsFingerprint: fingerprint,
+				QueryWindowStartTs: 10, QueryWindowEndTs: 11, AccountMS: ms},
+			EffectiveMS: ms, RowMS: total,
+		})
+	}
+	return row
+}
+
+// A merge across boards counts for the winning board's own part. The row's total
+// is what no board published, whichever board's identity the row wears.
+func TestHMC376SymptomDenominatorReadsTheWinningBoardsPartOfAMerge(t *testing.T) {
+	for _, worn := range []string{"fine", "mid", "coarse"} {
+		model := runtimeTraceProjTreeModel{SelfRows: []runtimeTraceProjTreeRow{
+			hmc376SelfRow("shared", "fine", 48, "mid", "coarse"),
+			hmc376SplitRow("merged", worn, map[string]float64{"fine": 40, "mid": 33, "coarse": 17}),
+		}}
+		total, admitted := hmc376Admitted(model)
+		if total != 88 || !admitted[0] || !admitted[1] {
+			t.Fatalf("worn by %s: the denominator is the fine board's 48 + 40, got %.3f admitted=%v", worn, total, admitted)
+		}
+		board, ok := runtimeTraceProjSymptomDenominatorBoard(model)
+		if !ok || board.RankBoardParamsFingerprint != "fine" {
+			t.Fatalf("worn by %s: the fine board owns the denominator, got %q ok=%v", worn, board.RankBoardParamsFingerprint, ok)
+		}
+	}
+	// A split recorded for another row value no longer speaks for this row.
+	stale := hmc376SplitRow("merged", "fine", map[string]float64{"fine": 40, "coarse": 17})
+	stale.Node.ImpactMS = 60
+	if total, _ := hmc376Admitted(runtimeTraceProjTreeModel{SelfRows: []runtimeTraceProjTreeRow{stale}}); total != 60 {
+		t.Fatalf("a retired split falls back to the row's own value, got %.3f", total)
+	}
+}
+
+// The over-window sum and the coverage scope read the same per-board accounts.
+func TestHMC376BoardEffectiveSumsReadEachBoardsOwnAccount(t *testing.T) {
+	for _, worn := range []string{"fine", "coarse"} {
+		shared := hmc376SelfRow("shared", worn, 30, map[string]string{"fine": "coarse", "coarse": "fine"}[worn])
+		shared.Node.EffectiveImpactMS = 30
+		split := hmc376SplitRow("merged", worn, map[string]float64{"fine": 40, "coarse": 17})
+		rows := []*runtimeTraceProjTreeRow{&shared, &split}
+		sums := runtimeTraceProjBoardEffectiveSums(rows, runtimeTraceProjStableRankBoardIDs(rows))
+		if len(sums) != 2 {
+			t.Fatalf("worn by %s: two boards published these seats, got %v", worn, sums)
+		}
+		largest := sums[0]
+		if sums[1] > largest {
+			largest = sums[1]
+		}
+		if largest != 70 {
+			t.Fatalf("worn by %s: the largest board's own sum is 30 + 40, got %v", worn, sums)
+		}
+	}
+}

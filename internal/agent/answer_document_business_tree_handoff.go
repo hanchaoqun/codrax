@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -106,10 +107,25 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 			if a.fact.Node.StartLine != b.fact.Node.StartLine {
 				return a.fact.Node.StartLine < b.fact.Node.StartLine
 			}
+			if orderA, orderB := answerDocBusinessAccountOrderKey(a), answerDocBusinessAccountOrderKey(b); orderA != orderB {
+				return orderA < orderB
+			}
 			return a.key < b.key
 		})
 	}
-	sort.Strings(keys)
+	// The group identity embeds the capture path and payload reference, so it
+	// groups but never orders. Groups equal on every measured fact differ only
+	// in their locators, and only then does the identity break the tie.
+	groupOrder := make(map[string]string, len(groups))
+	for key, rows := range groups {
+		groupOrder[key] = answerDocBusinessGroupOrderKey(rows)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if groupOrder[keys[i]] != groupOrder[keys[j]] {
+			return groupOrder[keys[i]] < groupOrder[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
 	plan.groups = len(keys)
 	shownGroups := map[string]bool{}
 	shownContent := map[string]bool{}
@@ -149,6 +165,52 @@ func selectAnswerDocBusinessAccounts(accounts []answerDocBusinessAccount) answer
 	}
 	plan.shownGroups = len(shownGroups)
 	return plan
+}
+
+// answerDocBusinessAccountOrderKey is the measured content of one account and
+// the producer's other notes on it, free of every value minted from the capture
+// location. The notes count because they separate accounts the slot preference
+// treats as different content: two queries with equal measurements but different
+// notes must keep one order, or the later slots go to different accounts.
+func answerDocBusinessAccountOrderKey(a answerDocBusinessAccount) string {
+	fact := a.fact
+	fact.IndexPath = ""
+	fact.Node.ID, fact.Node.ParentID = "", ""
+	fact.Node.SourcePath = filepath.Base(fact.Node.SourcePath)
+	var notes []string
+	path := a.record.SourceRef.Path
+	for _, note := range a.record.RichNotes {
+		if strings.HasPrefix(note, types.TraceNoteKeyBusinessTreeNode+"=") {
+			continue // the fact above is this note, decoded
+		}
+		if path != "" {
+			note = strings.ReplaceAll(note, path, filepath.Base(path))
+		}
+		notes = append(notes, note)
+	}
+	data, _ := json.Marshal([]any{fact, notes})
+	return string(data)
+}
+
+// answerDocBusinessGroupOrderKey orders one query's accounts by the capture file
+// name, the query's typed scope and what it measured. rows are already in their
+// display order.
+func answerDocBusinessGroupOrderKey(rows []answerDocBusinessAccount) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	ref := rows[0].record.SourceRef
+	accounts := make([]string, 0, len(rows))
+	for _, a := range rows {
+		accounts = append(accounts, answerDocBusinessAccountOrderKey(a))
+	}
+	data, _ := json.Marshal([]any{ref.Kind, filepath.Base(ref.Path), ref.ArtifactKind,
+		ref.QueryWindowKnown, ref.QueryWindowStartTs, ref.QueryWindowEndTs,
+		ref.QueryTargetPID, ref.QueryTargetThread, ref.QueryTargetScope,
+		ref.QueryLineRangeKnown, ref.QueryLineStart, ref.QueryLineEnd,
+		ref.TimeDomain, ref.CanonicalTimeDomain, ref.ClockAlignment,
+		ref.ClockCalibrated, ref.ClockOffsetSec, ref.ClockSlope, accounts})
+	return string(data)
 }
 
 // Only already-admitted records from one exact source/query generation reach
