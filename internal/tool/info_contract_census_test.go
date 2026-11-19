@@ -832,6 +832,10 @@ var infoContractDisplayAuthorityFiles = []string{
 	// HMC376: the per-board account membership of same-fact folded
 	// publications (symptom denominator election).
 	"answer_document_mutation_runtime_board_membership.go",
+	// HMC377 D2: the one blocking-row word source and the wake-relay
+	// relation form (the real reader consumer of BlockingWakeRelay /
+	// BlockingWakeRelayUpstream).
+	"answer_document_measurement_display.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {
