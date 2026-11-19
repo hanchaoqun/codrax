@@ -173,7 +173,15 @@ func TestHMC377WholeOriginalRealMonitorContentionKeepsLockWords(t *testing.T) {
 		t.Fatalf("the raw monitor contention of the main thread is not the typed waiter row: %+v", waiter)
 	}
 	zh := faces["zh"]
-	for _, want := range []string{"持锁阻塞(等待方 .ugc.aweme.lite-11105;持有者推断)", "锁竞争等待(持有者 #LogReaper-11293·推断)", "证据类型：锁竞争等待", "证据类型：持锁阻塞"} {
+	// RE-BASED (HMC377 integration with the thread-identity lane): the
+	// holder's display name. Old "#LogReaper-11293" was the row-header name
+	// (the saved command line at read-out time); raw scheduler payload runs
+	// of TID 11293 are .ugc.aweme.lite (creation) → super-pool-19 →
+	// #tp-io-18 141.542866–141.834587 (L174836–L208239) → … → #LogReaper only
+	// from 142.018268 (L232452), after this window. The one-name-per-thread
+	// window rule names it #tp-io-18 — the same name the contention payload
+	// records for the owner ("owner #tp-io-18 (2220)"). Lock words unchanged.
+	for _, want := range []string{"持锁阻塞(等待方 .ugc.aweme.lite-11105;持有者推断)", "锁竞争等待(持有者 #tp-io-18-11293·推断)", "证据类型：锁竞争等待", "证据类型：持锁阻塞"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("real lock evidence lost %q", want)
 		}
