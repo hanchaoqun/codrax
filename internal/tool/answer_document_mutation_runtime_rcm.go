@@ -686,6 +686,22 @@ func runtimeTraceProjBusinessSpanMentionBasisWord(basis string, zh bool) (string
 	return "", false
 }
 
+// runtimeTraceProjBusinessSpanMentionBasisWords lists the three credential
+// words in the closed-set order (self / chain member / host wakeup edge) for
+// the ◈ legend entry, from the same word source the rows render with.
+func runtimeTraceProjBusinessSpanMentionBasisWords(zh bool) string {
+	var words []string
+	for _, basis := range []string{tracequery.BusinessSpanMentionBasisSelf, tracequery.BusinessSpanMentionBasisChainMember, tracequery.BusinessSpanMentionBasisHostWakeupEdge} {
+		if word, ok := runtimeTraceProjBusinessSpanMentionBasisWord(basis, zh); ok {
+			words = append(words, word)
+		}
+	}
+	if zh {
+		return strings.Join(words, "/")
+	}
+	return strings.Join(words, " / ")
+}
+
 // runtimeTraceProjBusinessSpanMentionValid is the shared typed admission of a
 // ◈ mention row (factored for OMGCLEAN-1 件5 so the tree roster row and the
 // ◎ compact row can never fork on validity). Every gate is a precise typed

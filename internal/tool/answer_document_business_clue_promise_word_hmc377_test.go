@@ -51,6 +51,16 @@ func TestHMC377BusinessCluePromiseWordIsOneSourceOnThreeFaces(t *testing.T) {
 				t.Fatalf("zh=%v %s must carry the promise word exactly once, got %d:\n%s", zh, face, got, text)
 			}
 		}
+		// The entry lists the credential words the rows actually wear.
+		for _, basis := range []string{"self", "chain_member", "host_wakeup_edge"} {
+			word, _ := runtimeTraceProjBusinessSpanMentionBasisWord(basis, zh)
+			if !strings.Contains(entry, word) {
+				t.Fatalf("zh=%v ◈ legend must list the row credential word %q:\n%s", zh, word, entry)
+			}
+		}
+		if zh && strings.Contains(legend.ZH, "唤醒边凭证") {
+			t.Fatalf("the ◈ legend must not list the retired host credential word")
+		}
 		if zh && (strings.Contains(tree, "单次最长∪合计最长 TOP8") || strings.Contains(overview, small3SquashSpaces("单次最长∪合计最长 TOP8")) || strings.Contains(legend.ZH, "单次最长∪合计最长 TOP8")) {
 			t.Fatalf("the retired one-tier promise word must not render on any face")
 		}
