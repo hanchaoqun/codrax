@@ -21,7 +21,9 @@ func traceQuerySpanMemberMeasurementObservations(result tracequery.Result, ref t
 		return nil
 	}
 	var out []types.ObservationRecord
-	for i, family := range tracequery.FoldSemanticSpanFamilies(traceQueryResultWakeupChain(result), stats.TraceSpans) {
+	// The same fold entry as the rank and the semantic record: the member set
+	// is the complete in-window family, never the listed sample.
+	for i, family := range tracequery.SemanticSpanFamiliesForStats(traceQueryResultWakeupChain(result), stats) {
 		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}

@@ -820,12 +820,17 @@ func TestHMC376VulkanPipelineCreationFromARealCapture(t *testing.T) {
 	}
 
 	// On the queried render thread the creation and the load nested in it are
-	// one stretch of work: 6.555312 + 4.334688 ms outside the chain windows,
-	// counted once.
+	// one stretch of work, counted once. HMC377 own-work pricing: all three
+	// creations on the thread are its own work, 19.463 ms in the window
+	// (8.573 + 6.555 + 4.335); the 1.213 ms the thread waited for a CPU on its
+	// dependency chain inside the first one (ready after wake, lines 65-66) is
+	// published by the wait row and the scheduling rows, so the own work is
+	// 18.250 ms. Before, the whole 8.573 ms creation was dropped from the own
+	// work because 1.213 ms of it was a wait (10.890 = 6.555 + 4.335 only).
 	result := hmc376Query(t, path, "root_cause_rank", 2424, start, end)
 	row := hmc376OwnRow(result.RootCauseRank, 2424, "shader_compile")
 	if row == nil || row.OnChainBasis != tracequery.RootCauseOnChainBasisSelfDeterministicSpan || row.ChainRelevance != "on_chain" ||
-		row.Rank != 1 || row.Tier != "primary" || !hmc376Near(row.EffectiveImpactMs, 10.890) || row.SpanName != "H:vkCreateGraphicsPipelines" {
+		row.Rank != 1 || row.Tier != "primary" || !hmc376Near(row.EffectiveImpactMs, 18.250) || row.SpanName != "H:vkCreateGraphicsPipelines" {
 		t.Fatalf("the pipeline creation on the queried thread must be its first cause, nested work counted once:\n%s", hmc376Board(result.RootCauseRank))
 	}
 }

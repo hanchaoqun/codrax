@@ -25,6 +25,10 @@ func TestB1590aTraceDirectionSharedExtractionPreservesSkillBytes(t *testing.T) {
 		"adjacent-channel rows stay conditional within-model potential bounds", "adjacent-channel rows stay conditional upper bounds",
 		"a demoted or adjacent row is a within-model potential bound conditional on a causal relation, never a proven cause or a guaranteed repair saving", "a demoted or adjacent row is a conditional upper bound ('at most', 'if causally linked'), never a proven cause",
 		"rule-priced modeled-potential board AND raw time occupancy", "rule-priced eliminable board AND raw time occupancy",
+		// HMC377 own-work pricing (reviewed): the roster clause states that
+		// the value and count cover every member and names the typed count
+		// of members the roster leaves out.
+		"(`member_roster` / `member_wall_ms` / `member_count`; the value and `member_count` always cover every member, and `member_not_listed` counts the members the roster leaves out)", "(`member_roster` / `member_wall_ms` / `member_count`)",
 	).Replace(legacy)
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(legacy))); got != afterHash {
 		t.Fatalf("estimate clarification changed unrelated established teaching: got %s, want %s", got, afterHash)

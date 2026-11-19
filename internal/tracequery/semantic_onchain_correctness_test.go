@@ -135,7 +135,11 @@ func TestSemanticSpanBoundKeepsOnePerFamilyAndCountsOverflow(t *testing.T) {
 			t.Fatalf("family-aware cap lost class %s: %+v", class, bounded)
 		}
 	}
-	if caveat := info.caveat(); caveat == "" || !strings.Contains(caveat, "kept 16/20") || !strings.Contains(caveat, "lower bounds") {
+	// HMC377: the overflow is still counted and disclosed; the families are
+	// folded from all 20 classified spans, so the disclosure says that instead
+	// of calling the totals lower bounds (which they no longer are).
+	if caveat := info.caveat(); caveat == "" || !strings.Contains(caveat, "kept 16/20") ||
+		!strings.Contains(caveat, "computed from all 20 classified span(s)") || strings.Contains(caveat, "lower bound") {
 		t.Fatalf("semantic cap overflow must be counted and fail loud: %q info=%+v", caveat, info)
 	}
 }

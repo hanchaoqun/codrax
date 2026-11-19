@@ -4980,6 +4980,18 @@ type RootCauseRankItem struct {
 	// (union / max fallback disclosure — zero means published == Σ).
 	MemberCount  int      `json:"member_count,omitempty"`
 	MemberRoster []string `json:"member_roster,omitempty"`
+	// MemberNotListedCount is how many of the MemberCount members the row's
+	// bounded MemberRoster does not list (largest members are listed first).
+	// The row's value, count and rank are always computed from every member;
+	// this count states the roster's incompleteness as a typed fact. Zero when
+	// every member is listed.
+	MemberNotListedCount int `json:"member_not_listed_count,omitempty"`
+	// OwnWorkOnCPUMs is set on a row of the analysed thread's own work only:
+	// the part of the row's priced own work during which the thread was on a
+	// CPU (own-work intervals ∩ the thread's running intervals in the window).
+	// The rest of the priced value is time the thread waited for a CPU or was
+	// blocked inside its own work. Never a converted value.
+	OwnWorkOnCPUMs float64 `json:"own_work_on_cpu_ms,omitempty"`
 	// MemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17): the
 	// COMPLETE per-member trace line ranges ("start..end", member order) of a
 	// SEMANTIC family seat — minted all-or-nothing (any member without a
@@ -5381,6 +5393,15 @@ type SemanticSpanFamily struct {
 	edgeAnchorPostIntervals []foldInterval
 	// edgeAnchorWaitClause — the reader sentence naming the priced waits.
 	edgeAnchorWaitClause string
+	// Own-work pricing (engine-internal). A family of the analysed thread's
+	// own work whose members also contain waits of that thread on its
+	// dependency chain is split by time: ownWorkIntervals / ownWorkMs is what
+	// the family is priced with, ownWaitMs is the share the overlap family of
+	// the same spans publishes, and ownWorkMs + ownWaitMs == TotalMs.
+	ownWorkSplit     bool
+	ownWorkMs        float64
+	ownWaitMs        float64
+	ownWorkIntervals []foldInterval
 	// platformVocabularyMinted: every member is classified only by the
 	// platform vocabulary (semanticFamilyMintedByPlatformVocabulary).
 	platformVocabularyMinted bool

@@ -173,6 +173,28 @@ type semanticChainWindow struct {
 type semanticChainIntersectionProjection struct {
 	projection            semanticTraceSpanProjection
 	dominantStateImpactMs float64
+	// intervals is the merged member∩chain-window intersection itself (the
+	// extent ImpactMs measures). The own-work fold removes exactly these
+	// instants from the analysed thread's member union, so one instant of a
+	// span is priced either as a wait or as own work, never as both.
+	intervals []foldInterval
+}
+
+// semanticChainWindowIsTargetExecution reports a chain window that is the
+// analysed thread itself running. Such a window is not a dependency: it is the
+// thread executing its own work, which the own-work lane prices by identity at
+// its full in-window extent. It therefore never decides how much of the
+// thread's own span is priced, and never turns the span into a wait. Windows of
+// every other thread, and every non-running window of the analysed thread,
+// are unaffected.
+func semanticChainWindowIsTargetExecution(chain *ChainResult, thread ThreadRef, state string) bool {
+	if chain == nil || state != string(StateRunning) {
+		return false
+	}
+	if chain.Target.PID <= 0 && strings.TrimSpace(chain.Target.Comm) == "" {
+		return false
+	}
+	return sameThreadRef(thread, chain.Target)
 }
 
 // semanticTraceSpanChainIntersectionProjection is the shared single/family
@@ -214,6 +236,9 @@ func semanticTraceSpanChainIntersection(chain *ChainResult, thread ThreadRef, me
 				state = node.Impact.DominantState
 			}
 		}
+		if semanticChainWindowIsTargetExecution(chain, thread, state) {
+			continue
+		}
 		windows = append(windows, semanticChainWindow{
 			interval: foldInterval{start: node.Window.StartTs, end: node.Window.EndTs},
 			state:    state, depth: depth, branch: branch,
@@ -221,6 +246,9 @@ func semanticTraceSpanChainIntersection(chain *ChainResult, thread ThreadRef, me
 	}
 	for _, impact := range chain.CausalImpacts {
 		if !sameThreadRef(impact.Thread, thread) || impact.Window.EndTs <= impact.Window.StartTs {
+			continue
+		}
+		if semanticChainWindowIsTargetExecution(chain, thread, impact.DominantState) {
 			continue
 		}
 		windows = append(windows, semanticChainWindow{
@@ -269,7 +297,7 @@ func semanticTraceSpanChainIntersection(chain *ChainResult, thread ThreadRef, me
 	if len(projected) == 0 {
 		return semanticChainIntersectionProjection{}
 	}
-	result := semanticChainIntersectionProjection{}
+	result := semanticChainIntersectionProjection{intervals: projected}
 	result.projection.OnChain = true
 	result.projection.StartTs = projected[0].start
 	result.projection.EndTs = projected[len(projected)-1].end
@@ -445,14 +473,10 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 	}
 	groups := map[laneKey]*acc{}
 	var order []laneKey
-	for _, span := range spans {
-		if !semanticSpanFamilyAdmits(span) {
-			continue
-		}
-		lane, depth, state := semanticSpanFamilyLane(chain, span)
+	add := func(span TraceSpanSummary, lane semanticSpanChainLane, depth int, state string) {
 		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), subcategory: span.Subcategory, lane: lane, source: span.SourcePath,
 			platformOffChain: lane == semanticSpanLaneOff && semanticSpanMintedByPlatformVocabulary(span.Name),
-			recordsWait:      !semanticSpanAdmitsHostEdgeLane(span.Name)}
+			recordsWait:      semanticSpanRecordsWait(span.Name)}
 		group, ok := groups[key]
 		if !ok {
 			basis := ""
@@ -489,6 +513,23 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			group.family.MinMs = span.DurationMs
 		}
 		group.members = append(group.members, span)
+	}
+	for _, span := range spans {
+		if !semanticSpanFamilyAdmits(span) {
+			continue
+		}
+		lane, depth, state := semanticSpanFamilyLane(chain, span)
+		add(span, lane, depth, state)
+		// Own-work pricing: a span the analysed thread executes is a member of
+		// the thread's own-work family for its whole in-window extent, also
+		// when part of that extent is a wait of the thread on its dependency
+		// chain. The wait share stays on the overlap family just added; the
+		// own-work family removes exactly those instants from its value (a
+		// split of time, never of members), so the work the thread ran is not
+		// dropped together with the wait.
+		if lane == semanticSpanLaneChainOverlap && semanticSpanIsTargetOwnWork(chain, span) {
+			add(span, semanticSpanLaneChainSelf, 0, "")
+		}
 	}
 	out := make([]SemanticSpanFamily, 0, len(order))
 	for _, key := range order {
@@ -569,6 +610,24 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			}
 			fam.ChainDepth = chainProjection.projection.ChainDepth
 			fam.ChainBranch = chainProjection.projection.ChainBranch
+		} else if fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+			// Own-work pricing: instants the analysed thread spends in a wait
+			// of its dependency chain are published by the overlap family of
+			// the same spans; they leave the own-work value. Without such a
+			// wait the value is the member union exactly as before.
+			waits := semanticTraceSpanChainIntersection(chain, fam.Thread, intervals)
+			if waits.projection.ImpactMs > 0 {
+				merged, _ := foldIntervalUnionWithDisjoint(intervals)
+				fam.ownWorkIntervals = foldIntervalSubtract(merged, waits.intervals)
+				fam.ownWorkSplit = true
+				for _, interval := range fam.ownWorkIntervals {
+					fam.ownWorkMs += (interval.end - interval.start) * 1000
+				}
+				if fam.ownWorkMs > fam.TotalMs {
+					fam.ownWorkMs = fam.TotalMs
+				}
+				fam.ownWaitMs = fam.TotalMs - fam.ownWorkMs
+			}
 		} else if fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
 			// R3-IMPL (§29.88.1) bounded by HMC377 E2 (owner ruling
 			// 2026-11-18): the host-edge lane's participation is the member
@@ -639,6 +698,11 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 				fam.ActualTotalMs = actualSum
 			}
 		}
+		if fam.ownWorkSplit && fam.ownWorkMs <= 1e-9 {
+			// Every instant of these members is a wait of the thread: there is
+			// no own work to publish.
+			continue
+		}
 		out = append(out, fam)
 	}
 	// Both consumers read this order under a row cap: an off-chain family
@@ -651,6 +715,161 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 
 func semanticFamilyYieldsSeat(fam SemanticSpanFamily) bool {
 	return fam.platformVocabularyMinted && !fam.OnChain
+}
+
+// semanticSpanRecordsWait is the one stance predicate of the fold: a span
+// minted by a vocabulary row whose stance is "waits" records the thread parked
+// until someone else's work ends. Such a span is never own work.
+func semanticSpanRecordsWait(name string) bool {
+	return !semanticSpanAdmitsHostEdgeLane(name)
+}
+
+// semanticSpanIsTargetOwnWork is the typed bar of the own-work lane: the span
+// is on the analysed thread (the shared self predicate) and does not record a
+// wait. Both conditions read typed facts only (thread identity, the classifier
+// and the vocabulary stance of the marker name).
+func semanticSpanIsTargetOwnWork(chain *ChainResult, span TraceSpanSummary) bool {
+	return selfDeterministicSemanticSpanLane(chain, span) && !semanticSpanRecordsWait(span.Name)
+}
+
+// foldIntervalSubtract returns a minus b. Both inputs are merged and sorted.
+func foldIntervalSubtract(a, b []foldInterval) []foldInterval {
+	var out []foldInterval
+	j := 0
+	for _, interval := range a {
+		start := interval.start
+		for j < len(b) && b[j].end <= start {
+			j++
+		}
+		for k := j; k < len(b) && b[k].start < interval.end; k++ {
+			if b[k].start > start {
+				out = append(out, foldInterval{start: start, end: b[k].start})
+			}
+			if b[k].end > start {
+				start = b[k].end
+			}
+		}
+		if interval.end > start {
+			out = append(out, foldInterval{start: start, end: interval.end})
+		}
+	}
+	return out
+}
+
+// OwnWorkSplit reports the time split of an own-work family whose members
+// also contain waits of the analysed thread on its dependency chain: ownWorkMs
+// is what the family is priced with, waitMs is the share the overlap family of
+// the same spans publishes, and ownWorkMs + waitMs == TotalMs. ok is false for
+// every family without such a split; its priced value is TotalMs.
+func (fam SemanticSpanFamily) OwnWorkSplit() (ownWorkMs, waitMs float64, ok bool) {
+	if !fam.ownWorkSplit {
+		return 0, 0, false
+	}
+	return fam.ownWorkMs, fam.ownWaitMs, true
+}
+
+// PricedOwnWorkMs is the value an own-work family is ranked with: the
+// in-window union of its members minus the instants published as waits.
+func (fam SemanticSpanFamily) PricedOwnWorkMs() float64 {
+	if fam.ownWorkSplit {
+		return fam.ownWorkMs
+	}
+	return fam.TotalMs
+}
+
+// semanticSpanInventory returns the spans every semantic family quantity is
+// computed from: the complete classified in-window inventory of this stats
+// run, or the listed spans for a WindowStats value that carries no inventory
+// (one built by hand, or a run whose inventory failed closed together with
+// its listing). The display bound decides which spans are listed; it is never
+// the population of a total, a member count, a share or a rank.
+func (stats *WindowStats) semanticSpanInventory() []TraceSpanSummary {
+	if stats == nil {
+		return nil
+	}
+	if len(stats.traceSpanFullInventory) <= len(stats.TraceSpans) {
+		return stats.TraceSpans
+	}
+	classified := make([]TraceSpanSummary, 0, len(stats.TraceSpans))
+	for _, span := range stats.traceSpanFullInventory {
+		if strings.TrimSpace(span.SemanticClass) == "" {
+			continue
+		}
+		classified = append(classified, span)
+	}
+	return classified
+}
+
+// SemanticSpanFamiliesForStats is the ONE fold entry of every consumer of a
+// stats run (the rank mint and the tool observation faces). Families are
+// folded from the complete classified inventory, so a family's total, member
+// count, on-CPU share and rank never depend on how many of its members the
+// display bound listed. Which families are published follows two typed rules:
+//   - a family on the dependency chain of the analysed thread is always
+//     published: an on-chain cause is never lost to the display bound;
+//   - a family off the chain is published when at least one of its members is
+//     listed — exactly the background families the listing shows; the bound
+//     keeps deciding which background families are shown, never what they
+//     total.
+//
+// Families keep the order of their first listed member (the order the listing
+// fold produced), followed by on-chain families none of whose members is
+// listed; off-chain families classified only by the platform vocabulary stay
+// after every other family.
+func SemanticSpanFamiliesForStats(chain *ChainResult, stats *WindowStats) []SemanticSpanFamily {
+	if stats == nil {
+		return nil
+	}
+	if len(stats.traceSpanFullInventory) <= len(stats.TraceSpans) {
+		return FoldSemanticSpanFamilies(chain, stats.TraceSpans)
+	}
+	type spanIdentity struct {
+		name, thread, source string
+		startLine, endLine   int
+		startTs, endTs       float64
+	}
+	identity := func(span TraceSpanSummary) spanIdentity {
+		return spanIdentity{name: span.Name, thread: threadKey(span.Thread), source: span.SourcePath,
+			startLine: span.StartLine, endLine: span.EndLine, startTs: span.StartTs, endTs: span.EndTs}
+	}
+	listed := make(map[spanIdentity]int, len(stats.TraceSpans))
+	for i, span := range stats.TraceSpans {
+		if _, ok := listed[identity(span)]; !ok {
+			listed[identity(span)] = i
+		}
+	}
+	families := FoldSemanticSpanFamilies(chain, stats.semanticSpanInventory())
+	type placed struct {
+		family SemanticSpanFamily
+		at     int
+	}
+	kept := make([]placed, 0, len(families))
+	for i, fam := range families {
+		first := -1
+		for _, member := range fam.Members {
+			if at, ok := listed[identity(member)]; ok && (first < 0 || at < first) {
+				first = at
+			}
+		}
+		if first < 0 {
+			if !fam.OnChain {
+				continue
+			}
+			first = len(stats.TraceSpans) + i
+		}
+		kept = append(kept, placed{family: fam, at: first})
+	}
+	sort.SliceStable(kept, func(i, j int) bool {
+		if yi, yj := semanticFamilyYieldsSeat(kept[i].family), semanticFamilyYieldsSeat(kept[j].family); yi != yj {
+			return yj
+		}
+		return kept[i].at < kept[j].at
+	})
+	out := make([]SemanticSpanFamily, 0, len(kept))
+	for _, entry := range kept {
+		out = append(out, entry.family)
+	}
+	return out
 }
 
 // rootCauseItemFromSemanticSpanFamily mints the ONE rank contender for a
@@ -675,6 +894,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	participationMs := fam.TotalMs
 	projectionStartTs, projectionEndTs := fam.StartTs, fam.EndTs
 	selfBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan
+	if selfBasis && fam.ownWorkSplit {
+		// The members also contain waits of the analysed thread on its
+		// dependency chain. Those instants are published by the wait row of
+		// the same spans; this row carries the rest, the thread's own work.
+		participationMs = fam.ownWorkMs
+		if participationMs <= 1e-9 {
+			return RootCauseRankItem{}, false
+		}
+	}
 	edgeBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge
 	intervalRelationBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation
 	if fam.OnChain && !selfBasis {
@@ -734,7 +962,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// key split guarantees a uniform outcome across members).
 	familyLabel := semanticSpanLabelWithCacheOutcome(work.Label, rep.Subcategory)
 	var summary string
-	if selfBasis {
+	if selfBasis && fam.ownWorkSplit {
+		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection, of which %.3fms the thread spent waiting on its dependency chain (published by the wait row of the same spans) and %.3fms is the thread's own work (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			familyLabel, len(fam.Members), fam.TotalMs, fam.ownWaitMs, participationMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+	} else if selfBasis {
 		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	} else if edgeBasis {
@@ -835,6 +1066,7 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	applySemanticTraceSpanState(&item, fam.DominantState, stateImpactMs)
 	item.MemberCount = len(fam.Members)
 	item.MemberRoster = fam.MemberRosterEntries()
+	item.MemberNotListedCount = fam.MemberNotListedCount()
 	// XLANE-2 件1: the complete typed member line-range set rides beside the
 	// bounded roster (all-or-nothing; the display subset judgment consumes it).
 	item.MemberLineRanges = fam.MemberLineRangeEntries()
@@ -846,6 +1078,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// all-or-nothing — the self-gap overlap disclosure claims an EXACT X, so
 	// a partial inventory mints nothing rather than an understated overlap).
 	item.semanticMemberIntervals = fam.memberIntervalInventory(queryWindowStartsAtDeterminedZero(q))
+	if selfBasis && fam.ownWorkSplit && len(item.semanticMemberIntervals) > 0 {
+		// The support inventory is the priced share (the edge-lane discipline
+		// below): own work only; the wait instants ride the wait row.
+		item.semanticMemberIntervals = append([]foldInterval(nil), fam.ownWorkIntervals...)
+	}
 	if edgeBasis && len(item.semanticMemberIntervals) > 0 {
 		// CROWNSEM-1 复核收编 (2026-09-02): the host-edge family's support
 		// inventory IS its priced inside share (the same partition the state
@@ -896,6 +1133,16 @@ func (fam SemanticSpanFamily) MemberRosterEntries() []string {
 		out = append(out, fmt.Sprintf("%s %.3fms", member.Name, member.DurationMs))
 	}
 	return out
+}
+
+// MemberNotListedCount is how many members MemberRosterEntries leaves out
+// (the roster lists the largest members first). Every family value is computed
+// from all members; this states the roster's incompleteness as a typed count.
+func (fam SemanticSpanFamily) MemberNotListedCount() int {
+	if n := len(fam.Members) - rootCauseFamilyMemberLineRangeCap; n > 0 {
+		return n
+	}
+	return 0
 }
 
 // MemberWallMsEntries renders the COMPLETE typed per-member in-window

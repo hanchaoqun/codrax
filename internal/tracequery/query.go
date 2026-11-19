@@ -10913,11 +10913,15 @@ func (info traceMarkSemanticBoundInfo) caveat() string {
 	if omitted <= 0 {
 		return ""
 	}
-	roster := "none (omissions only reduce totals of represented families)"
+	// Own-work pricing: the bound limits which spans are LISTED. Family
+	// totals, member counts and ranks are folded from every classified span
+	// (SemanticSpanFamiliesForStats), so the sentence states what is not
+	// listed and no longer calls the totals lower bounds.
+	roster := "none (every family keeps a listed span)"
 	if len(info.omittedRoster) > 0 {
 		roster = strings.Join(info.omittedRoster, ", ")
 	}
-	return fmt.Sprintf("semantic span bound kept %d/%d classified span(s) across %d family/families; omitted %d span(s) from %d whole family/families (bounded omitted-family roster, first 8: %s). Published semantic family totals are lower bounds; every wholly omitted family is counted, and up to the first 8 are named here instead of the overflow disappearing silently", info.keptSpans, info.totalSpans, info.totalFamilies, omitted, info.omittedFamilies, roster)
+	return fmt.Sprintf("semantic span bound kept %d/%d classified span(s) across %d family/families; omitted %d span(s) from %d whole family/families (bounded omitted-family roster, first 8: %s). The bound limits the listed spans only: every semantic family total, member count and rank is computed from all %d classified span(s); a wholly omitted family off the dependency chain is counted here, and up to the first 8 are named, instead of disappearing silently", info.keptSpans, info.totalSpans, info.totalFamilies, omitted, info.omittedFamilies, roster, info.totalSpans)
 }
 
 // boundTraceMarkSpansWithInfo preserves one representative of every semantic
@@ -16894,9 +16898,16 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// detail roster source). A family of one routes through the single-span
 	// constructor verbatim — degenerate families stay byte-identical to the
 	// pre-RCM rows (退化不变体).
+	// Own-work pricing: the fold reads the complete classified inventory
+	// through the one shared entry (SemanticSpanFamiliesForStats), so the
+	// display bound on stats.TraceSpans never decides a family's total, member
+	// count or rank. A one-member own-work family whose member also contains a
+	// wait of the analysed thread mints through the family constructor (the
+	// single-span constructor prices the wait row of that member).
 	semanticConsumed := map[int]bool{}
-	for _, fam := range FoldSemanticSpanFamilies(&chain, stats.TraceSpans) {
-		if len(fam.Members) == 1 {
+	semanticItemsStart := len(items)
+	for _, fam := range SemanticSpanFamiliesForStats(&chain, &stats) {
+		if len(fam.Members) == 1 && !fam.ownWorkSplit {
 			if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, fam.Members[0], hasCausalChain); ok {
 				item.platformVocabularyMinted = fam.platformVocabularyMinted
 				items = append(items, item)
@@ -16925,6 +16936,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			}
 		}
 	}
+	stampOwnWorkOnCPU(items[semanticItemsStart:], chain.Target, targetRunningIntervalsForRank(idx, q, chain, cache))
 	for i, span := range stats.TraceSpans {
 		if semanticConsumed[i] {
 			continue
@@ -17894,6 +17906,13 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	if !hasCausalChain {
 		chainThreads = rankCausalThreadSet(rank)
 		hasCausalChain = len(chainThreads) > 0
+		// The analysed thread is always on its own chain (R8). The fallback
+		// set is built from published row tokens, and the thread's own rows
+		// speak self tokens there (own work, own waits), so it must not drop
+		// the thread the chain itself already holds.
+		if hasCausalChain && chain.Target.PID > 0 {
+			chainThreads[chain.Target.PID] = true
+		}
 	}
 	for _, item := range latency.Items {
 		conf := 0.78
@@ -18995,6 +19014,14 @@ func hasLockSeatRankFailLoudCaveat(caveats []string) bool {
 // (traceMarkPlatformSemanticSpanCap); counting them here would announce a
 // full 16-seat pool that is not full.
 func semanticSpanCapLowerBoundCaveat(stats WindowStats) (string, bool) {
+	if len(stats.traceSpanFullInventory) > 0 {
+		// Own-work pricing: this stats run carries the complete span inventory
+		// and every family is folded from it, so a full listing says nothing
+		// about the totals (the listing bound states its own omissions). The
+		// warning stays for a stats value without an inventory, where the
+		// listed spans are all there is.
+		return "", false
+	}
 	classified := 0
 	for _, span := range stats.TraceSpans {
 		if strings.TrimSpace(span.SemanticClass) != "" && !semanticSpanMintedByPlatformVocabulary(span.Name) {

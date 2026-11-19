@@ -13,13 +13,17 @@ func semanticProjectionSpan(thread ThreadRef, name string, start, end float64, l
 	}
 }
 
+// HMC377: the analysed thread's chain windows here are WAITS (sleeping,
+// ready). A window that is the thread itself running is its own execution and
+// never prices its own span (own-work pricing); the interval algebra this test
+// pins is unchanged and is exercised on the wait windows instead.
 func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	chain := &ChainResult{
 		Target: worker,
 		Nodes: []ChainNode{{
 			Thread: worker, Window: TimeWindow{StartTs: 5.002, EndTs: 5.008},
-			Dominant: StateRunning, Depth: 1, Branch: 1,
+			Dominant: StateSSleep, Depth: 1, Branch: 1,
 		}, {
 			Thread: worker, Window: TimeWindow{StartTs: 5.006, EndTs: 5.012},
 			Dominant: StateRunnable, Depth: 2, Branch: 2,
@@ -31,7 +35,7 @@ func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 		// must enrich provenance, never add the same wall time again.
 		CausalImpacts: []WakeupCausalImpact{{
 			Thread: worker, Window: TimeWindow{StartTs: 5.004, EndTs: 5.010},
-			DominantState: string(StateRunning), ChainDepth: 3, ChainBranch: 3,
+			DominantState: string(StateSSleep), ChainDepth: 3, ChainBranch: 3,
 		}},
 	}
 	spans := []TraceSpanSummary{
@@ -39,8 +43,13 @@ func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 		semanticProjectionSpan(worker, "VerifyClass B", 5.005, 5.015, 12),
 	}
 	families := FoldSemanticSpanFamilies(chain, spans)
-	if len(families) != 1 {
-		t.Fatalf("expected one on-chain family, got %+v", families)
+	// The wait family (the intersection) and the own-work family of the same
+	// spans (the rest of their union): together exactly the 15 ms union.
+	if len(families) != 2 || families[0].OnChainBasis != "" || families[1].OnChainBasis != RootCauseOnChainBasisSelfDeterministicSpan {
+		t.Fatalf("expected the wait family and the own-work family, got %+v", families)
+	}
+	if ownMs, waitMs, split := families[1].OwnWorkSplit(); !split || !near(ownMs, 5, 0.001) || !near(waitMs, 10, 0.001) {
+		t.Fatalf("own work = union 15 ms - wait 10 ms = 5 ms: own=%.6f wait=%.6f split=%v", ownMs, waitMs, split)
 	}
 	fam := families[0]
 	if !fam.OnChain || len(fam.Members) != 2 {
@@ -55,10 +64,10 @@ func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 		!near(fam.ProjectedStartTs, 5.002, 0.000001) || !near(fam.ProjectedEndTs, 5.012, 0.000001) {
 		t.Fatalf("on-chain projection must be the exact 10ms intersection union: %+v", fam)
 	}
-	// Running windows union to [2,10]=8ms; runnable contributes [6,12]=6ms.
-	// The row may name Running dominant, but may not stamp the cross-state
-	// 10ms total into RunningMs.
-	if fam.DominantState != string(StateRunning) || !near(fam.DominantStateImpactMs, 8, 0.001) {
+	// Sleeping windows union to [2,10]=8ms; runnable contributes [6,12]=6ms.
+	// The row may name sleeping dominant, but may not stamp the cross-state
+	// 10ms total into SleepMs.
+	if fam.DominantState != string(StateSSleep) || !near(fam.DominantStateImpactMs, 8, 0.001) {
 		t.Fatalf("dominant-state attribution must remain exact: %+v", fam)
 	}
 
@@ -77,7 +86,7 @@ func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 	if !near(item.CumulativeImpactMs, 15, 0.001) || !near(item.ActualImpactMs, 15, 0.001) {
 		t.Fatalf("complete window union/actual disclosure must survive beside projected impact: %+v", item)
 	}
-	if !near(item.RunningMs, 8, 0.001) || item.RunnableMs != 0 {
+	if !near(item.SleepMs, 8, 0.001) || item.RunnableMs != 0 {
 		t.Fatalf("dominant-state bucket must not absorb other chain states: %+v", item)
 	}
 	if !near(item.StartTs, 5.002, 0.000001) || !near(item.EndTs, 5.012, 0.000001) {
@@ -112,13 +121,15 @@ func TestSemanticFamilyOffChainCaliberRemainsCompleteWindowUnion(t *testing.T) {
 func TestSemanticSingleSpanAndFamilyProjectionUseSameDeduplicatedIntersection(t *testing.T) {
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	span := semanticProjectionSpan(worker, "VerifyClass A", 5.000, 5.010, 10)
+	// HMC377: wait windows of the analysed thread (see the test above); the
+	// own-work family of the same span carries the other 4 ms.
 	chain := ChainResult{Target: worker, Nodes: []ChainNode{{
-		Thread: worker, Window: TimeWindow{StartTs: 5.002, EndTs: 5.006}, Dominant: StateRunning,
+		Thread: worker, Window: TimeWindow{StartTs: 5.002, EndTs: 5.006}, Dominant: StateSSleep,
 	}, {
-		Thread: worker, Window: TimeWindow{StartTs: 5.004, EndTs: 5.008}, Dominant: StateRunning,
+		Thread: worker, Window: TimeWindow{StartTs: 5.004, EndTs: 5.008}, Dominant: StateSSleep,
 	}}}
 	families := FoldSemanticSpanFamilies(&chain, []TraceSpanSummary{span})
-	if len(families) != 1 || !near(families[0].ProjectedImpactMs, 6, 0.001) {
+	if len(families) != 2 || !near(families[0].ProjectedImpactMs, 6, 0.001) || !near(families[1].PricedOwnWorkMs(), 4, 0.001) {
 		t.Fatalf("degenerate family projection must union overlapping chain windows once: %+v", families)
 	}
 	item, ok := rootCauseItemFromSemanticTraceSpan(Query{}, chain, span, true)

@@ -268,6 +268,17 @@ const (
 	TraceNoteKeyMemberSumMS       = "member_sum_ms"
 	TraceNoteKeyMemberFoldCaliber = "member_fold_caliber"
 	TraceNoteKeyMemberRoster      = "member_roster"
+	// TraceNoteKeyMemberNotListed (HMC377 own-work pricing): how many of the
+	// member_count members the bounded member_roster does not list (largest
+	// members are listed first). The row's value, count and rank are computed
+	// from every member; this states the roster's incompleteness. Absent when
+	// every member is listed.
+	TraceNoteKeyMemberNotListed = "member_not_listed"
+	// TraceNoteKeyOwnWorkOnCPUMS (HMC377 own-work pricing): on a row of the
+	// analysed thread's own work, the part of the priced own work during which
+	// the thread was on a CPU (wall-clock ms, never converted). The row's
+	// value is wall time inside the work; this is its on-CPU share.
+	TraceNoteKeyOwnWorkOnCPUMS = "own_work_on_cpu_ms"
 	// TraceNoteKeySelfGapSemanticOverlaps (XLANE-2 件2, user ruling
 	// §29.104.17 ④ 披露式拆分, 2026-07-17): the self running supply-fold
 	// deficit seat's semantic-overlap disclosure — per-partner
@@ -1691,6 +1702,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyMemberSumMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberFoldCaliber, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberRoster, "causal_rank", TraceNoteCarrierHardConsumer},
+	// HMC377 own-work pricing: the roster's typed incompleteness and the
+	// own-work row's on-CPU share (text and record faces; no gate reads them).
+	{TraceNoteKeyMemberNotListed, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyOwnWorkOnCPUMS, "causal_rank", TraceNoteCarrierDisplayOnly},
 	// XLANE-2 件1 (2026-07-17): complete per-member line ranges of a semantic
 	// family seat — projection compile parses it (strict count match) into
 	// FamilyMemberLineRanges; the display subset-judgment lane consumes it.

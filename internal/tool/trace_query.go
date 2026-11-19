@@ -8881,10 +8881,20 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 		if ruler != "" {
 			ruler = " " + ruler
 		}
-		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s\n",
+		// Own-work pricing: the roster's typed incompleteness and the own-work
+		// row's on-CPU share ride the row only when present (every other row
+		// keeps its bytes).
+		members := strconv.Itoa(item.MemberCount)
+		if item.MemberNotListedCount > 0 {
+			members += fmt.Sprintf(" member_not_listed=%d", item.MemberNotListedCount)
+		}
+		if item.OwnWorkOnCPUMs > 0 {
+			members += fmt.Sprintf(" own_work_on_cpu=%.3fms", item.OwnWorkOnCPUMs)
+		}
+		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%s cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s\n",
 			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
 			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), magnitudeField,
-			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.MemberCount,
+			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), members,
 			sanitizeForBanner(traceQueryCrossDirectionOverlapsNote(overlaps)), overlapOmitted,
 			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source), ruler)
 	}
@@ -9921,6 +9931,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyMemberSumMS, traceQueryObservationMSValue(item.MemberSumMs)},
 				{types.TraceNoteKeyMemberFoldCaliber, item.MemberFoldCaliber},
 				{types.TraceNoteKeyMemberRoster, strings.Join(item.MemberRoster, " | ")},
+				// HMC377 own-work pricing: the roster's typed incompleteness
+				// (zero-dropped when every member is listed) and the own-work
+				// row's on-CPU share (zero-dropped on every other row).
+				{types.TraceNoteKeyMemberNotListed, traceQueryTypedCount(item.MemberNotListedCount)},
+				{types.TraceNoteKeyOwnWorkOnCPUMS, traceQueryObservationMSValue(item.OwnWorkOnCPUMs)},
 				// XLANE-2 件1: the complete typed member line-range set of a
 				// semantic family seat (all-or-nothing at the mint; "" drops).
 				{types.TraceNoteKeyMemberLineRanges, strings.Join(item.MemberLineRanges, "|")},
@@ -15003,7 +15018,10 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 	// multi-span same-thread family publishes ONE record whose Value is the
 	// family's window-projection total. A family of one keeps the pre-RCM
 	// per-span record byte-identically (退化不变体).
-	families := tracequery.FoldSemanticSpanFamilies(chain, stats.TraceSpans)
+	// Own-work pricing: the one shared entry folds the complete classified
+	// inventory of the stats run, so a record's total and member count never
+	// depend on how many members the window-stats listing shows.
+	families := tracequery.SemanticSpanFamiliesForStats(chain, &stats)
 	out := make([]types.ObservationRecord, 0, minInt(len(families), traceQueryWidthTypedFamilyRowCap()))
 	ordinal := 0
 	// RCM-2 复核 F-4 (2026-07-08): the channel's background-comprehensive-
@@ -15019,7 +15037,10 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		if ordinal >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
-		if len(fam.Members) > 1 {
+		// A one-member own-work family split between a wait and own work is
+		// rendered as a family record: its value is not the member's duration.
+		_, _, ownWorkSplit := fam.OwnWorkSplit()
+		if len(fam.Members) > 1 || ownWorkSplit {
 			ordinal++
 			backgroundRank := 0
 			if !fam.OnChain {
@@ -15215,6 +15236,9 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyMemberSumMS, memberSum},
 		{types.TraceNoteKeyMemberFoldCaliber, fam.FoldCaliber},
 		{types.TraceNoteKeyMemberRoster, strings.Join(fam.MemberRosterEntries(), " | ")},
+		// HMC377 own-work pricing: typed roster incompleteness ("" when every
+		// member is listed — zero-dropped).
+		{types.TraceNoteKeyMemberNotListed, traceQueryTypedCount(fam.MemberNotListedCount())},
 		// XLANE-2 件1: complete typed member line ranges (all-or-nothing at the
 		// engine renderer; empty joins to "" and the note zero-drops).
 		{types.TraceNoteKeyMemberLineRanges, strings.Join(fam.MemberLineRangeEntries(), "|")},
@@ -15226,7 +15250,10 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(fam.ActualStartTs, fam.ActualEndTs)},
 	})
 	var summary string
-	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+	if ownWorkMs, waitMs, split := fam.OwnWorkSplit(); split && fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+		summary = fmt.Sprintf("semantic trace span family class=%s x%d on the analysis target's own thread, complete selected-window union=%.3fms (largest %q %.3fms), of which %.3fms the thread spent waiting on its dependency chain (published by the wait record of the same spans) and own work=%.3fms; deterministic self work counted on-chain without any wakeup-edge claim",
+			traceQueryShaderOutcomeQualifiedClass(fam.SemanticClass, rep.Subcategory), len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, waitMs, ownWorkMs)
+	} else if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
 		summary = fmt.Sprintf("semantic trace span family class=%s x%d on the analysis target's own thread, complete selected-window union=%.3fms (largest %q %.3fms); deterministic self work counted on-chain without any wakeup-edge claim",
 			traceQueryShaderOutcomeQualifiedClass(fam.SemanticClass, rep.Subcategory), len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs)
 	} else if edgeBasis {
@@ -15311,6 +15338,14 @@ func traceQuerySemanticCredentialedEffectiveNote(fam tracequery.SemanticSpanFami
 		// item publishes as EffectiveImpactMs (rank_family_fold).
 		if fam.ProjectedImpactMs > 0 {
 			return traceQueryObservationMSValue(fam.ProjectedImpactMs)
+		}
+		return ""
+	case tracequery.RootCauseOnChainBasisSelfDeterministicSpan:
+		// An own-work family split between waits and own work prices the
+		// own-work share only (the rank row's EffectiveImpactMs); an unsplit
+		// family keeps publishing its union as the record value.
+		if ownWorkMs, _, split := fam.OwnWorkSplit(); split && ownWorkMs > 0 {
+			return traceQueryObservationMSValue(ownWorkMs)
 		}
 		return ""
 	default:

@@ -443,6 +443,8 @@ var traceNoteKeyGoldenRows = []string{
 	"member_line_ranges|causal_rank|hard_consumer",
 	"member_max_ms|causal_rank|hard_consumer",
 	"member_min_ms|causal_rank|hard_consumer",
+	// HMC377 own-work pricing: typed roster incompleteness.
+	"member_not_listed|causal_rank|display_only",
 	"member_roster|causal_rank|hard_consumer",
 	"member_sum_ms|causal_rank|hard_consumer",
 	// SPANTOP-1 件1 (§29.131): complete per-member wall-clock list — the
@@ -480,6 +482,8 @@ var traceNoteKeyGoldenRows = []string{
 	// 2026-07-10): display_only → hard_consumer — on-chain semantic-span
 	// intersection carrier (SemanticChainProjectedMS).
 	"overlap|causal_rank|hard_consumer",
+	// HMC377 own-work pricing: the own-work row's on-CPU share.
+	"own_work_on_cpu_ms|causal_rank|display_only",
 	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed payload-owner
 	// -tid presence verdict (absent/present_collision/present_comm_mismatch)
 	// — 明细持有者来历 presence 分句 fork; 缺席 fail-open 保 legacy 句逐字节.

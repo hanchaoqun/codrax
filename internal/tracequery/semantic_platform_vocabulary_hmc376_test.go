@@ -233,9 +233,15 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 		"semanticPlatformVocabularyNearMiss":     {"traceSpanNearMissesSemanticWorkClassification"},
 		"traceSpanSemanticWorkClassWithOwner":    {"traceSpanSemanticWorkClass", "semanticSpanMintedByPlatformVocabulary", "partitionTraceMarkSpansBySemanticOwner"},
 		"semanticSpanMintedByPlatformVocabulary": {"init", "semanticSpanAdmitsHostEdgeLane", "semanticSpanCapLowerBoundCaveat", "semanticFamilyMintedByPlatformVocabulary", "FoldSemanticSpanFamilies", "computeBusinessSpanMentions"},
-		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions", "FoldSemanticSpanFamilies"},
+		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions", "semanticSpanRecordsWait"},
 		"semanticSpanSeatTier":                   {"tierOf"},
-		"TraceSpanVocabulary":                    {"targetSemanticRunningMs"},
+		// HMC377 own-work pricing: the one stance predicate ("this marker
+		// records a wait") feeds the family key, the own-work bar, the
+		// deterministic-running lane and the own-work on-CPU share — the same
+		// wait-lane bar in four places that must agree. The exported lookup
+		// keeps only its tool and tracediag consumers.
+		"semanticSpanRecordsWait": {"FoldSemanticSpanFamilies", "semanticSpanIsTargetOwnWork", "targetSemanticRunningMs", "stampOwnWorkOnCPU"},
+		"TraceSpanVocabulary":     {},
 		// The advisory naming-drift signal: two caveat builders and the
 		// exported census wrapper. No lane, tier, gate or score reads it.
 		"traceSpanNearMissesSemanticWorkClassification": {"TraceSpanNearMissesSemanticWork", "incompleteSemanticTraceMarkCaveats", "buildRootCauseRankFromWithCache"},

@@ -653,7 +653,13 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// ELIM-SELF-FIX 件1: the self running fold seat filters the target's
 	// window timeline to RUNNING intervals before the R5 fold.
 	"rank_self_running_fold.go:mintSelfRunningSupplyFoldDeficitSeat": "running#1",
-	"query.go:buildStateDrilldownPlanForTarget":                      "s_sleep#1",
+	// HMC377 own-work pricing: a chain window that is the analysed thread
+	// itself RUNNING is its own execution, never an overlap that prices its
+	// own span; and the own-work on-CPU share reads the thread's RUNNING
+	// intervals from the same timeline as the self running seat.
+	"rank_family_fold.go:semanticChainWindowIsTargetExecution": "running#1",
+	"rank_own_work.go:targetRunningIntervalsForRank":           "running#1",
+	"query.go:buildStateDrilldownPlanForTarget":                "s_sleep#1",
 	// Runnable rank rows now carry their exact segment inventory. Chain-lane
 	// admission intersects that inventory, never a multi-segment hull.
 	"query.go:chainContextForRootCauseItem": "runnable#1",

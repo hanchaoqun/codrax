@@ -39,9 +39,10 @@ import (
 //     intervals ∩ target running intervals) through the SAME foldInterval
 //     algebra the §29.26③-1 on-chain semantic intersection uses (交集机械
 //     复用) — wall clock, never a converted value;
-//   - the span population is the bundle's own stats.TraceSpans (the same
-//     population the semantic rank lanes consume), so the account can never
-//     claim deterministic work the report has no evidence row for;
+//   - the span population is the bundle's complete classified span inventory
+//     (the same population the semantic rank lanes fold, never the bounded
+//     listing), so the account can never claim deterministic work the report
+//     has no evidence row for, and never loses work the listing left out;
 //   - SleepIOWaitMs pairs S-opened intervals with iowait>0 blocked_reason
 //     markers through the SAME finder the D-state enrich consumes
 //     (findBlockedReasonForWithSelection) — G12 single attribution untouched:
@@ -576,14 +577,18 @@ func targetSemanticRunningMs(stats *WindowStats, target ThreadRef, window TimeWi
 		return 0
 	}
 	var members []foldInterval
-	for _, span := range stats.TraceSpans {
+	// The complete classified inventory, not the listed spans: the display
+	// bound must not decide how much of the thread's running time is its own
+	// deterministic work. The stance predicate is the fold's own, so this lane
+	// and the own-work rows agree on what is work and what is a wait.
+	for _, span := range stats.semanticSpanInventory() {
 		if !sameThreadRef(span.Thread, target) {
 			continue
 		}
 		if strings.TrimSpace(span.SemanticClass) == "" && traceSpanSemanticClass(span.Name) == "" {
 			continue
 		}
-		if hit, ok := TraceSpanVocabulary(strings.TrimSpace(span.Name)); ok && hit.Stance == "waits" {
+		if semanticSpanRecordsWait(strings.TrimSpace(span.Name)) {
 			continue
 		}
 		start, end, ok := overlapTimeWindow(span.StartTs, span.EndTs, window.StartTs, window.EndTs)

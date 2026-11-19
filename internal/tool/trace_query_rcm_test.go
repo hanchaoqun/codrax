@@ -13,6 +13,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,15 +248,26 @@ func TestSelfSemOverlapFamilyKeepsIntersectionLaneOnBothFaces(t *testing.T) {
 	stats := tracequery.ComputeWindowStats(idx, q)
 	// --- face 1: the rank item ------------------------------------------------
 	rank := tracequery.BuildRootCauseRank(idx, q)
-	var gc *tracequery.RootCauseRankItem
+	// HMC377 own-work pricing: the same two spans also mint the thread's
+	// own-work row (the running instants outside its chain waits). The
+	// overlap-lane row is the wait share and keeps every assertion below.
+	var gc, own *tracequery.RootCauseRankItem
 	for i := range rank.Items {
-		if rank.Items[i].Type == "gc_pause" {
+		if rank.Items[i].Type != "gc_pause" {
+			continue
+		}
+		if rank.Items[i].OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+			own = &rank.Items[i]
+		} else if gc == nil {
 			gc = &rank.Items[i]
-			break
 		}
 	}
 	if gc == nil || gc.MemberCount != 2 {
 		t.Fatalf("件3 fixture drifted: the ×2 gc_pause family must mint: %+v", rank.Items)
+	}
+	if own == nil || own.MemberCount != 2 || own.OverlapMs != 0 ||
+		math.Abs(own.EffectiveImpactMs+gc.EffectiveImpactMs-gc.CumulativeImpactMs) > 0.001 {
+		t.Fatalf("the own-work row carries exactly the union minus the wait share (nothing counted twice): own=%+v wait=%+v", own, gc)
 	}
 	if gc.ChainRelevance != "on_chain" || gc.Causality != "on_wakeup_chain" || gc.OnChainBasis != "" {
 		t.Fatalf("a TRUE-overlap self family must keep the legacy overlap lane (M5 order): %+v", gc)
@@ -271,10 +283,16 @@ func TestSelfSemOverlapFamilyKeepsIntersectionLaneOnBothFaces(t *testing.T) {
 		tracequery.Result{WakeupChain: &chain}, stats,
 		types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "selfsem_overlap_family.systrace", ArtifactKind: "trace"},
 		"scope", time.Unix(1752300000, 0).UTC().Format(time.RFC3339))
-	if len(records) != 1 {
-		t.Fatalf("one family record expected: %d", len(records))
+	// HMC377: the wait record and the own-work record of the same spans.
+	if len(records) != 2 {
+		t.Fatalf("the wait record and the own-work record expected: %d", len(records))
 	}
 	notes := strings.Join(records[0].RichNotes, "\n")
+	ownNotes := strings.Join(records[1].RichNotes, "\n")
+	if !strings.Contains(ownNotes, "on_chain_basis=self_deterministic_span") ||
+		!strings.Contains(ownNotes, fmt.Sprintf("effective_impact_ms=%.3f", own.EffectiveImpactMs)) {
+		t.Fatalf("the own-work record must publish the own-work share of the rank row:\n%s", ownNotes)
+	}
 	for _, want := range []string{"chain_relevance=on_chain", "causality=on_wakeup_chain", "projected_impact="} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("the family observation must publish the overlap lane (%q missing):\n%s", want, notes)
