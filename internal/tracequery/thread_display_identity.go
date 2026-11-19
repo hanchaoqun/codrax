@@ -671,6 +671,7 @@ var (
 	threadDisplayEventType      = reflect.TypeOf(Event{})
 	threadDisplayEventViewType  = reflect.TypeOf(EventView{})
 	threadDisplayIdentityType   = reflect.TypeOf(ThreadDisplayIdentity{})
+	threadDisplayStatsType      = reflect.TypeOf(WindowStats{})
 )
 
 // threadDisplayLabelFields are the system-minted prose fields that render
@@ -860,12 +861,39 @@ func (w *threadDisplayRewriter) rewrite(v reflect.Value) (reflect.Value, bool) {
 				out.Field(i).Set(elem)
 			}
 		}
-		if !out.IsValid() {
-			return v, false
+		changed := out.IsValid()
+		if !changed {
+			out = v
 		}
-		return out, true
+		if t == threadDisplayStatsType {
+			return w.publishTraceSpanInventory(out, changed)
+		}
+		return out, changed
 	}
 	return v, false
+}
+
+// publishTraceSpanInventory names the complete trace-span inventory behind a
+// window-stats face's bounded TraceSpans listing by the same view as every
+// exported face. The inventory is unexported, but every semantic-span family
+// folded from it after publication takes its members' thread from it
+// (SemanticSpanFamiliesForStats: the trace_query tool's trace_semantic_span
+// and trace_span_members_observation records). It is not a face of its own
+// and adds no identity rows: a family folded from it is published only when
+// it is on the chain (a chain thread) or one of its members is listed, both
+// faces the walk already names.
+func (w *threadDisplayRewriter) publishTraceSpanInventory(v reflect.Value, changed bool) (reflect.Value, bool) {
+	stats := v.Interface().(WindowStats)
+	if len(stats.traceSpanFullInventory) == 0 {
+		return v, changed
+	}
+	namer := &threadDisplayRewriter{view: w.view, referenced: map[int]int{}, skip: w.skip}
+	inventory, renamed := namer.rewrite(reflect.ValueOf(stats.traceSpanFullInventory))
+	if !renamed {
+		return v, changed
+	}
+	stats.traceSpanFullInventory = inventory.Interface().([]TraceSpanSummary)
+	return reflect.ValueOf(stats), true
 }
 
 // processComm renames a process comm published beside a thread: a process is
