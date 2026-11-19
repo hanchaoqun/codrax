@@ -24,7 +24,6 @@ func hmc377HoneybirdInversionNode() types.TraceCausalProjectionNode {
 	node.RunnableMS = 45.378
 	node.RunningMS = 1.314
 	node.PriorityRelationProvenLowerMS = 36.780
-	node.PriorityRelationUnknownOrNonLowerMS = 9.912
 	return node
 }
 
@@ -61,7 +60,6 @@ func TestHMC377RunnableOverlapComponentNamesMeasuredReadyAndOverlap(t *testing.T
 	node.GatedRunnableMS = 8.408
 	node.RunnableMS = 45.878
 	node.PriorityRelationProvenLowerMS = 8.408
-	node.PriorityRelationUnknownOrNonLowerMS = 37.470
 	model := buildRuntimeTraceProjTreeModel(gatedCalProjection(node), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
 	if strings.Contains(fence, "runnable 原始 8.408ms") {

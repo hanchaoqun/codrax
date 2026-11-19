@@ -1341,13 +1341,11 @@ type TraceCausalProjectionNode struct {
 	// stays on GatedRunnableMS/GatedRunningDeficitMS.
 	PriorityInversionCandidate bool                          `json:"priority_inversion_candidate,omitempty"`
 	PriorityOverlap            *TraceRunnablePriorityOverlap `json:"priority_runnable_overlap,omitempty"`
-	// PriorityRelationProvenLowerMS / PriorityRelationUnknownOrNonLowerMS mirror
-	// the row's typed priority-coverage notes: the measured time whose lower
-	// priority is proven (the only time an inversion row counts) and the
-	// measured time that is not. Wording input of the attribution sub-rows
-	// only (measured vs counted); no gate or value lane reads them.
-	PriorityRelationProvenLowerMS       float64 `json:"priority_relation_proven_lower_ms,omitempty"`
-	PriorityRelationUnknownOrNonLowerMS float64 `json:"priority_relation_unknown_or_nonlower_ms,omitempty"`
+	// PriorityRelationProvenLowerMS mirrors the row's typed priority-coverage
+	// note: the measured time whose lower priority is proven (the only time an
+	// inversion row counts). Wording input of the attribution sub-rows only
+	// (the measured running inside that share); no gate or value lane reads it.
+	PriorityRelationProvenLowerMS float64 `json:"priority_relation_proven_lower_ms,omitempty"`
 	// RunnableBelowRTPreempted mirrors the producer's typed
 	// "runnable_below_rt_preempted=true" rich note (SYM-2 §24.17 R2,
 	// 2026-07-08): a SELF runnable-family rank row whose subject — the
@@ -4513,7 +4511,6 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// carries the type token.
 	node.PriorityInversionCandidate = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPriorityInversionCandidate)) == "true"
 	node.PriorityRelationProvenLowerMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyPriorityRelationProvenLowerMS)
-	node.PriorityRelationUnknownOrNonLowerMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyPriorityRelationUnknownOrNonLowerMS)
 	// SYM-2 (§24.17 R2, 2026-07-08): the below-RT preemption disclosure on a
 	// self runnable rank row — exact typed note match, wording input only.
 	node.RunnableBelowRTPreempted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRunnableBelowRTPreempted)) == "true"

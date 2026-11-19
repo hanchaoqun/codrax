@@ -320,16 +320,20 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"IdleCadenceMS":              {Status: "displayed", Ref: "行内 其中X.XXXms 帧间/周期空闲 注记"},
 	"IdleCadenceKind":            {Status: "displayed", Ref: "同上(词面分叉键)+图例条"},
 	"PriorityInversionCandidate": {Status: "displayed", Ref: "行1 ⇅ + 行2(典型经 canonical Object 词位)"},
-	"RunnableBelowRTPreempted":   {Status: "displayed", Ref: "行2 (优先级低于RT) 尾缀"},
-	"OnChainOverflowFold":        {Status: "displayed", Ref: "行1 折叠行(其余N项)"},
-	"MergedAllDataGap":           {Status: "displayed", Ref: "全零注(禁席禁徽章门)"},
-	"SameValueMembers":           {Status: "displayed", Ref: "证据索引 audit(W-3 设计:仅 audit 面)"},
-	"FamilyMemberCount":          {Status: "displayed", Ref: "行1 合计词位 + 明细家族合并"},
-	"FamilyMemberMaxMS":          {Status: "displayed", Ref: "明细成员范围"},
-	"FamilyMemberMinMS":          {Status: "displayed", Ref: "明细成员范围"},
-	"FamilyMemberSumMS":          {Status: "displayed", Ref: "行3 族形/明细"},
-	"FamilyFoldCaliber":          {Status: "displayed", Ref: "族口径词"},
-	"FamilyMemberRoster":         {Status: "displayed", Ref: "明细成员/区分键"},
+	// HMC377 (thread-identity lane): the proven-lower share's measured running
+	// prints as the running sub-row's 原始 (never 原始未发布 beside a
+	// published running).
+	"PriorityRelationProvenLowerMS": {Status: "displayed", Ref: "拆解子行 running 原始(已证低优先级份额内的实测运行)"},
+	"RunnableBelowRTPreempted":      {Status: "displayed", Ref: "行2 (优先级低于RT) 尾缀"},
+	"OnChainOverflowFold":           {Status: "displayed", Ref: "行1 折叠行(其余N项)"},
+	"MergedAllDataGap":              {Status: "displayed", Ref: "全零注(禁席禁徽章门)"},
+	"SameValueMembers":              {Status: "displayed", Ref: "证据索引 audit(W-3 设计:仅 audit 面)"},
+	"FamilyMemberCount":             {Status: "displayed", Ref: "行1 合计词位 + 明细家族合并"},
+	"FamilyMemberMaxMS":             {Status: "displayed", Ref: "明细成员范围"},
+	"FamilyMemberMinMS":             {Status: "displayed", Ref: "明细成员范围"},
+	"FamilyMemberSumMS":             {Status: "displayed", Ref: "行3 族形/明细"},
+	"FamilyFoldCaliber":             {Status: "displayed", Ref: "族口径词"},
+	"FamilyMemberRoster":            {Status: "displayed", Ref: "明细成员/区分键"},
 	// XLANE-2 件1 (2026-07-17): the complete typed member line-range set —
 	// subset-judgment input (the 为[E#]成员子集 pointer + ◎ footnote), and
 	// since SPANTOP-1 (§29.131, 2026-07-18) ALSO printed verbatim as the
