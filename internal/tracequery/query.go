@@ -17914,14 +17914,22 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	hasCausalChain := len(chainThreads) > 1
 	if !hasCausalChain {
 		chainThreads = rankCausalThreadSet(rank)
-		hasCausalChain = len(chainThreads) > 0
 		// The analysed thread is always on its own chain (R8). The fallback
 		// set is built from published row tokens, and the thread's own rows
 		// speak self tokens there (own work, own waits), so it must not drop
-		// the thread the chain itself already holds.
-		if hasCausalChain && chain.Target.PID > 0 {
+		// the thread the chain itself already holds — whether or not another
+		// row happens to wear a chain token. EVOLUTION (HMC377 integration):
+		// the own-work lane added the target only when the token set was
+		// non-empty; on the gallery capture the only token-wearing row left
+		// after the own-work fix was a host-edge D seat of another thread
+		// that the dependency-credit bound (correctly) takes off the chain,
+		// so the set fell empty, every scheduler row lost its chain lane and
+		// a background thread's CPU-restriction row ranked first. Membership
+		// now reads the typed target identity alone.
+		if chain.Target.PID > 0 {
 			chainThreads[chain.Target.PID] = true
 		}
+		hasCausalChain = len(chainThreads) > 0
 	}
 	for _, item := range latency.Items {
 		conf := 0.78
