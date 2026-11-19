@@ -646,7 +646,10 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"`gc_pause`",
 		"Only a semantic row with positive typed effective_impact_ms and a positive primary/secondary/tertiary rank",
 		"on_chain_basis=semantic_chain_interval_relation or host_wakeup_edge_pre_span is credentialed",
-		"priced on-chain under the same credential rule as every state family (edge=credential, pre-edge=effective, post-edge=released)",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): the body quotes the
+		// one wakeup rule (TraceWakeupDependencyCreditTeaching) instead of the
+		// internal formula.
+		"the share the wakeup rule prices (" + TraceWakeupDependencyCreditTeaching + "), on-chain under the same rule as every state family",
 		"Do not say the target slept waiting for that semantic operation",
 		"separate typed target-wait or semantic-completion binding",
 		"state the exact wakeup/path relation separately",

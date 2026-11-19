@@ -569,7 +569,10 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"wakeup_cpu_topology_unknowns=`remain_unknown`",
 		"semantic_credential_authority=`typed_basis_present`",
 		"`semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` are priced on-chain credentials",
-		"effective_impact_ms is its pre-edge share",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): the boundary note
+		// quotes the one wakeup rule instead of the internal pre-edge formula.
+		"effective_impact_ms is its exact chain-interval intersection or the share the wakeup rule prices",
+		"inside the wait of the analysed thread that this wakeup ended",
 		"do not say the target slept waiting for that operation",
 		"state the exact wakeup/path relation separately",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
@@ -650,7 +653,8 @@ func TestFinalTraceSemanticRelationAuthorityUsesTypedBasisOnly(t *testing.T) {
 	got := renderTraceFinalSemanticRelationOnlyAuthority(set)
 	for _, want := range []string{
 		"semantic_credential_authority=`typed_basis_present`",
-		"pre-edge share",
+		// RE-BASED (HMC377 E2): "pre-edge share" → the quoted wakeup rule.
+		"the share the wakeup rule prices",
 		"semantic completion MECHANISM stays unproven",
 	} {
 		if !strings.Contains(got, want) {
