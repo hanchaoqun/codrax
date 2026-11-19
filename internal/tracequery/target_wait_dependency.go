@@ -267,15 +267,28 @@ func hostSemanticSpanDependencySplit(chain *ChainResult, host ThreadRef, start, 
 	return anchor.pricedBy(split), split, true
 }
 
-// spanInsideOneDependencyWindow reports whether [start, end] lies entirely
-// inside one window (the verbatim-member discipline of the business-clue
-// mention face: a member is either wholly inside a wait the host ended or not
-// mentioned on this basis at all — no bisected values on that face).
-func spanInsideOneDependencyWindow(windows []targetWaitDependencyWindow, start, end float64) bool {
-	for _, w := range windows {
-		if start >= w.startTs && end <= w.endTs {
-			return true
-		}
+// targetWaitDependencyTimeWindowsByPID reads the carrier as plain windows per
+// waking thread (sorted, pairwise disjoint). It is the business-clue mention
+// face's view of the same windows the host-edge seats price with: batch-377
+// integration ruling R-377-1 — another thread's span counts on that face only
+// for its part inside a target wait that thread's own recorded wakeup ended,
+// with its wall shown beside it. One edge rule (findWakeupForWithSelection)
+// and one window builder (attachTargetWaitDependencyWindows) serve both; the
+// face's former private builder is gone. nil when the carrier is absent.
+func targetWaitDependencyTimeWindowsByPID(chain *ChainResult) map[int][]TimeWindow {
+	if chain == nil || !chain.directDependencyWindowsBuilt || len(chain.directDependencyWindows) == 0 {
+		return nil
 	}
-	return false
+	out := make(map[int][]TimeWindow, len(chain.directDependencyWindows))
+	for pid, windows := range chain.directDependencyWindows {
+		if pid <= 0 || len(windows) == 0 {
+			continue
+		}
+		converted := make([]TimeWindow, 0, len(windows))
+		for _, w := range windows {
+			converted = append(converted, TimeWindow{StartTs: w.startTs, EndTs: w.endTs})
+		}
+		out[pid] = converted
+	}
+	return out
 }

@@ -1351,12 +1351,13 @@ func TestHMC376OmittedVocabularyFamilyStaysOnTheMentionFace(t *testing.T) {
 			StartTs: start, EndTs: start + 0.002, DurationMs: 2, StartLine: int(start * 10000), EndLine: int(start*10000) + 1}
 	}
 	q := Query{PID: 100, TimeStart: 6.000, TimeEnd: 6.010}
-	// EVOLUTION (HMC377 E3): a direct waker is on the chain only inside the
-	// target wait its own wakeup ended; here the host's wakeup at 6.006 ended
-	// the target's wait [6.001, 6.006].
-	endedWaits := map[int][]TimeWindow{300: {{StartTs: 6.001, EndTs: 6.006}}}
+	// EVOLUTION (HMC377 E3, integration ruling R-377-1): a direct waker is on
+	// the chain only inside the target wait its own wakeup ended; the face
+	// reads it from the chain's dependency-window carrier, where
+	// r3SyntheticChain states the host's wakeup at 6.006 ended the target's
+	// wait [6.000, 6.006].
 	mentions := func(seated []TraceSpanSummary, inventory ...TraceSpanSummary) map[string]bool {
-		res := computeBusinessSpanMentions(q, chain, wakeupChainThreadSet(chain), WindowStats{TraceSpans: seated, traceSpanFullInventory: inventory}, endedWaits)
+		res := computeBusinessSpanMentions(q, chain, wakeupChainThreadSet(chain), WindowStats{TraceSpans: seated, traceSpanFullInventory: inventory})
 		out := map[string]bool{}
 		if res != nil {
 			for _, fam := range res.Families {

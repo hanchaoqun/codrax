@@ -76,8 +76,11 @@ package tracequery
 //     contributes ONLY the part of each span inside its own typed dependency
 //     windows — the merged chain node windows (chainAnchorWindowsByPID, the
 //     windows the semantic seats intersect) united with the analysed
-//     thread's waits that thread's own recorded wakeups ended
-//     (targetEndedWaitWindowsByWaker). A span outside every window
+//     thread's waits that thread's own recorded wakeups ended — read from
+//     the one carrier the host-edge seats price with
+//     (ChainResult.directDependencyWindows, attachTargetWaitDependencyWindows;
+//     integration ruling R-377-1: one edge rule, one window builder). A span
+//     outside every window
 //     contributes nothing, so a thread whose link is only temporal proximity
 //     is never mentioned; this replaces the host-edge arm's former "wholly
 //     before the latest credential edge" rule (a thread that delivered one
@@ -244,10 +247,10 @@ const businessSpanMentionSameMsTol = 0.001
 // computeBusinessSpanMentions builds the advisory mention face. Every
 // fail-open exit returns nil (no inventory / no bounded time window / no
 // admissible family → the face is simply absent; nothing downstream gates on
-// it). endedWaits carries, per waker thread, the analysed thread's waits that
-// thread's own recorded wakeups ended (targetEndedWaitWindowsByWaker); nil
-// means none is known.
-func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats, endedWaits map[int][]TimeWindow) *BusinessSpanMentionResult {
+// it). The waits another thread's own recorded wakeups ended come from the
+// chain's dependency-window carrier (targetWaitDependencyTimeWindowsByPID);
+// an absent carrier means none is known and no other thread counts there.
+func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats) *BusinessSpanMentionResult {
 	inventory := stats.traceSpanFullInventory
 	if len(inventory) == 0 {
 		return nil
@@ -278,10 +281,12 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 	// The typed dependency windows of every thread other than the target:
 	// the merged chain node windows [wait start, recorded wakeup] per member
 	// (chainAnchorWindowsByPID) united with the analysed thread's waits that
-	// thread's own wakeups ended directly. Both are closed by a recorded
-	// wakeup; nothing else puts another thread's span on the chain.
+	// thread's own wakeups ended directly — the same carrier, edge finder and
+	// geometry that bound the host-edge seats (HMC377 E2, R-377-1). Both are
+	// closed by a recorded wakeup; nothing else puts another thread's span on
+	// the chain.
 	dependencyWindows := chainAnchorWindowsByPID(chain)
-	for pid, windows := range endedWaits {
+	for pid, windows := range targetWaitDependencyTimeWindowsByPID(&chain) {
 		if dependencyWindows == nil {
 			dependencyWindows = map[int][]TimeWindow{}
 		}

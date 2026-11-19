@@ -103,14 +103,13 @@ func TestBusinessSpanMentionAdmissionBases(t *testing.T) {
 	}
 }
 
-// spanvisEndedWaits — the target's wait [10.000, 10.050] that host 200's
-// own recorded wakeup at 10.050 ended (the fixture's census credential).
-func spanvisEndedWaits() map[int][]TimeWindow {
-	return map[int][]TimeWindow{200: {{StartTs: 10.0, EndTs: 10.05}}}
-}
-
+// spanvisCompute runs the face on a fixture chain. The waits another thread's
+// own recorded wakeups ended come from the chain's dependency-window carrier
+// (spanvisChain states host 200's wait [10.000, 10.050]); EVOLUTION (HMC377
+// integration, R-377-1): the face no longer takes a second, privately built
+// window map — it reads the one carrier the host-edge seats price with.
 func spanvisCompute(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats) *BusinessSpanMentionResult {
-	return computeBusinessSpanMentions(q, chain, chainThreads, stats, spanvisEndedWaits())
+	return computeBusinessSpanMentions(q, chain, chainThreads, stats)
 }
 
 // TestBusinessSpanMentionHostEdgeBoundary — R3 边前/边后. EVOLUTION (HMC377
@@ -132,8 +131,10 @@ func TestBusinessSpanMentionHostEdgeBoundary(t *testing.T) {
 		spanvisSpan(200, "binder_host", "postOnly", 10.070, 9.0, 50, 60),  // post-edge only family
 		spanvisSpan(200, "binder_host", "atEdge", 10.050, 5.0, 70, 80),    // starts AT the boundary — nothing inside
 	}
-	waits := map[int][]TimeWindow{200: {{StartTs: 10.040, EndTs: 10.050}}}
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil), waits)
+	chain.directDependencyWindows = map[int][]targetWaitDependencyWindow{
+		200: {{startTs: 10.040, endTs: 10.050, wakeupTs: 10.050}},
+	}
+	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
 	if res == nil || len(res.Families) != 1 {
 		t.Fatalf("only the member part inside the ended wait may mention: %+v", res)
 	}
@@ -142,14 +143,16 @@ func TestBusinessSpanMentionHostEdgeBoundary(t *testing.T) {
 		microsBSM(fam.MaxSingleMs) != microsBSM(5) || microsBSM(fam.SpanWallMs) != microsBSM(20) || fam.StartLine != 22 || fam.EndLine != 28 {
 		t.Fatalf("pre-wait and post-edge time must not join the family account: %+v", fam)
 	}
-	if none := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil), nil); none != nil {
-		t.Fatalf("a credential without a known ended wait puts nothing on the chain: %+v", none)
+	absent := spanvisChain()
+	absent.directDependencyWindowsBuilt, absent.directDependencyWindows = false, nil
+	if none := computeBusinessSpanMentions(spanvisQuery(), absent, wakeupChainThreadSet(absent), spanvisStats(inventory, nil)); none != nil {
+		t.Fatalf("a credential without a known ended wait (no carrier) puts nothing on the chain: %+v", none)
 	}
 	// Twin (HMC377 E2): the same census pair whose wakeups closed no wait of
 	// the target mentions nothing on the host basis.
 	noWait := spanvisChain()
 	noWait.directDependencyWindows = map[int][]targetWaitDependencyWindow{}
-	if res := computeBusinessSpanMentions(spanvisQuery(), noWait, wakeupChainThreadSet(noWait), spanvisStats(inventory, nil), nil); res != nil && len(res.Families) != 0 {
+	if res := computeBusinessSpanMentions(spanvisQuery(), noWait, wakeupChainThreadSet(noWait), spanvisStats(inventory, nil)); res != nil && len(res.Families) != 0 {
 		t.Fatalf("a host whose wakeups ended no wait of the target must not be mentioned: %+v", res.Families)
 	}
 }
