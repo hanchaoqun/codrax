@@ -7,7 +7,9 @@ package types
 // request locally (707,552 B against the 700,000 B allocation) and the
 // customer sidecar then said the model never selected — indistinguishable
 // from a model that saw the offer and declined. The receipt records the
-// system-side fact: the request was sent, or it was not and why.
+// system-side fact: the provider answered the request, or the request was not
+// sent or its call failed, and why (HMC377 F6: a request counts as sent only
+// once a provider response arrived).
 
 // AnswerFollowUpNotSentCause is the closed reason a follow-up request was not
 // sent.
@@ -24,9 +26,14 @@ const (
 	// offered on the dispatch's last allowed iteration, or a force-stop ended
 	// the loop, so no request decision was ever reached.
 	AnswerFollowUpNotSentLoopStopped AnswerFollowUpNotSentCause = "loop_stopped"
+	// AnswerFollowUpNotSentRequestFailed (HMC377 F6): the request was handed
+	// to the provider but no response came back (provider error, stalled or
+	// broken stream, request timeout, cancellation), so no answer of the model
+	// to the offer was received.
+	AnswerFollowUpNotSentRequestFailed AnswerFollowUpNotSentCause = "request_failed"
 )
 
-// AnswerFollowUpDelivery is one dispatch's follow-up decision. Byte values are
+// AnswerFollowUpDelivery is one dispatch's follow-up outcome. Byte values are
 // local content-byte estimates of the planned request, not provider tokens.
 type AnswerFollowUpDelivery struct {
 	// RootCauseSelectionOffered: the follow-up offered the optional root-cause
@@ -36,7 +43,9 @@ type AnswerFollowUpDelivery struct {
 	// published (HMC377 D1-R5: what the schema projection applied, never the
 	// declared union when the projection refused); empty means the whole
 	// compatibility patch surface.
-	Operations      []string                   `json:"operations,omitempty"`
+	Operations []string `json:"operations,omitempty"`
+	// Sent: the provider answered the follow-up request, so the model's
+	// response to the offer (a call or a decline) was received.
 	Sent            bool                       `json:"sent"`
 	NotSentCause    AnswerFollowUpNotSentCause `json:"not_sent_cause,omitempty"`
 	RequestBytes    int                        `json:"request_bytes"`
@@ -44,7 +53,8 @@ type AnswerFollowUpDelivery struct {
 }
 
 // RootCauseSelectionNotSent reports the one state the customer sidecar names:
-// the follow-up offered the root-cause selection and its request was not sent.
+// the follow-up offered the root-cause selection and no provider response to
+// it was received (not sent, or its request failed).
 func (d *AnswerFollowUpDelivery) RootCauseSelectionNotSent() bool {
 	return d != nil && d.RootCauseSelectionOffered && !d.Sent
 }

@@ -274,7 +274,7 @@ JSON Schema 限制字段、类型和根因类别
 | `final_answer_transcript_not_available` | 流程提前退出或未形成答案；不输出未完成的草稿根因。 |
 | `root_cause_report_encoding_failed` | 根因报告编码失败，已降为合法的空 JSON。 |
 | `valid_root_cause_selection_unavailable` | 写入器未收到任何原因时的兜底值；正常流程不会出现。 |
-| `root_cause_selection_follow_up_not_sent` | 模型首稿未提交选择；正文受理后系统准备的那一次可选补充（含根因选择）在既有请求分配或上下文压力上限内仍无法发送，因此没有发出。模型并未看到这次补充机会，这不是模型拒绝选择。 |
+| `root_cause_selection_follow_up_not_sent` | 模型首稿未提交选择；正文受理后系统准备的那一次可选补充（含根因选择）在既有请求分配或上下文压力上限内仍无法发送，因此没有发出；或已发出但请求失败（provider 错误、流中断、超时或取消），没有收到模型响应。系统没有收到模型对这次补充机会的任何答复，这不是模型拒绝选择。 |
 
 `reason_code` 取值是只增不改的闭集，程序里由 `outputdump.AllRootCauseUnavailableReasonCodes` 单点维护，本表与之逐项对应。
 

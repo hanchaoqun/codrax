@@ -2426,9 +2426,6 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				return nil, err
 			}
 		}
-		if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
-			recorder.recordFollowUpDelivery(ctx, true, "", llm.EstimateRequestBytes(requestMessages, effectiveTools))
-		}
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, requestMessages, effectiveTools)
 		// round= is the 1-based counter the CLI shows as "第 N 轮"
 		// (renderer derives round := iteration + 1). Logged alongside
@@ -2552,6 +2549,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			OnFallback:       onFallback,
 		}, requestTimeout)
 		stopLLMRequestWatchdog()
+		// HMC377 F6: the follow-up receipt records the request's outcome. It
+		// is sent only once the provider answered; a request that failed
+		// (provider error, broken or stalled stream, timeout, cancellation)
+		// returns no model answer to the offer.
+		if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
+			cause := types.AnswerFollowUpNotSentCause("")
+			if err != nil {
+				cause = types.AnswerFollowUpNotSentRequestFailed
+			}
+			recorder.recordFollowUpDelivery(ctx, err == nil, cause, llm.EstimateRequestBytes(requestMessages, effectiveTools))
+		}
 		streamBuf.flush()
 		// Flush any throttled-out summary preview chunks before the
 		// orchestrator emits its EventLivePreviewClear. Nil-safe so
@@ -3212,9 +3220,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	// HMC377 D1-R1/R4: the accepted-answer follow-up can be latched on the
 	// last allowed iteration, or a force-stop can end the loop, before any
-	// request decision ran. The receipt is written once at the decision points
-	// above; this records the one remaining not-sent path (a no-op when a
-	// receipt exists or no follow-up was offered).
+	// request decision ran. The receipt is written once, at the two not-sent
+	// decision points or from the outcome of the provider call above; this
+	// records the one remaining not-sent path (a no-op when a receipt exists
+	// or no follow-up was offered).
 	if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
 		recorder.recordFollowUpDelivery(ctx, false, types.AnswerFollowUpNotSentLoopStopped, 0)
 	}

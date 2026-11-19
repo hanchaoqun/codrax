@@ -225,7 +225,7 @@ func postEmitAdvisoryPatchOperations(kinds []postEmitAdvisoryLaneKind) []string 
 }
 
 // recordFollowUpDelivery stores the typed receipt of this dispatch's follow-up
-// request decision once. Only the accepted-answer follow-up round records;
+// request once: a not-sent decision, or the outcome of the provider call. Only the accepted-answer follow-up round records;
 // the accepted answer, the selection state and every counter stay untouched.
 func (e *answerDocumentEvaluator) recordFollowUpDelivery(ctx *types.AgentContext, sent bool, cause types.AnswerFollowUpNotSentCause, requestBytes int) {
 	if e == nil || e.followUpReceiptRecorded || !e.keepAcceptedAnswerUnderPressure(ctx) {

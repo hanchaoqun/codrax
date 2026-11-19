@@ -35,8 +35,10 @@ const (
 	RootCauseReasonFallbackUnavailable = "valid_root_cause_selection_unavailable"
 	// RootCauseReasonSelectionFollowUpNotSent (HMC §377 D1): the model never
 	// submitted a selector and the one follow-up that offered the selection
-	// after the accepted answer was not sent within the request limits — the
-	// model was never shown that offer, so this is not a declined choice.
+	// after the accepted answer was not sent within the request limits, or its
+	// request failed before any model response arrived (HMC377 F6) — no answer
+	// of the model to that offer was received, so this is not a declined
+	// choice.
 	RootCauseReasonSelectionFollowUpNotSent = "root_cause_selection_follow_up_not_sent"
 )
 
