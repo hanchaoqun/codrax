@@ -1469,7 +1469,11 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// fix-direction attribute word — 方向词落行2. Attribute axis only: the
 	// seat chip, every ordinal and every value stay untouched; unresolved/
 	// legacy rows wear nothing (fail-open, absence never guesses).
-	if word, ok := runtimeTraceProjFixDirectionWord(node.FixDirection, zh); ok {
+	// HMC377 E2-R4: a host-edge remainder (time outside every wait of the
+	// analysed thread that the thread's wakeup ended) is not a cause, so it
+	// wears no fix direction.
+	hostEdgeRemainder := node.ChainAnchorRemainderSeat && node.HostWakeupEdgeAnchorTS > 0
+	if word, ok := runtimeTraceProjFixDirectionWord(node.FixDirection, zh); ok && !hostEdgeRemainder {
 		if zh {
 			identity = append(identity, "修向 "+word)
 		} else {

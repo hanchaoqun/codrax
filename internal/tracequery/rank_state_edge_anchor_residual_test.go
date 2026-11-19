@@ -84,7 +84,7 @@ func TestChainMemberResidualDirectBoundaryIgnoresChainHopEdge(t *testing.T) {
 	// 2026-11-18): old "DIRECT wakeup edge" rewrite → the one wait clause,
 	// which is direct by construction and discloses the 6.0045 wakeup.
 	for _, summary := range []string{pre.Summary, post.Summary} {
-		if !strings.Contains(summary, "wait(s) that this thread's own wakeup ended (1 wait(s), 4.500ms of waiting; last such wakeup at 6.004500)") || strings.Contains(summary, "6.004800") {
+		if !strings.Contains(summary, "wait(s) that this thread's own wakeup ended (1 wait(s), 4.500ms of waiting; the latest one holding part of this account was ended at 6.004500)") || strings.Contains(summary, "6.004800") {
 			t.Fatalf("residual-lane disclosure must speak the direct wakeup: %s", summary)
 		}
 	}

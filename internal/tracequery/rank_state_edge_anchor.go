@@ -110,9 +110,16 @@ func stateEdgeAnchorFamilyWord(typ string) string {
 // this thread's own recorded wakeup ended, how many there were, how long they
 // lasted together and when the last of them was ended. One clause, every
 // host-edge sentence (state seats, their remainders, spans, disclosures).
+//
+// EVOLUTION RECORD (HMC377 E2-R5): the counts were those of the waits holding
+// a priced piece, while the words name every wait this thread's wakeup ended
+// (android.bg-7812 on Douyin reboot5: "1 wait(s), 0.245ms" for 2 waits /
+// 0.252ms in raw). The clause now counts every such wait, and the timestamp
+// is named as the wakeup that ended the latest wait holding part of this
+// account.
 func stateEdgeWaitClause(split dependencyWindowSplit) string {
-	return fmt.Sprintf("the analysed thread's wait(s) that this thread's own wakeup ended (%d wait(s), %.3fms of waiting; last such wakeup at %.6f)",
-		split.waitCount, split.waitMs, split.lastWakeupTs)
+	return fmt.Sprintf("the analysed thread's wait(s) that this thread's own wakeup ended (%d wait(s), %.3fms of waiting; the latest one holding part of this account was ended at %.6f)",
+		split.allWaitCount, split.allWaitMs, split.lastWakeupTs)
 }
 
 // stateEdgeAnchoredSummary — the ⛓ seat's engine-side account for an

@@ -165,7 +165,7 @@ func TestBareCensusEdgeStateSeatRunnableBisect(t *testing.T) {
 	// E2, owner ruling 2026-11-18): old substring "edge=credential" → the
 	// wait clause naming the waits the host's wakeup ended (same meaning: the
 	// row states its credential and which time it prices).
-	clause := "inside the analysed thread's wait(s) that this thread's own wakeup ended (1 wait(s), 6.000ms of waiting; last such wakeup at 6.006000)"
+	clause := "inside the analysed thread's wait(s) that this thread's own wakeup ended (1 wait(s), 6.000ms of waiting; the latest one holding part of this account was ended at 6.006000)"
 	if !strings.Contains(seat.Summary, clause) || !strings.Contains(seat.Summary, rspaSummaryRemainderTwinPublished) {
 		t.Fatalf("⛓ sentence must name the waits it is priced inside + the twin anchor: %q", seat.Summary)
 	}

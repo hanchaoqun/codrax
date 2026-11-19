@@ -6976,9 +6976,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				anchoredWord = "(锚定席未上本榜,见明细)"
 				anchoredWordEN = "(anchored seat not on this board; see the detail index)"
 			}
-			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms%s+本行其余%.3fms(无链上凭证)", full, anchored, anchoredWord, rem)
+			// HMC377 E2-R4: a host-edge remainder is the thread's time
+			// outside every wait of the analysed thread that its own wakeup
+			// ended — the reader is told the analysed thread was not waiting
+			// for it there (typed HostWakeupEdgeAnchorTS fork; the engine
+			// summary says the same).
+			remainderWord, remainderWordEN := "无链上凭证", "no chain credential"
+			if row.Node.HostWakeupEdgeAnchorTS > 0 {
+				remainderWord = "目标此时并未在等待本线程,无链上凭证"
+				remainderWordEN = "the analysed thread was not waiting for this thread then; no chain credential"
+			}
+			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms%s+本行其余%.3fms(%s)", full, anchored, anchoredWord, rem, remainderWord)
 			if !zh {
-				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + this remainder %.3fms (no chain credential)", full, anchored, anchoredWordEN, rem)
+				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + this remainder %.3fms (%s)", full, anchored, anchoredWordEN, rem, remainderWordEN)
 			}
 		default:
 			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)

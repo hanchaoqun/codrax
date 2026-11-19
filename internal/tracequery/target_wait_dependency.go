@@ -127,8 +127,14 @@ func attachTargetWaitDependencyWindows(cache *chainQueryCache, q Query, res *Cha
 			continue
 		}
 		wakeup, _ := findWakeupForWithSelection(cache.idx, target, iv.StartTs, iv.EndTs, selection, true)
+		// No recorded wakeup, the pid-0 swapper row (an interrupt/idle
+		// context printed without a thread), or a self wakeup. HMC377 E2-R6:
+		// a per-CPU idle helper that prints its own positive TID (HarmonyOS
+		// tppmgr-idle-N) is not caught here: it is a thread with a window
+		// like any other, which prices nothing because it owns no ready or
+		// D/IO inventory — the pid-0 row is the only idle context refused.
 		if wakeup == nil || wakeup.PID <= 0 || wakeup.PID == target.PID {
-			continue // no recorded wakeup, interrupt/idle context, or a self wakeup
+			continue
 		}
 		closeTs := wakeup.Ts
 		if closeTs > end {
@@ -167,8 +173,14 @@ func hostDirectDependencyWindows(chain *ChainResult, host ThreadRef) []targetWai
 type dependencyWindowSplit struct {
 	stateEdgeSegmentSplit
 	lastWakeupTs float64
+	// waitCount / waitMs: the windows holding a priced piece of this
+	// inventory. allWaitCount / allWaitMs (HMC377 E2-R5): every wait of the
+	// analysed thread that the host's own wakeup ended — the set a remainder
+	// lies outside of and the set the reader clause names.
 	waitCount    int
 	waitMs       float64
+	allWaitCount int
+	allWaitMs    float64
 }
 
 // splitFoldIntervalsByDependencyWindows partitions a validated segment
@@ -229,6 +241,8 @@ func splitFoldIntervalsByDependencyWindows(intervals []foldInterval, windows []t
 		addOutside(cursor, iv.end)
 	}
 	for wi, w := range windows {
+		out.allWaitCount++
+		out.allWaitMs += (w.endTs - w.startTs) * 1000
 		if !priced[wi] {
 			continue
 		}

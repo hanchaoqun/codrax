@@ -1394,7 +1394,11 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 	// block still names each row's fix direction — the SAME single word table
 	// the section heads speak (词面单点); an unresolved direction renders
 	// nothing (fail-open, absence never guesses).
-	if channel == runtimeTraceProjOrdinalChannelAdjacent {
+	// HMC377 E2-R4: a host-edge remainder (the thread's time outside every
+	// wait of the analysed thread that its wakeup ended) is not a cause and
+	// names no fix direction.
+	hostEdgeRemainder := row.Node.ChainAnchorRemainderSeat && row.Node.HostWakeupEdgeAnchorTS > 0
+	if channel == runtimeTraceProjOrdinalChannelAdjacent && !hostEdgeRemainder {
 		if word, ok := runtimeTraceProjFixDirectionWord(row.Node.FixDirection, zh); ok {
 			if zh {
 				b.WriteString(" ·方向=" + word)
