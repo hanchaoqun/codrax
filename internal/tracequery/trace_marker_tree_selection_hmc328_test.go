@@ -90,7 +90,11 @@ func TestHMC328MarkerTreeUnselectedQueryKeepsOriginalInventory(t *testing.T) {
 	chain := BuildWakeupChain(idx, q)
 	with := buildRootCauseRankFrom(idx, q, chain, stats)
 	stats.BusinessTree = nil
-	if !reflect.DeepEqual(with, buildRootCauseRankFrom(idx, q, chain, stats)) {
+	without := buildRootCauseRankFrom(idx, q, chain, stats)
+	// EVOLUTION (HMC377 E3): only the advisory business-clue face may read
+	// the tree (own-phase self time and scheduler split); ranking may not.
+	with.BusinessSpanMentions, without.BusinessSpanMentions = nil, nil
+	if !reflect.DeepEqual(with, without) {
 		t.Fatal("business display selection changed causal root identity")
 	}
 }

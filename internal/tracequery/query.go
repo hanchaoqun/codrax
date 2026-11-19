@@ -17388,7 +17388,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
 	// computed AFTER the board is final so no seat/tier/sort lane can read it
 	// (不参与根因排序 by construction); nil when nothing is admissible.
-	res.BusinessSpanMentions = computeBusinessSpanMentions(q, chain, chainThreads, stats)
+	res.BusinessSpanMentions = computeBusinessSpanMentions(q, chain, chainThreads, stats, targetEndedWaitWindowsByWaker(idx, cache, q, chain))
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side channel —
 	// harvested AFTER the board is final (pool ∪ published) so a refused seat
 	// that died at the cap still discloses; the enrich tail re-harvests.

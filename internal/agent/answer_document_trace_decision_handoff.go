@@ -177,8 +177,8 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 			}
 			business := traceDecisionBusinessSpanCandidates(projection.BusinessSpanMentions, 5)
 			for _, span := range business {
-				fmt.Fprintf(&b, "  - subject=`%s`; kind=`business_span_family`; span=`%s`; total=%.3fms; occurrences=%d; member_max=%.3fms; lines=%d..%d; basis=`%s`; source_lane=`projection_side_channel`\n",
-					span.Subject, span.Name, span.TotalMS, span.Count, span.MaxMS,
+				fmt.Fprintf(&b, "  - subject=`%s`; kind=`business_span_family`; span=`%s`; total=%.3fms; occurrences=%d; member_max=%.3fms%s; lines=%d..%d; basis=`%s`; source_lane=`projection_side_channel`\n",
+					span.Subject, span.Name, span.TotalMS, span.Count, span.MaxMS, traceDecisionBusinessSpanAccount(span),
 					span.StartLine, maxInt(span.StartLine, span.EndLine), span.Basis)
 			}
 		}
@@ -1429,25 +1429,31 @@ func traceDecisionNonCausalContextRows(projection types.TraceCausalProjection, l
 	return out
 }
 
+// traceDecisionBusinessSpanCandidates (HMC377 E3) delegates to the one shared
+// budgeted rule: the analysed thread's own phases first by their own time,
+// then the dependency threads by their counted part, at most limit per tier.
+// The former single re-sort by total let a dependency thread's long span and
+// the wrappers around the target's work take every budgeted row.
 func traceDecisionBusinessSpanCandidates(in []types.TraceCausalProjectionBusinessSpanMention, limit int) []types.TraceCausalProjectionBusinessSpanMention {
-	out := make([]types.TraceCausalProjectionBusinessSpanMention, 0, len(in))
-	for _, span := range in {
-		if strings.TrimSpace(span.Subject) == "" || strings.TrimSpace(span.Name) == "" ||
-			span.Count <= 0 || span.TotalMS <= 0 || span.MaxMS <= 0 {
-			continue
+	return types.TraceBusinessSpanMentionBudgetedSelection(in, limit)
+}
+
+// traceDecisionBusinessSpanAccount renders the facts behind a business-clue
+// row's total for the handoff: own time and scheduler split of an own phase,
+// or the full span length of a chain member counted only inside its waits.
+func traceDecisionBusinessSpanAccount(span types.TraceCausalProjectionBusinessSpanMention) string {
+	var b strings.Builder
+	if types.TraceBusinessSpanMentionOwnPhase(span) && span.SelfKnown {
+		fmt.Fprintf(&b, "; own_time_not_in_child_phases=%.3fms", span.SelfMS)
+		if st := span.States; st != nil {
+			fmt.Fprintf(&b, "; running=%.3fms; runnable=%.3fms; sleep=%.3fms; uninterruptible=%.3fms; io_wait=%.3fms; no_scheduler_record=%.3fms",
+				st.RunningMS, st.RunnableMS, st.SleepMS, st.DStateMS, st.IOWaitMS, st.UnknownMS)
 		}
-		out = append(out, span)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].TotalMS != out[j].TotalMS {
-			return out[i].TotalMS > out[j].TotalMS
-		}
-		return out[i].Subject+"\x00"+out[i].Name < out[j].Subject+"\x00"+out[j].Name
-	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+	if types.TraceBusinessSpanMentionDependencyPart(span) {
+		fmt.Fprintf(&b, "; total_counts_only_inside_the_waits_its_wakeups_ended=true; full_span=%.3fms", span.WallMS)
 	}
-	return out
+	return b.String()
 }
 
 // traceDecisionNodeTieBefore breaks a tie between two equally placed rows. An

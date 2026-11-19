@@ -13464,14 +13464,33 @@ func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRa
 		basisWord := ""
 		switch fam.OnChainBasis {
 		case tracequery.BusinessSpanMentionBasisSelf:
-			basisWord = "the analysis target's own spans"
+			basisWord = "the analysis target's own phase"
+			if fam.Phase != nil {
+				basisWord += fmt.Sprintf("; self %.3fms (time not inside its named child phases)", fam.Phase.SelfMs)
+			}
 		case tracequery.BusinessSpanMentionBasisChainMember:
-			basisWord = "a wakeup-chain member's spans"
+			// HMC377 E3: the total is only the part inside the waits this
+			// chain member's wakeups ended; the raw span wall stays beside it.
+			basisWord = fmt.Sprintf("a wakeup-chain member's spans, counted only inside the waits its wakeups ended (raw span wall %.3fms)", fam.SpanWallMs)
 		case tracequery.BusinessSpanMentionBasisHostWakeupEdge:
 			basisWord = "spans lying inside a wait of the analysis target that this thread's own wakeup ended"
 		default:
 			// Closed set only — an unknown basis never publishes (fail-open).
 			continue
+		}
+		selfNote, statesNote := "", ""
+		if fam.Phase != nil {
+			selfNote = traceQueryObservationMSValue(fam.Phase.SelfMs)
+			if fam.Phase.SelfMs == 0 {
+				// A pure wrapper's zero self time is a measured value: the
+				// strict parser requires the key's presence, so 0 publishes
+				// explicitly (traceQueryObservationMSValue would drop it).
+				selfNote = "0.000"
+			}
+			if st := fam.Phase.States; st != nil {
+				statesNote = fmt.Sprintf("running=%.3f;runnable=%.3f;sleep=%.3f;d_state=%.3f;io_wait=%.3f;unknown=%.3f",
+					st.RunningMs, st.RunnableMs, st.SleepMs, st.DStateMs, st.IOWaitMs, st.UnknownMs)
+			}
 		}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#business_span_mention:%d", scope, i+1),
@@ -13502,6 +13521,9 @@ func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRa
 				// strict parser can keep requiring the key's presence
 				// (traceQueryTypedCount would swallow the 0 into key absence).
 				{types.TraceNoteKeyBusinessSpanHidden, strconv.Itoa(fam.HiddenCount)},
+				{types.TraceNoteKeyBusinessSpanWallMS, traceQueryObservationMSValue(fam.SpanWallMs)},
+				{types.TraceNoteKeyBusinessSpanSelfMS, selfNote},
+				{types.TraceNoteKeyBusinessSpanStates, statesNote},
 				{types.TraceNoteKeyBusinessSpanOmitted, traceQueryTypedCount(mentions.OmittedFamilies)},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
 			}),

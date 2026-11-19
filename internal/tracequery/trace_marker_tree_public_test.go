@@ -83,7 +83,13 @@ func TestTraceMarkerTreePublicNestedCostsAndStateSets(t *testing.T) {
 	chain := BuildWakeupChain(idx, normalizeQuery(idx, q))
 	with := buildRootCauseRankFrom(idx, normalizeQuery(idx, q), chain, stats)
 	stats.BusinessTree = nil
-	if !reflect.DeepEqual(with, buildRootCauseRankFrom(idx, normalizeQuery(idx, q), chain, stats)) {
+	without := buildRootCauseRankFrom(idx, normalizeQuery(idx, q), chain, stats)
+	// EVOLUTION (HMC377 E3): the advisory business-clue face reads the tree's
+	// own-phase accounts (self time, scheduler split) by design; it is not
+	// part of the ranking and is computed after the board is final. The
+	// ranking itself must stay identical.
+	with.BusinessSpanMentions, without.BusinessSpanMentions = nil, nil
+	if !reflect.DeepEqual(with, without) {
 		t.Fatal("business tree changed root-cause ranking")
 	}
 	legacy, inventory, _, _ := computeTraceMarksWithInventory(idx, normalizeQuery(idx, q), 8)

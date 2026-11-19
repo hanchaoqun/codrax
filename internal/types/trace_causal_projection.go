@@ -394,6 +394,79 @@ type TraceCausalProjectionBusinessSpanMention struct {
 	// (POOL2-1 件①, §29.160①: no longer an admission input; 0 = the family is
 	// fully visible on the bounded seat view and still mentions).
 	Hidden int `json:"hidden"`
+	// WallMS (HMC377 E3): Σ raw in-window walls of the counted members; 0 on
+	// records that predate it. For a chain member TotalMS is the part inside
+	// its dependency windows and WallMS ≥ TotalMS.
+	WallMS float64 `json:"wall_ms,omitempty"`
+	// SelfKnown/SelfMS (own phases only): Σ marker-tree self wall of the
+	// family's instances. SelfKnown=false means unavailable, never zero.
+	SelfKnown bool    `json:"self_known,omitempty"`
+	SelfMS    float64 `json:"self_ms,omitempty"`
+	// States (own phases only): the exclusive scheduler split of the summed
+	// inclusive extents; nil when unavailable.
+	States *TraceCausalProjectionBusinessSpanStates `json:"states,omitempty"`
+}
+
+// TraceCausalProjectionBusinessSpanStates is the exclusive scheduler split of
+// an own phase family; the six values add to its TotalMS.
+type TraceCausalProjectionBusinessSpanStates struct {
+	RunningMS  float64 `json:"running_ms"`
+	RunnableMS float64 `json:"runnable_ms"`
+	SleepMS    float64 `json:"sleep_ms"`
+	DStateMS   float64 `json:"d_state_ms"`
+	IOWaitMS   float64 `json:"io_wait_ms"`
+	UnknownMS  float64 `json:"unknown_ms"`
+}
+
+// TraceBusinessSpanMentionOwnPhase reports the analysed thread's own-phase
+// tier of the business-clue face (basis self); every other admitted basis is
+// a dependency thread. Mirrors the engine's BusinessSpanMentionIsOwnPhase.
+func TraceBusinessSpanMentionOwnPhase(m TraceCausalProjectionBusinessSpanMention) bool {
+	return m.Basis == "self"
+}
+
+// TraceBusinessSpanMentionDependencyPart reports a chain member row whose
+// total is only the part of its spans inside its dependency windows (the raw
+// wall is longer).
+func TraceBusinessSpanMentionDependencyPart(m TraceCausalProjectionBusinessSpanMention) bool {
+	return m.Basis == "chain_member" && m.WallMS > m.TotalMS+0.0005
+}
+
+// TraceBusinessSpanMentionBudgetedSelection is the one rule a budgeted
+// consumer uses to pick at most limit rows per tier from the producer's
+// selection: the analysed thread's own phases first, ordered by the time that
+// is their own (self time when known, otherwise the inclusive total), then the
+// dependency threads by their counted total. Ties keep producer order. A
+// non-positive limit keeps every row.
+func TraceBusinessSpanMentionBudgetedSelection(in []TraceCausalProjectionBusinessSpanMention, limit int) []TraceCausalProjectionBusinessSpanMention {
+	var own, dependency []TraceCausalProjectionBusinessSpanMention
+	for _, m := range in {
+		if strings.TrimSpace(m.Subject) == "" || strings.TrimSpace(m.Name) == "" || m.Count <= 0 || m.TotalMS <= 0 || m.MaxMS <= 0 {
+			continue
+		}
+		if TraceBusinessSpanMentionOwnPhase(m) {
+			own = append(own, m)
+		} else {
+			dependency = append(dependency, m)
+		}
+	}
+	ownTime := func(m TraceCausalProjectionBusinessSpanMention) float64 {
+		if m.SelfKnown {
+			return m.SelfMS
+		}
+		return m.TotalMS
+	}
+	sort.SliceStable(own, func(i, j int) bool { return ownTime(own[i]) > ownTime(own[j]) })
+	sort.SliceStable(dependency, func(i, j int) bool { return dependency[i].TotalMS > dependency[j].TotalMS })
+	if limit > 0 {
+		if len(own) > limit {
+			own = own[:limit]
+		}
+		if len(dependency) > limit {
+			dependency = dependency[:limit]
+		}
+	}
+	return append(own, dependency...)
 }
 
 // TraceCausalProjectionCPUOccupancyProcess is one strict typed side-channel
@@ -6730,11 +6803,78 @@ func traceCausalProjectionBusinessSpanMentionFromRecord(record ObservationRecord
 		return out, 0, false
 	}
 	out.Hidden = hidden
+	// HMC377 E3: the three optional notes are strict when present (a present
+	// but malformed value drops the record whole); absence keeps a record of
+	// an older producer valid. Print-quantum tolerances only (each value is
+	// printed "%.3f": ≤0.0005 per printed value).
+	if raw, present := traceCausalProjectionRichNoteLookup(record.RichNotes, TraceNoteKeyBusinessSpanWallMS); present {
+		wall, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || !(wall > 0) || wall < out.TotalMS-0.001 {
+			return out, 0, false
+		}
+		out.WallMS = wall
+	}
+	if raw, present := traceCausalProjectionRichNoteLookup(record.RichNotes, TraceNoteKeyBusinessSpanSelfMS); present {
+		self, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if out.Basis != "self" || err != nil || self < 0 || self > out.TotalMS+0.001 {
+			return out, 0, false
+		}
+		out.SelfKnown, out.SelfMS = true, self
+	}
+	if raw, present := traceCausalProjectionRichNoteLookup(record.RichNotes, TraceNoteKeyBusinessSpanStates); present {
+		states, ok := traceCausalProjectionBusinessSpanStatesFromNote(raw)
+		sum := states.RunningMS + states.RunnableMS + states.SleepMS + states.DStateMS + states.IOWaitMS + states.UnknownMS
+		if out.Basis != "self" || !ok || sum > out.TotalMS+0.004 || sum < out.TotalMS-0.004 {
+			return out, 0, false
+		}
+		out.States = &states
+	}
 	omitted := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanOmitted)
 	if omitted < 0 {
 		omitted = 0
 	}
 	return out, omitted, true
+}
+
+// traceCausalProjectionRichNoteLookup reports a note's value and whether the
+// key is present at all (traceCausalProjectionRichNoteValue cannot tell an
+// absent key from an empty value).
+func traceCausalProjectionRichNoteLookup(notes []string, key string) (string, bool) {
+	for _, note := range notes {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(note), key+"="); ok {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", false
+}
+
+// traceCausalProjectionBusinessSpanStatesFromNote parses exactly the six
+// ordered fields of a business_span_states note.
+func traceCausalProjectionBusinessSpanStatesFromNote(raw string) (TraceCausalProjectionBusinessSpanStates, bool) {
+	var out TraceCausalProjectionBusinessSpanStates
+	parts := strings.Split(strings.TrimSpace(raw), ";")
+	targets := []struct {
+		key   string
+		value *float64
+	}{
+		{"running", &out.RunningMS}, {"runnable", &out.RunnableMS}, {"sleep", &out.SleepMS},
+		{"d_state", &out.DStateMS}, {"io_wait", &out.IOWaitMS}, {"unknown", &out.UnknownMS},
+	}
+	if len(parts) != len(targets) {
+		return out, false
+	}
+	for i, target := range targets {
+		value, ok := strings.CutPrefix(parts[i], target.key+"=")
+		if !ok {
+			return out, false
+		}
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil || parsed < 0 {
+			return out, false
+		}
+		*target.value = parsed
+	}
+	return out, true
 }
 
 func traceCausalProjectionCPUOccupancyProcessFromRecord(record ObservationRecord) (TraceCausalProjectionCPUOccupancyProcess, bool) {

@@ -35,14 +35,16 @@ package tracequery
 //   - Family key: (thread tid, verbatim span name) — 任意名聚族, no lexicon.
 //   - On-chain (含自身), existing credential machinery only (禁自造第二套边
 //     判定): self = chain.Target; chain member = wakeupChainThreadSet; host =
-//     hostSemanticSpanEdgeAnchor R3 edge credential, and only members lying
-//     ENTIRELY inside one wait of the target that the host's own wakeup
-//     ended count (HMC377 E2, owner ruling 2026-11-18 — the same dependency
-//     windows that price the host's seats; relation-qualified raw business
-//     occupancy, not a priced semantic-completion claim; a span reaching
-//     outside such a wait is excluded whole — no partitioned values on this
-//     verbatim face). A thread with NO typed credential is never
-//     mentioned (硬纪律).
+//     hostSemanticSpanEdgeAnchor R3 edge credential. Another thread's span
+//     counts only for its part inside a wait of the target that thread's
+//     own recorded wakeup ended (or inside its chain node windows), with its
+//     raw wall shown beside it (batch-377 ruling R-377-1, the same bound as
+//     the owner-approved dependency credit of 2026-11-18; it supersedes
+//     SPANVIS P1-1 "wholly before the latest credential edge" and the
+//     interim "member must lie wholly inside one wait": an on-chain business
+//     clue crossing the wait boundary must not vanish). Relation-qualified
+//     raw business occupancy, not a priced semantic-completion claim. A
+//     thread with NO typed credential is never mentioned (硬纪律).
 //   - Significance floor (微窗噪音门, user ruling 2026-07-19 verbatim: 「过于
 //     微窗的不必关注,容易引入噪音,除非占用时长达到显著」): family total ≥
 //     max(dust floor, window-share floor × window). Measured on the
@@ -56,8 +58,37 @@ package tracequery
 //   - Values are the raw in-window projections of the inventory members,
 //     verbatim (原始值三问: 提及行值=原始段值; Σ/max/count are recomputable
 //     from the same inventory member set — identity pinned).
+//
+// EVOLUTION (HMC377 E3, business clues on the chain; design document
+// hmc377/design/business-clue-seats.md). Two wrong answers on real captures:
+// a chain member that is on the chain for 1.648ms (one dependency window)
+// published its whole 480-528ms spans as on-chain clues and took seven of
+// the eight seats, and the analysed thread's own phases (makeApplication,
+// the code-opening phase, a 50ms library-loading lock wait) were left out.
+// The face now publishes in two tiers that never compete for one budget:
+//   - own phases (basis self): the analysed thread's spans, each family
+//     carrying the self time and the scheduler split of its instances from
+//     the synchronous marker tree when every member has a closed tree
+//     account; selected by 合计最长 ∪ 单次最长 ∪ 自身最长 (each TOP-K) —
+//     inclusive time of nested phases always favours the enclosing wrapper,
+//     the self account is where the thread's own time went;
+//   - dependency threads (chain_member / host_wakeup_edge): another thread
+//     contributes ONLY the part of each span inside its own typed dependency
+//     windows — the merged chain node windows (chainAnchorWindowsByPID, the
+//     windows the semantic seats intersect) united with the analysed
+//     thread's waits that thread's own recorded wakeups ended
+//     (targetEndedWaitWindowsByWaker). A span outside every window
+//     contributes nothing, so a thread whose link is only temporal proximity
+//     is never mentioned; this replaces the host-edge arm's former "wholly
+//     before the latest credential edge" rule (a thread that delivered one
+//     wakeup late in a long window no longer publishes every earlier span).
+//     The raw in-window wall of the contributing members rides SpanWallMs.
+//     The credential test itself (self / chain member / host edge) is
+//     unchanged.
+// Reading order is own tier first, then dependency tier, each by TotalMs.
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -125,18 +156,27 @@ const (
 )
 
 // BusinessSpanMention is one admitted (thread, verbatim span name) family on
-// the advisory mention face. Values are raw in-window projections summed over
-// the admitted member set — never envelopes, never re-scaled.
+// the advisory mention face. Own-phase and host-edge values are raw in-window
+// projections summed over the admitted member set; a chain member's values
+// are the parts of its members inside its own dependency windows (the raw
+// in-window wall stays beside them in SpanWallMs). Never envelopes, never
+// re-scaled.
 type BusinessSpanMention struct {
 	Thread ThreadRef `json:"thread"`
 	// Name is the verbatim span name (typed family key — 任意名聚族).
 	Name string `json:"name"`
 	// Count / TotalMs / MaxSingleMs: admitted member count, Σ of their
-	// in-window DurationMs, and the largest single member (双杠杆线索 typed
-	// fact trio: 次数多而单段小 vs 单段长).
+	// counted durations, and the largest single counted member (双杠杆线索
+	// typed fact trio: 次数多而单段小 vs 单段长). For a chain member the
+	// counted duration of a member is its part inside the dependency windows.
 	Count       int     `json:"count"`
 	TotalMs     float64 `json:"total_ms"`
 	MaxSingleMs float64 `json:"max_single_ms"`
+	// SpanWallMs is the Σ of the same members' raw in-window walls. It equals
+	// TotalMs for own phases and host-edge families and is at least TotalMs
+	// for a chain member (the part outside its dependency windows is the
+	// difference — context, not an on-chain clue).
+	SpanWallMs float64 `json:"span_wall_ms"`
 	// StartLine/EndLine: the member line envelope (min start .. max end) —
 	// the mention row's 行a..b pointer (no seat, so no evidence tag).
 	StartLine int `json:"start_line,omitempty"`
@@ -148,23 +188,66 @@ type BusinessSpanMention struct {
 	// no longer an admission input; a fully-visible significant on-chain
 	// family mentions with HiddenCount==0.
 	HiddenCount int `json:"hidden_count"`
+	// Phase is the own-phase account from the synchronous marker tree (basis
+	// self only): present iff every member is a closed tree instance whose
+	// clipped inclusive wall equals the member's in-window duration. nil means
+	// unavailable, never zero.
+	Phase *BusinessSpanPhaseAccount `json:"phase,omitempty"`
 }
 
-// BusinessSpanMentionResult is the advisory mention face: at most
-// BusinessSpanMentionFamilyCap families ordered by TotalMs (desc, ties by
-// StartLine — a deterministic READING order, not an ordinal: no rank badge,
-// bar or tier ever attaches), plus the honest count of admitted families the
-// cap left out.
+// BusinessSpanPhaseAccount sums the marker tree accounts of one own-phase
+// family's instances: SelfMs is inclusive minus the union of each instance's
+// direct children (the tree's own definition), MaxSelfMs the largest single
+// instance self, States the scheduler split of the inclusive extents (nil when
+// any instance's owner states are unavailable).
+type BusinessSpanPhaseAccount struct {
+	SelfMs    float64                 `json:"self_ms"`
+	MaxSelfMs float64                 `json:"max_single_self_ms"`
+	States    *BusinessSpanStateSplit `json:"states,omitempty"`
+}
+
+// BusinessSpanStateSplit is the exclusive scheduler split of the summed
+// inclusive extents: running + runnable + sleep + d_state + io_wait +
+// unknown == the family's TotalMs (stopped/dead time is folded into unknown;
+// sleep IO is a subset of sleep and is not carried).
+type BusinessSpanStateSplit struct {
+	RunningMs  float64 `json:"running_ms"`
+	RunnableMs float64 `json:"runnable_ms"`
+	SleepMs    float64 `json:"sleep_ms"`
+	DStateMs   float64 `json:"d_state_ms"`
+	IOWaitMs   float64 `json:"io_wait_ms"`
+	UnknownMs  float64 `json:"unknown_ms"`
+}
+
+// BusinessSpanMentionIsOwnPhase reports the own-phase tier (basis self); every
+// other admitted basis is the dependency-thread tier.
+func BusinessSpanMentionIsOwnPhase(basis string) bool {
+	return basis == BusinessSpanMentionBasisSelf
+}
+
+// BusinessSpanMentionResult is the advisory mention face: the own-phase tier
+// then the dependency-thread tier, each selected and ordered on its own by
+// TotalMs (desc, ties by StartLine — a deterministic READING order, not an
+// ordinal: no rank badge, bar or tier ever attaches), plus the honest count of
+// admitted families the selection left out.
 type BusinessSpanMentionResult struct {
 	Families        []BusinessSpanMention `json:"families"`
 	OmittedFamilies int                   `json:"omitted_families,omitempty"`
 }
 
+// businessSpanMentionSameMsTol is the identity tolerance between a span's
+// in-window duration and its marker tree instance's clipped inclusive wall:
+// two computations over the same two timestamps agree to float dust or not at
+// all (1µs, rspaAnchorIdentityTolMs precedent — own constant, own meaning).
+const businessSpanMentionSameMsTol = 0.001
+
 // computeBusinessSpanMentions builds the advisory mention face. Every
 // fail-open exit returns nil (no inventory / no bounded time window / no
 // admissible family → the face is simply absent; nothing downstream gates on
-// it).
-func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats) *BusinessSpanMentionResult {
+// it). endedWaits carries, per waker thread, the analysed thread's waits that
+// thread's own recorded wakeups ended (targetEndedWaitWindowsByWaker); nil
+// means none is known.
+func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats, endedWaits map[int][]TimeWindow) *BusinessSpanMentionResult {
 	inventory := stats.traceSpanFullInventory
 	if len(inventory) == 0 {
 		return nil
@@ -192,35 +275,57 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		seatedSemanticFamilies[semanticSeatFamilyKey(s)] = true
 		bounded[spanIdentity{s.Thread.PID, s.Name, s.StartLine, s.EndLine}] = true
 	}
+	// The typed dependency windows of every thread other than the target:
+	// the merged chain node windows [wait start, recorded wakeup] per member
+	// (chainAnchorWindowsByPID) united with the analysed thread's waits that
+	// thread's own wakeups ended directly. Both are closed by a recorded
+	// wakeup; nothing else puts another thread's span on the chain.
+	dependencyWindows := chainAnchorWindowsByPID(chain)
+	for pid, windows := range endedWaits {
+		if dependencyWindows == nil {
+			dependencyWindows = map[int][]TimeWindow{}
+		}
+		dependencyWindows[pid] = mergeAnchorTimeWindows(append(append([]TimeWindow(nil), dependencyWindows[pid]...), windows...))
+	}
+	// The analysed thread's marker-tree accounts, indexed from the complete
+	// node set — identical whether the thread was addressed by id or by name.
+	var ownAccounts map[traceMarkerTreeInstanceKey]traceMarkerTreeInstanceAccount
+	if stats.BusinessTree != nil && chain.Target.PID > 0 {
+		ownAccounts = traceMarkerTreeTargetAccounts(stats.BusinessTree.allNodes, chain.Target.PID)
+	}
 	// Per-thread typed credential memo. "" = no credential (never mentioned).
 	basisByTid := map[int]string{}
-	windowsByTid := map[int][]targetWaitDependencyWindow{}
-	threadBasis := func(thread ThreadRef) (string, []targetWaitDependencyWindow) {
+	threadBasis := func(thread ThreadRef) string {
 		if basis, seen := basisByTid[thread.PID]; seen {
-			return basis, windowsByTid[thread.PID]
+			return basis
 		}
 		basis := ""
-		var windows []targetWaitDependencyWindow
 		switch {
 		case chain.Target.PID > 0 && thread.PID == chain.Target.PID:
 			basis = BusinessSpanMentionBasisSelf
 		case threadInSet(chainThreads, thread):
 			basis = BusinessSpanMentionBasisChainMember
 		default:
-			if anchor, ok := hostSemanticSpanEdgeAnchor(&chain, thread); ok {
+			if _, ok := hostSemanticSpanEdgeAnchor(&chain, thread); ok {
 				basis = BusinessSpanMentionBasisHostWakeupEdge
-				windows = anchor.windows
 			}
 		}
 		basisByTid[thread.PID] = basis
-		windowsByTid[thread.PID] = windows
-		return basis, windows
+		return basis
 	}
 	type familyKey struct {
 		tid  int
 		name string
 	}
-	families := map[familyKey]*BusinessSpanMention{}
+	type familyAcc struct {
+		mention    *BusinessSpanMention
+		phase      BusinessSpanPhaseAccount
+		states     BusinessSpanStateSplit
+		phaseOK    bool
+		statesOK   bool
+		hasMembers bool
+	}
+	families := map[familyKey]*familyAcc{}
 	for _, span := range inventory {
 		if span.DurationMs <= 0 || span.Thread.PID <= 0 || span.Name == "" {
 			continue
@@ -241,34 +346,45 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if class != "" && !omittedPlatformFamily {
 			continue
 		}
-		basis, hostWindows := threadBasis(span.Thread)
+		basis := threadBasis(span.Thread)
 		if basis == "" {
 			continue
 		}
 		if omittedPlatformFamily && basis == BusinessSpanMentionBasisHostWakeupEdge && !semanticSpanAdmitsHostEdgeLane(span.Name) {
 			continue
 		}
-		if basis == BusinessSpanMentionBasisHostWakeupEdge && !spanInsideOneDependencyWindow(hostWindows, span.StartTs, span.EndTs) {
-			// Whole-segment strict (返工轮 P1-1, 对抗官实证; HMC377 E2): only
-			// members lying ENTIRELY inside one wait of the target that the
-			// host's own wakeup ended carry the credential. A span reaching
-			// outside it is EXCLUDED whole — partitioning it would mint a
-			// derived value, and this face publishes ONLY verbatim inventory
-			// segments (原始值纪律; the seat machinery's partition keeps that
-			// job).
-			continue
+		counted := span.DurationMs
+		if basis != BusinessSpanMentionBasisSelf {
+			// HMC377 E3: another thread is on the chain only inside its own
+			// typed dependency windows (the waits its recorded wakeups
+			// ended, directly or through the chain). Its span counts for the
+			// part inside them — the typed interval intersection the
+			// semantic seats already use — and a span outside every window
+			// is temporal proximity and counts nothing. EVOLUTION: the
+			// host-edge arm formerly admitted any member lying wholly before
+			// the latest credential edge (R3 边前, whole-segment strict,
+			// 返工轮 P1-1); a long window let a thread that delivered one
+			// wakeup publish every earlier span. Post-edge time still never
+			// counts (every ended wait closes at or before that edge), and
+			// the raw wall rides SpanWallMs beside the counted part.
+			counted = anchorWindowsOverlapMs(dependencyWindows[span.Thread.PID], span.StartTs, span.EndTs)
+			if counted <= 0 {
+				continue
+			}
 		}
 		key := familyKey{span.Thread.PID, span.Name}
-		fam := families[key]
-		if fam == nil {
-			fam = &BusinessSpanMention{Thread: span.Thread, Name: span.Name, OnChainBasis: basis,
-				StartLine: span.StartLine, EndLine: span.EndLine}
-			families[key] = fam
+		acc := families[key]
+		if acc == nil {
+			acc = &familyAcc{mention: &BusinessSpanMention{Thread: span.Thread, Name: span.Name, OnChainBasis: basis,
+				StartLine: span.StartLine, EndLine: span.EndLine}, phaseOK: basis == BusinessSpanMentionBasisSelf && ownAccounts != nil, statesOK: true}
+			families[key] = acc
 		}
+		fam := acc.mention
 		fam.Count++
-		fam.TotalMs += span.DurationMs
-		if span.DurationMs > fam.MaxSingleMs {
-			fam.MaxSingleMs = span.DurationMs
+		fam.TotalMs += counted
+		fam.SpanWallMs += span.DurationMs
+		if counted > fam.MaxSingleMs {
+			fam.MaxSingleMs = counted
 		}
 		if span.StartLine > 0 && (fam.StartLine == 0 || span.StartLine < fam.StartLine) {
 			fam.StartLine = span.StartLine
@@ -279,58 +395,121 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if !bounded[spanIdentity{span.Thread.PID, span.Name, span.StartLine, span.EndLine}] {
 			fam.HiddenCount++
 		}
+		if acc.phaseOK {
+			account, ok := ownAccounts[traceMarkerTreeInstanceKey{source: span.SourcePath, tid: span.Thread.PID, line: span.StartLine}]
+			if !ok || math.Abs(account.inclusiveMs-span.DurationMs) > businessSpanMentionSameMsTol {
+				acc.phaseOK = false
+			} else {
+				acc.phase.SelfMs += account.selfMs
+				if account.selfMs > acc.phase.MaxSelfMs {
+					acc.phase.MaxSelfMs = account.selfMs
+				}
+				if account.states == nil {
+					acc.statesOK = false
+				} else {
+					v := account.states
+					acc.states.RunningMs += v.RunningMs
+					acc.states.RunnableMs += v.RunnableMs
+					acc.states.SleepMs += v.SleepMs
+					acc.states.DStateMs += v.DStateMs
+					acc.states.IOWaitMs += v.IOWaitMs
+					acc.states.UnknownMs += account.unknownMs + v.StoppedMs + v.DeadMs
+				}
+			}
+		}
+		acc.hasMembers = true
 	}
-	admitted := make([]*BusinessSpanMention, 0, len(families))
-	for _, fam := range families {
-		if fam.TotalMs < floorMs {
+	var own, dependency []*BusinessSpanMention
+	admittedCount := 0
+	for _, acc := range families {
+		fam := acc.mention
+		if !acc.hasMembers || fam.TotalMs < floorMs {
 			continue
 		}
 		// POOL2-1 件① (§29.160① ruling): the former third gate (≥1 member
 		// below the bounded view) is removed — a fully-visible significant
 		// on-chain family mentions too (HiddenCount stays informational).
-		admitted = append(admitted, fam)
+		if acc.phaseOK {
+			phase := acc.phase
+			if acc.statesOK {
+				states := acc.states
+				phase.States = &states
+			}
+			fam.Phase = &phase
+		}
+		admittedCount++
+		if BusinessSpanMentionIsOwnPhase(fam.OnChainBasis) {
+			own = append(own, fam)
+		} else {
+			dependency = append(dependency, fam)
+		}
 	}
-	if len(admitted) == 0 {
+	if admittedCount == 0 {
 		return nil
 	}
-	sort.Slice(admitted, func(i, j int) bool {
-		if admitted[i].TotalMs != admitted[j].TotalMs {
-			return admitted[i].TotalMs > admitted[j].TotalMs
-		}
-		return admitted[i].StartLine < admitted[j].StartLine
-	})
-	// OMGCLEAN-1 件5 rider3 (§29.175.5 选择规则, the promise-face word:
-	// 单次最长 TOP3 ∪ 合计最长 TOP3): the selection set is the union of the
-	// per-criterion TOP-K prefixes, deduped — the admitted list above is
-	// already the 合计 (TotalMs) order, the second criterion re-ranks a COPY
-	// by MaxSingleMs (ties by StartLine, deterministic). Reading order stays
-	// TotalMs desc (the admitted order — a deterministic READING order, not
-	// an ordinal). OmittedFamilies counts every admitted family outside the
-	// selection (§29.175.3 义务 tail disclosure).
-	selected := map[*BusinessSpanMention]bool{}
-	for i, fam := range admitted {
-		if i >= BusinessSpanMentionFamilyCap {
-			break
-		}
-		selected[fam] = true
-	}
-	bySingle := append([]*BusinessSpanMention(nil), admitted...)
-	sort.Slice(bySingle, func(i, j int) bool {
-		if bySingle[i].MaxSingleMs != bySingle[j].MaxSingleMs {
-			return bySingle[i].MaxSingleMs > bySingle[j].MaxSingleMs
-		}
-		return bySingle[i].StartLine < bySingle[j].StartLine
-	})
-	for i, fam := range bySingle {
-		if i >= BusinessSpanMentionFamilyCap {
-			break
-		}
-		selected[fam] = true
-	}
-	out := &BusinessSpanMentionResult{OmittedFamilies: len(admitted) - len(selected)}
-	for _, fam := range admitted {
-		if selected[fam] {
+	out := &BusinessSpanMentionResult{}
+	selectedCount := 0
+	for _, tier := range [][]*BusinessSpanMention{own, dependency} {
+		for _, fam := range selectBusinessSpanMentionTier(tier) {
 			out.Families = append(out.Families, *fam)
+			selectedCount++
+		}
+	}
+	out.OmittedFamilies = admittedCount - selectedCount
+	return out
+}
+
+// selectBusinessSpanMentionTier applies the selection rule inside one tier
+// and returns the selected families in reading order (TotalMs desc, ties by
+// StartLine). OMGCLEAN-1 件5 rider3 (§29.175.5 选择规则): the union of the
+// per-criterion TOP-K prefixes, deduped — 合计最长 (TotalMs) and 单次最长
+// (MaxSingleMs). HMC377 E3 adds 自身最长 for the own-phase tier: nested own
+// phases always rank an enclosing wrapper at least as high as the work inside
+// it by inclusive time, so the self account (the marker tree's inclusive
+// minus its direct children) is the criterion that keeps the work itself. A
+// family without a tree account ranks by its inclusive total on that
+// criterion (ranking key only; no self value is published for it).
+func selectBusinessSpanMentionTier(tier []*BusinessSpanMention) []*BusinessSpanMention {
+	if len(tier) == 0 {
+		return nil
+	}
+	byKey := func(key func(*BusinessSpanMention) float64) []*BusinessSpanMention {
+		sorted := append([]*BusinessSpanMention(nil), tier...)
+		sort.Slice(sorted, func(i, j int) bool {
+			a, b := key(sorted[i]), key(sorted[j])
+			if a != b {
+				return a > b
+			}
+			if sorted[i].StartLine != sorted[j].StartLine {
+				return sorted[i].StartLine < sorted[j].StartLine
+			}
+			return sorted[i].Thread.PID < sorted[j].Thread.PID
+		})
+		return sorted
+	}
+	byTotal := byKey(func(m *BusinessSpanMention) float64 { return m.TotalMs })
+	criteria := [][]*BusinessSpanMention{byTotal, byKey(func(m *BusinessSpanMention) float64 { return m.MaxSingleMs })}
+	if BusinessSpanMentionIsOwnPhase(tier[0].OnChainBasis) {
+		criteria = append(criteria, byKey(func(m *BusinessSpanMention) float64 {
+			if m.Phase != nil {
+				return m.Phase.SelfMs
+			}
+			return m.TotalMs
+		}))
+	}
+	selected := map[*BusinessSpanMention]bool{}
+	for _, ranked := range criteria {
+		for i, fam := range ranked {
+			if i >= BusinessSpanMentionFamilyCap {
+				break
+			}
+			selected[fam] = true
+		}
+	}
+	out := make([]*BusinessSpanMention, 0, len(selected))
+	for _, fam := range byTotal {
+		if selected[fam] {
+			out = append(out, fam)
 		}
 	}
 	return out

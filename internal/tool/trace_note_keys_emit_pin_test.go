@@ -548,6 +548,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 					StartLine:   5, EndLine: 9,
 					OnChainBasis: tracequery.BusinessSpanMentionBasisSelf,
 					HiddenCount:  3,
+					// HMC377 E3: the raw wall and the own-phase account keys.
+					SpanWallMs: 0.612,
+					Phase: &tracequery.BusinessSpanPhaseAccount{SelfMs: 0.5, MaxSelfMs: 0.3,
+						States: &tracequery.BusinessSpanStateSplit{RunningMs: 0.112, SleepMs: 0.5}},
 				}},
 				OmittedFamilies: 2,
 			},

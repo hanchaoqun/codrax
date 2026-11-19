@@ -34,13 +34,17 @@ func spanvisSpan(tid int, comm, name string, startTs, durMs float64, startLine, 
 }
 
 // spanvisChain — target 100, one chain node 300, one R3 host-edge credential
-// for 200 (boundary at 10.050 inside the chain window).
+// for 200 (boundary at 10.050 inside the chain window). EVOLUTION (HMC377
+// E3): the chain node carries its typed dependency window [10.000, 10.050]
+// (a real chain node always has one: the wait its recorded wakeup closed); a
+// chain member's span counts only inside it.
 func spanvisChain() ChainResult {
 	target := ThreadRef{PID: 100, Comm: "app.main"}
 	return ChainResult{
 		Target: target,
 		Window: TimeWindow{StartTs: 10.0, EndTs: 10.1},
-		Nodes:  []ChainNode{{Thread: target}, {Thread: ThreadRef{PID: 300, Comm: "renderer"}}},
+		Nodes: []ChainNode{{Thread: target}, {Thread: ThreadRef{PID: 300, Comm: "renderer"}, Depth: 1,
+			Window: TimeWindow{StartTs: 10.0, EndTs: 10.05}}},
 		WakeupEdgeCensus: []WakeupEdgeCensusPair{{
 			Waker: ThreadRef{PID: 200, Comm: "binder_host"},
 			Wakee: target,
@@ -77,7 +81,7 @@ func TestBusinessSpanMentionAdmissionBases(t *testing.T) {
 		spanvisSpan(200, "binder_host", "hostSpan", 10.003, 3.5, 50, 60),
 		spanvisSpan(999, "stranger", "strangerSpan", 10.004, 50.0, 70, 80),
 	}
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
+	res := spanvisCompute(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
 	if res == nil || len(res.Families) != 3 {
 		t.Fatalf("expected exactly the three credentialed families, got %+v", res)
 	}
@@ -99,35 +103,53 @@ func TestBusinessSpanMentionAdmissionBases(t *testing.T) {
 	}
 }
 
-// TestBusinessSpanMentionHostEdgeBoundary — R3 边前/边后, whole-segment
-// strict (返工轮 P1-1): only members lying ENTIRELY before the latest
-// credential edge carry it; a boundary-CROSSING span and a span starting AT
-// the boundary are excluded whole (no bisected values on the verbatim face);
-// a family whose every member is post-edge is not mentioned.
+// spanvisEndedWaits — the target's wait [10.000, 10.050] that host 200's
+// own recorded wakeup at 10.050 ended (the fixture's census credential).
+func spanvisEndedWaits() map[int][]TimeWindow {
+	return map[int][]TimeWindow{200: {{StartTs: 10.0, EndTs: 10.05}}}
+}
+
+func spanvisCompute(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats) *BusinessSpanMentionResult {
+	return computeBusinessSpanMentions(q, chain, chainThreads, stats, spanvisEndedWaits())
+}
+
+// TestBusinessSpanMentionHostEdgeBoundary — R3 边前/边后. EVOLUTION (HMC377
+// E3): the former pin admitted every member lying ENTIRELY before the latest
+// credential edge and excluded a boundary-crossing span whole. A thread that
+// woke the target is on its chain only inside the wait that wakeup ended:
+// here the target waited [10.040, 10.050]. Kept meaning: post-edge time never
+// counts (边后=解除) and a family whose every member is post-edge is not
+// mentioned. New: pre-wait time does not count either (the 1.2ms member long
+// before the wait), and a span crossing into the wait counts its part inside
+// it, with its raw wall beside it.
 func TestBusinessSpanMentionHostEdgeBoundary(t *testing.T) {
 	chain := spanvisChain() // boundary 10.050
 	chainThreads := wakeupChainThreadSet(chain)
 	inventory := []TraceSpanSummary{
-		spanvisSpan(200, "binder_host", "hostSpan", 10.010, 1.2, 10, 20),  // wholly pre-edge (EndTs 10.0112)
-		spanvisSpan(200, "binder_host", "hostSpan", 10.045, 20.0, 22, 28), // CROSSES the edge (EndTs 10.065) — excluded whole
+		spanvisSpan(200, "binder_host", "hostSpan", 10.010, 1.2, 10, 20),  // pre-edge but before the wait (EndTs 10.0112)
+		spanvisSpan(200, "binder_host", "hostSpan", 10.045, 20.0, 22, 28), // crosses the edge: 5ms inside the wait
 		spanvisSpan(200, "binder_host", "hostSpan", 10.060, 9.0, 30, 40),  // post-edge (excluded)
 		spanvisSpan(200, "binder_host", "postOnly", 10.070, 9.0, 50, 60),  // post-edge only family
-		spanvisSpan(200, "binder_host", "atEdge", 10.050, 5.0, 70, 80),    // starts AT the boundary — excluded whole
+		spanvisSpan(200, "binder_host", "atEdge", 10.050, 5.0, 70, 80),    // starts AT the boundary — nothing inside
 	}
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
+	waits := map[int][]TimeWindow{200: {{StartTs: 10.040, EndTs: 10.050}}}
+	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil), waits)
 	if res == nil || len(res.Families) != 1 {
-		t.Fatalf("only the wholly-pre-edge member set may mention: %+v", res)
+		t.Fatalf("only the member part inside the ended wait may mention: %+v", res)
 	}
 	fam := res.Families[0]
-	if fam.Name != "hostSpan" || fam.Count != 1 || microsBSM(fam.TotalMs) != microsBSM(1.2) ||
-		microsBSM(fam.MaxSingleMs) != microsBSM(1.2) || fam.StartLine != 10 || fam.EndLine != 20 {
-		t.Fatalf("crossing/post-edge members must not join the family account (整段边前纪律): %+v", fam)
+	if fam.Name != "hostSpan" || fam.Count != 1 || microsBSM(fam.TotalMs) != microsBSM(5) ||
+		microsBSM(fam.MaxSingleMs) != microsBSM(5) || microsBSM(fam.SpanWallMs) != microsBSM(20) || fam.StartLine != 22 || fam.EndLine != 28 {
+		t.Fatalf("pre-wait and post-edge time must not join the family account: %+v", fam)
+	}
+	if none := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil), nil); none != nil {
+		t.Fatalf("a credential without a known ended wait puts nothing on the chain: %+v", none)
 	}
 	// Twin (HMC377 E2): the same census pair whose wakeups closed no wait of
 	// the target mentions nothing on the host basis.
 	noWait := spanvisChain()
 	noWait.directDependencyWindows = map[int][]targetWaitDependencyWindow{}
-	if res := computeBusinessSpanMentions(spanvisQuery(), noWait, wakeupChainThreadSet(noWait), spanvisStats(inventory, nil)); res != nil && len(res.Families) != 0 {
+	if res := computeBusinessSpanMentions(spanvisQuery(), noWait, wakeupChainThreadSet(noWait), spanvisStats(inventory, nil), nil); res != nil && len(res.Families) != 0 {
 		t.Fatalf("a host whose wakeups ended no wait of the target must not be mentioned: %+v", res.Families)
 	}
 }
@@ -142,7 +164,7 @@ func TestBusinessSpanMentionSignificanceFloor(t *testing.T) {
 		spanvisSpan(100, "app.main", "below", 10.001, 0.8, 10, 20),
 		spanvisSpan(100, "app.main", "above", 10.002, 1.2, 30, 40),
 	}
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
+	res := spanvisCompute(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
 	if res == nil || len(res.Families) != 1 || res.Families[0].Name != "above" {
 		t.Fatalf("window-share floor arm: %+v", res)
 	}
@@ -158,7 +180,7 @@ func TestBusinessSpanMentionSignificanceFloor(t *testing.T) {
 		spanvisSpan(100, "app.main", "dust", 10.0002, 0.05, 10, 20),
 		spanvisSpan(100, "app.main", "real", 10.0004, 0.15, 30, 40),
 	}
-	microRes := computeBusinessSpanMentions(micro, microChain, wakeupChainThreadSet(microChain), spanvisStats(microInventory, nil))
+	microRes := spanvisCompute(micro, microChain, wakeupChainThreadSet(microChain), spanvisStats(microInventory, nil))
 	if microRes == nil || len(microRes.Families) != 1 || microRes.Families[0].Name != "real" {
 		t.Fatalf("dust floor arm: %+v", microRes)
 	}
@@ -174,7 +196,7 @@ func TestBusinessSpanMentionValueIdentity(t *testing.T) {
 		spanvisSpan(100, "app.main", "fam", 10.010, 1.3, 10, 20),
 		spanvisSpan(100, "app.main", "fam", 10.020, 0.4, 90, 95),
 	}
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(members, nil))
+	res := spanvisCompute(spanvisQuery(), chain, chainThreads, spanvisStats(members, nil))
 	if res == nil || len(res.Families) != 1 {
 		t.Fatalf("one family expected: %+v", res)
 	}
@@ -212,7 +234,7 @@ func TestBusinessSpanMentionFullyVisibleFamilyAdmitted(t *testing.T) {
 	a := spanvisSpan(100, "app.main", "visible", 10.001, 2.0, 10, 20)
 	b := spanvisSpan(100, "app.main", "partial", 10.002, 2.0, 30, 40)
 	c := spanvisSpan(100, "app.main", "partial", 10.003, 1.5, 50, 60)
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads,
+	res := spanvisCompute(spanvisQuery(), chain, chainThreads,
 		spanvisStats([]TraceSpanSummary{a, b, c}, []TraceSpanSummary{a, b}))
 	if res == nil || len(res.Families) != 2 {
 		t.Fatalf("the fully-visible self family must mention post-§29.160① (提及义务限链上,含自身;bounded 视图非提及面): %+v", res)
@@ -251,7 +273,7 @@ func TestBusinessSpanMentionCapAndOmitted(t *testing.T) {
 	}
 	// Below-floor extra family — must count nowhere.
 	inventory = append(inventory, spanvisSpan(100, "app.main", "dust", 10.09, 0.2, 900, 905))
-	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
+	res := spanvisCompute(spanvisQuery(), chain, chainThreads, spanvisStats(inventory, nil))
 	if res == nil || len(res.Families) != BusinessSpanMentionFamilyCap {
 		t.Fatalf("cap must bound the face: %+v", res)
 	}
@@ -268,15 +290,15 @@ func TestBusinessSpanMentionCapAndOmitted(t *testing.T) {
 func TestBusinessSpanMentionFailOpenExits(t *testing.T) {
 	chain := spanvisChain()
 	chainThreads := wakeupChainThreadSet(chain)
-	if res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads, WindowStats{}); res != nil {
+	if res := spanvisCompute(spanvisQuery(), chain, chainThreads, WindowStats{}); res != nil {
 		t.Fatalf("nil inventory must fail open: %+v", res)
 	}
 	inv := []TraceSpanSummary{spanvisSpan(100, "app.main", "s", 10.001, 5, 10, 20)}
-	if res := computeBusinessSpanMentions(Query{PID: 100}, chain, chainThreads, spanvisStats(inv, nil)); res != nil {
+	if res := spanvisCompute(Query{PID: 100}, chain, chainThreads, spanvisStats(inv, nil)); res != nil {
 		t.Fatalf("windowless query must fail open (no window, no share floor): %+v", res)
 	}
 	empty := ChainResult{}
-	if res := computeBusinessSpanMentions(spanvisQuery(), empty, map[int]bool{}, spanvisStats(inv, nil)); res != nil {
+	if res := spanvisCompute(spanvisQuery(), empty, map[int]bool{}, spanvisStats(inv, nil)); res != nil {
 		t.Fatalf("no chain universe → no credential → absence: %+v", res)
 	}
 }
@@ -318,7 +340,7 @@ func TestBusinessSpanMentionSemanticClassExcluded(t *testing.T) {
 	stamped := spanvisSpan(100, "app.main", "someBusinessWork", 10.030, 3.0, 500, 600)
 	stamped.SemanticClass = "jit_compile" // pre-stamped field form of the same key
 	inventory := []TraceSpanSummary{verify, business, stamped}
-	result := computeBusinessSpanMentions(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
+	result := spanvisCompute(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
 	if result == nil || len(result.Families) != 1 || result.Families[0].Name != "Choreographer#doFrame" {
 		t.Fatalf("rider3 排除臂: only the non-semantic business family may mention, got %+v", result)
 	}
@@ -354,7 +376,7 @@ func TestBusinessSpanMentionDualCriterionUnion(t *testing.T) {
 	// One low-total family carrying the single longest span (9.0 > every
 	// member above, total 9.0 < totalI's 10.0).
 	inventory = append(inventory, spanvisSpan(100, "app.main", "singleMax", 10.050, 9.0, 5000, 5100))
-	result := computeBusinessSpanMentions(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
+	result := spanvisCompute(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
 	if result == nil {
 		t.Fatalf("rider3: the union selection must mention")
 	}

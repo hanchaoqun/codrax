@@ -33,6 +33,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -814,12 +815,83 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 		return "", false
 	}
 	face := runtimeTraceProjBusinessSpanMentionNameFace(m.Name, siblings)
+	account := runtimeTraceProjBusinessSpanMentionAccountClause(m, true, zh)
 	if zh {
-		return fmt.Sprintf("%s %s 单次最大%.3fms/%d次 合计%.3fms 行%d..%d 凭证:%s",
-			m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
+		return fmt.Sprintf("%s %s 单次最大%.3fms/%d次 合计%.3fms%s 行%d..%d 凭证:%s",
+			m.Subject, face, m.MaxMS, m.Count, m.TotalMS, account, m.StartLine, m.EndLine, basisWord), true
 	}
-	return fmt.Sprintf("%s %s · max single %.3fms ×%d · total %.3fms · lines %d..%d · credential: %s",
-		m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
+	return fmt.Sprintf("%s %s · max single %.3fms ×%d · total %.3fms%s · lines %d..%d · credential: %s",
+		m.Subject, face, m.MaxMS, m.Count, m.TotalMS, account, m.StartLine, m.EndLine, basisWord), true
+}
+
+// runtimeTraceProjBusinessSpanMentionAccountClause (HMC377 E3) is the one
+// word-face source of what a business-clue row's total means beyond the bare
+// wall: for the analysed thread's own phase, how much of it is the phase's own
+// time (not inside its named child phases) and, on the tree row, how that
+// time split between running and waiting; for a chain member whose span
+// extends past the waits it ended, that only the part inside those waits is
+// counted, with the span's full length beside it. "" when the record carries
+// neither (older records render byte-identically).
+func runtimeTraceProjBusinessSpanMentionAccountClause(m types.TraceCausalProjectionBusinessSpanMention, withStates, zh bool) string {
+	var parts []string
+	if types.TraceBusinessSpanMentionOwnPhase(m) && m.SelfKnown {
+		if zh {
+			parts = append(parts, fmt.Sprintf("其中自身%.3fms", m.SelfMS))
+		} else {
+			parts = append(parts, fmt.Sprintf("own time %.3fms", m.SelfMS))
+		}
+		if withStates && m.States != nil {
+			if split := runtimeTraceProjBusinessSpanMentionStateSplit(*m.States, zh); split != "" {
+				parts = append(parts, split)
+			}
+		}
+	}
+	if types.TraceBusinessSpanMentionDependencyPart(m) {
+		if zh {
+			parts = append(parts, fmt.Sprintf("仅计其唤醒结束的等待区间内部分,span全长%.3fms", m.WallMS))
+		} else {
+			parts = append(parts, fmt.Sprintf("only the part inside the waits its wakeups ended; full span %.3fms", m.WallMS))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if zh {
+		return "(" + strings.Join(parts, ";") + ")"
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
+}
+
+// runtimeTraceProjBusinessSpanMentionStateSplit renders the non-zero lanes of
+// an own phase's scheduler split with the shared lane words (tracefence).
+func runtimeTraceProjBusinessSpanMentionStateSplit(s types.TraceCausalProjectionBusinessSpanStates, zh bool) string {
+	lanes := []struct {
+		lane  string
+		value float64
+	}{
+		{tracefence.StateLaneRunning, s.RunningMS}, {tracefence.StateLaneRunnable, s.RunnableMS},
+		{tracefence.StateLaneSleep, s.SleepMS}, {tracefence.StateLaneDState, s.DStateMS}, {tracefence.StateLaneIOWait, s.IOWaitMS},
+	}
+	var out []string
+	for _, l := range lanes {
+		if l.value < 0.0005 {
+			continue
+		}
+		if word, ok := tracefence.StateLaneWord(l.lane, zh); ok {
+			out = append(out, fmt.Sprintf("%s %.3fms", word, l.value))
+		}
+	}
+	if s.UnknownMS >= 0.0005 {
+		if zh {
+			out = append(out, fmt.Sprintf("无调度记录 %.3fms", s.UnknownMS))
+		} else {
+			out = append(out, fmt.Sprintf("no scheduler record %.3fms", s.UnknownMS))
+		}
+	}
+	if zh {
+		return strings.Join(out, "、")
+	}
+	return strings.Join(out, ", ")
 }
 
 // runtimeTraceProjBusinessSpanMentionCompactRowText is the ◎ ◈ zone's compact
@@ -848,6 +920,9 @@ func runtimeTraceProjBusinessSpanMentionCompactRowText(m types.TraceCausalProjec
 			fmt.Fprintf(&b, " · max single %.3fms", m.MaxMS)
 		}
 	}
+	// HMC377 E3: the same account clause as the tree row, without the
+	// scheduler split (the compact zone keeps one line per family).
+	b.WriteString(runtimeTraceProjBusinessSpanMentionAccountClause(m, false, zh))
 	return b.String(), true
 }
 

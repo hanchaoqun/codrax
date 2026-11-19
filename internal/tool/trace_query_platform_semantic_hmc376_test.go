@@ -554,13 +554,26 @@ func TestHMC376OmittedOnChainCollectionStaysMentioned(t *testing.T) {
 	if hmc376OwnRow(seated, 150, "gc_pause") == nil || mention(seated) != nil {
 		t.Fatalf("with a free seat the collection is a ranked row and nothing else:\n%s", hmc376Board(seated))
 	}
+	// EVOLUTION (HMC377 E3): this fixture's collection runs AFTER the waker
+	// ended the target's wait, outside its only dependency window. It used to
+	// be mentioned as an on-chain business clue (basis chain_member, 20ms);
+	// on the business-clue face a chain member counts only inside its own
+	// dependency windows, so a post-wakeup collection is temporal proximity
+	// and is never mentioned. The original meaning — an on-chain family that
+	// lost every seat stays visible — is pinned where the family is on the
+	// chain (tracequery TestHMC376OmittedVocabularyFamilyStaysOnTheMentionFace,
+	// relay work inside its window) and by the in-window variant below.
 	omitted := hmc376Query(t, hmc376WakerCapture(t, marker, 10.205, 10.225, 16), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
-	family := mention(omitted)
-	if hmc376OwnRow(omitted, 150, "gc_pause") != nil || family == nil {
-		t.Fatalf("without a seat the collection must stay mentioned: mention=%v\n%s", family != nil, hmc376Board(omitted))
+	if hmc376OwnRow(omitted, 150, "gc_pause") != nil || mention(omitted) != nil {
+		t.Fatalf("a collection after the wakeup is no on-chain clue: mention=%v\n%s", mention(omitted) != nil, hmc376Board(omitted))
 	}
-	if !hmc376Near(family.TotalMs, 20) || family.OnChainBasis != tracequery.BusinessSpanMentionBasisChainMember || family.HiddenCount != 1 {
-		t.Fatalf("the mention must carry the measured work and its typed basis: %+v", family)
+	// Inside the waker's dependency window [10.010, 10.200] the same
+	// collection is on the chain: it takes its tier-0 seat (the bound seats
+	// what the chain reaches first), so it is a ranked row and not repeated
+	// on the clue face.
+	inside := hmc376Query(t, hmc376WakerCapture(t, marker, 10.150, 10.170, 16), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
+	if hmc376OwnRow(inside, 150, "gc_pause") == nil || mention(inside) != nil {
+		t.Fatalf("an in-window collection keeps its seat and stays off the clue face:\n%s", hmc376Board(inside))
 	}
 }
 

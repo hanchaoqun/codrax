@@ -414,6 +414,20 @@ const (
 	// cap (件3 截断诚实披露; only ≥floor families count). Rides every mention
 	// record of the result with the same value; parse takes the first.
 	TraceNoteKeyBusinessSpanOmitted = "business_span_omitted"
+	// TraceNoteKeyBusinessSpanWallMS — Σ raw in-window walls of the counted
+	// members ("%.3f"). Equals the total for the analysed thread's own phases
+	// and host-edge families; for a chain member the total is the part inside
+	// its dependency windows and this wall is ≥ it (HMC377 E3).
+	TraceNoteKeyBusinessSpanWallMS = "business_span_wall_ms"
+	// TraceNoteKeyBusinessSpanSelfMS — own phases only: Σ self wall of the
+	// family's synchronous marker instances (inclusive minus the union of
+	// direct children, "%.3f"); absent when any instance lacks a tree account.
+	TraceNoteKeyBusinessSpanSelfMS = "business_span_self_ms"
+	// TraceNoteKeyBusinessSpanStates — own phases only: the exclusive
+	// scheduler split of the summed inclusive extents,
+	// "running=a;runnable=b;sleep=c;d_state=d;io_wait=e;unknown=f" (ms,
+	// "%.3f"); the six values add to the total; absent when unavailable.
+	TraceNoteKeyBusinessSpanStates = "business_span_states"
 )
 
 // TraceNoteKeyBusinessSpanSchedulerStates carries a producer-owned JSON
@@ -1729,6 +1743,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBusinessSpanBasis, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanHidden, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanOmitted, "business_span", TraceNoteCarrierHardConsumer},
+	// HMC377 E3: the counted members' raw wall beside a chain member's
+	// in-window part, and the own phases' marker-tree self time and
+	// scheduler split. Strictly parsed when present; absence keeps older
+	// records valid.
+	{TraceNoteKeyBusinessSpanWallMS, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanSelfMS, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanStates, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanSchedulerStates, "business_span", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyBusinessDiagramAnnotation, "business_span", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyBusinessTreeNode, "business_span", TraceNoteCarrierSoftConsumer},

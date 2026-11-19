@@ -15,6 +15,32 @@ type TraceMarkerTreeStats struct {
 	Coverage                string                     `json:"coverage"`
 	Caveats                 []string                   `json:"caveats,omitempty"`
 	Population              *TraceMarkerTreePopulation `json:"population,omitempty"`
+	// allNodes is the complete, display-sorted node slice before the display
+	// bound truncates Nodes (the same backing array, so keeping it costs no
+	// copy). Engine-internal, never serialized; the business-clue face reads
+	// the analysed thread's completed accounts from it to state each own
+	// phase's self time and scheduler split (business_span_mention.go),
+	// whichever way the thread was addressed.
+	allNodes []TraceMarkerTreeNode
+}
+
+// traceMarkerTreeInstanceKey is the physical identity of one marker instance:
+// emitter thread and begin line (the same identity as the node ID), plus the
+// source so two attached artifacts never mix.
+type traceMarkerTreeInstanceKey struct {
+	source string
+	tid    int
+	line   int
+}
+
+// traceMarkerTreeInstanceAccount is one closed instance's query-clipped
+// inclusive and self wall time and the scheduler split of the inclusive
+// extent (nil when the owner's states are unavailable).
+type traceMarkerTreeInstanceAccount struct {
+	inclusiveMs float64
+	selfMs      float64
+	states      *TraceMarkerTreeStateValues
+	unknownMs   float64
 }
 
 // Marker windows contain determined physical/query-clipped endpoints. Both

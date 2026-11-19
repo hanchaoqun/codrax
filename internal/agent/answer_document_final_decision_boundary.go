@@ -578,10 +578,27 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 				b.WriteString("- Business clues (use them to explain on-chain work and propose business-facing fixes, without inventing causality from names):\n")
 			}
 			for _, span := range spans {
+				// HMC377 E3: own time of the target's own phase, or the part of
+				// a dependency thread's span inside the waits it ended.
+				extra := ""
+				if types.TraceBusinessSpanMentionOwnPhase(span) && span.SelfKnown {
+					if zh {
+						extra += fmt.Sprintf("，其中不在其子阶段内的自身时间 %.3f 毫秒", span.SelfMS)
+					} else {
+						extra += fmt.Sprintf(", of which %.3f ms is its own time outside its child phases", span.SelfMS)
+					}
+				}
+				if types.TraceBusinessSpanMentionDependencyPart(span) {
+					if zh {
+						extra += fmt.Sprintf("（只计它唤醒结束的等待区间内的部分，span 全长 %.3f 毫秒）", span.WallMS)
+					} else {
+						extra += fmt.Sprintf(" (only the part inside the waits its wakeups ended; full span %.3f ms)", span.WallMS)
+					}
+				}
 				if zh {
-					fmt.Fprintf(&b, "  - %s 的 %s：%d 次，合计 %.3f 毫秒，单次最大 %.3f 毫秒。\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS)
+					fmt.Fprintf(&b, "  - %s 的 %s：%d 次，合计 %.3f 毫秒，单次最大 %.3f 毫秒%s。\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS, extra)
 				} else {
-					fmt.Fprintf(&b, "  - %s / %s: %d occurrences, %.3f ms total, %.3f ms maximum single occurrence.\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS)
+					fmt.Fprintf(&b, "  - %s / %s: %d occurrences, %.3f ms total, %.3f ms maximum single occurrence%s.\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS, extra)
 				}
 			}
 		}

@@ -107,7 +107,13 @@ var traceNoteKeyGoldenRows = []string{
 	"business_span_name|business_span|hard_consumer",
 	"business_span_omitted|business_span|hard_consumer",
 	"business_span_scheduler_states|business_span|soft_consumer",
+	// HMC377 E3: an own phase's marker-tree self time and scheduler split,
+	// and the raw wall beside a chain member's in-window part; strict when
+	// present, absent on older records.
+	"business_span_self_ms|business_span|hard_consumer",
+	"business_span_states|business_span|hard_consumer",
 	"business_span_total_ms|business_span|hard_consumer",
+	"business_span_wall_ms|business_span|hard_consumer",
 	"business_tree_node|business_span|soft_consumer",
 	"bytes|io|display_only",
 	"callstack|io|display_only",

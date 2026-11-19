@@ -169,6 +169,7 @@ func (c *traceMarkerTreeCollector) build(idx *Index, q Query, schedulerSafe bool
 	sort.SliceStable(out.Nodes, func(i, j int) bool {
 		return TraceMarkerTreeDisplayLess(out.Nodes[i], out.Nodes[j], targetPID)
 	})
+	out.allNodes = out.Nodes
 	out.NodeCount = len(out.Nodes)
 	out.Population = traceMarkerTreePopulation(out.Nodes, targetPID, TraceMarkerTreeNodeLimit)
 	if len(out.Nodes) > TraceMarkerTreeNodeLimit {
@@ -176,6 +177,26 @@ func (c *traceMarkerTreeCollector) build(idx *Index, q Query, schedulerSafe bool
 		out.Nodes = out.Nodes[:TraceMarkerTreeNodeLimit]
 	}
 	out.Caveats = []string{"Synchronous marker nesting is observed same-source, same-emitter stack structure, not a causal dependency or proof of a program root. Inclusive and self costs use all paired children before display truncation; missing parent rows are not roots. Direct child counts cover the full physical instance, including children outside the query. Unclosed starts are possible window context, not proof of active overlap; unclosed or invalidated instances have no invented elapsed cost. Scheduler values describe only the owner's evidenced states; sleep IO is a subset of sleep, not additional time."}
+	return out
+}
+
+// traceMarkerTreeTargetAccounts indexes the completed accounts of one
+// thread's closed instances over the complete node set (allNodes, before the
+// display bound). Only accounts the tree already computed are kept; an
+// instance without both accounts is absent (never a zero account).
+func traceMarkerTreeTargetAccounts(nodes []TraceMarkerTreeNode, targetPID int) map[traceMarkerTreeInstanceKey]traceMarkerTreeInstanceAccount {
+	out := map[traceMarkerTreeInstanceKey]traceMarkerTreeInstanceAccount{}
+	for _, n := range nodes {
+		if n.Thread.PID != targetPID || n.Closure != "closed" || n.Inclusive == nil || n.Self == nil {
+			continue
+		}
+		account := traceMarkerTreeInstanceAccount{inclusiveMs: n.Inclusive.DurationMs, selfMs: n.Self.DurationMs}
+		if st := n.Inclusive.States; st != nil && st.Values != nil {
+			values := *st.Values
+			account.states, account.unknownMs = &values, st.UnknownMs
+		}
+		out[traceMarkerTreeInstanceKey{source: n.SourcePath, tid: n.Thread.PID, line: n.StartLine}] = account
+	}
 	return out
 }
 

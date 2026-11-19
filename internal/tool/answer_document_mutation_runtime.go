@@ -2547,6 +2547,7 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 	zh bool,
 ) []runtimeTraceOccupancyCandidate {
 	out := make([]runtimeTraceOccupancyCandidate, 0, len(projection.BusinessSpanMentions))
+	ownPhase := make([]bool, 0, len(projection.BusinessSpanMentions))
 	for _, span := range projection.BusinessSpanMentions {
 		if strings.TrimSpace(span.Subject) == "" || strings.TrimSpace(span.Name) == "" ||
 			span.Count <= 0 || span.TotalMS <= 0 || span.MaxMS <= 0 {
@@ -2561,6 +2562,14 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 		if !zh {
 			caliber = fmt.Sprintf("raw wall clock grouped by thread and span name; on-chain basis: %s; a business investigation lead only, excluded from root-cause ordering and eliminable-impact totals", basisWord)
 		}
+		// HMC377 E3: the same account clause as the ◈ rows (one source).
+		if clause := strings.TrimSpace(runtimeTraceProjBusinessSpanMentionAccountClause(span, true, zh)); clause != "" {
+			separator := "; "
+			if zh {
+				separator = "；"
+			}
+			caliber += separator + clause
+		}
 		out = append(out, runtimeTraceOccupancyCandidate{
 			group:    runtimeTraceOccupancyGroupLabel("business", zh),
 			subject:  span.Subject + " / " + span.Name,
@@ -2571,9 +2580,28 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 			location: location,
 			caliber:  caliber,
 		})
+		ownPhase = append(ownPhase, types.TraceBusinessSpanMentionOwnPhase(span))
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
-	return out
+	// HMC377 E3: the table's own ruler, never producer order — the analysed
+	// thread's own phases first, then dependency threads, each by cumulative
+	// wall clock. A single sort by total would put a dependency thread's part
+	// ahead of the target's own phases.
+	order := make([]int, len(out))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := order[i], order[j]
+		if ownPhase[a] != ownPhase[b] {
+			return ownPhase[a]
+		}
+		return out[a].totalMS > out[b].totalMS
+	})
+	sorted := make([]runtimeTraceOccupancyCandidate, len(out))
+	for i, index := range order {
+		sorted[i] = out[index]
+	}
+	return sorted
 }
 
 func runtimeTraceOccupancyCPUCandidates(
