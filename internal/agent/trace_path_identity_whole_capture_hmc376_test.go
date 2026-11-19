@@ -13,13 +13,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// hmc376CloneCapture copies the bytes. A hard link would change the original's
+// metadata, which every other reader of that capture checks while it parses.
 func hmc376CloneCapture(t *testing.T, source, target string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		t.Fatal(err)
-	}
-	if os.Link(source, target) == nil {
-		return
 	}
 	in, err := os.Open(source)
 	if err != nil {
