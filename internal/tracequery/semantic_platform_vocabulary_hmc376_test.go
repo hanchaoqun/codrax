@@ -1339,16 +1339,34 @@ func TestHMC376OffChainVocabularyFamiliesFoldApartAndLast(t *testing.T) {
 
 func hmc376Near(got, want float64) bool { return got > want-0.0005 && got < want+0.0005 }
 
-// A family the vocabulary classifies that lost every member at the seat bound
-// stays visible on the business mention face; a family that holds a seat does
-// not appear twice, and a wait on another thread takes no wakeup-edge credit.
+// A family the vocabulary classifies holds a seat exactly when the rank fold
+// publishes it, and then has no second, business-clue face; a wait on another
+// thread takes no wakeup-edge credit.
+//
+// EVOLUTION RECORD (HMC377 fix round 2, item F2, batch-owner ruling R-377-6
+// "holds a seat = published by the rank fold's family set"). The original pin
+// (batch 376) read seat holding from the bounded listing and asserted that an
+// on-chain collector family with no listed member stays on the mention face,
+// and that a host's collector work inside the wait its wakeup ended keeps the
+// mention credential. Since E1+E6 the rank fold publishes every on-chain
+// family from the complete inventory, so both families ARE seated: the rank
+// mints their rows, and the face showing them too was the same time on two
+// faces. They now assert the seat and the absent clue row. Kept meanings: a
+// seated family keeps its value face only; a vocabulary wait of another
+// thread earns no credit on this face (now for a chain member's wait inside a
+// wait of the target it ended but the chain did not walk too — the rank
+// refuses it the same credit); a vocabulary family no published family holds
+// stays visible (TestHMC377ClueFaceReadsTheRankFamilySet).
 func TestHMC376OmittedVocabularyFamilyStaysOnTheMentionFace(t *testing.T) {
 	chain := r3SyntheticChain() // target app-100; relay-200 is a chain node; hostw-300 holds a direct edge at 6.006
 	relay, host := ThreadRef{Comm: "relay", PID: 200}, ThreadRef{Comm: "hostw", PID: 300}
 	const work, wait = "H:FullGC::RunPhases;GCReason2", "GC: Wait For Completion Alloc"
-	mk := func(thread ThreadRef, name string, start float64) TraceSpanSummary {
+	mkSpan := func(thread ThreadRef, name string, start, durMs float64) TraceSpanSummary {
 		return TraceSpanSummary{Thread: thread, Name: name, Kind: "sync", SemanticClass: traceSpanSemanticClass(name),
-			StartTs: start, EndTs: start + 0.002, DurationMs: 2, StartLine: int(start * 10000), EndLine: int(start*10000) + 1}
+			StartTs: start, EndTs: start + durMs/1000, DurationMs: durMs, StartLine: int(start * 10000), EndLine: int(start*10000) + 1}
+	}
+	mk := func(thread ThreadRef, name string, start float64) TraceSpanSummary {
+		return mkSpan(thread, name, start, 2)
 	}
 	q := Query{PID: 100, TimeStart: 6.000, TimeEnd: 6.010}
 	// EVOLUTION (HMC377 E3, integration ruling R-377-1): a direct waker is on
@@ -1356,28 +1374,44 @@ func TestHMC376OmittedVocabularyFamilyStaysOnTheMentionFace(t *testing.T) {
 	// reads it from the chain's dependency-window carrier, where
 	// r3SyntheticChain states the host's wakeup at 6.006 ended the target's
 	// wait [6.000, 6.006].
-	mentions := func(seated []TraceSpanSummary, inventory ...TraceSpanSummary) map[string]bool {
-		res := computeBusinessSpanMentions(q, chain, wakeupChainThreadSet(chain), WindowStats{TraceSpans: seated, traceSpanFullInventory: inventory})
-		out := map[string]bool{}
+	type faces struct {
+		mentioned, seated map[string]bool
+	}
+	read := func(listed []TraceSpanSummary, inventory ...TraceSpanSummary) faces {
+		stats := WindowStats{TraceSpans: listed, traceSpanFullInventory: inventory}
+		families := SemanticSpanFamiliesForStats(&chain, &stats)
+		res := computeBusinessSpanMentions(q, chain, wakeupChainThreadSet(chain), stats, families)
+		out := faces{mentioned: map[string]bool{}, seated: map[string]bool{}}
 		if res != nil {
 			for _, fam := range res.Families {
-				out[fmt.Sprintf("%d %s", fam.Thread.PID, fam.Name)] = true
+				out.mentioned[fmt.Sprintf("%d %s", fam.Thread.PID, fam.Name)] = true
+			}
+		}
+		for _, fam := range families {
+			for _, member := range fam.Members {
+				out.seated[fmt.Sprintf("%d %s", member.Thread.PID, member.Name)] = true
 			}
 		}
 		return out
 	}
 	omitted := mk(relay, work, 6.001)
-	if got := mentions(nil, omitted); !got["200 "+work] {
-		t.Fatalf("an on-chain family without a seat must stay visible: %v", got)
+	if got := read(nil, omitted); !got.seated["200 "+work] || got.mentioned["200 "+work] {
+		t.Fatalf("an on-chain family with no listed member holds its seat and has no clue row: %+v", got)
 	}
 	other := mk(relay, work, 6.004)
-	if got := mentions([]TraceSpanSummary{omitted}, omitted, other); len(got) != 0 {
-		t.Fatalf("a family that holds a seat keeps its value face only: %v", got)
+	if got := read([]TraceSpanSummary{omitted}, omitted, other); len(got.mentioned) != 0 {
+		t.Fatalf("a family that holds a seat keeps its value face only: %v", got.mentioned)
 	}
-	if got := mentions(nil, mk(host, wait, 6.001)); len(got) != 0 {
-		t.Fatalf("a wait on another thread takes no wakeup-edge credit on this face either: %v", got)
+	if got := read(nil, mk(host, wait, 6.001)); len(got.mentioned) != 0 || got.seated["300 "+wait] {
+		t.Fatalf("a wait on another thread takes no wakeup-edge credit on this face either: %+v", got)
 	}
-	if got := mentions(nil, mk(host, work, 6.001)); !got["300 "+work] {
-		t.Fatalf("executed work before the wakeup edge keeps the credential: %v", got)
+	// relay-200 ended the target wait [6.000, 6.0045]; the chain walked only
+	// [6.000, 6.004]. Its recorded wait inside the unwalked part is refused
+	// the wakeup-edge credit by the rank, and by this face.
+	if got := read(nil, mkSpan(relay, wait, 6.0041, 0.4)); len(got.mentioned) != 0 || got.seated["200 "+wait] {
+		t.Fatalf("a chain member's wait inside a target wait it ended takes no wakeup-edge credit on this face: %+v", got)
+	}
+	if got := read(nil, mk(host, work, 6.001)); !got.seated["300 "+work] || got.mentioned["300 "+work] {
+		t.Fatalf("executed work inside the wait the host's wakeup ended holds its seat on the rank, not a clue row: %+v", got)
 	}
 }

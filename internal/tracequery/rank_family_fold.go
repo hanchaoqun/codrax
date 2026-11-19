@@ -833,16 +833,8 @@ func SemanticSpanFamiliesForStats(chain *ChainResult, stats *WindowStats) []Sema
 	if len(stats.traceSpanFullInventory) <= len(stats.TraceSpans) {
 		return FoldSemanticSpanFamilies(chain, stats.TraceSpans)
 	}
-	type spanIdentity struct {
-		name, thread, source string
-		startLine, endLine   int
-		startTs, endTs       float64
-	}
-	identity := func(span TraceSpanSummary) spanIdentity {
-		return spanIdentity{name: span.Name, thread: threadKey(span.Thread), source: span.SourcePath,
-			startLine: span.StartLine, endLine: span.EndLine, startTs: span.StartTs, endTs: span.EndTs}
-	}
-	listed := make(map[spanIdentity]int, len(stats.TraceSpans))
+	identity := semanticSpanMemberIdentityOf
+	listed := make(map[semanticSpanMemberIdentity]int, len(stats.TraceSpans))
 	for i, span := range stats.TraceSpans {
 		if _, ok := listed[identity(span)]; !ok {
 			listed[identity(span)] = i
@@ -878,6 +870,34 @@ func SemanticSpanFamiliesForStats(chain *ChainResult, stats *WindowStats) []Sema
 	out := make([]SemanticSpanFamily, 0, len(kept))
 	for _, entry := range kept {
 		out = append(out, entry.family)
+	}
+	return out
+}
+
+// semanticSpanMemberIdentity is the exact identity of one span of a stats
+// run (name, thread, physical source, line and time extent): the key under
+// which the listing, the rank fold's published families and the
+// business-clue face recognise the same span.
+type semanticSpanMemberIdentity struct {
+	name, thread, source string
+	startLine, endLine   int
+	startTs, endTs       float64
+}
+
+func semanticSpanMemberIdentityOf(span TraceSpanSummary) semanticSpanMemberIdentity {
+	return semanticSpanMemberIdentity{name: span.Name, thread: threadKey(span.Thread), source: span.SourcePath,
+		startLine: span.StartLine, endLine: span.EndLine, startTs: span.StartTs, endTs: span.EndTs}
+}
+
+// semanticSpanFamilyMemberSet indexes every member of the given families — for
+// the rank fold's published set (SemanticSpanFamiliesForStats), the spans whose
+// family holds a seat.
+func semanticSpanFamilyMemberSet(families []SemanticSpanFamily) map[semanticSpanMemberIdentity]bool {
+	out := map[semanticSpanMemberIdentity]bool{}
+	for _, fam := range families {
+		for _, member := range fam.Members {
+			out[semanticSpanMemberIdentityOf(member)] = true
+		}
 	}
 	return out
 }

@@ -252,7 +252,10 @@ const businessSpanMentionSameMsTol = 0.001
 // it). The waits another thread's own recorded wakeups ended come from the
 // chain's dependency-window carrier (targetWaitDependencyTimeWindowsByPID);
 // an absent carrier means none is known and no other thread counts there.
-func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats) *BusinessSpanMentionResult {
+// rankFamilies is the semantic family set the rank minted its rows from
+// (SemanticSpanFamiliesForStats of the same chain and stats): a span whose
+// family is in it holds a seat.
+func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[int]bool, stats WindowStats, rankFamilies []SemanticSpanFamily) *BusinessSpanMentionResult {
 	inventory := stats.traceSpanFullInventory
 	if len(inventory) == 0 {
 		return nil
@@ -275,11 +278,17 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		start, end int
 	}
 	bounded := make(map[spanIdentity]bool, len(stats.TraceSpans))
-	seatedSemanticFamilies := make(map[string]bool, len(stats.TraceSpans))
 	for _, s := range stats.TraceSpans {
-		seatedSemanticFamilies[semanticSeatFamilyKey(s)] = true
 		bounded[spanIdentity{s.Thread.PID, s.Name, s.StartLine, s.EndLine}] = true
 	}
+	// Seat holding (batch-owner ruling R-377-6): a span holds a seat exactly
+	// when the rank fold publishes its family — the set the rank mints from,
+	// which includes an on-chain family none of whose members is listed.
+	// EVOLUTION: the face formerly read seat holding from the bounded listing
+	// (the family key of a listed span); once the fold published on-chain
+	// families from the complete inventory, a family wholly outside the
+	// listing appeared both as a rank row and on this face.
+	seatedSpans := semanticSpanFamilyMemberSet(rankFamilies)
 	// The typed dependency windows of every thread other than the target:
 	// the merged chain node windows [wait start, recorded wakeup] per member
 	// (chainAnchorWindowsByPID) united with the analysed thread's waits that
@@ -345,11 +354,11 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		// reading is eliminated by construction; the former ◈→席 mutual chip
 		// of §29.175.2 is retired with it).
 		//
-		// The one exception is a family the platform vocabulary classifies
-		// that lost every member at the seat bound: it holds no seat, so this
-		// face is where its on-chain work stays visible.
+		// The one exception is a span the platform vocabulary classifies
+		// whose family the rank fold does not publish: it holds no seat, so
+		// this face is where its on-chain work stays visible.
 		class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
-		omittedPlatformFamily := class != "" && semanticSpanMintedByPlatformVocabulary(span.Name) && !seatedSemanticFamilies[semanticSeatFamilyKey(span)]
+		omittedPlatformFamily := class != "" && semanticSpanMintedByPlatformVocabulary(span.Name) && !seatedSpans[semanticSpanMemberIdentityOf(span)]
 		if class != "" && !omittedPlatformFamily {
 			continue
 		}
@@ -357,7 +366,16 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if basis == "" {
 			continue
 		}
-		if omittedPlatformFamily && basis == BusinessSpanMentionBasisHostWakeupEdge && !semanticSpanAdmitsHostEdgeLane(span.Name) {
+		// A vocabulary wait recorded on another thread is the next hop, not
+		// that thread's own work: the rank refuses it the wakeup-edge credit
+		// (semanticSpanAdmitsHostEdgeLane), so this face does too. EVOLUTION
+		// (HMC377 fix round 2, F2): the bar read only the host-edge basis; a
+		// chain member's wait inside a target wait it ended but the chain did
+		// not walk reached the face on the chain-member basis — the only span
+		// this exception still admitted that the rank's own lanes keep off the
+		// chain (inside a walked chain window the wait is on the overlap lane
+		// and seated).
+		if omittedPlatformFamily && basis != BusinessSpanMentionBasisSelf && !semanticSpanAdmitsHostEdgeLane(span.Name) {
 			continue
 		}
 		counted := span.DurationMs
