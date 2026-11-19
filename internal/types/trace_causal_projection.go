@@ -5135,20 +5135,12 @@ func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
 }
 
 // traceCausalProjectionNodeLess is the value order of projection rows. Every
-// key is total, so the relation is a strict weak order and the relative order
-// of two rows never depends on which other rows are sorted with them (HMC377:
-// a key compared only when BOTH rows carried it formed cycles with the next
-// key, and invisible mirror records then reordered published rows).
+// key is a function of the row alone, so the relation is a strict weak order
+// and the relative order of two rows never depends on which other rows are
+// sorted with them (HMC377: a key compared only when BOTH rows carried it
+// formed cycles with the next key, and invisible mirror records then reordered
+// published rows).
 func traceCausalProjectionNodeLess(a, b TraceCausalProjectionNode) bool {
-	return traceCausalProjectionNodeLessWithDepth(a, b, false)
-}
-
-// traceCausalProjectionNodeLessWithDepth adds the recorded chain depth as the
-// tie-break of equal values (shallower first; a row with no recorded depth
-// after every row with one) — the hop comparators' former depth arm, moved
-// behind the value keys because a depth compared before value only when both
-// rows carried one was not transitive.
-func traceCausalProjectionNodeLessWithDepth(a, b TraceCausalProjectionNode, byDepth bool) bool {
 	if a.CumulativeImpactMS != b.CumulativeImpactMS {
 		return a.CumulativeImpactMS > b.CumulativeImpactMS
 	}
@@ -5158,10 +5150,14 @@ func traceCausalProjectionNodeLessWithDepth(a, b TraceCausalProjectionNode, byDe
 	if a.Confidence != b.Confidence {
 		return a.Confidence > b.Confidence
 	}
-	if byDepth {
-		if da, db := traceCausalProjectionPositiveOrderKey(a.ChainDepth), traceCausalProjectionPositiveOrderKey(b.ChainDepth); da != db {
-			return da < db
-		}
+	// HMC377 F4: a span family published as its semantic record and as its
+	// rank-row twin ties on every value. The semantic record is the family's
+	// one seat (SEM-LEAD §29.7-2 ①: the rank-lane twin folds into the ✦ row),
+	// so it is listed first and stays the survivor of the same-fact merges —
+	// the survivor the classified order kept before the twin roles became
+	// comparable (E2-R3) and the rank ordinal became a total key.
+	if sa, sb := strings.TrimSpace(a.Role) == TraceCausalRoleSemanticSpan, strings.TrimSpace(b.Role) == TraceCausalRoleSemanticSpan; sa != sb {
+		return sa
 	}
 	if ra, rb := traceCausalProjectionPositiveOrderKey(a.Rank), traceCausalProjectionPositiveOrderKey(b.Rank); ra != rb {
 		return ra < rb
@@ -5213,9 +5209,54 @@ func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[
 	if aInPath != bInPath {
 		return aInPath
 	}
-	// Flat rows follow display value (the tree places rows by chain
-	// structure); depth breaks value ties only.
-	return traceCausalProjectionNodeLessWithDepth(a, b, true)
+	// Two rows that both carry a recorded chain depth keep the order they
+	// have had since the hop surface was built (4ec40e892): the shallower hop
+	// first, value inside one depth. Every row takes a chain position from
+	// its own typed fields, so the relation stays a strict weak order.
+	if pa, pb := traceCausalProjectionChainOrderPosition(a), traceCausalProjectionChainOrderPosition(b); pa != pb {
+		return pa < pb
+	}
+	return traceCausalProjectionNodeLess(a, b)
+}
+
+// traceCausalProjectionChainOrderPosition is the chain position a hop or
+// classified row sorts at (HMC377 F4). A row with a recorded chain depth sorts
+// at that depth, so two such rows compare exactly as before the order rewrite
+// (d5ef1c6fe compared depth only when both rows carried one). A row without a
+// recorded depth gets a position from its own typed fields, never from the
+// rows sorted with it. The depthless rows that reach these comparators:
+//
+//   - the analysed thread's own rows: its wakeup_causal_impact hops (engine
+//     depth 0, which the producer zero-drops), its wait records on the
+//     wakeup-chain lane (trace_semantic_span wait markers, root_cause_rank
+//     state seats), its critical_blocking rows, and its own-work rows
+//     (self_deterministic / self_wall_clock rank rows and semantic records);
+//   - a chain member's rows minted without a hop depth (bare-census-edge and
+//     residual state seats, root_evidence rows, critical_blocking rows);
+//   - rows on the chain by a credential whose thread is not a chain node
+//     (host-edge and interval semantic records and rank rows);
+//   - display merges that keep no depth, and every off-chain context row;
+//   - the producer folds of chain hops (wakeup_causal_impact and
+//     wakeup_causal_aggregate folded_overflow records, MergedWireFold).
+//
+// A depthless row has no hop position: placing it by value against the hops
+// (the d5ef1c6fe arm) is what made the relation cyclic, and placing the
+// analysed thread's own rows ahead of the hops would let its many small waits
+// push a deeper on-chain hop (a chain member's D state or IO wait) behind the
+// bucket cap. Every depthless row therefore sorts after every recorded depth,
+// by value — except a producer fold: it stands for chain hops (the engine
+// aggregates hops only at ChainDepth > 0; the wire cap folds the impacts the
+// walk reached after its first ones), so it sorts in the first hop tier by
+// the member MAX it publishes and stays inside the supporting-hop cap with its
+// count (PTS-2 ruling ①).
+func traceCausalProjectionChainOrderPosition(node TraceCausalProjectionNode) int {
+	if node.ChainDepth > 0 {
+		return node.ChainDepth
+	}
+	if node.MergedWireFold && traceCausalProjectionNodeOnChain(node) {
+		return 1
+	}
+	return traceCausalProjectionPositiveOrderKey(0)
 }
 
 // traceCausalProjectionPositiveOrderKey maps an optional positive ordinal

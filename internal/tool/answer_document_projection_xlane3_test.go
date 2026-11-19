@@ -330,7 +330,13 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// as plain ◇ remainders) ahead of this row; the pointed rows (logd.writer-
 	// 9163 chain seat [E11(+1)] ↔ its adjacent remainder), values and relation
 	// cardinality are unchanged.
-	if !strings.Contains(joinedMD, "本线程另有邻近席 [E49]") ||
+	// EVOLUTION RECORD (HMC377 F4, explicit-window order kept at the base
+	// depth order): pure ordinal renumbering E49 → E48 — two rows that both
+	// carry a chain depth sort shallower-first again and rows without a
+	// recorded depth follow them; the pointed rows (logd.writer-9163 chain
+	// seat [E11(+1)] ↔ its adjacent remainder), values and relation
+	// cardinality are unchanged.
+	if !strings.Contains(joinedMD, "本线程另有邻近席 [E48]") ||
 		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
@@ -345,10 +351,14 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// [E38] → [E42] (logd.writer-9163's 2955-board peer is now its 0.018ms ⛓
 	// ready-time seat inside its dependency windows, the case-B clip) and
 	// [E28]、[E29] → [E31]、[E32]; peer cardinality (one / three) unchanged.
-	if !strings.Contains(joinedMD, "⇄另板[E42](板锚 CompThread_0-2955,见图例)") {
-		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E42] (件C):\n%s", md)
+	// EVOLUTION RECORD (HMC377 F4): ordinal renumbering [E42] → [E32] (the
+	// same 0.018ms ⛓ seat, the lead member of the micro-anchor fold) and
+	// [E31]、[E32] → [E33]、[E34] (logd.writer-9163 调度延迟 / runnable);
+	// peer cardinality (one / three) unchanged.
+	if !strings.Contains(joinedMD, "⇄另板[E32](板锚 CompThread_0-2955,见图例)") {
+		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E32] (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E31]、[E32]等3席(板锚 logd.writer-9163") {
+	if !strings.Contains(joinedMD, "⇄另板[E33]、[E34]等3席(板锚 logd.writer-9163") {
 		t.Fatalf("E45's cross-board sentence must keep its remaining 9163-board peers (件C; relation-only semantic preservation shifts only later refs):\n%s", md)
 	}
 	// 修补轮 件F: the micro fold's detail-face ordinal range wears the board
