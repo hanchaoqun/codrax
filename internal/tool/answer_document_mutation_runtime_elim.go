@@ -2811,7 +2811,8 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 // the detailed roster
 // (行号/凭证), and the F2 clause survives on its own head line both faces.
 // Zone semantics: the name-dimension
-// selection set (单次最长∪合计最长 TOP8, engine-selected — 双复核修复 F6:
+// selection set (two tiers since HMC377 E3 — own phases 合计/单次/自身最长
+// TOP8, dependency threads 单次∪合计最长 TOP8 — engine-selected — 双复核修复 F6:
 // stale TOP3 → §29.185③ TOP5; MENTION8-1 §29.203 TOP8; the full promise
 // word lives on the tree ◈ head + legend), ONE 定稿 head line (双复核 件8),
 // one compact row per family (值·线程·span 名·次数(·单次最大) — no bar, no
@@ -2837,12 +2838,16 @@ func runtimeTraceProjElimBusinessZoneLines(model runtimeTraceProjTreeModel, zh b
 	// + the full F2 clause line) — the 定稿 single head folds them with zero
 	// information loss on the zone: 业务自查减时 = the purpose short form,
 	// 非确定性优化类 = the rider3 exclusion boundary, 不占序数 + 族间不可相加
-	// = the ordinal/F2 facts (the full selection-rule promise word and the
-	// full F2 clause keep their seats on the tree ◈ head + legend, 词面单点).
+	// = the ordinal/F2 facts (the full F2 clause keeps its seat on the tree ◈
+	// head + legend, 词面单点). EVOLUTION RECORD (batch-owner ruling R-377-2,
+	// 2026-11-19): the selection-rule promise word now heads this zone too,
+	// from the same single source as the tree ◈ head and the legend — the two
+	// tiers (own phases / dependency threads) are selected by different
+	// rules, and a reader of the ◎ zone alone must see both.
 	if zh {
-		lines = append(lines, "◈ 业务线索 · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)")
+		lines = append(lines, "◈ 业务线索 · "+runtimeTraceProjBusinessSpanSelectionRuleWord(true)+" · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)")
 	} else {
-		lines = append(lines, "◈ business leads · self-check to cut time (non-semantic-class · no ordinal · families never add)")
+		lines = append(lines, "◈ business leads · "+runtimeTraceProjBusinessSpanSelectionRuleWord(false)+" · self-check to cut time (non-semantic-class · no ordinal · families never add)")
 	}
 	lines = append(lines, rows...)
 	if model.BusinessSpanMentionOmitted > 0 {

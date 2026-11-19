@@ -64,7 +64,9 @@ func TestSpanvisTreeBlockRendersZH(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(spanvisMentionProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"◈ 业务span提示(不参与根因排序 · 单次最长∪合计最长 TOP8 · 业务自查:能否减少这些 span 的时间占用):",
+		// RE-BASED (batch-owner ruling R-377-2, 2026-11-19): the promise word
+		// names both tiers (old: 单次最长∪合计最长 TOP8).
+		"◈ 业务span提示(不参与根因排序 · 自身阶段: 合计/单次/自身最长 TOP8 · 依赖线程: 单次∪合计最长 TOP8 · 业务自查:能否减少这些 span 的时间占用):",
 		"◈ 各族合计间不可相加(区间可重叠/嵌套)",
 		"LegoHandler-17585 monitor contention with owner ransmitThread (38414) 单次最大0.295ms/2次 合计0.303ms 行21605..22024 凭证:自身",
 		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
@@ -85,7 +87,8 @@ func TestSpanvisTreeBlockRendersEN(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(spanvisMentionProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fence := runtimeTraceProjTreeFence(model, false)
 	for _, want := range []string{
-		"◈ business span leads (not in root-cause ranking · max-single ∪ total TOP8 · business self-check: can these spans' time be reduced):",
+		// RE-BASED (R-377-2): old "max-single ∪ total TOP8".
+		"◈ business span leads (not in root-cause ranking · own phases: total/max-single/own-time TOP8 · dependency threads: max-single ∪ total TOP8 · business self-check: can these spans' time be reduced):",
 		"◈ family totals are not additive to each other (intervals may overlap or nest)",
 		"max single 0.295ms ×2 · total 0.303ms · lines 21605..22024 · credential: self",
 		"credential: wakeup credential (inside the wait)",
@@ -204,7 +207,9 @@ func TestSpanvisElimFootnoteRenders(t *testing.T) {
 	// their seats on the tree ◈ head + legend); 件4: the tail count speaks
 	// the honest not-listed form (the tree pointer died with rider3).
 	for _, want := range []string{
-		"◈ 业务线索 · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)",
+		// RE-BASED (R-377-2): the promise word heads the ◎ zone as well
+		// (old head: ◈ 业务线索 · 业务自查减时(…)).
+		"◈ 业务线索 · 自身阶段: 合计/单次/自身最长 TOP8 · 依赖线程: 单次∪合计最长 TOP8 · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)",
 		"0.303ms LegoHandler-17585 · monitor contention with owner ransmitThread (38414) · 2次 ·单次最大0.295ms",
 		"2.401ms com.baidu.tieba-61839 · transact[android.app.IActivityManager:6] · 4次 ·单次最大1.000ms",
 	} {

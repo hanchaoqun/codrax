@@ -722,11 +722,19 @@ func runtimeTraceProjBusinessSpanMentionValid(m types.TraceCausalProjectionBusin
 // user widened the display-selection cap (「TOP 5 可能不太够…安全的扩充为
 // TOP 8(如果有)」); the union rule and admission gates are unchanged, and
 // the engine cap moves with this word in one batch (词面单点).
+//
+// EVOLUTION RECORD (HMC377 E3 + batch-owner ruling R-377-2, 2026-11-19): the
+// face selects in two tiers — the analysed thread's own phases by 合计最长 ∪
+// 单次最长 ∪ 自身最长 TOP-K, dependency threads by the ruled 单次最长 ∪ 合计最长
+// TOP-K — so the promise word names both tiers. It is the one word source for
+// the tree ◈ head, the ◎ ◈ zone head and the ◈ legend entry (R-377-2 puts it
+// on the ◎ head too, superseding 双复核 件8's tree-head-and-legend-only
+// placement); K and the union rules are unchanged.
 func runtimeTraceProjBusinessSpanSelectionRuleWord(zh bool) string {
 	if zh {
-		return "单次最长∪合计最长 TOP8"
+		return "自身阶段: 合计/单次/自身最长 TOP8 · 依赖线程: 单次∪合计最长 TOP8"
 	}
-	return "max-single ∪ total TOP8"
+	return "own phases: total/max-single/own-time TOP8 · dependency threads: max-single ∪ total TOP8"
 }
 
 // runtimeTraceProjBusinessSpanPurposeWord — OMGCLEAN-1 件5 rider3 (§29.175.5
