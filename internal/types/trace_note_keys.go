@@ -943,10 +943,11 @@ const (
 	TraceNoteKeyRankBoardParams = "rank_board_params_fingerprint"
 	// TraceNoteKeyHostWakeupEdgeAnchorTs / TraceNoteKeyHostWakeupEdgeAnchorVia
 	// (R3-IMPL, §29.88.1 user ruling 2026-07-14): the host-edge-anchored
-	// semantic seat's typed credential disclosure pair — ts = the LATEST
-	// in-window credential edge timestamp (the bisection boundary; µs-
-	// verifiable against the raw sched_wakeup line), via = the typed edge
-	// inventory word (closed set: direct / chain_hop / direct+chain_hop).
+	// semantic seat's typed credential disclosure pair — ts = the recorded
+	// wakeup that ended the latest priced wait of the analysis target (HMC377
+	// E2, owner ruling 2026-11-18; µs-verifiable against the raw sched_wakeup
+	// line), via = the typed edge inventory word (closed set: direct /
+	// chain_hop / direct+chain_hop; a priced row is direct).
 	// Ride ONLY rows whose on_chain_basis is "host_wakeup_edge_pre_span" or
 	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) and the ◇
 	// remainder clones of their bisected accounts. Consumed by the projection

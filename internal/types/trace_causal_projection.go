@@ -828,9 +828,9 @@ type TraceCausalProjectionNode struct {
 	AbsorbedWholeSeatDemotedView bool `json:"absorbed_whole_seat_demoted_view,omitempty"`
 	// HostWakeupEdgeAnchorTS / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the host-edge-anchored semantic seat's typed
-	// credential pair — the latest in-window credential edge timestamp (the
-	// bisection boundary, µs-verifiable) and the typed edge-inventory word
-	// (direct / chain_hop / direct+chain_hop). Drives the 行2 边锚定(宿主→
+	// credential pair — the recorded wakeup that ended the latest priced wait
+	// of the analysis target (HMC377 E2, µs-verifiable) and the typed
+	// edge-inventory word (direct / chain_hop / direct+chain_hop). Drives the 行2 边锚定(宿主→
 	// 目标) disclosure sentence beside the OnChainBasis fork; wording/
 	// description input only.
 	HostWakeupEdgeAnchorTS  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
