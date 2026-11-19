@@ -1242,10 +1242,13 @@ func traceDecisionSemanticInventoryIdentity(node types.TraceCausalProjectionNode
 }
 
 func traceDecisionWriteSemanticMembers(b *strings.Builder, node types.TraceCausalProjectionNode, limit int) {
-	if b == nil || node.FamilyMemberCount <= 0 ||
-		len(node.FamilyMemberRoster) != node.FamilyMemberCount ||
+	if b == nil || node.FamilyMemberCount <= 0 {
+		return
+	}
+	if len(node.FamilyMemberRoster) != node.FamilyMemberCount ||
 		len(node.FamilyMemberLineRanges) != node.FamilyMemberCount ||
 		len(node.FamilyMemberWallMS) != node.FamilyMemberCount {
+		traceDecisionWriteBoundedSemanticRoster(b, node, limit)
 		return
 	}
 	count := node.FamilyMemberCount
@@ -1261,6 +1264,27 @@ func traceDecisionWriteSemanticMembers(b *strings.Builder, node types.TraceCausa
 	if count < node.FamilyMemberCount {
 		fmt.Fprintf(b, "    - members_omitted=%d; complete_roster_available_in_projection=`true`\n", node.FamilyMemberCount-count)
 	}
+}
+
+// traceDecisionWriteBoundedSemanticRoster (HMC377 E1E6-R2): a family whose
+// value is folded from more members than its typed roster lists (the roster
+// is the largest-first bounded prefix; per-member line ranges and walls are
+// published only for complete rosters) still hands over its largest members
+// with their durations, and says how many are not listed — never silence.
+func traceDecisionWriteBoundedSemanticRoster(b *strings.Builder, node types.TraceCausalProjectionNode, limit int) {
+	roster := node.FamilyMemberRoster
+	if len(roster) == 0 || len(roster) >= node.FamilyMemberCount {
+		return
+	}
+	count := len(roster)
+	if limit > 0 && count > limit {
+		count = limit
+	}
+	for index := 0; index < count; index++ {
+		fmt.Fprintf(b, "    - member_%d span_with_duration=`%s`\n", index+1, traceDecisionPromptScalar(roster[index]))
+	}
+	fmt.Fprintf(b, "    - members_omitted=%d; members_listed_largest_first=%d; member_line_ranges=not_published_for_a_bounded_roster\n",
+		node.FamilyMemberCount-count, count)
 }
 
 func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {

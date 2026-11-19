@@ -114,7 +114,11 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	// 复核 E-P3: the ∩running union renders with the family count and the
 	// pointer row's own largest value (X beside a Y-valued row never reads
 	// contradictory).
-	if !strings.Contains(lead, "- running 109.270ms: 确定性工作 11.833ms(共1类,最大 10.394ms 见 ") {
+	// EVOLUTION RECORD (HMC377 E1E6-R7): each number names its measure
+	// (running ∩ spans vs the class wall) — a class wall above the running
+	// total (Yuanbao: 24.707 running beside a 26.528 wall) never reads as a
+	// part of it.
+	if !strings.Contains(lead, "- running 109.270ms: 确定性工作 11.833ms(运行∩语义span;共1类,最大类墙钟 10.394ms 见 ") {
 		t.Fatalf("the running line must open with the deterministic-work wall clock + 共N类/最大 disclosure:\n%s", lead)
 	}
 	if !strings.Contains(lead, "供给折算影响 16.100ms 见") || !strings.Contains(lead, "(折算,不计入四态合计)") {
@@ -136,7 +140,7 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	_, en := cov4LeadText(t, projection, false)
 	if !strings.Contains(en, "- Focused-thread full-window states: running 109.270ms (72%)") ||
 		!strings.Contains(en, "sleep 28.507ms (19%, incl. IO wait 20.000ms)") ||
-		!strings.Contains(en, "deterministic work 11.833ms (1 classes, largest 10.394ms, see ") ||
+		!strings.Contains(en, "deterministic work 11.833ms (running ∩ semantic spans; 1 classes, largest class wall 10.394ms, see ") ||
 		!strings.Contains(en, "remaining running (outside the measured work) 97.437ms") ||
 		!strings.Contains(en, "(converted; not in the four-state total)") {
 		t.Fatalf("the EN account face must mirror the zh shape:\n%s", en)
@@ -402,7 +406,8 @@ func TestCov4TriFaceSeatTokens(t *testing.T) {
 	}
 	// Face 3 — the coverage account's running line points with the SAME
 	// glyph+E# pair (inside the 复核 E-P3 共N类/最大 disclosure form).
-	if !strings.Contains(lead, "最大 10.394ms 见 "+pair) {
+	// HMC377 E1E6-R7: the pointer rides the named-measure form.
+	if !strings.Contains(lead, "最大类墙钟 10.394ms 见 "+pair) {
 		t.Fatalf("the coverage account must inline the same ➌[E#] pair (三面记号一致), want %q:\n%s", pair, lead)
 	}
 	// The supply pointer carries its own seat's glyph (➍ + its E#). The

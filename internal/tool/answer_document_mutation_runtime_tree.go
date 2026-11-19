@@ -17063,10 +17063,14 @@ func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionT
 			// target's semantic families while the pointer names ONE row —
 			// disclose the relation so X beside a Y-valued row never reads
 			// as a contradiction (复核核定词形).
+			// HMC377 E1E6-R7: the account is RUNNING time inside the spans
+			// while the pointed row's value is a class wall (it may include
+			// ready or waiting instants) — each number names its measure, so
+			// a class wall above the running total never reads as its part.
 			if zh {
-				parts = append(parts, fmt.Sprintf("确定性工作 %.3fms(共%d类,最大 %.3fms 见%s)", deterministic, count, best, tag))
+				parts = append(parts, fmt.Sprintf("确定性工作 %.3fms(运行∩语义span;共%d类,最大类墙钟 %.3fms 见%s)", deterministic, count, best, tag))
 			} else {
-				parts = append(parts, fmt.Sprintf("deterministic work %.3fms (%d classes, largest %.3fms, see%s)", deterministic, count, best, tag))
+				parts = append(parts, fmt.Sprintf("deterministic work %.3fms (running ∩ semantic spans; %d classes, largest class wall %.3fms, see%s)", deterministic, count, best, tag))
 			}
 		}
 	}

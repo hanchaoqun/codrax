@@ -291,8 +291,15 @@ func TestHMC377OwnWorkOnCPUIsTheRunningShareOfThePricedWork(t *testing.T) {
 func TestHMC377BoundDisclosureSaysOnlyTheListingIsBounded(t *testing.T) {
 	info := traceMarkSemanticBoundInfo{totalSpans: 147, keptSpans: 16, totalFamilies: 11}
 	caveat := info.caveat()
-	if strings.Contains(caveat, "lower bound") || !strings.Contains(caveat, "computed from all 147 classified span(s)") {
-		t.Fatalf("the disclosure must say totals come from every classified span: %q", caveat)
+	// EVOLUTION RECORD (HMC377 E1E6-R4): the rank/record/member family totals
+	// come from every classified span, but the same result's
+	// trace_mark_category totals are still aggregated from the listed spans —
+	// the disclosure keeps the lower-bound word for that face, by name, and
+	// never for the family totals.
+	if strings.Contains(caveat, "Published semantic family totals are lower bounds") ||
+		!strings.Contains(caveat, "computed from all 147 classified span(s)") ||
+		!strings.Contains(caveat, "trace_mark_category totals of this result are still computed from the listed spans only and stay lower bounds") {
+		t.Fatalf("the disclosure must say family totals come from every classified span and the category face stays a lower bound: %q", caveat)
 	}
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	var spans []TraceSpanSummary

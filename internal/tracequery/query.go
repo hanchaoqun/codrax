@@ -10916,12 +10916,16 @@ func (info traceMarkSemanticBoundInfo) caveat() string {
 	// Own-work pricing: the bound limits which spans are LISTED. Family
 	// totals, member counts and ranks are folded from every classified span
 	// (SemanticSpanFamiliesForStats), so the sentence states what is not
-	// listed and no longer calls the totals lower bounds.
+	// listed and no longer calls those totals lower bounds. HMC377 E1E6-R4:
+	// the trace_mark_category face of the same result is still aggregated
+	// from the listed spans (computeTraceMarkCategories over stats.TraceSpans),
+	// so the sentence keeps the lower-bound disclosure for that face by name
+	// and claims completeness only for the rank, record and member faces.
 	roster := "none (every family keeps a listed span)"
 	if len(info.omittedRoster) > 0 {
 		roster = strings.Join(info.omittedRoster, ", ")
 	}
-	return fmt.Sprintf("semantic span bound kept %d/%d classified span(s) across %d family/families; omitted %d span(s) from %d whole family/families (bounded omitted-family roster, first 8: %s). The bound limits the listed spans only: every semantic family total, member count and rank is computed from all %d classified span(s); a wholly omitted family off the dependency chain is counted here, and up to the first 8 are named, instead of disappearing silently", info.keptSpans, info.totalSpans, info.totalFamilies, omitted, info.omittedFamilies, roster, info.totalSpans)
+	return fmt.Sprintf("semantic span bound kept %d/%d classified span(s) across %d family/families; omitted %d span(s) from %d whole family/families (bounded omitted-family roster, first 8: %s). The bound limits the listed spans: every semantic family total, member count and rank of the root-cause rows is computed from all %d classified span(s), while the trace_mark_category totals of this result are still computed from the listed spans only and stay lower bounds; a wholly omitted family off the dependency chain is counted here, and up to the first 8 are named, instead of disappearing silently", info.keptSpans, info.totalSpans, info.totalFamilies, omitted, info.omittedFamilies, roster, info.totalSpans)
 }
 
 // boundTraceMarkSpansWithInfo preserves one representative of every semantic

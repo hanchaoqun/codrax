@@ -601,6 +601,11 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			if fam.ProjectedImpactMs > fam.TotalMs {
 				fam.ProjectedImpactMs = fam.TotalMs
 			}
+			if fam.OnChainBasis == "" && chain != nil && sameThreadRef(fam.Thread, chain.Target) {
+				// HMC377 E1E6-R1: the analysed thread's overlap family is the
+				// wait row of its own spans; its support is the priced share.
+				fam.waitShareIntervals = append([]foldInterval(nil), chainProjection.intervals...)
+			}
 			fam.ProjectedStartTs = chainProjection.projection.StartTs
 			fam.ProjectedEndTs = chainProjection.projection.EndTs
 			fam.DominantState = chainProjection.projection.DominantState
@@ -611,10 +616,15 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			fam.ChainDepth = chainProjection.projection.ChainDepth
 			fam.ChainBranch = chainProjection.projection.ChainBranch
 		} else if fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
-			// Own-work pricing: instants the analysed thread spends in a wait
-			// of its dependency chain are published by the overlap family of
-			// the same spans; they leave the own-work value. Without such a
-			// wait the value is the member union exactly as before.
+			// Own-work pricing: instants the analysed thread spends in a
+			// non-running window of its dependency chain — sleep, D and IO
+			// waits AND runnable (waiting for a CPU) — are published by the
+			// overlap family of the same spans and by the thread's scheduling
+			// rows; they leave the own-work value, which is the span time
+			// outside every such chain window (HMC377 E1E6-R6: the definition
+			// says exactly what M3 subtracts — a ready instant inside one of
+			// those windows is not own work). Without such a window the value
+			// is the member union exactly as before.
 			waits := semanticTraceSpanChainIntersection(chain, fam.Thread, intervals)
 			if waits.projection.ImpactMs > 0 {
 				merged, _ := foldIntervalUnionWithDisjoint(intervals)
@@ -1082,6 +1092,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		// The support inventory is the priced share (the edge-lane discipline
 		// below): own work only; the wait instants ride the wait row.
 		item.semanticMemberIntervals = append([]foldInterval(nil), fam.ownWorkIntervals...)
+	}
+	if fam.OnChain && fam.OnChainBasis == "" && len(fam.waitShareIntervals) > 0 && len(item.semanticMemberIntervals) > 0 {
+		// HMC377 E1E6-R1 — the wait row's support is its priced share too
+		// (member ∩ the thread's chain waits), never the whole member extent:
+		// the own-work row above already carries the rest of the same spans,
+		// and the direction conservation audit sums both seats' unions.
+		if unionMs, _ := foldIntervalUnionMs(fam.waitShareIntervals); math.Abs(unionMs-participationMs) <= directionConservationToleranceMs {
+			item.semanticMemberIntervals = append([]foldInterval(nil), fam.waitShareIntervals...)
+		}
 	}
 	if edgeBasis && len(item.semanticMemberIntervals) > 0 {
 		// CROWNSEM-1 复核收编 (2026-09-02): the host-edge family's support

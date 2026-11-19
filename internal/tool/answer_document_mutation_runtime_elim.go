@@ -221,7 +221,15 @@ func runtimeTraceProjElimSemanticCensusRow(row runtimeTraceProjTreeRow) bool {
 	if !row.HasData || row.Node.OnChainOverflowFold {
 		return false
 	}
-	if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimRankItemRow(row) {
+	// HMC377 E1E6-R3: the census counts the semantic rows the ◎ board does not
+	// show. A family record carrying only a background-board position is a
+	// rank item by the population arm yet fails the board's seat/channel arms
+	// (it renders nowhere on ◎); reading the rank-item arm here dropped it
+	// from both (Douyin bindApplication: PPS-DC-Cal-pool-13914 class
+	// verification 571.120ms beside a census that said 「最大 2.435ms」). The
+	// predicate is the board's own admission body, so a row is counted here
+	// exactly when the board leaves it out.
+	if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimEligibleSansRepresented(row) {
 		return false
 	}
 	if runtimeTraceProjElimCaliberSideRow(row.Node) {

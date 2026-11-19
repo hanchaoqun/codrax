@@ -138,8 +138,11 @@ func TestSemanticSpanBoundKeepsOnePerFamilyAndCountsOverflow(t *testing.T) {
 	// HMC377: the overflow is still counted and disclosed; the families are
 	// folded from all 20 classified spans, so the disclosure says that instead
 	// of calling the totals lower bounds (which they no longer are).
+	// HMC377 E1E6-R4: only the trace_mark_category face stays a lower bound.
 	if caveat := info.caveat(); caveat == "" || !strings.Contains(caveat, "kept 16/20") ||
-		!strings.Contains(caveat, "computed from all 20 classified span(s)") || strings.Contains(caveat, "lower bound") {
+		!strings.Contains(caveat, "computed from all 20 classified span(s)") ||
+		strings.Contains(caveat, "Published semantic family totals are lower bounds") ||
+		!strings.Contains(caveat, "trace_mark_category totals of this result are still computed from the listed spans only") {
 		t.Fatalf("semantic cap overflow must be counted and fail loud: %q info=%+v", caveat, info)
 	}
 }

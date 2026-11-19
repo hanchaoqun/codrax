@@ -5433,6 +5433,13 @@ type SemanticSpanFamily struct {
 	ownWorkMs        float64
 	ownWaitMs        float64
 	ownWorkIntervals []foldInterval
+	// waitShareIntervals (HMC377 E1E6-R1): on the analysed thread's overlap
+	// family (the wait row of its own spans), the exact member∩chain-wait
+	// intersection that row is priced with. It is the row's support
+	// inventory, so the per-(thread, direction) conservation audit never adds
+	// the same instants once as the wait row's whole member extent and again
+	// as the own-work row's share.
+	waitShareIntervals []foldInterval
 	// platformVocabularyMinted: every member is classified only by the
 	// platform vocabulary (semanticFamilyMintedByPlatformVocabulary).
 	platformVocabularyMinted bool
