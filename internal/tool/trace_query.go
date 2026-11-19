@@ -13479,7 +13479,10 @@ func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRa
 			// chain member's wakeups ended; the raw span wall stays beside it.
 			basisWord = fmt.Sprintf("a wakeup-chain member's spans, counted only inside the waits its wakeups ended (raw span wall %.3fms)", fam.SpanWallMs)
 		case tracequery.BusinessSpanMentionBasisHostWakeupEdge:
-			basisWord = "spans lying inside a wait of the analysis target that this thread's own wakeup ended"
+			// Ruling R-377-1: the same counted-part rule as a chain member —
+			// the part inside the target waits this thread's own wakeups
+			// ended, with the raw span wall beside it.
+			basisWord = fmt.Sprintf("spans counted only inside the waits of the analysis target that this thread's own wakeups ended (raw span wall %.3fms)", fam.SpanWallMs)
 		default:
 			// Closed set only — an unknown basis never publishes (fail-open).
 			continue

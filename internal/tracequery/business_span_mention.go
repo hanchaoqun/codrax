@@ -153,8 +153,9 @@ const (
 	// wakeup chain universe toward the target.
 	BusinessSpanMentionBasisChainMember = "chain_member"
 	// BusinessSpanMentionBasisHostWakeupEdge — the host thread holds its OWN
-	// in-window typed wakeup edge toward the target (R3 credential); only
-	// pre-edge members counted.
+	// in-window typed wakeup edge toward the target (R3 credential); only the
+	// part of its spans inside the target waits that thread's own wakeups
+	// ended counts, with the raw wall beside it (ruling R-377-1).
 	BusinessSpanMentionBasisHostWakeupEdge = "host_wakeup_edge"
 )
 
@@ -176,9 +177,10 @@ type BusinessSpanMention struct {
 	TotalMs     float64 `json:"total_ms"`
 	MaxSingleMs float64 `json:"max_single_ms"`
 	// SpanWallMs is the Σ of the same members' raw in-window walls. It equals
-	// TotalMs for own phases and host-edge families and is at least TotalMs
-	// for a chain member (the part outside its dependency windows is the
-	// difference — context, not an on-chain clue).
+	// TotalMs for own phases and is at least TotalMs for another thread's
+	// family, chain member or host wakeup edge alike (the part outside its
+	// dependency windows is the difference — context, not an on-chain clue;
+	// ruling R-377-1 shows it beside the counted part).
 	SpanWallMs float64 `json:"span_wall_ms"`
 	// StartLine/EndLine: the member line envelope (min start .. max end) —
 	// the mention row's 行a..b pointer (no seat, so no evidence tag).

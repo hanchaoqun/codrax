@@ -395,8 +395,9 @@ type TraceCausalProjectionBusinessSpanMention struct {
 	// fully visible on the bounded seat view and still mentions).
 	Hidden int `json:"hidden"`
 	// WallMS (HMC377 E3): Σ raw in-window walls of the counted members; 0 on
-	// records that predate it. For a chain member TotalMS is the part inside
-	// its dependency windows and WallMS ≥ TotalMS.
+	// records that predate it. For another thread's row (chain member or
+	// host wakeup edge) TotalMS is the part inside its dependency windows and
+	// WallMS ≥ TotalMS (integration ruling R-377-1: the wall is shown beside).
 	WallMS float64 `json:"wall_ms,omitempty"`
 	// SelfKnown/SelfMS (own phases only): Σ marker-tree self wall of the
 	// family's instances. SelfKnown=false means unavailable, never zero.
@@ -425,11 +426,13 @@ func TraceBusinessSpanMentionOwnPhase(m TraceCausalProjectionBusinessSpanMention
 	return m.Basis == "self"
 }
 
-// TraceBusinessSpanMentionDependencyPart reports a chain member row whose
-// total is only the part of its spans inside its dependency windows (the raw
-// wall is longer).
+// TraceBusinessSpanMentionDependencyPart reports another thread's row (chain
+// member or host wakeup edge) whose total is only the part of its spans
+// inside its dependency windows (the raw wall is longer). Batch-377 ruling
+// R-377-1: a host-edge span crossing the wait boundary counts its inside part
+// with its wall beside it, exactly like a chain member's.
 func TraceBusinessSpanMentionDependencyPart(m TraceCausalProjectionBusinessSpanMention) bool {
-	return m.Basis == "chain_member" && m.WallMS > m.TotalMS+0.0005
+	return (m.Basis == "chain_member" || m.Basis == "host_wakeup_edge") && m.WallMS > m.TotalMS+0.0005
 }
 
 // TraceBusinessSpanMentionBudgetedSelection is the one rule a budgeted

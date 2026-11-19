@@ -415,9 +415,10 @@ const (
 	// record of the result with the same value; parse takes the first.
 	TraceNoteKeyBusinessSpanOmitted = "business_span_omitted"
 	// TraceNoteKeyBusinessSpanWallMS — Σ raw in-window walls of the counted
-	// members ("%.3f"). Equals the total for the analysed thread's own phases
-	// and host-edge families; for a chain member the total is the part inside
-	// its dependency windows and this wall is ≥ it (HMC377 E3).
+	// members ("%.3f"). Equals the total for the analysed thread's own phases;
+	// for another thread (chain member or host wakeup edge) the total is the
+	// part inside its dependency windows and this wall is ≥ it (HMC377 E3,
+	// integration ruling R-377-1).
 	TraceNoteKeyBusinessSpanWallMS = "business_span_wall_ms"
 	// TraceNoteKeyBusinessSpanSelfMS — own phases only: Σ self wall of the
 	// family's synchronous marker instances (inclusive minus the union of
