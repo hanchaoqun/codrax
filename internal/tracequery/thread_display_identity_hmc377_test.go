@@ -286,6 +286,30 @@ func TestHMC377WakeupCensusPairSurvivesWakerRename(t *testing.T) {
 	}
 }
 
+type hmc377CycleA struct {
+	B      *hmc377CycleB
+	Thread ThreadRef
+}
+
+type hmc377CycleB struct {
+	A *hmc377CycleA
+}
+
+// The type classifier never caches "no thread field" for a type it met while
+// a recursive type was still being classified.
+func TestHMC377RewriterNeverSkipsThroughRecursiveTypes(t *testing.T) {
+	idx := hmc377IdentityIndexes(t)["full"]
+	view := newThreadDisplayView(ensureThreadDisplayLedger(idx), 1.0, 1.1)
+	w := &threadDisplayRewriter{view: view, referenced: map[int]int{}, skip: map[reflect.Type]bool{}}
+	if _, changed := w.rewrite(reflect.ValueOf(hmc377CycleA{Thread: ThreadRef{PID: 76, Comm: "app.main"}})); !changed {
+		t.Fatal("control: the inherited name must be replaced")
+	}
+	out, changed := w.rewrite(reflect.ValueOf(hmc377CycleB{A: &hmc377CycleA{Thread: ThreadRef{PID: 76, Comm: "app.main"}}}))
+	if !changed || out.Interface().(hmc377CycleB).A.Thread.Comm != "Signal Catcher" {
+		t.Fatal("a thread field reachable through a recursive type was skipped")
+	}
+}
+
 // A former name still selects the thread together with its TID.
 func TestHMC377FormerNameSelectsTheSameThread(t *testing.T) {
 	idx := hmc377IdentityIndexes(t)["full"]

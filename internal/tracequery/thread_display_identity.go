@@ -625,7 +625,9 @@ func (w *threadDisplayRewriter) mayContain(t reflect.Type) bool {
 	if skip, ok := w.skip[t]; ok {
 		return !skip
 	}
-	w.skip[t] = true // cycle guard: assume no until proven
+	// Cycle guard: while a type is being classified it may contain a thread
+	// field (over-approximation only costs a walk; it can never skip one).
+	w.skip[t] = false
 	contains := false
 	switch t {
 	case threadDisplayThreadRefType, threadDisplayCoordinateType:
