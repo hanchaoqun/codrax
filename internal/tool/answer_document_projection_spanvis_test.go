@@ -67,7 +67,8 @@ func TestSpanvisTreeBlockRendersZH(t *testing.T) {
 		"◈ 业务span提示(不参与根因排序 · 单次最长∪合计最长 TOP8 · 业务自查:能否减少这些 span 的时间占用):",
 		"◈ 各族合计间不可相加(区间可重叠/嵌套)",
 		"LegoHandler-17585 monitor contention with owner ransmitThread (38414) 单次最大0.295ms/2次 合计0.303ms 行21605..22024 凭证:自身",
-		"单次最大1.000ms/4次 合计2.401ms 行1899..2746 凭证:唤醒边凭证(边前)",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
+		"单次最大1.000ms/4次 合计2.401ms 行1899..2746 凭证:唤醒凭证(等待内)",
 		"另有 2 个 span 族(≥显著地板)未列出",
 	} {
 		if !strings.Contains(spanvisSquashFence(fence), spanvisSquashFence(want)) {
@@ -87,7 +88,7 @@ func TestSpanvisTreeBlockRendersEN(t *testing.T) {
 		"◈ business span leads (not in root-cause ranking · max-single ∪ total TOP8 · business self-check: can these spans' time be reduced):",
 		"◈ family totals are not additive to each other (intervals may overlap or nest)",
 		"max single 0.295ms ×2 · total 0.303ms · lines 21605..22024 · credential: self",
-		"credential: wakeup-edge credential (pre-edge)",
+		"credential: wakeup credential (inside the wait)",
 		"2 more span families (at/above the significance floor) are not listed",
 	} {
 		if !strings.Contains(spanvisSquashFence(fence), spanvisSquashFence(want)) {

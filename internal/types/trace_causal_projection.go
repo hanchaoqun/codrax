@@ -5033,7 +5033,21 @@ func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
 	return start, end, true
 }
 
+// traceCausalProjectionNodeLess is the value order of projection rows. Every
+// key is total, so the relation is a strict weak order and the relative order
+// of two rows never depends on which other rows are sorted with them (HMC377:
+// a key compared only when BOTH rows carried it formed cycles with the next
+// key, and invisible mirror records then reordered published rows).
 func traceCausalProjectionNodeLess(a, b TraceCausalProjectionNode) bool {
+	return traceCausalProjectionNodeLessWithDepth(a, b, false)
+}
+
+// traceCausalProjectionNodeLessWithDepth adds the recorded chain depth as the
+// tie-break of equal values (shallower first; a row with no recorded depth
+// after every row with one) — the hop comparators' former depth arm, moved
+// behind the value keys because a depth compared before value only when both
+// rows carried one was not transitive.
+func traceCausalProjectionNodeLessWithDepth(a, b TraceCausalProjectionNode, byDepth bool) bool {
 	if a.CumulativeImpactMS != b.CumulativeImpactMS {
 		return a.CumulativeImpactMS > b.CumulativeImpactMS
 	}
@@ -5043,8 +5057,13 @@ func traceCausalProjectionNodeLess(a, b TraceCausalProjectionNode) bool {
 	if a.Confidence != b.Confidence {
 		return a.Confidence > b.Confidence
 	}
-	if a.Rank > 0 && b.Rank > 0 && a.Rank != b.Rank {
-		return a.Rank < b.Rank
+	if byDepth {
+		if da, db := traceCausalProjectionPositiveOrderKey(a.ChainDepth), traceCausalProjectionPositiveOrderKey(b.ChainDepth); da != db {
+			return da < db
+		}
+	}
+	if ra, rb := traceCausalProjectionPositiveOrderKey(a.Rank), traceCausalProjectionPositiveOrderKey(b.Rank); ra != rb {
+		return ra < rb
 	}
 	// HMC376: the last tie-break reads the coordinate's ORDER KEY, never the
 	// raw coordinate. A receipt-minted coordinate embeds a digest of the
@@ -5093,10 +5112,19 @@ func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[
 	if aInPath != bInPath {
 		return aInPath
 	}
-	if a.ChainDepth > 0 && b.ChainDepth > 0 && a.ChainDepth != b.ChainDepth {
-		return a.ChainDepth < b.ChainDepth
+	// Flat rows follow display value (the tree places rows by chain
+	// structure); depth breaks value ties only.
+	return traceCausalProjectionNodeLessWithDepth(a, b, true)
+}
+
+// traceCausalProjectionPositiveOrderKey maps an optional positive ordinal
+// (chain depth, rank) to a total key: present values in their order, absence
+// (zero or negative) after all of them.
+func traceCausalProjectionPositiveOrderKey(v int) int {
+	if v > 0 {
+		return v
 	}
-	return traceCausalProjectionNodeLess(a, b)
+	return int(^uint(0) >> 1)
 }
 
 func traceCausalProjectionClassifiedLess(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {

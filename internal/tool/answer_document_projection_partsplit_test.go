@@ -77,10 +77,11 @@ func TestPartsplitSeatSubLineAndElimMentionZH(t *testing.T) {
 	// with the white-word head (rule numbers retired: R4拒转·整席不拆 →
 	// 按口径不拆段入榜; R3 边凭证 → 唤醒边).
 	for _, want := range []string{
-		"边前份披露(按口径不拆段入榜):其中边前份 3.500ms(唤醒边前,凭证:唤醒边,最晚凭证边 6.006000s·直接裸边)",
-		"边后份 1.500ms(边界后,不入链上)",
-		"边前+边后=本席 runnable 账 5.000ms 恒等",
-		"边前份与本席已发布值同段,不相加",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
+		"等待内份披露(按口径不拆段入榜):其中等待内份 3.500ms(落在目标线程等待之内,该等待由本线程唤醒结束,最后一次 6.006000s·直接唤醒)",
+		"等待外份 1.500ms(目标并未在等它,不入链上)",
+		"等待内+等待外=本席 runnable 账 5.000ms 恒等",
+		"等待内份与本席已发布值同段,不相加",
 	} {
 		if !strings.Contains(fence, partsplitSquash(want)) {
 			t.Fatalf("zh 行2 sub-line must carry %q:\n%s", want, fence)
@@ -96,7 +97,7 @@ func TestPartsplitSeatSubLineAndElimMentionZH(t *testing.T) {
 	// 双复核修复 件2 (冷读 CR2, 2026-07-21): row value = the seat's own account
 	// (AccountMS) with the inline pre/post identity 括注 right after it.
 	for _, want := range []string{
-		"· 未入榜最大 invseat-77 5.000ms(唤醒边前 3.500 + 边后 1.500)· 按口径不拆段入榜",
+		"· 未入榜最大 invseat-77 5.000ms(等待内 3.500 + 等待外 1.500)· 按口径不拆段入榜",
 	} {
 		if !strings.Contains(elim, partsplitSquash(want)) {
 			t.Fatalf("zh ◎ 未入榜最大 row must carry %q:\n%s", want, elim)
@@ -126,9 +127,10 @@ func TestPartsplitSeatSubLineAndElimMentionEN(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(proj, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fence := partsplitSquash(runtimeTraceProjTreeFence(model, false))
 	for _, want := range []string{
-		"pre-edge share disclosure (kept whole per its caliber; not split into a board row): 3.500ms pre-edge (before the wakeup edge; credential: the wakeup edge, latest credential edge 6.006000s, via=direct)",
-		"1.500ms post-edge (after the boundary — never on-chain)",
-		"pre + post == this seat's runnable account 5.000ms",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
+		"inside-wait share disclosure (kept whole per its caliber; not split into a board row): 3.500ms inside the analysed thread's waits (ended by this thread's wakeup, last at 6.006000s, via=direct)",
+		"1.500ms outside them (the analysed thread was not waiting for it — never on-chain)",
+		"inside + outside == this seat's runnable account 5.000ms",
 		"never additive",
 	} {
 		if !strings.Contains(fence, partsplitSquash(want)) {
@@ -140,7 +142,7 @@ func TestPartsplitSeatSubLineAndElimMentionEN(t *testing.T) {
 	// unranked-max aux row (AccountMS + inline identity, compressed clause —
 	// 件3 EN 禁续行).
 	for _, want := range []string{
-		"· unranked max invseat-77 5.000ms (pre 3.500 + post 1.500) · kept whole per caliber",
+		"· unranked max invseat-77 5.000ms (in 3.500 + out 1.500) · kept whole per caliber",
 	} {
 		if !strings.Contains(elim, partsplitSquash(want)) {
 			t.Fatalf("EN ◎ unranked-max row must carry %q:\n%s", want, elim)
@@ -180,7 +182,7 @@ func TestPartsplitAdmissionFailClosed(t *testing.T) {
 		model := buildRuntimeTraceProjTreeModel(proj, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 		fence := runtimeTraceProjTreeFence(model, true)
 		elim := runtimeTraceProjElimOverviewFence(proj, model, true)
-		if strings.Contains(fence, "边前份披露") || strings.Contains(elim, "边前份披露") {
+		if strings.Contains(fence, "等待内份披露") || strings.Contains(elim, "等待内份披露") {
 			t.Fatalf("%s: the disclosure must stay silent:\nfence:\n%s\nelim:\n%s", name, fence, elim)
 		}
 		if model.Marks.has(runtimeTraceProjMarkGatedCompositeEdgeShare) {
@@ -243,24 +245,22 @@ func TestPartsplitTiebaFlagWitness(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := partsplitSquash(runtimeTraceProjTreeFence(model, true))
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(projection, model, true))
-	// OMGCLEAN-1 件6+件9 (§29.175.10/.14): the witness account rides the ONE
-	// 未入榜最大 aux row — subject + seat account + inline identity 括注;
-	// the full pre/post identity lives on the 分账 detail face.
-	// 双复核 件2: AccountMS (13.979) + the inline 13.959 + 0.020 identity.
-	for _, want := range []string{
-		"· 未入榜最大 Binder:43397_19-23088 13.979ms(唤醒边前 13.959 + 边后 0.020)· 按口径不拆段入榜",
-	} {
-		if !strings.Contains(elim, partsplitSquash(want)) {
-			t.Fatalf("tieba flag ◎ 未入榜最大 row must carry %q:\n%s", want, elim)
-		}
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+	// "· 未入榜最大 Binder:43397_19-23088 13.979ms(唤醒边前 13.959 + 边后
+	// 0.020)" → no such row. 23088's one wakeup ended a 0.524ms wait of 59566
+	// that holds none of its ready time (raw oracle: inside 0.000), so it has
+	// no inside-wait share to disclose and the overview names nothing.
+	if strings.Contains(elim, partsplitSquash("Binder:43397_19-23088")) || strings.Contains(elim, partsplitSquash("按口径不拆段入榜")) {
+		t.Fatalf("tieba flag ◎ overview must not disclose a share 23088 never had:\n%s", elim)
 	}
-	if strings.Contains(fence, "边前份披露") {
+	if strings.Contains(fence, "等待内份披露") {
 		t.Fatalf("tieba flag: the cap-dead refused seat renders no tree row, so the tree face must stay mention-free:\n%s", fence)
 	}
 }
 
 // TestPartsplitDonghu2955Witness — live witness #2 (donghu 2955 board): the
-// OS_FFRT_2_0-2614 refusal renders with 9.618 + 9.945 == 19.563.
+// OS_FFRT_2_0-2614 refusal (since HMC377 E2: 0.018 + 19.545 == 19.563, below
+// the floor) renders no overview row.
 func TestPartsplitDonghu2955Witness(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real-trace witness")
@@ -286,9 +286,13 @@ func TestPartsplitDonghu2955Witness(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(obs)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(projection, model, true))
-	// OMGCLEAN-1 件6+件9 + 双复核 件2: the aux row carries the seat account
-	// (19.563) with the inline 9.618 + 9.945 identity 括注.
-	if !strings.Contains(elim, partsplitSquash("· 未入榜最大 OS_FFRT_2_0-2614 19.563ms(唤醒边前 9.618 + 边后 9.945)· 按口径不拆段入榜")) {
-		t.Fatalf("donghu 2955 ◎ 未入榜最大 row must carry the 2614 witness value:\n%s", elim)
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+	// "· 未入榜最大 OS_FFRT_2_0-2614 19.563ms(唤醒边前 9.618 + 边后 9.945)" →
+	// no row: only 0.018ms of 2614's ready time lies inside the 1.124ms wait
+	// its wakeup ended (raw oracle), below the 2.332ms disclosure floor; the
+	// typed record (0.018 + 19.545) stays on the pool seat
+	// (TestPartsplitDonghu2955WitnessDisclosure).
+	if strings.Contains(elim, partsplitSquash("OS_FFRT_2_0-2614")) && strings.Contains(elim, partsplitSquash("按口径不拆段入榜")) {
+		t.Fatalf("donghu 2955 ◎ overview must not disclose 2614's below-floor share:\n%s", elim)
 	}
 }

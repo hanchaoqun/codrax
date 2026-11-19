@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -981,7 +982,7 @@ func renderTraceFinalSemanticRelationOnlyAuthority(set types.TraceCausalProjecti
 				}
 				// CROWNSEM-1 (§40.28 ①, restoring R3/R4): credential teaching —
 				// the priced value and the mechanism disclosure are two lanes.
-				return "- semantic_credential_authority=`typed_basis_present`: `semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` are priced on-chain credentials — the row's effective_impact_ms is its pre-edge share (before the host's typed wakeup edge toward the target) or its exact chain-interval intersection, the same edge=credential/pre-edge=effective rule that prices every state seat. The semantic completion MECHANISM stays unproven: keep the priced value and the optimization clue, but do not say the target slept waiting for that operation, that operation completion triggered the wakeup, or the operation directly blocked the target; state the exact wakeup/path relation separately.\n"
+				return "- semantic_credential_authority=`typed_basis_present`: `semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` are priced on-chain credentials — the row's effective_impact_ms is its exact chain-interval intersection or the share the wakeup rule prices, the same rule that prices every state seat (" + skill.TraceWakeupDependencyCreditTeaching + "). The semantic completion MECHANISM stays unproven: keep the priced value and the optimization clue, but do not say the target slept waiting for that operation, that operation completion triggered the wakeup, or the operation directly blocked the target; state the exact wakeup/path relation separately.\n"
 			}
 		}
 	}

@@ -256,8 +256,18 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// is retired; the host-edge pre-span seat is a PRICED on-chain row again
 	// and is admitted into the attribution sentence instead of being counted
 	// as an unadmitted clue. The board maximum stays 74.915.
-	if !strings.Contains(md, "另有 39 条链上行未计入上句覆盖数值(单项最大 74.915ms") {
-		t.Fatalf("the unadmitted census must scope to the subject board (39 rows, max 74.915):\n%s", md)
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): 39→37. Three
+	// host-edge rows leave the chain tier because none of their priced time
+	// lies inside a wait of the board target that their thread's wakeup
+	// ended: gpu-token-id4-2931's inversion seat on the 2955 board
+	// (indivisible; only 0.228 of 0.241ms inside), and on the 9163 board
+	// .ugc.aweme.lite-17267's runnable 3.661 and Jit thread pool-17284's
+	// jit_compile 1.781 (raw oracle: 17284's one wakeup ended a 9.004ms wait
+	// holding 0.013ms of its ready time). True chain rows take freed seats
+	// (#pty-wqp-432 io_latency 1.530, forest_report_t runnable 1.759). The
+	// board maximum stays 74.915.
+	if !strings.Contains(md, "另有 37 条链上行未计入上句覆盖数值(单项最大 74.915ms") {
+		t.Fatalf("the unadmitted census must scope to the subject board (37 rows, max 74.915):\n%s", md)
 	}
 	// 修补轮 件C (one relation, one sentence): E11↔E44 already cross-refer
 	// through the cross-channel pointers — the cross-board sentence must not
@@ -292,19 +302,25 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// its own board now), so the later cross-channel seats shift back by one
 	// (E40 → E39, E45 → E44); subjects, values and relation cardinality are
 	// unchanged.
-	if !strings.Contains(joinedMD, "本线程另有邻近席 [E44]") ||
-		!strings.Contains(joinedMD, "本线程另有链上席 [E10(+1)]") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): pure ordinal
+	// renumbering E10(+1) → E11(+1), E44 → E43, E39 → E38 — the 9163 board
+	// gains a true chain row before E11 and loses the host-edge rows of
+	// 17267/17284 (and the 2955 board the 2931 seat) before E43; the pointed
+	// rows (logd.writer-9163 chain seat ↔ its adjacent remainder), values and
+	// relation cardinality are unchanged.
+	if !strings.Contains(joinedMD, "本线程另有邻近席 [E43]") ||
+		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
 	// E45's sentence drops E10 (its cross-channel chain pointer) and keeps
 	// the remaining 9163-board peers; E10's sentence drops E45 (its
 	// cross-channel adjacent pointer) and keeps [E40]. OTHER 9163-board rows
 	// without a cross-channel pointer to E45 legitimately keep both refs.
-	if strings.Contains(joinedMD, "另板席 [E10(+1)]") {
+	if strings.Contains(joinedMD, "另板席 [E11(+1)]") {
 		t.Fatalf("E45's cross-board sentence must not re-hang its cross-channel-pointed peer E10 (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E39](板锚 CompThread_0-2955,见图例)") {
-		t.Fatalf("E10's cross-board sentence must keep exactly its remaining peer [E39] (件C):\n%s", md)
+	if !strings.Contains(joinedMD, "⇄另板[E38](板锚 CompThread_0-2955,见图例)") {
+		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E38] (件C):\n%s", md)
 	}
 	if !strings.Contains(joinedMD, "⇄另板[E28]、[E29]等3席(板锚 logd.writer-9163") {
 		t.Fatalf("E45's cross-board sentence must keep its remaining 9163-board peers (件C; relation-only semantic preservation shifts only later refs):\n%s", md)

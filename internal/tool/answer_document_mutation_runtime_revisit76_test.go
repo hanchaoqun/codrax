@@ -819,7 +819,8 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// PARTSPLIT-1 (§29.150④): the shared family head opens BOTH faces
 		// (行2 sub-line + ◎ non-seat mention block — 词面单点), so the head
 		// itself is the unique two-face probe.
-		runtimeTraceProjMarkGatedCompositeEdgeShare: {"边前份披露", "pre-edge share disclosure"},
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
+		runtimeTraceProjMarkGatedCompositeEdgeShare: {"等待内份披露", "inside-wait share disclosure"},
 		// RULER2-1 (§29.150②): the 行2 cross-row sentence head opens the one
 		// face (词面单点) — the head itself is the unique probe.
 		runtimeTraceProjMarkSelfRunnableTwoRuler: {"按两把尺记账", "split across two rulers"},

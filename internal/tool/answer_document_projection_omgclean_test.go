@@ -268,7 +268,9 @@ func TestOmgcleanUnrankedSiblingRows(t *testing.T) {
 	// account (AccountMS, 定稿 14.002 形) and the pre/post identity 括注 sits
 	// right after it — the former pin froze the pre-edge share (13.982) as the
 	// row value with the typed AccountMS carried unused.
-	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms(唤醒边前 13.982 + 边后 0.020)· 按口径不拆段入榜") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential — "(唤醒边前 X + 边后 Y)" → "(等待内 X + 等待外 Y)",
+	// same identity, same row width.
+	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms(等待内 13.982 + 等待外 0.020)· 按口径不拆段入榜") {
 		t.Fatalf("件2 定稿词形: the 未入榜最大 row must carry AccountMS + the inline identity 括注:\n%s", fence)
 	}
 }
@@ -496,7 +498,7 @@ func TestOmgcleanAuxNoContinuationEN(t *testing.T) {
 		t.Fatalf("fixture: expected ≥2 EN aux rows, got %d:\n%s", rows, fence)
 	}
 	// The 件2 EN row form rides the same fixture (AccountMS + inline identity).
-	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms (pre 13.982 + post 0.020) · kept whole per caliber") {
+	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms (in 13.982 + out 0.020) · kept whole per caliber") {
 		t.Fatalf("件2 EN 词形: the unranked-max row must carry AccountMS + the inline identity:\n%s", fence)
 	}
 }

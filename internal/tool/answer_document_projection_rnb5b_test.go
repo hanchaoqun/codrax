@@ -523,9 +523,14 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 	// published value unchanged: cum 0.241 / gated eff 0.099), adding one
 	// on-chain row the tree face does not admit. The census MAX below is
 	// untouched (the new row is µs-scale).
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): 22→21 — the
+	// 2931 inversion seat no longer changes lane onto the chain tier: only
+	// 0.228 of its 0.241ms ready time lies inside the waits of 2955 that its
+	// wakeups ended (raw oracle), so the indivisible seat keeps its home lane
+	// with its inside/outside record (0.228 + 0.013).
 	n, x, _ := runtimeTraceProjUnadmittedOnChainDisclosure(model)
-	if n != 22 {
-		t.Fatalf("F8: the census must count fold members (want 22, got %d)", n)
+	if n != 21 {
+		t.Fatalf("F8: the census must count fold members (want 21, got %d)", n)
 	}
 	if x < 74.9 || x > 74.93 {
 		t.Fatalf("the census MAX stays the largest single row value (want ≈74.915, got %.3f)", x)

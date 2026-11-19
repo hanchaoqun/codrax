@@ -2300,8 +2300,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `account relation (anchored-ownership divergence)` = the downgraded form of the same-source split: the full-window account still equals anchored + remainder (ledger-exact), but the chain seat does not hold the anchored share at the same value (its own Σ diverges from the anchored-ledger Σ; both Σs and the delta are disclosed inline); the remainder stays ◇ adjacent, the chain seat keeps its own separate account — the two seats are never additive."},
 		// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat demotion entry.
 		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
-			"- `无链上凭证(整席不入链上榜)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
-			"- `no chain credential (whole seat off the on-chain board)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
+			"- `无链上凭证(整席不入链上榜)` = 该行整席账目未能出示目标等待期间被该线程唤醒结束的那一份(唤醒凭证仅覆盖它结束的那次等待):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
+			"- `no chain credential (whole seat off the on-chain board)` = the row's whole account shows no share inside a wait of the analysed thread that this thread's wakeup ended (a wakeup counts only inside the wait it ended): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
 		// of the R4 entry — the demotion is adjudicated on the row's COMPLETE
 		// typed segment inventory, never on hull endpoints (hull noise).
@@ -2353,8 +2353,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkGatedCompositeEdgeShare, runtimeTraceProjLegendGroupMark,
 			// 双复核修复 件2: the ◎ row form clause co-moves — row value =
 			// the seat's own account, inline 括注 = the pre/post identity.
-			"- `边前份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)携唤醒边界后份额时,按口径整席不拆、不因边前份高单独拆段入榜的分账测度披露:边前份 X=唤醒边前段合计(凭证:该线程对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,边前份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及,行值=本席账,值后括注列 唤醒边前/边后 两份额即上式恒等(不占序数、不参与节头「最大估算潜力」、不入任何守恒/普查分母)。",
-			"- `pre-edge share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share: the seat stays whole per its caliber and never enters the board on the strength of its pre-edge share alone; pre-edge share X = the segment sum before the wakeup-edge boundary (credential: the thread's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row, whose value IS the seat's account with the pre/post shares of that identity in the parenthetical right after it (no ordinal, never inside a section head's max potential, never in any conservation/census denominator)."},
+			"- `等待内份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)有一部分时间不在目标线程等待之内时,按口径整席不拆、不因等待内份单独拆段入榜的分账测度披露:等待内份 X=该线程的唤醒所结束的目标等待之内的时段合计,等待外份 Y=其余时段合计(目标并未在等它,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,等待内份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及,行值=本席账,值后括注列 等待内/等待外 两份额即上式恒等(不占序数、不参与节头「最大估算潜力」、不入任何守恒/普查分母)。",
+			"- `inside-wait share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) part of whose time lies outside the analysed thread's waits: the seat stays whole per its caliber and never enters the board on the strength of its inside-wait share alone; inside-wait share X = the segment sum inside the analysed thread's waits that this thread's wakeup ended, outside share Y = the remaining segments (the analysed thread was not waiting for it there — never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the inside-wait share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row, whose value IS the seat's account with the inside/outside shares of that identity in the parenthetical right after it (no ordinal, never inside a section head's max potential, never in any conservation/census denominator)."},
 		// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
 		// runnable two-ruler cross-row accounting entry — the 行2 sentence
 		// states the split, this entry names the rule (同尺可加/跨尺禁加).
@@ -2422,12 +2422,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// entry names BOTH carrier forms (图例是承诺面 — a state seat wearing
 		// the mark under a span-only legend would be a legend lie).
 		{runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjLegendGroupMark,
-			// CROWNSEM-1 (§40.28 ①, restoring R3/R4): ONE credential rule for the
-			// span seat and the state seat alike — 边=凭证、边前=有效、边后=解除;
-			// the semantic completion mechanism stays a disclosure, never a zero
-			// (the B829 "可消除量为0" clause is retired; 图例是承诺面).
-			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边是入链凭证。确定性语义 span 与 runnable/D-IO 状态席同用一条计价规则：边=凭证、边前=有效、边后=解除——边前份计入" + tracefence.OptimizationPotentialZH + "；语义完成机理未证仅作披露，不宣称 span 完成触发唤醒。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
-			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge is the on-chain credential. A deterministic semantic span and a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released — the pre-edge share counts as current-rule " + tracefence.OptimizationPotentialEN + "; the semantic completion mechanism stays unproven as a disclosure only and never claims span completion triggered the wakeup. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
+			// CROWNSEM-1 (§40.28 ①, restoring R3/R4) bounded by HMC377 E2 (owner
+			// ruling 2026-11-18): ONE credential rule for the span seat and the
+			// state seat alike — the host's time inside the wait of the
+			// analysed thread that its own wakeup ended; the semantic completion
+			// mechanism stays a disclosure, never a zero (图例是承诺面).
+			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 该线程自己的唤醒结束了目标线程的一次等待。确定性语义工作与可运行/D-IO 阻塞时间同用一条计价规则：只有落在这次等待之内的那部分计入" + tracefence.OptimizationPotentialZH + "；等待开始之前、唤醒之后的时间只作支撑背景，原始账在等待边界处拆开、两部分相加等于全窗账；唤醒时目标并未在等待的，不计入。语义工作完成是否触发了唤醒未经证实，仅作披露。",
+			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = this thread's own wakeup ended a wait of the analysed thread. Deterministic semantic work and ready/D-IO blocked time share ONE pricing rule: only the part inside that wait counts as current-rule " + tracefence.OptimizationPotentialEN + "; time before the wait began or after the wakeup is supporting context — the raw account splits at the wait boundaries and the parts add back to the full-window account; a wakeup that found the analysed thread not waiting counts nothing. Whether finishing the work triggered the wakeup is unproven (disclosure only)."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次分别发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -2784,9 +2785,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 		runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjMarkChainIdentityInheritance,
 		runtimeTraceProjMarkChainCredentialTierFamily) {
 		if zh {
-			lines = append(lines, "- 入链凭证：唤醒锚定证明线程间关系并按边前份计价；区间相交可证明对应时间段并按相交份计价，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒；其边前份/相交份仍按同一凭证规则计入"+tracefence.OptimizationPotentialZH+"（机理未证仅作披露）。")
+			lines = append(lines, "- 入链凭证：唤醒锚定证明线程间关系，只按目标等待期间被该线程唤醒结束的那一份计价；区间相交可证明对应时间段并按相交份计价，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒；其等待内份/相交份仍按同一凭证规则计入"+tracefence.OptimizationPotentialZH+"（机理未证仅作披露）。")
 		} else {
-			lines = append(lines, "- On-chain credentials: a wakeup anchor proves the thread relationship and prices the pre-edge share; interval intersection proves the corresponding time range and prices the intersection, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup; its pre-edge / intersection share still counts as modeled potential under the same credential rule (the mechanism stays a disclosure).")
+			lines = append(lines, "- On-chain credentials: a wakeup anchor proves the thread relationship and prices only the share inside the analysed thread's wait that this thread's wakeup ended; interval intersection proves the corresponding time range and prices the intersection, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup; its inside-wait / intersection share still counts as modeled potential under the same credential rule (the mechanism stays a disclosure).")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkRankBoardAnchor, runtimeTraceProjMarkRankBoardParams, runtimeTraceProjMarkCrossBoardFamilyNote) {
@@ -6678,11 +6679,11 @@ func runtimeTraceProjEpsilonOverlapRatio(node types.TraceCausalProjectionNode) (
 func runtimeTraceProjHostEdgeViaWordZH(via string) string {
 	switch via {
 	case "direct":
-		return "直接裸边"
+		return "直接唤醒"
 	case "chain_hop":
-		return "链上跳边"
+		return "经链上线程唤醒"
 	case "direct+chain_hop":
-		return "直接+链上跳边"
+		return "直接唤醒+经链上线程唤醒"
 	default:
 		return via
 	}
@@ -7211,36 +7212,36 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		row.marks.mark(runtimeTraceProjMarkHostEdgeAnchored)
 		detail := ""
 		if row.Node.HostWakeupEdgeAnchorTS > 0 {
-			// 修复轮件1 (冷读 P3-1): 「最晚相关边」 — the boundary IS the
-			// latest in-window credential edge; 「最近」 was ambiguous when
-			// several edges share the window (名实不符).
+			// HMC377 E2: the timestamp is the wakeup that ended the latest
+			// priced wait of the analysed thread (µs-verifiable against the
+			// raw wakeup line).
 			via := strings.TrimSpace(row.Node.HostWakeupEdgeAnchorVia)
 			if via != "" {
 				// 修复轮件2 (冷读 P3-2): the zh sentence speaks the zh
 				// credential-inventory words (图例同词); the EN sentence
 				// keeps the closed-set wire token.
-				detail = fmt.Sprintf("·最晚相关边 %.6fs·凭证=%s", row.Node.HostWakeupEdgeAnchorTS, runtimeTraceProjHostEdgeViaWordZH(via))
+				detail = fmt.Sprintf("·结束等待的唤醒 %.6fs·凭证=%s", row.Node.HostWakeupEdgeAnchorTS, runtimeTraceProjHostEdgeViaWordZH(via))
 				if !zh {
-					detail = fmt.Sprintf(" · latest credential edge %.6fs · via=%s", row.Node.HostWakeupEdgeAnchorTS, via)
+					detail = fmt.Sprintf(" · wakeup that ended the wait at %.6fs · via=%s", row.Node.HostWakeupEdgeAnchorTS, via)
 				}
 			} else {
-				detail = fmt.Sprintf("·最晚相关边 %.6fs", row.Node.HostWakeupEdgeAnchorTS)
+				detail = fmt.Sprintf("·结束等待的唤醒 %.6fs", row.Node.HostWakeupEdgeAnchorTS)
 				if !zh {
-					detail = fmt.Sprintf(" · latest credential edge %.6fs", row.Node.HostWakeupEdgeAnchorTS)
+					detail = fmt.Sprintf(" · wakeup that ended the wait at %.6fs", row.Node.HostWakeupEdgeAnchorTS)
 				}
 			}
 		}
 		text := tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标,见图例)" + detail
 		if basis == "host_wakeup_edge_pre_span" {
-			// CROWNSEM-1 (§40.28 ①): disclosure only — the pre-edge share is
-			// priced per R3/R4 exactly like the host's state seats; the
-			// mechanism word never implies a pricing verdict (披露≠清零).
-			text += "·语义完成机理未证(仅披露,边前份按 R3/R4 计价)"
+			// CROWNSEM-1 (§40.28 ①): disclosure only — the inside-wait share
+			// is priced exactly like the host's state seats; the mechanism
+			// word never implies a pricing verdict (披露≠清零).
+			text += "·语义完成机理未证(仅披露,等待内份照常计价)"
 		}
 		if !zh {
 			text = tracefence.CredentialTierWakeupAnchoredEN + " (host→target; see legend)" + detail
 			if basis == "host_wakeup_edge_pre_span" {
-				text += " · semantic completion mechanism unproven (disclosure only; pre-edge share priced per R3/R4)"
+				text += " · semantic completion mechanism unproven (disclosure only; the inside-wait share is still priced)"
 			}
 		}
 		out = append(out, text)

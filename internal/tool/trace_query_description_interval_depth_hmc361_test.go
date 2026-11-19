@@ -30,6 +30,8 @@ func reverseTraceQueryIntervalDepthEvolution(description string) (string, bool) 
 
 func traceQueryDescriptionBeforeIntervalDepthEvolution(t *testing.T, description string) string {
 	t.Helper()
+	// HMC377 E2 is the newer evolution: reverse it first (exact literals).
+	description = traceQueryDescriptionBeforeDependencyCreditEvolution(t, description)
 	prior, ok := reverseTraceQueryIntervalDepthEvolution(description)
 	if !ok {
 		t.Fatal("interval-depth teaching is not the unique approved addition and two precise wording corrections")
@@ -38,8 +40,11 @@ func traceQueryDescriptionBeforeIntervalDepthEvolution(t *testing.T, description
 }
 
 func TestHMC361TraceQueryIntervalDepthDescriptionOnlyEvolution(t *testing.T) {
-	description := (&TraceQuery{}).Description()
-	prior := traceQueryDescriptionBeforeIntervalDepthEvolution(t, description)
+	description := traceQueryDescriptionBeforeDependencyCreditEvolution(t, (&TraceQuery{}).Description())
+	prior, ok := reverseTraceQueryIntervalDepthEvolution(description)
+	if !ok {
+		t.Fatal("interval-depth teaching is not the unique approved addition and two precise wording corrections")
+	}
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(prior))); got != traceDescriptionBeforeIntervalDepthSHA {
 		t.Fatalf("Description changed outside the exact approved depth-duration teaching: %s", got)
 	}

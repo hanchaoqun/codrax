@@ -19,6 +19,8 @@ package tool
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -100,19 +102,20 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	// the row's full mechanism+value-clause sentence moved into the 边锚定
 	// legend entry (already verbatim there) — the row keeps the short marker
 	// with its per-row halves (最晚相关边 µs + 凭证 via).
-	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential — "最晚相关边 …·凭证=直接裸边" → "结束等待的唤醒 …·凭证=直接唤醒".
+	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·结束等待的唤醒 34579.496810s·凭证=直接唤醒") {
 		t.Fatalf("件a: the credential sentence must render with the µs boundary + zh via word:\n%s", fence)
 	}
 	// CROWNSEM-1 (§40.28 ①): the mechanism word is a DISCLOSURE, never a
 	// pricing verdict — the pre-edge share is priced like the state seats.
-	if !strings.Contains(fence, "语义完成机理未证(仅披露,边前份按 R3/R4 计价)") || strings.Contains(fence, "仅关系凭证") {
+	if !strings.Contains(fence, "语义完成机理未证(仅披露,等待内份照常计价)") || strings.Contains(fence, "仅关系凭证") {
 		t.Fatalf("semantic host-edge row must disclose the mechanism without a relation-only pricing claim:\n%s", fence)
 	}
 	if strings.Contains(fence, "凭证=direct") || strings.Contains(fence, "最近相关边") {
 		t.Fatalf("件a: the zh sentence must not leak the EN wire token or the retired 最近 word:\n%s", fence)
 	}
 	// The chain-hop form wears its own zh word (straddle seat, via=chain_hop).
-	if !strings.Contains(fence, "凭证=链上跳边") {
+	if !strings.Contains(fence, "凭证=经链上线程唤醒") {
 		t.Fatalf("件a: the chain-hop via zh word must render:\n%s", fence)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkHostEdgeAnchored) {
@@ -146,10 +149,10 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
 	// RULE3-1 件1(b): the EN row wears the same short marker form.
-	if !rspaFenceContains(fenceEN, "wakeup-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
+	if !rspaFenceContains(fenceEN, "wakeup-anchored (host→target; see legend) · wakeup that ended the wait at 34579.496810s · via=direct") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
 	}
-	if !strings.Contains(fenceEN, "semantic completion mechanism unproven (disclosure only; pre-edge share priced per R3/R4)") ||
+	if !rspaFenceContains(fenceEN, "semantic completion mechanism unproven (disclosure only; the inside-wait share is still priced)") ||
 		strings.Contains(fenceEN, "relation only") {
 		t.Fatalf("EN semantic host-edge row must disclose the mechanism without a relation-only pricing claim:\n%s", fenceEN)
 	}
@@ -160,7 +163,12 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 // and returns the full markdown.
 func r3RealTreeFence(t *testing.T, pid int, start, end float64) string {
 	t.Helper()
-	idx, err := tracequery.BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
+	return r3RealTreeFenceAt(t, "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace", pid, start, end)
+}
+
+func r3RealTreeFenceAt(t *testing.T, path string, pid int, start, end float64) string {
+	t.Helper()
+	idx, err := tracequery.BuildIndex(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,38 +196,41 @@ func r3RealTreeFence(t *testing.T, pid int, start, end float64) string {
 }
 
 // 件d: the engine-real sentinel pair on the rendered answer face.
+// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续", given after being
+// told it re-prices this witness to zero). Old: the tieba 61839 VerifyClass
+// (0.285ms) rendered on the chain tier with the credential sentence at the
+// 34579.496810 bare edge. New: that wakeup ended a 0.057ms sleep of 59566 that
+// began after the verification finished, so no wakeup-anchored row renders on
+// either sentinel window. The positive rendering arm moves to a real capture
+// where the admitted wakeup closes a wait that holds the work (the E2 public
+// synthetic capture: lock.holder's JIT compilation and class verification
+// inside the 5ms D wait its own wakeup ended at 1000.255000).
 func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
-	// 正臂: the seat renders on the chain tier with the credential sentence.
-	pos := r3RealTreeFence(t, 59566, 34579.490, 34579.500)
-	if !strings.Contains(pos, "VerifyClass com.baidu.zeus.mml.lac.LacUtils") {
-		t.Fatalf("正臂 must render the VerifyClass seat:\n%s", pos)
+	path := filepath.Join(t.TempDir(), "dep_credit_spans.ftrace")
+	if err := os.WriteFile(path, []byte(hmc377DependencyCreditTraceWith(true)), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(pos, "0.285ms") {
-		t.Fatalf("正臂 must render the 0.285ms sentinel value:\n%s", pos)
+	pos := r3RealTreeFenceAt(t, path, 1100, 1000.0, 1000.5)
+	if !strings.Contains(pos, "JIT compiling void com.example.Holder.run()") {
+		t.Fatalf("正臂 must render the work that lies inside the wait:\n%s", pos)
 	}
-	if !strings.Contains(pos, "唤醒锚定(宿主→目标,见图例)") || !strings.Contains(pos, "34579.496810") {
-		t.Fatalf("正臂 must render the credential sentence with the µs boundary:\n%s", pos)
+	if !strings.Contains(pos, "唤醒锚定(宿主→目标,见图例)·结束等待的唤醒 1000.255000s·凭证=直接唤醒") {
+		t.Fatalf("正臂 must render the credential sentence with the µs wakeup that ended the wait:\n%s", pos)
 	}
-	// CROWNSEM-1 (§40.28 ①, restoring R3/R4): the fully pre-edge 0.285ms is
-	// PRICED — the optimization table's rule-eliminable axis and the detail
-	// table's 有效归因 both carry it, and the row participates in ranking;
-	// the mechanism disclosure survives without a relation-only claim.
+	// CROWNSEM-1 (§40.28 ①): the inside share is PRICED; the mechanism
+	// disclosure survives without a relation-only claim.
 	if !strings.Contains(pos, "语义完成机理未证") || strings.Contains(pos, "仅关系凭证") {
 		t.Fatalf("real semantic row must keep the mechanism disclosure without a relation-only pricing claim:\n%s", pos)
 	}
-	if !strings.Contains(pos, "| VerifyClass com.baidu.zeus.mml.lac.LacUtils | 类校验 | T7@ZeusThreadPo-61839 | 0.285ms | 0.285ms |") {
-		t.Fatalf("optimization table must price the pre-edge share (R3/R4):\n%s", pos)
-	}
-	if !strings.Contains(pos, "T7@ZeusThreadPo-61839 / VerifyClass com.baidu.zeus.mml.lac.… [E10(+1)] | 0.285ms | 0.285ms | 0.285ms |") {
-		t.Fatalf("detail table must carry the priced pre-edge effective:\n%s", pos)
-	}
 	if !strings.Contains(pos, "因果位置: 确定性优化点(链上参与根因排序)") {
-		t.Fatalf("priced pre-edge semantic evidence participates in root-cause ranking:\n%s", pos)
+		t.Fatalf("priced inside-wait semantic evidence participates in root-cause ranking:\n%s", pos)
 	}
-	// 负臂: no chain-tier semantic row and no credential sentence.
-	neg := r3RealTreeFence(t, 59566, 34579.466, 34579.4965)
-	if strings.Contains(neg, "唤醒锚定(宿主→目标)") {
-		t.Fatalf("负臂 must not render any credential sentence:\n%s", neg)
+	// Tieba sentinels (positive window and negative window): no wakeup-anchored
+	// row at all.
+	for _, w := range [][2]float64{{34579.490, 34579.500}, {34579.466, 34579.4965}} {
+		if fence := r3RealTreeFence(t, 59566, w[0], w[1]); strings.Contains(fence, "唤醒锚定(宿主→目标") {
+			t.Fatalf("tieba window %.4f..%.4f must not render any credential sentence:\n%s", w[0], w[1], fence)
+		}
 	}
 }
 
@@ -279,7 +290,8 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
 	// RULE3-1 件1(b): the state-basis row wears the same short marker; both
 	// value-form clauses live in the legend entry (span/state 两形同条).
-	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential — "最晚相关边 …·凭证=直接裸边" → "结束等待的唤醒 …·凭证=直接唤醒".
+	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·结束等待的唤醒 34579.496810s·凭证=直接唤醒") {
 		t.Fatalf("件a: the state-seat credential sentence must render its own value clause:\n%s", fence)
 	}
 	if strings.Contains(fence, "计入值=span 边前段窗内投影") {
@@ -305,7 +317,8 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	// CROWNSEM-1 (§40.28 ①): the EN legend names the state seat under the
 	// ONE credential rule it shares with the span seat (the retired
 	// "state-segment sum vs zero" two-rule clause never returns).
-	if !strings.Contains(legendEN, "a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the wakeup credential.
+	if !strings.Contains(legendEN, "Deterministic semantic work and ready/D-IO blocked time share ONE pricing rule: only the part inside that wait counts") {
 		t.Fatalf("件a: the EN legend must keep the state seat inside the single credential rule:\n%s", legendEN)
 	}
 	if strings.Contains(legendEN, "eliminable attribution is zero") {

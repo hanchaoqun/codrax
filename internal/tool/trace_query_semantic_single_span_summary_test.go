@@ -3,11 +3,13 @@ package tool
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // trace_query_semantic_single_span_summary_test.go — CROWNSEM-1 复核收编
@@ -17,6 +19,17 @@ import (
 // n=1 record prose at "effective_impact=0.000ms" beside a RichNote lane that
 // now carries the priced pre-edge share — one record, two effective values,
 // and the prose is what the model reads.
+//
+// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续", given after being
+// told it re-prices this witness to zero): the tieba sentinel's 61839
+// VerifyClass is no longer an on-chain record (its host's wakeup ended a
+// 0.057ms sleep that began after the verification finished — pinned below);
+// the n=1 record is read on a capture where the verification lies inside the
+// wait its host's wakeup ended (lock.holder, VerifyClass com.example.Inside,
+// 0.300ms inside the 5ms D wait ended at 1000.255000). Old prose
+// "pre_edge_share=0.285ms priced on-chain" → "inside_wait_share=0.300ms
+// priced on-chain"; the meaning (prose and typed note speak ONE priced
+// value, mechanism disclosed) is unchanged.
 func TestSingleSpanSemanticRecordSummarySpeaksPricedPreEdgeShare(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real-trace witness")
@@ -24,20 +37,22 @@ func TestSingleSpanSemanticRecordSummarySpeaksPricedPreEdgeShare(t *testing.T) {
 	if _, err := os.Stat(elimSemanticTiebaTrace); err != nil {
 		t.Skipf("golden fixture not present: %v", err)
 	}
-	idx, err := tracequery.BuildIndex(context.Background(), elimSemanticTiebaTrace)
-	if err != nil {
+	path := filepath.Join(t.TempDir(), "dep_credit_spans.ftrace")
+	if err := os.WriteFile(path, []byte(hmc377DependencyCreditTraceWith(true)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The tieba sentinel: host 61839's VerifyClass span (34579.495841..496126)
-	// lies fully before its 34579.496810 wakeup edge toward target 59566.
-	q := tracequery.Query{PID: 59566, TimeStart: 34579.490, TimeEnd: 34579.500, View: "root_cause_rank",
-		MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 40}
-	result := tracequery.Run(idx, q)
-	at := time.Unix(1751600000, 0).UTC()
-	obs := traceQueryTypedObservations(result, "fixture", "p-root_cause_rank", "r", "", at)
+	records := func(trace string, q tracequery.Query) []types.ObservationRecord {
+		idx, err := tracequery.BuildIndex(context.Background(), trace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return traceQueryTypedObservations(tracequery.Run(idx, q), "fixture", "p-root_cause_rank", "r", "", time.Unix(1751600000, 0).UTC())
+	}
+	obs := records(path, tracequery.Query{PID: 1100, TimeStart: 1000.0, TimeEnd: 1000.5, View: "root_cause_rank",
+		MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 40})
 	found := false
 	for _, record := range obs {
-		if !strings.Contains(record.ID, "#trace_semantic_span:") || !strings.Contains(record.Summary, "VerifyClass") ||
+		if !strings.Contains(record.ID, "#trace_semantic_span:") || !strings.Contains(record.Summary, "VerifyClass com.example.Inside") ||
 			!strings.Contains(record.Summary, "chain_relevance=on_chain") {
 			continue
 		}
@@ -45,10 +60,10 @@ func TestSingleSpanSemanticRecordSummarySpeaksPricedPreEdgeShare(t *testing.T) {
 		if strings.Contains(record.Summary, "effective_impact=0.000ms") || strings.Contains(record.Summary, "raw_pre_edge_occupancy") {
 			t.Fatalf("the n=1 record prose still speaks the retired relation-only caliber: %s", record.Summary)
 		}
-		if !strings.Contains(record.Summary, "pre_edge_share=0.285ms priced on-chain") ||
-			!strings.Contains(record.Summary, "effective_impact=0.285ms") ||
+		if !strings.Contains(record.Summary, "inside_wait_share=0.300ms priced on-chain") ||
+			!strings.Contains(record.Summary, "effective_impact=0.300ms") ||
 			!strings.Contains(record.Summary, "semantic_completion_mechanism=unproven (disclosure only)") {
-			t.Fatalf("the n=1 record prose must carry the priced pre-edge share, the credential rule and the mechanism disclosure: %s", record.Summary)
+			t.Fatalf("the n=1 record prose must carry the priced inside-wait share, the credential rule and the mechanism disclosure: %s", record.Summary)
 		}
 		// The typed note lane and the prose agree on ONE effective value.
 		noteEffective := ""
@@ -62,6 +77,13 @@ func TestSingleSpanSemanticRecordSummarySpeaksPricedPreEdgeShare(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("sentinel must expose the on-chain VerifyClass single-span record; got %d observations", len(obs))
+		t.Fatalf("the capture must expose the on-chain VerifyClass single-span record; got %d observations", len(obs))
+	}
+	for _, record := range records(elimSemanticTiebaTrace, tracequery.Query{PID: 59566, TimeStart: 34579.490, TimeEnd: 34579.500, View: "root_cause_rank",
+		MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 40}) {
+		if strings.Contains(record.ID, "#trace_semantic_span:") && strings.Contains(record.Summary, "VerifyClass") &&
+			strings.Contains(record.Summary, "chain_relevance=on_chain") {
+			t.Fatalf("the tieba sentinel verification is not an on-chain record any more: %s", record.Summary)
+		}
 	}
 }

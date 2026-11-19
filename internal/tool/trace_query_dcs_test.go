@@ -130,8 +130,10 @@ func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *t
 		"target-thread deterministic semantic work may enter the ordinary strict positional ranking from its typed self interval",
 		"semantic_chain_interval_relation",
 		"host_wakeup_edge_pre_span",
-		"prices its PRE-EDGE share as on-chain effective attribution",
-		"the single credential rule for every state family (edge=credential, pre-edge=effective, post-edge=released)",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): the host-edge row is
+		// priced by the one quoted wakeup rule, same rule as every state family.
+		"is priced by the wakeup-dependency rule of the root-cause matrix",
+		"as on-chain effective attribution under the same rule as every state family",
 		"Every semantic row remains a deterministic optimization point to mention",
 		"only rows without on-chain overlap stay background candidates",
 		"explicit GC pauses",

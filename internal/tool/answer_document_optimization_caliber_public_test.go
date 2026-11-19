@@ -276,7 +276,7 @@ func TestOptimizationCaliberPublicToolDescriptionAndParameters(t *testing.T) {
 	for name, face := range map[string]string{"description": tool.Description(), "parameters": string(tool.Parameters())} {
 		t.Run(name, func(t *testing.T) {
 			optimizationCaliberAssertWords(t, name, face, "en", false)
-			for _, required := range []string{"DEFINED term of art", "never a mechanism-level verdict", "missing or zero deficit is context_only", "D-state and IO use a mutually exclusive typed sum", "edge=credential, pre-edge=effective, post-edge=released", "off-chain semantic work is background-only", "span_subcategory=shader_cache_hit"} {
+			for _, required := range []string{"DEFINED term of art", "never a mechanism-level verdict", "missing or zero deficit is context_only", "D-state and IO use a mutually exclusive typed sum", "inside the wait of the analysed thread that this wakeup ended", "off-chain semantic work is background-only", "span_subcategory=shader_cache_hit"} {
 				if !strings.Contains(face, required) {
 					t.Errorf("calibration must retain the closed typed matrix rule %q", required)
 				}
@@ -374,6 +374,16 @@ func TestOptimizationCaliberPublicSemanticAndMissingFrequency(t *testing.T) {
 	}
 }
 
+// TestOptimizationCaliberPublicCustomerPreEdgeSemantic — the published
+// optimization caliber of a semantic seat priced by its host's wakeup.
+// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续", given after being
+// told it re-prices this witness to zero). Old: the tieba sentinel's 61839
+// VerifyClass (0.285ms) was a ranked host-edge seat at the 34579.496810 edge.
+// New: that wakeup ended a 0.057ms sleep that began after the verification
+// finished, so the customer window ranks no host-edge semantic seat (pinned
+// below), and the positive publication path runs on a capture where the
+// work lies inside the wait the host's wakeup ended (lock.holder's JIT
+// compilation, 5.000ms inside the 5ms D wait it ended at 1000.255000).
 func TestOptimizationCaliberPublicCustomerPreEdgeSemantic(t *testing.T) {
 	data, err := os.ReadFile("../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
 	if err != nil {
@@ -381,27 +391,38 @@ func TestOptimizationCaliberPublicCustomerPreEdgeSemantic(t *testing.T) {
 	}
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			ctx, path := optimizationCaliberPublicQuery(t, string(data), 59566, 34579.490, 34579.500)
-			optimizationCaliberPublicRequest(ctx, path, lang, "com.baidu.tieba-59566", 59566, 34579.490, 34579.500, false)
+			ctx, path := optimizationCaliberPublicQuery(t, hmc377DependencyCreditTraceWith(true), 1100, 1000.0, 1000.5)
+			optimizationCaliberPublicRequest(ctx, path, lang, "app.main-1100", 1100, 1000.0, 1000.5, false)
 			system, set := optimizationCaliberPublicPublish(t, ctx, path, lang, false)
 			if len(set.Projections) != 1 {
-				t.Fatalf("customer window must retain one projection: %d", len(set.Projections))
+				t.Fatalf("window must retain one projection: %d", len(set.Projections))
 			}
 			found := false
 			for _, n := range set.Projections[0].RankedSeats {
-				if n.OnChainBasis == types.TraceCausalOnChainBasisHostWakeupEdgeSpan && strings.Contains(n.SpanName, "VerifyClass") {
+				if n.OnChainBasis == types.TraceCausalOnChainBasisHostWakeupEdgeSpan && strings.Contains(n.SpanName, "JIT compiling") {
 					found = true
-					if math.Abs(n.EffectiveImpactMS-.285) > .002 || n.Rank <= 0 || n.ChainRelevance != "on_chain" || n.HostWakeupEdgeAnchorTS != 34579.496810 {
-						t.Errorf("customer's pre-edge semantic share lost its value/credential: %.3f rank=%d chain=%s edge=%.6f", n.EffectiveImpactMS, n.Rank, n.ChainRelevance, n.HostWakeupEdgeAnchorTS)
+					if math.Abs(n.EffectiveImpactMS-5.0) > .002 || n.Rank <= 0 || n.ChainRelevance != "on_chain" || math.Abs(n.HostWakeupEdgeAnchorTS-1000.255) > 1e-7 {
+						t.Errorf("inside-wait semantic share lost its value/credential: %.3f rank=%d chain=%s edge=%.6f", n.EffectiveImpactMS, n.Rank, n.ChainRelevance, n.HostWakeupEdgeAnchorTS)
 					}
 				}
 			}
 			if !found {
-				t.Error("customer native query did not exercise the host-wakeup-edge semantic rule")
+				t.Error("native query did not exercise the host-wakeup semantic rule")
 			}
-			optimizationCaliberAssertWords(t, "customer pre-edge appendix", system, lang, true)
-			if !strings.Contains(system, "0.285ms") || !strings.Contains(system, "VerifyClass") {
-				t.Error("pre-edge deterministic semantic optimization point disappeared from publication")
+			optimizationCaliberAssertWords(t, "inside-wait semantic appendix", system, lang, true)
+			if !strings.Contains(system, "5.000ms") || !strings.Contains(system, "JIT compiling") {
+				t.Error("inside-wait deterministic semantic optimization point disappeared from publication")
+			}
+			// The customer sentinel window ranks no host-edge semantic seat.
+			ctxT, pathT := optimizationCaliberPublicQuery(t, string(data), 59566, 34579.490, 34579.500)
+			optimizationCaliberPublicRequest(ctxT, pathT, lang, "com.baidu.tieba-59566", 59566, 34579.490, 34579.500, false)
+			_, setT := optimizationCaliberPublicPublish(t, ctxT, pathT, lang, false)
+			for _, p := range setT.Projections {
+				for _, n := range p.RankedSeats {
+					if n.OnChainBasis == types.TraceCausalOnChainBasisHostWakeupEdgeSpan {
+						t.Errorf("the tieba verification ended before the wait its host's wakeup closed: no ranked host-edge seat, got %s %.3f", n.SpanName, n.EffectiveImpactMS)
+					}
+				}
 			}
 		})
 	}

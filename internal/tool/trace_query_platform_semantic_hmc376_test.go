@@ -668,7 +668,41 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 	for _, row := range native.RootCauseRank.Items {
 		publishedRank[fmt.Sprintf("%s|%s-%d|%.3f|%.3f|%s", row.Type, row.Thread.Comm, row.Thread.PID, row.ImpactMs, row.EffectiveImpactMs, row.ChainRelevance)] = true
 	}
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): the two
+	// binder:196_8-33560 runnable rows were the host-edge split of its ready
+	// account at its one wakeup of the target (on-chain 0.092 + adjacent
+	// 1.278 on the fixture, 0.092 + 0.083 on the whole capture). That wakeup
+	// ended a 0.410 ms sleep of 34044 and none of the binder thread's ready
+	// time lies inside it (raw oracle on the whole capture: ready inside
+	// 0.000, old reading 0.092). Old → new: no on-chain row; the account stays
+	// whole off the chain. This pin keeps its meaning — the platform
+	// vocabulary displaces no row — for every other row.
+	const repricedHost = "binder:196_8-33560"
+	repricedMs := 0.0
 	for _, row := range baseRank {
+		if strings.HasPrefix(row, "runnable_wait|"+repricedHost+"|") {
+			fields := strings.Split(row, "|")
+			v, _ := strconv.ParseFloat(fields[2], 64)
+			repricedMs += v
+		}
+	}
+	publishedMs := 0.0
+	for _, row := range native.RootCauseRank.Items {
+		if fmt.Sprintf("%s-%d", row.Thread.Comm, row.Thread.PID) != repricedHost || row.Type != "runnable_wait" {
+			continue
+		}
+		if row.ChainRelevance == "on_chain" || row.HostWakeupEdgeAnchorTs != 0 {
+			t.Errorf("%s ready time outside the wait its wakeup ended must not be a cause: %s", repricedHost, hmc376RowLabel(row))
+		}
+		publishedMs += row.CumulativeImpactMs
+	}
+	if publishedMs > 0 && !hmc376Near(publishedMs, repricedMs) {
+		t.Errorf("%s keeps its whole ready account %.3f off the chain, got %.3f", repricedHost, repricedMs, publishedMs)
+	}
+	for _, row := range baseRank {
+		if strings.HasPrefix(row, "runnable_wait|"+repricedHost+"|") {
+			continue
+		}
 		if row == "trace_span|"+target+"|247.466|0.000|adjacent" {
 			if !publishedRank["gc_pause|"+target+"|247.304|247.304|on_chain"] {
 				t.Fatalf("the target's own wait must be published as the classified on-chain cause:\n%s", hmc376Board(native.RootCauseRank))
@@ -700,6 +734,9 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 		}
 		if fields[1] == target && fields[3] == "trace_span" {
 			continue
+		}
+		if fields[1] == repricedHost && fields[3] == "runnable_wait" {
+			continue // re-priced by HMC377 E2 (see above)
 		}
 		if !publishedProjection[row] {
 			t.Errorf("projection row published before the vocabulary is gone: %s", row)

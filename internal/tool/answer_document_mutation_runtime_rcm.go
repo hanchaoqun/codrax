@@ -678,9 +678,9 @@ func runtimeTraceProjBusinessSpanMentionBasisWord(basis string, zh bool) (string
 		return "chain member", true
 	case tracequery.BusinessSpanMentionBasisHostWakeupEdge:
 		if zh {
-			return "唤醒边凭证(边前)", true
+			return "唤醒凭证(等待内)", true
 		}
-		return "wakeup-edge credential (pre-edge)", true
+		return "wakeup credential (inside the wait)", true
 	}
 	return "", false
 }

@@ -264,7 +264,7 @@ func TestSmall3UnrankedMaxTop5(t *testing.T) {
 				t.Fatalf("件5 zh=%v: folded row %q must not render:\n%s", zh, cut, fence)
 			}
 		}
-		if zh && !strings.Contains(small3UnfoldElim(fence), "w-a-1 54.896ms(唤醒边前 53.073 + 边后 1.823)· 按口径不拆段入榜") {
+		if zh && !strings.Contains(small3UnfoldElim(fence), "w-a-1 54.896ms(等待内 53.073 + 等待外 1.823)· 按口径不拆段入榜") {
 			t.Fatalf("件5: the kept row's identity 括注/word form must stay byte-untouched:\n%s", fence)
 		}
 	}

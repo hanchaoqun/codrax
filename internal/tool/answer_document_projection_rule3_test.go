@@ -106,9 +106,13 @@ func TestRule3EdgeAnchorRowNeverRepeatsMechanism(t *testing.T) {
 	// CROWNSEM-1 (§40.28 ①): the legend promises ONE credential rule for the
 	// span seat and the state seat (边前份计入), with the mechanism as a
 	// disclosure — the retired "可消除量为0" clause must never return.
-	if !strings.Contains(legend, "宿主自身对目标的窗内 typed 唤醒边是入链凭证") ||
-		!strings.Contains(legend, "边=凭证、边前=有效、边后=解除——边前份计入估算优化潜力") ||
-		!strings.Contains(legend, "语义完成机理未证仅作披露") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording of the
+	// one rule — the internal formula 边=凭证、边前=有效、边后=解除 left the
+	// legend; the entry now says which time counts (inside the wait the
+	// thread's own wakeup ended).
+	if !strings.Contains(legend, "该线程自己的唤醒结束了目标线程的一次等待") ||
+		!strings.Contains(legend, "只有落在这次等待之内的那部分计入估算优化潜力") ||
+		!strings.Contains(legend, "语义工作完成是否触发了唤醒未经证实，仅作披露") {
 		t.Fatalf("件1(b): the legend keeps the full mechanism + the single credential rule:\n%s", legend)
 	}
 	if strings.Contains(legend, "可消除量为0") {

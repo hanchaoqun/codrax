@@ -108,7 +108,10 @@ func TestBoundRootCauseEvidenceRelationSentenceSpeaksTheCredential(t *testing.T)
 	}{
 		{"host direct edge", types.TraceCauseEvidenceFacts{ChainRelevance: "on_chain", OnChainBasis: "host_wakeup_edge_pre_state",
 			HostWakeupEdgeAnchorTs: 34579.576675, HostWakeupEdgeVia: "direct", TargetSubject: "app-100"},
-			[]string{"凭证=唤醒锚定：该线程于 34579.576675 s 通过直接唤醒边唤醒目标", "边=凭证/边前=有效/边后=解除"}},
+			// RE-BASED (HMC377 E2, owner ruling 2026-11-18): reader wording —
+			// the internal formula left the sentence; it now says which time
+			// counts.
+			[]string{"凭证=唤醒锚定：该线程于 34579.576675 s 以直接唤醒结束了目标线程的等待", "只计入落在该等待之内的时间"}},
 		{"interval credential", types.TraceCauseEvidenceFacts{ChainRelevance: "on_chain", OnChainBasis: types.TraceCausalOnChainBasisSemanticChainIntervalRelation,
 			SemanticClass: "class_verification", SpanName: "VerifyClass Foo"},
 			[]string{"凭证=交集证明", "确定性语义工作 VerifyClass Foo（class_verification）", "语义完成机理未证（仅披露"}},

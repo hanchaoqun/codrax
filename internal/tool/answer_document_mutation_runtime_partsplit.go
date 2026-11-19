@@ -73,9 +73,9 @@ func runtimeTraceProjGatedCompositeEdgeShareNodeAdmitted(node types.TraceCausalP
 // code/tests/ledgers only.
 func runtimeTraceProjGatedCompositeEdgeShareHead(zh bool) string {
 	if zh {
-		return "边前份披露(按口径不拆段入榜)"
+		return "等待内份披露(按口径不拆段入榜)"
 	}
-	return "pre-edge share disclosure (kept whole per its caliber; not split into a board row)"
+	return "inside-wait share disclosure (kept whole per its caliber; not split into a board row)"
 }
 
 // runtimeTraceProjGatedCompositeEdgeShareTagText builds the seat-row 行2 分账
@@ -94,13 +94,13 @@ func runtimeTraceProjGatedCompositeEdgeShareTagText(row runtimeTraceProjTreeRow,
 	}
 	via := strings.TrimSpace(node.GatedCompositeEdgeAnchorVia)
 	if zh {
-		return fmt.Sprintf("%s:其中边前份 %.3fms(唤醒边前,凭证:唤醒边,最晚凭证边 %.6fs·%s)· 边后份 %.3fms(边界后,不入链上)· 边前+边后=本席 runnable 账 %.3fms 恒等;边前份与本席已发布值同段,不相加",
+		return fmt.Sprintf("%s:其中等待内份 %.3fms(落在目标线程等待之内,该等待由本线程唤醒结束,最后一次 %.6fs·%s)· 等待外份 %.3fms(目标并未在等它,不入链上)· 等待内+等待外=本席 runnable 账 %.3fms 恒等;等待内份与本席已发布值同段,不相加",
 			runtimeTraceProjGatedCompositeEdgeShareHead(true),
 			node.GatedCompositeEdgePreShareMS, node.GatedCompositeEdgeAnchorTS,
 			runtimeTraceProjHostEdgeViaWordZH(via), node.GatedCompositeEdgePostShareMS,
 			node.RunnableMS), true
 	}
-	return fmt.Sprintf("%s: %.3fms pre-edge (before the wakeup edge; credential: the wakeup edge, latest credential edge %.6fs, via=%s) · %.3fms post-edge (after the boundary — never on-chain) · pre + post == this seat's runnable account %.3fms; the pre-edge share covers the same segments as the seat's published value, never additive",
+	return fmt.Sprintf("%s: %.3fms inside the analysed thread's waits (ended by this thread's wakeup, last at %.6fs, via=%s) · %.3fms outside them (the analysed thread was not waiting for it — never on-chain) · inside + outside == this seat's runnable account %.3fms; the inside-wait share covers the same segments as the seat's published value, never additive",
 		runtimeTraceProjGatedCompositeEdgeShareHead(false),
 		node.GatedCompositeEdgePreShareMS, node.GatedCompositeEdgeAnchorTS, via,
 		node.GatedCompositeEdgePostShareMS, node.RunnableMS), true
@@ -227,11 +227,11 @@ func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTracePr
 		// transcribe the typed disclosure verbatim; 席值/榜序零动.
 		if zh {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未入榜最大",
-				content: fmt.Sprintf("%s %.3fms(唤醒边前 %.3f + 边后 %.3f)· 按口径不拆段入榜%s",
+				content: fmt.Sprintf("%s %.3fms(等待内 %.3f + 等待外 %.3f)· 按口径不拆段入榜%s",
 					subject, d.AccountMS, d.PreMS, d.PostMS, ref)})
 		} else {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unranked max",
-				content: fmt.Sprintf("%s %.3fms (pre %.3f + post %.3f) · kept whole per caliber%s",
+				content: fmt.Sprintf("%s %.3fms (in %.3f + out %.3f) · kept whole per caliber%s",
 					subject, d.AccountMS, d.PreMS, d.PostMS, ref)})
 		}
 	}

@@ -546,19 +546,19 @@ func rootCauseEvidenceRelationSentence(subject string, facts *types.TraceCauseEv
 	}
 	switch facts.OnChainBasis {
 	case types.TraceCausalOnChainBasisHostWakeupEdgeSpan, "host_wakeup_edge_pre_state":
-		via := "唤醒边"
+		via := "唤醒"
 		switch facts.HostWakeupEdgeVia {
 		case "direct":
-			via = "直接唤醒边"
+			via = "直接唤醒"
 		case "chain_hop":
-			via = "链跳唤醒边"
+			via = "经链上线程唤醒"
 		case "direct+chain_hop":
-			via = "直接唤醒边与链跳边"
+			via = "直接唤醒与经链上线程唤醒"
 		}
 		if facts.HostWakeupEdgeAnchorTs > 0 {
-			parts = append(parts, fmt.Sprintf("凭证=唤醒锚定：该线程于 %.6f s 通过%s唤醒目标，边前份按边=凭证/边前=有效/边后=解除计入", facts.HostWakeupEdgeAnchorTs, via))
+			parts = append(parts, fmt.Sprintf("凭证=唤醒锚定：该线程于 %.6f s 以%s结束了目标线程的等待，只计入落在该等待之内的时间", facts.HostWakeupEdgeAnchorTs, via))
 		} else {
-			parts = append(parts, "凭证=唤醒锚定：该线程持有对目标的窗内唤醒边，边前份计入")
+			parts = append(parts, "凭证=唤醒锚定：该线程的唤醒结束了目标线程的等待，只计入落在该等待之内的时间")
 		}
 	case types.TraceCausalOnChainBasisSemanticChainIntervalRelation:
 		parts = append(parts, "凭证=交集证明：该确定性语义工作与目标唤醒链的 typed 区间精确相交，相交份计入")
@@ -615,7 +615,7 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 	}
 	switch facts.OnChainBasis {
 	case types.TraceCausalOnChainBasisHostWakeupEdgeSpan, types.TraceCausalOnChainBasisSemanticChainIntervalRelation:
-		parts = append(parts, "语义完成机理未证（仅披露，边前份/相交份仍按凭证规则计价）")
+		parts = append(parts, "语义完成机理未证（仅披露，等待内份/相交份仍按凭证规则计价）")
 	}
 	if decision.CausalQualifier == types.TraceCausalQualifierFrameUnproven {
 		parts = append(parts, "帧因果未证：本席位的证据尚未证明帧因果，该限定不改变有效归因与排序")
