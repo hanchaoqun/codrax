@@ -1594,11 +1594,17 @@ func renderSystemSections(sections []types.PromptSection) string {
 // system sections. Never reassemble, scan, or shorten any user/evidence
 // message. Constraints, preferences and all ordinary prohibitions survive.
 func AnswerDocumentPatchSystemTeaching(pc *types.PromptContext, sk *skill.Config) string {
-	if pc == nil || pc.Stage != types.StageFinalize {
-		return ""
-	}
-	patch := sk.AnswerDocumentPatchTeaching()
-	if patch == nil {
+	return answerDocumentLaneSystemTeaching(pc, sk.AnswerDocumentPatchTeaching())
+}
+
+// AnswerDocumentFollowUpSystemTeaching is the same projection for the one
+// optional follow-up after an accepted answer (HMC §377 D1).
+func AnswerDocumentFollowUpSystemTeaching(pc *types.PromptContext, sk *skill.Config) string {
+	return answerDocumentLaneSystemTeaching(pc, sk.AnswerDocumentFollowUpTeaching())
+}
+
+func answerDocumentLaneSystemTeaching(pc *types.PromptContext, patch *skill.Config) string {
+	if pc == nil || pc.Stage != types.StageFinalize || patch == nil {
 		return ""
 	}
 	sections := make([]types.PromptSection, 0, len(pc.SystemSections))

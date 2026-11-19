@@ -489,6 +489,11 @@ type MutableState struct {
 	// whenever a report is stored, a valid submission is staged, or the
 	// dispatch resets.
 	traceRootCauseSelectorRejected bool
+	// answerFollowUpDelivery (HMC §377 D1) is the typed receipt of the one
+	// optional follow-up offered after an accepted answer: whether its request
+	// was sent or why it was not. Read by operator diagnostics and by the
+	// customer sidecar's reason_code; cleared with the other answer state.
+	answerFollowUpDelivery *AnswerFollowUpDelivery
 
 	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
 	// receipt: the finalizer prompt compiler sets it only when the exact prompt
@@ -4370,6 +4375,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
 	m.traceRootCauseSelectorRejected = false
+	m.answerFollowUpDelivery = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -4398,6 +4404,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
 	m.traceRootCauseSelectorRejected = false
+	m.answerFollowUpDelivery = nil
 	m.lastEmitFromPatch = false
 }
 

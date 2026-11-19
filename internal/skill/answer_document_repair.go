@@ -34,9 +34,39 @@ func (c *Config) AnswerDocumentPatchTeaching() *Config {
 		"Read the latest validator feedback and the projected patch tool schema. The current schema is the sole authority for field names, types, enum values, and available operations; the latest feedback identifies what still needs repair. Do not reopen evidence or start a new answer.",
 		types.AnswerDocumentPatchOperationTeaching,
 		"Keep all unreported content, identities, citation ownership, and block order in the inherited draft. A replace_blocks entry is a complete replacement of that block; copy its unchanged fields and edit only the reported defect. Preserve already-applied changes in the live patch base. Do not attach raw JSON as a string or write a parallel answer in prose.",
-		"Keep displayed graph identities, relation directions and exact evidence anchors aligned. Use business-readable labels without changing the selected native identities. Do not manufacture a relation, a missing endpoint, or closure by relabeling. Keep the reported gap when the evidence does not establish it.",
-		"Use only current typed facts and compatible derived arithmetic. Preserve native source, target, time bounds and endpoint inclusion, state, unit, and denominator. A preview, background activity, or nearby span cannot become a complete population or a Trace root cause. Preserve the on-chain evidence and order, applicable uncertainty, and the independent source and observation boundaries in the prompt.",
+		answerDocumentPatchGraphTeaching,
+		answerDocumentPatchFactTeaching,
 	}
 	out.OutputFormat = "Submit one actual `emit_answer_document_patch` function call, using its projected patch tool schema and the current repair instructions. The following generic answer-emission prohibitions also apply to the merged document and to this patch; they do not request another full submission."
 	return &out
+}
+
+// The graph and fact rules hold for every patch of the built-in skill: the
+// necessary repair and the optional follow-up share these exact items.
+const (
+	answerDocumentPatchGraphTeaching = "Keep displayed graph identities, relation directions and exact evidence anchors aligned. Use business-readable labels without changing the selected native identities. Do not manufacture a relation, a missing endpoint, or closure by relabeling. Keep the reported gap when the evidence does not establish it."
+	answerDocumentPatchFactTeaching  = "Use only current typed facts and compatible derived arithmetic. Preserve native source, target, time bounds and endpoint inclusion, state, unit, and denominator. A preview, background activity, or nearby span cannot become a complete population or a Trace root cause. Preserve the on-chain evidence and order, applicable uncertainty, and the independent source and observation boundaries in the prompt."
+)
+
+// AnswerDocumentFollowUpTeaching is the representation of the built-in skill
+// for the one optional follow-up offered after an accepted answer (HMC §377
+// D1). The answer is already accepted, so this lane neither calls it a draft
+// nor asks for a repair; the operation, graph and fact items are the same
+// items the necessary patch carries. It is never longer than the patch
+// representation, so the planned repair frame also covers this request.
+func (c *Config) AnswerDocumentFollowUpTeaching() *Config {
+	out := c.AnswerDocumentPatchTeaching()
+	if out == nil {
+		return nil
+	}
+	out.Goal = "Your structured answer is accepted. Optionally add to it in at most one scoped tool call; it stays as accepted unless the tool validates the merged document."
+	out.Workflow = []string{
+		"Read the follow-up items in the latest message and the projected patch tool schema. The current schema is the sole authority for field names, types, enum values, and available operations. Every item is optional. Do not reopen evidence or start a new answer.",
+		types.AnswerDocumentPatchOperationTeaching,
+		"Keep every block you do not revise exactly as accepted. A replace_blocks entry is a complete replacement of that block; copy its unchanged fields and change only what an item names. Do not attach raw JSON as a string or write a parallel answer in prose.",
+		answerDocumentPatchGraphTeaching,
+		answerDocumentPatchFactTeaching,
+	}
+	out.OutputFormat = "Submit at most one actual `emit_answer_document_patch` function call, using its projected patch tool schema and the follow-up items. The following generic answer-emission prohibitions also apply to the merged document and to this patch; they do not request another full submission."
+	return out
 }

@@ -33,6 +33,11 @@ const (
 	// RootCauseReasonFallbackUnavailable: a writer was handed no reason at
 	// all (defensive fallback; every live producer names a reason).
 	RootCauseReasonFallbackUnavailable = "valid_root_cause_selection_unavailable"
+	// RootCauseReasonSelectionFollowUpNotSent (HMC §377 D1): the model never
+	// submitted a selector and the one follow-up that offered the selection
+	// after the accepted answer was not sent within the request limits — the
+	// model was never shown that offer, so this is not a declined choice.
+	RootCauseReasonSelectionFollowUpNotSent = "root_cause_selection_follow_up_not_sent"
 )
 
 // AllRootCauseUnavailableReasonCodes lists the closed vocabulary in its
@@ -47,5 +52,6 @@ func AllRootCauseUnavailableReasonCodes() []string {
 		RootCauseReasonTranscriptNotAvailable,
 		RootCauseReasonEncodingFailed,
 		RootCauseReasonFallbackUnavailable,
+		RootCauseReasonSelectionFollowUpNotSent,
 	}
 }

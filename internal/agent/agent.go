@@ -2404,6 +2404,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					b.name, i, pressure.promptBytes(), pressure.WindowBytes, pressure.MessageBytes, pressure.ToolBytes, pressure.OutputTokens, pressure.OutputKnown, ratio*100, soft*100)
 			}
 			if skipOptionalRepair {
+				if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
+					recorder.recordFollowUpDelivery(ctx, false, types.AnswerFollowUpNotSentContextPressure, llm.EstimateRequestBytes(requestMessages, effectiveTools))
+				}
 				break
 			}
 		}
@@ -2415,10 +2418,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			if err := guard.finalizerRequestByteError(ctx, requestMessages, effectiveTools); err != nil {
 				if keeper, accepted := b.eval.(acceptedAnswerPressureKeeper); accepted && keeper.keepAcceptedAnswerUnderPressure(ctx) {
 					logging.Warning("[agent %s] finalizer byte allocation exhausted during optional repair; preserving accepted answer", b.name)
+					if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
+						recorder.recordFollowUpDelivery(ctx, false, types.AnswerFollowUpNotSentRequestAllocation, llm.EstimateRequestBytes(requestMessages, effectiveTools))
+					}
 					break
 				}
 				return nil, err
 			}
+		}
+		if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
+			recorder.recordFollowUpDelivery(ctx, true, "", llm.EstimateRequestBytes(requestMessages, effectiveTools))
 		}
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, requestMessages, effectiveTools)
 		// round= is the 1-based counter the CLI shows as "第 N 轮"
@@ -4677,6 +4686,11 @@ func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContex
 		if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && len(messages) > 0 && messages[0].Role == "system" {
 			if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
 				repairTeaching.draftSystem, repairTeaching.patchSystem = messages[0].Content, patch
+				// The follow-up representation is planned by the same frame:
+				// it is used only while it is no longer than the patch one.
+				if followUp := promptctx.AnswerDocumentFollowUpSystemTeaching(pc, promptSkill); followUp != "" && len(followUp) <= len(patch) {
+					repairTeaching.followUpSystem = followUp
+				}
 			}
 		}
 	}

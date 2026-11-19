@@ -174,24 +174,29 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 	return &AnswerContextByteBudgetError{ActualBytes: actual, AllocatedBytes: e.promptBudget.RequestAllocationBytes}
 }
 
-// finalizerRepairTeaching retains the two representations of the canonical
+// finalizerRepairTeaching retains the representations of the canonical
 // system message and the attempt history of one dispatch. patchSystem is
 // empty when the teaching is not replaceable (a custom skill or assembler);
-// the history still serves that dispatch. Every projection is request-only:
-// the durable history, each submitted tool call, validation feedback and
-// evidence stay intact.
+// the history still serves that dispatch. followUpSystem is the accepted-answer
+// follow-up representation, set only beside a patchSystem it does not exceed.
+// Every projection is request-only: the durable history, each submitted tool
+// call, validation feedback and evidence stay intact.
 type finalizerRepairTeaching struct {
-	draftSystem string
-	patchSystem string
-	history     finalizerRepairHistory
+	draftSystem    string
+	patchSystem    string
+	followUpSystem string
+	history        finalizerRepairHistory
 }
 
 // project applies the repair ladder to one request. A request that fits is
 // returned untouched. Each rung runs only when the request is still over the
 // unchanged allocation after the rung before it:
 //
-//  1. lane-matched static teaching (patch-only lane, canonical teaching);
-//  2. the staged-draft checkpoint, where the latest call proves it;
+//  1. lane-matched static teaching (patch-only lane, canonical teaching): the
+//     repair representation for a necessary repair, the follow-up one for the
+//     optional follow-up after an accepted answer;
+//  2. the staged-draft checkpoint, where the latest call proves it (necessary
+//     repair only: an accepted answer has no staged draft);
 //  3. the free text that accompanied superseded answer attempts and calls to
 //     an answer tool the request did not offer;
 //  4. the free text that accompanied the latest answer attempt.
@@ -201,24 +206,32 @@ type finalizerRepairTeaching struct {
 // channel only: reasoning a provider returned on its own channel stays with
 // its tool call, so the request size still grows with that channel. What is
 // still over the allocation afterwards is refused by the unchanged dispatch
-// guard.
+// guard. With an accepted answer, the only request is the follow-up (HMC
+// §377 D1); the accepted answer itself is never part of any projection.
 func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
 	e, ok := eval.(*answerDocumentEvaluator)
 	if !ok || e == nil || ctx == nil || ctx.Mutable == nil || len(messages) == 0 {
 		return messages
 	}
 	err, over := e.finalizerRequestByteError(ctx, messages, tools).(*AnswerContextByteBudgetError)
-	if !over || ctx.Mutable.AnswerDocumentV2() != nil {
+	followUp := e.keepAcceptedAnswerUnderPressure(ctx)
+	if !over || (ctx.Mutable.AnswerDocumentV2() != nil && !followUp) {
 		return messages
 	}
 	out := messages
-	if t.patchSystem != "" && (e.preferPatchNext || e.emitFullDocFailStreak >= 2) && !e.forceFullEmitNext &&
-		len(tools) == 1 && tools[0].Name == answerDocumentPatchToolName &&
+	lane, phase := "", "repair_prompt_budget"
+	switch {
+	case followUp:
+		lane, phase = t.followUpSystem, "follow_up_prompt_budget"
+	case (e.preferPatchNext || e.emitFullDocFailStreak >= 2) && !e.forceFullEmitNext:
+		lane = t.patchSystem
+	}
+	if lane != "" && len(tools) == 1 && tools[0].Name == answerDocumentPatchToolName &&
 		messages[0].Role == "system" && messages[0].Content == t.draftSystem {
 		out = append([]llm.Message(nil), messages...)
-		out[0].Content = t.patchSystem
-		logging.Debug("[diag finalizer] phase=repair_prompt_budget draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
-			err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(t.patchSystem))
+		out[0].Content = lane
+		logging.Debug("[diag finalizer] phase=%s draft_request_bytes=%d repair_request_bytes=%d allocation_bytes=%d replaced_system_bytes=%d",
+			phase, err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, len(t.draftSystem)-len(lane))
 		if e.finalizerRequestByteError(ctx, out, tools) == nil {
 			return out
 		}

@@ -212,6 +212,13 @@ type answerDocumentEvaluator struct {
 	// round per dispatch. The latch is dispatch-scoped (reset in
 	// BuildInitialInstruction) and never touches hard-reject accounting.
 	postEmitAdvisoryDelivered bool
+	// postEmitAdvisoryKinds are the rows that latch delivered, in table order
+	// (same reset). They plan the follow-up request: its patch operations and
+	// its delivery receipt (HMC §377 D1).
+	postEmitAdvisoryKinds []postEmitAdvisoryLaneKind
+	// followUpReceiptRecorded closes the delivery receipt of this dispatch's
+	// follow-up after its first request decision (same reset).
+	followUpReceiptRecorded bool
 }
 
 const (
@@ -419,6 +426,8 @@ func (e *answerDocumentEvaluator) rejectHintBudget() int {
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.postEmitAdvisoryDelivered = false
+	e.postEmitAdvisoryKinds = nil
+	e.followUpReceiptRecorded = false
 	resolve := e.pendingPromptBudget
 	e.pendingPromptBudget = nil
 	return e.buildInitialInstruction(ctx, sk, resolve)
@@ -15940,10 +15949,23 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 		if hasPatch {
 			out := make([]llm.ToolSchema, 0, len(schemas))
 			dropped := false
+			// HMC §377 D1: the follow-up publishes only the operations its
+			// delivered rows offer; a row that needs the whole surface keeps it.
+			operations := []string(nil)
+			if advisoryPatch {
+				operations = postEmitAdvisoryPatchOperations(e.postEmitAdvisoryKinds)
+			}
 			for _, s := range schemas {
 				if s.Name == "emit_answer_document" {
 					dropped = true
 					continue
+				}
+				if s.Name == answerDocumentPatchToolName && operations != nil {
+					if params, ok := tool.ProjectAnswerDocumentPatchFollowUpParameters(s.Parameters, operations); ok {
+						logging.Debug("[finalizer/answer_document] post-emit follow-up surface: operations=%v patch_schema_bytes=%d follow_up_schema_bytes=%d",
+							operations, len(s.Description)+len(s.Parameters), len(tool.AnswerDocumentPatchFollowUpDescription)+len(params))
+						s.Description, s.Parameters = tool.AnswerDocumentPatchFollowUpDescription, params
+					}
 				}
 				out = append(out, s)
 			}

@@ -56,11 +56,16 @@ const (
 
 // postEmitAdvisoryLane is one row: detect runs the lane's detector on the
 // accepted document and renders the lane's executable section body (without
-// preamble) when it has findings.
+// preamble) when it has findings. operations names the exact top-level
+// emit_answer_document_patch fields the row's body offers (HMC §377 D1); nil
+// means the row may need the whole compatibility patch surface. The follow-up
+// request publishes the union over the delivered rows, so a narrow offer is
+// not priced like a whole-document rewrite.
 type postEmitAdvisoryLane struct {
-	kind   postEmitAdvisoryLaneKind
-	class  postEmitAdvisoryLaneClass
-	detect func(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) (body string, ok bool)
+	kind       postEmitAdvisoryLaneKind
+	class      postEmitAdvisoryLaneClass
+	operations []string
+	detect     func(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) (body string, ok bool)
 }
 
 // postEmitAdvisoryLanes is the single-source lane table (table order = section
@@ -80,8 +85,9 @@ var postEmitAdvisoryLanes = []postEmitAdvisoryLane{
 		},
 	},
 	{
-		kind:  postEmitAdvisoryRequestedDimensionOrder,
-		class: postEmitAdvisoryPreciseRepair,
+		kind:       postEmitAdvisoryRequestedDimensionOrder,
+		class:      postEmitAdvisoryPreciseRepair,
+		operations: []string{"model_block_order", "unchanged_block_ids"},
 		detect: func(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) (string, bool) {
 			violation, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, doc)
 			if !ok {
@@ -113,8 +119,9 @@ var postEmitAdvisoryLanes = []postEmitAdvisoryLane{
 		},
 	},
 	{
-		kind:  postEmitAdvisoryTraceRootCauseSelection,
-		class: postEmitAdvisoryAdvisory,
+		kind:       postEmitAdvisoryTraceRootCauseSelection,
+		class:      postEmitAdvisoryAdvisory,
+		operations: []string{"replace_trace_root_causes", "unchanged_block_ids"},
 		detect: func(ctx *types.AgentContext, _ *types.AnswerDocumentV2, lang string) (string, bool) {
 			return traceRootCauseSelectionOpportunity(ctx, lang)
 		},
@@ -180,6 +187,7 @@ func (e *answerDocumentEvaluator) postEmitAdvisorySignal(ctx *types.AgentContext
 		return LoopSignal{}
 	}
 	e.postEmitAdvisoryDelivered = true
+	e.postEmitAdvisoryKinds = kinds
 	logging.Debug("[diag finalizer] post_emit_advisory lanes=%v", kinds)
 	return LoopSignal{
 		HintRequested:  true,
@@ -189,6 +197,67 @@ func (e *answerDocumentEvaluator) postEmitAdvisorySignal(ctx *types.AgentContext
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+// postEmitAdvisoryPatchOperations is the union of the operations the delivered
+// rows offer, in first-offered order; nil when no row was delivered or a
+// delivered row needs the whole compatibility surface.
+func postEmitAdvisoryPatchOperations(kinds []postEmitAdvisoryLaneKind) []string {
+	var operations []string
+	seen := map[string]bool{}
+	for _, kind := range kinds {
+		for _, lane := range postEmitAdvisoryLanes {
+			if lane.kind != kind {
+				continue
+			}
+			if lane.operations == nil {
+				return nil
+			}
+			for _, operation := range lane.operations {
+				if !seen[operation] {
+					seen[operation] = true
+					operations = append(operations, operation)
+				}
+			}
+		}
+	}
+	return operations
+}
+
+// recordFollowUpDelivery stores the typed receipt of this dispatch's follow-up
+// request decision once. Only the accepted-answer follow-up round records;
+// the accepted answer, the selection state and every counter stay untouched.
+func (e *answerDocumentEvaluator) recordFollowUpDelivery(ctx *types.AgentContext, sent bool, cause types.AnswerFollowUpNotSentCause, requestBytes int) {
+	if e == nil || e.followUpReceiptRecorded || !e.keepAcceptedAnswerUnderPressure(ctx) {
+		return
+	}
+	e.followUpReceiptRecorded = true
+	receipt := &types.AnswerFollowUpDelivery{
+		RootCauseSelectionOffered: postEmitAdvisoryOffersRootCauseSelection(e.postEmitAdvisoryKinds),
+		Operations:                postEmitAdvisoryPatchOperations(e.postEmitAdvisoryKinds),
+		Sent:                      sent,
+		RequestBytes:              requestBytes,
+	}
+	if !sent {
+		receipt.NotSentCause = cause
+	}
+	if e.promptBudget != nil {
+		receipt.AllocationBytes = e.promptBudget.RequestAllocationBytes
+	}
+	ctx.Mutable.SetAnswerFollowUpDelivery(receipt)
+	raw, _ := json.Marshal(receipt)
+	logging.Debug("[diag finalizer] phase=post_emit_follow_up lanes=%v receipt=%s", e.postEmitAdvisoryKinds, raw)
+}
+
+// postEmitAdvisoryOffersRootCauseSelection reports whether the delivered
+// follow-up offered the optional root-cause selection.
+func postEmitAdvisoryOffersRootCauseSelection(kinds []postEmitAdvisoryLaneKind) bool {
+	for _, kind := range kinds {
+		if kind == postEmitAdvisoryTraceRootCauseSelection {
+			return true
+		}
+	}
+	return false
 }
 
 func postEmitAdvisoryLangIsZH(lang string) bool {

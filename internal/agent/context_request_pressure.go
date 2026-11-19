@@ -13,6 +13,13 @@ type acceptedAnswerPressureKeeper interface {
 	keepAcceptedAnswerUnderPressure(*types.AgentContext) bool
 }
 
+// acceptedFollowUpRecorder receives the loop's one decision about the
+// follow-up request of an accepted answer (HMC §377 D1): sent, or not sent
+// and why. The owner ignores every other request.
+type acceptedFollowUpRecorder interface {
+	recordFollowUpDelivery(ctx *types.AgentContext, sent bool, cause types.AnswerFollowUpNotSentCause, requestBytes int)
+}
+
 type contextRequestPressure struct {
 	MessageBytes, ToolBytes, WindowBytes int
 	OutputTokens                         int

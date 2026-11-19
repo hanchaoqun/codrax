@@ -113,7 +113,9 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 // state only (outputdump.AllRootCauseUnavailableReasonCodes is the closed
 // list). "rejected" (§40.44 residual a) is the model's most recent selector
 // submission failing the binder with no valid selection stored or staged
-// since; "unavailable" is the never-selected arm.
+// since; "follow-up not sent" (HMC §377 D1) is the never-selected arm whose
+// offered follow-up was never shown to the model; "unavailable" is the
+// never-selected arm otherwise.
 func traceRootCauseUnavailableReason(mutable *types.MutableState, report *types.TraceRootCauseReportV2) string {
 	if report != nil {
 		return ""
@@ -130,6 +132,9 @@ func traceRootCauseUnavailableReason(mutable *types.MutableState, report *types.
 	}
 	if mutable.TraceRootCauseSelectorRejected() {
 		return outputdump.RootCauseReasonSelectionRejected
+	}
+	if mutable.AnswerFollowUpDelivery().RootCauseSelectionNotSent() {
+		return outputdump.RootCauseReasonSelectionFollowUpNotSent
 	}
 	return outputdump.RootCauseReasonValidSelectionUnavailable
 }

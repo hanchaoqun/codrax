@@ -213,7 +213,7 @@ JSON Schema 限制字段、类型和根因类别
 
 被拒的选择器不会静默丢弃：工具结果携带 typed `optional_carrier_outcomes` 行（`carrier` / `status` / `reason` / `hint`），摘要面追加一行精确原因与可选 `candidate_id` 清单，模型在下一次 `emit_answer_document_patch` 用 `replace_trace_root_causes` 修正；patch 中无效的替换保留上一次已接受的选择（`status=retained_previous`）并同样披露。披露落在该次调用返回的任何结果上——答案被接受、被结构性拒绝（含 patch 在持久化之前的拒绝）都一样；被拒绝的选择器此后会在 `.root-causes.json` 里以 `model_root_cause_selection_rejected` 与「从未选择」区分开。
 
-正文已接受但根因选择缺失或被拒时，复用现有一次 post-emit advisory 修正机会。该轮优先仅暴露 `emit_answer_document_patch`，避免同时发送完整重写和局部补丁的重复大型 schema，导致模型尚未收到修正反馈就超过既有请求字节预算。预算、可选提交约定和原正文保留规则不变；保留显式完整重写逃生分支，缺少 patch 工具时不移除唯一可调用工具。程序不猜测或自动纠正 candidate_id，不改变模型的根因选择和因果等级。
+正文已接受但根因选择缺失或被拒时，复用现有一次 post-emit advisory 修正机会。该轮优先仅暴露 `emit_answer_document_patch`，避免同时发送完整重写和局部补丁的重复大型 schema，导致模型尚未收到修正反馈就超过既有请求字节预算。§377 起这次补充请求在同一分配内规划：每个补充项声明它提供的局部修改操作，只含根因选择（及可选的保留块）时工具面只发布 `replace_trace_root_causes` 与 `unchanged_block_ids` 两个字段和一句补充说明，不再携带整套局部修改 schema；仍超分配时与必要修补同一阶梯，先把内置静态教学换成“答案已受理、可选补充”的表示，再撤回随附正文。仍发不出时写入 typed 补充交付回执，旁路以 `root_cause_selection_follow_up_not_sent` 与“模型从未选择”区分。预算上限、可选提交约定和原正文保留规则不变；保留显式完整重写逃生分支，缺少 patch 工具时不移除唯一可调用工具。程序不猜测或自动纠正 candidate_id，不改变模型的根因选择和因果等级。
 
 模型输入只包含 `candidate_id`。程序从冻结候选生成其余字段：
 
@@ -274,6 +274,7 @@ JSON Schema 限制字段、类型和根因类别
 | `final_answer_transcript_not_available` | 流程提前退出或未形成答案；不输出未完成的草稿根因。 |
 | `root_cause_report_encoding_failed` | 根因报告编码失败，已降为合法的空 JSON。 |
 | `valid_root_cause_selection_unavailable` | 写入器未收到任何原因时的兜底值；正常流程不会出现。 |
+| `root_cause_selection_follow_up_not_sent` | 模型首稿未提交选择；正文受理后系统准备的那一次可选补充（含根因选择）在既有请求分配或上下文压力上限内仍无法发送，因此没有发出。模型并未看到这次补充机会，这不是模型拒绝选择。 |
 
 `reason_code` 取值是只增不改的闭集，程序里由 `outputdump.AllRootCauseUnavailableReasonCodes` 单点维护，本表与之逐项对应。
 
