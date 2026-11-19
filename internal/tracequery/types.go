@@ -1051,8 +1051,8 @@ type Index struct {
 	// built with an explicit literal, so its changed Events slice starts with a
 	// zero Once and rebuilds ordinal ownership instead of copying a parent
 	// ledger whose ordinals refer to a different slice.
-	perfIdentityOnce                    sync.Once
-	perfIdentity                        *perfIdentityLedger
+	perfIdentityOnce sync.Once
+	perfIdentity     *perfIdentityLedger
 	// threadDisplayOnce/threadDisplay memoize the immutable capture-level
 	// thread display ledger (thread_display_identity.go): one display name
 	// per unified physical thread. A windowed index derived from a cached
@@ -1066,8 +1066,8 @@ type Index struct {
 	// creation record that reused an already-seen TID, whether or not the
 	// reuse is relevant to the window. It lets a window tell a thread's first
 	// creation from a reuse of its number. Bounded; Capped fails closed.
-	threadCreationReuses       map[threadCreationLine]bool
-	threadCreationReusesCapped bool
+	threadCreationReuses                map[threadCreationLine]bool
+	threadCreationReusesCapped          bool
 	schedulerOrderFailuresCapped        bool
 	schedulerRowIntegrityFailuresCapped bool
 	// schedulerRowIntegrityOverflowSources retains the exact physical source

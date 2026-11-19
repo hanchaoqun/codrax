@@ -230,10 +230,10 @@ func TestHMC377LabelRewriteIsExactAndLongestFirst(t *testing.T) {
 	}}}
 	view := newThreadDisplayView(ledger, 1, 2)
 	cases := map[string]string{
-		"Signal Catcher-76 wakes x":           "Signal Catcher-76 wakes x",
-		"competitor=Catcher-76 ran":           "competitor=Signal Catcher-76 ran",
+		"Signal Catcher-76 wakes x":            "Signal Catcher-76 wakes x",
+		"competitor=Catcher-76 ran":            "competitor=Signal Catcher-76 ran",
 		"(Catcher-76, Catcher-760, Catcher-7)": "(Signal Catcher-76, Catcher-760, Catcher-7)",
-		"xCatcher-76 and Catcher-76.5ms":      "xCatcher-76 and Catcher-76.5ms",
+		"xCatcher-76 and Catcher-76.5ms":       "xCatcher-76 and Catcher-76.5ms",
 	}
 	for in, want := range cases {
 		got, _ := view.rewriteLabels(in, nil)
