@@ -445,7 +445,16 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		// 0.689 and two of the target's own seats are now published. The count
 		// stays 53 and keeps its carve tooth (a non-carving mutant reads 54/
 		// on_chain=4).
-		"; 53 valued candidate row(s) did not enter the published board (on_chain=3/adjacent=3/background=47)",
+		// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): old → new
+		// = "(on_chain=3/adjacent=3/background=47)" →
+		// "(on_chain=6/adjacent=3/background=44)". The inside shares of three
+		// host-edge inversion rows (Chrome_IOThread-60560 0.056, udk-irq-1-63
+		// 0.037, udk-irq-4-67 0.007 — raw oracle: ready time inside the waits
+		// their own wakeups ended) are now priced on-chain seats that lose the
+		// 12-seat cap to larger chain rows, while their whole-account
+		// composites leave the background pool for the absorbed carrier.
+		// Total 53 and the largest on-chain casualty are unchanged.
+		"; 53 valued candidate row(s) did not enter the published board (on_chain=6/adjacent=3/background=44)",
 		"largest on_chain priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
 		"链上最大 priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
 		"另 1 行自身侧道已发布",
@@ -474,8 +483,18 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	// sysmgr-reclaim0-9 81.616, which is now published. Kept meaning: the
 	// headline lane names its top-2 casualties on both language faces with
 	// no repeated lane word.
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): old → new =
+	// leaders oeminfo_nvme_se-672 76.800 + JankManager-9655 21.923 →
+	// .ugc.aweme.lite-17267 81.616 + sysmgr-reclaim0-9 81.616. The ready time
+	// inside the dependency windows of the inversion accounts of
+	// gpu-token-id4-2931 (0.228), OS_FFRT_2_0-2614 (0.018) and
+	// tppmgr-sched-in-4776 (0.018) is now priced as their own ⛓ seats, which
+	// take the competing slots the background rows held; nine smaller chain
+	// rows die at the cap (disclosed as on_chain=9). Kept meaning: the
+	// headline names its top-2 casualties on both faces with no repeated lane
+	// word.
 	assertBoard(board2955, []string{
-		"largest page_cache_churn oeminfo_nvme_se-672 76.800ms (background), second largest runnable_wait JankManager-9655 21.923ms",
-		"最大 page_cache_churn oeminfo_nvme_se-672 76.800ms(背景)、次大 runnable_wait JankManager-9655 21.923ms",
+		"largest page_cache_churn .ugc.aweme.lite-17267 81.616ms (background), second largest page_cache_churn sysmgr-reclaim0-9 81.616ms",
+		"最大 page_cache_churn .ugc.aweme.lite-17267 81.616ms(背景)、次大 page_cache_churn sysmgr-reclaim0-9 81.616ms",
 	})
 }

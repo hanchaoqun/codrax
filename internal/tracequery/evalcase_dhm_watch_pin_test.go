@@ -197,8 +197,18 @@ func TestEvalcaseDHMP3MDistributionNewCombo(t *testing.T) {
 		// Compositor-61238 runnable_wait (segment-join) and hilogd.pst-474
 		// low_frequency (off-wire) take the freed seats. Every remaining row
 		// keeps its disposition.
-		p3mDispositionSegmentJoin: 1,
-		"":                        8,
+		// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical
+		// thread, one object"): segment_join 1 → 2 and off-wire 8 → 7. The
+		// whole-window inversion accounts of wlan_bus_rx/sdi-897 (which holds
+		// its own chain seat), hisi_hcc-918 and hisi_rxdata-919 (which hold
+		// none) ride as the lossless detail of their ⛓ seat; 918/919's
+		// anchored ready time is now their plain ⛓ seat (segment-join, the
+		// runnable_wait case-B clip) and each thread's ready time outside its
+		// dependency windows is its plain ◇ remainder (off-wire). The 12-seat
+		// cap then drops Compositor-61238 runnable_wait (segment-join) and
+		// hilogd.pst-474 low_frequency (off-wire) from the board.
+		p3mDispositionSegmentJoin: 2,
+		"":                        7,
 	}
 	for disp, n := range want {
 		if census[disp] != n {

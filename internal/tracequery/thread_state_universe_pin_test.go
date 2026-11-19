@@ -753,6 +753,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// discriminator as rspaChainSeatPresenceByPID (reviewed: a satellite's
 	// physical-intersection witness reads only runnable-family chain seats).
 	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatWindowsByPID": "runnable#1",
+	// HMC377 R-377-4 (2026-11-19): the represented-account owner index reads
+	// the SAME runnable dominant-state discriminator as
+	// rspaChainSeatPresenceByPID (reviewed: only a runnable-family chain seat
+	// can represent a thread's ready time inside its dependency windows).
+	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatIndexByPID": "runnable#1",
 	// LEVELMERGE-1 件2 (2026-07-18): the gated-share split selects the
 	// NON-inversion runnable chain aggregate as the claimed-against seat on
 	// the same runnable dominant-state discriminator (one comparison; the

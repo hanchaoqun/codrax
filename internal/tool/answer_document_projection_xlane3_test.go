@@ -218,8 +218,18 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	}
 	// 件3: no cross-board Σ face — the pre-fix line summed both boards
 	// (355.562 > 233.190) while NEITHER board exceeds the window alone.
-	if strings.Contains(md, "各根因席位有效归因合计") || strings.Contains(md, "同板根因席位有效归因合计") {
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): the inversion window accounts of chain threads on the
+	// 2955 board now publish their ready time outside the dependency windows
+	// as plain ◇ remainders (the un-retyped form), so that ONE board's seat Σ
+	// (234.344ms) exceeds the 233.190ms window and the scoped 同板 sentence
+	// renders — an honest one-board disclosure. The pinned meaning stands: no
+	// sentence sums seats across the two boards.
+	if strings.Contains(md, "各根因席位有效归因合计") {
 		t.Fatalf("the fused report must not sum rank seats across boards:\n%s", md)
+	}
+	if strings.Contains(md, "同板根因席位有效归因合计") && !strings.Contains(md, "不同板的席位更不可跨板相加") {
+		t.Fatalf("a one-board Σ sentence must scope itself to one board:\n%s", md)
 	}
 	// 修补轮 件A1 (2026-07-16): the coverage residual belongs to the 2955
 	// board (CompThread's own account) — the pre-fix note annotated it with
@@ -266,8 +276,14 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// holding 0.013ms of its ready time). True chain rows take freed seats
 	// (#pty-wqp-432 io_latency 1.530, forest_report_t runnable 1.759). The
 	// board maximum stays 74.915.
-	if !strings.Contains(md, "另有 37 条链上行未计入上句覆盖数值(单项最大 74.915ms") {
-		t.Fatalf("the unadmitted census must scope to the subject board (37 rows, max 74.915):\n%s", md)
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): 37→43. The
+	// ready time of six inversion window accounts inside their dependency
+	// windows (case-B chain threads and host-edge wakers — e.g.
+	// gpu-token-id4-2931 0.228, OS_FFRT_2_0-2614 0.018) is now priced as
+	// depthless ⛓ seats the coverage sentence does not count; the board
+	// maximum stays 74.915.
+	if !strings.Contains(md, "另有 43 条链上行未计入上句覆盖数值(单项最大 74.915ms") {
+		t.Fatalf("the unadmitted census must scope to the subject board (43 rows, max 74.915):\n%s", md)
 	}
 	// 修补轮 件C (one relation, one sentence): E11↔E44 already cross-refer
 	// through the cross-channel pointers — the cross-board sentence must not
@@ -308,7 +324,13 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// 17267/17284 (and the 2955 board the 2931 seat) before E43; the pointed
 	// rows (logd.writer-9163 chain seat ↔ its adjacent remainder), values and
 	// relation cardinality are unchanged.
-	if !strings.Contains(joinedMD, "本线程另有邻近席 [E43]") ||
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4): pure ordinal renumbering
+	// E43 → E49 — the ready time inside the dependency windows of inversion
+	// window accounts is now priced as ⛓ seats (and their outside ready time
+	// as plain ◇ remainders) ahead of this row; the pointed rows (logd.writer-
+	// 9163 chain seat [E11(+1)] ↔ its adjacent remainder), values and relation
+	// cardinality are unchanged.
+	if !strings.Contains(joinedMD, "本线程另有邻近席 [E49]") ||
 		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
@@ -319,10 +341,14 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if strings.Contains(joinedMD, "另板席 [E11(+1)]") {
 		t.Fatalf("E45's cross-board sentence must not re-hang its cross-channel-pointed peer E10 (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E38](板锚 CompThread_0-2955,见图例)") {
-		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E38] (件C):\n%s", md)
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4): ordinal renumbering
+	// [E38] → [E42] (logd.writer-9163's 2955-board peer is now its 0.018ms ⛓
+	// ready-time seat inside its dependency windows, the case-B clip) and
+	// [E28]、[E29] → [E31]、[E32]; peer cardinality (one / three) unchanged.
+	if !strings.Contains(joinedMD, "⇄另板[E42](板锚 CompThread_0-2955,见图例)") {
+		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E42] (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E28]、[E29]等3席(板锚 logd.writer-9163") {
+	if !strings.Contains(joinedMD, "⇄另板[E31]、[E32]等3席(板锚 logd.writer-9163") {
 		t.Fatalf("E45's cross-board sentence must keep its remaining 9163-board peers (件C; relation-only semantic preservation shifts only later refs):\n%s", md)
 	}
 	// 修补轮 件F: the micro fold's detail-face ordinal range wears the board

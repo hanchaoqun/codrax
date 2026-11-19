@@ -412,11 +412,37 @@ func TestB1636TiebaRestoredOverlapKeepsFamilyMembersAndOtherCauses(t *testing.T)
 	// 0.058ms of waits holding 0.000ms of its D time). Every other entry is
 	// unchanged; the same-target family merge this pin guards is untouched.
 	wantOther := map[string]int{
-		"60595/priority_inversion_candidate": 2, "897/runnable_wait": 1, "474/low_frequency": 1,
-		"60559/priority_inversion_candidate": 1, "61238/runnable_wait": 1, "61238/running": 1,
+		"60595/priority_inversion_candidate": 2, "897/runnable_wait": 2,
+		"60559/priority_inversion_candidate": 1, "61238/running": 1,
 		"9388/trace_span": 1, "7640/trace_span": 1, "0/supply_pressure": 1,
-		"897/priority_inversion_runnable_wait": 1, "918/priority_inversion_runnable_wait": 1,
-		"919/priority_inversion_runnable_wait": 1, "60595/priority_inversion_runnable_wait": 1,
+		"918/runnable_wait": 2, "919/runnable_wait": 2,
+		"60595/priority_inversion_runnable_wait": 1,
+	}
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread, one
+	// object"): "897/priority_inversion_runnable_wait" leaves the published
+	// population — wlan_bus_rx/sdi-897 holds its own chain seat
+	// ("897/runnable_wait") and its whole-window inversion account now rides
+	// as that seat's lossless detail on the absorbed carrier (values
+	// unchanged). It is a merge into the same thread, not a cap eviction.
+	// "897/runnable_wait" 1 → 2: the ready time of that account outside 897's
+	// dependency windows is now its plain ◇ remainder (different time from
+	// the chain seat), exactly as for an un-retyped window seat. hisi_hcc-918
+	// and hisi_rxdata-919 hold no chain runnable seat: their anchored ready
+	// time is now their plain ⛓ seat (runnable_wait case-B clip) beside the ◇
+	// remainder ("918/runnable_wait" 2, "919/runnable_wait" 2) and their
+	// inversion accounts join the absorbed carrier too. The two extra chain
+	// rows take the 12-seat cap from "474/low_frequency" (background) and
+	// "61238/runnable_wait" — a cap death, disclosed; no cause class is lost.
+	for _, pid := range []int{897, 918, 919} {
+		absorbed := false
+		for _, item := range rank.AbsorbedItems {
+			if item.Thread.PID == pid && item.Type == "priority_inversion_runnable_wait" {
+				absorbed = true
+			}
+		}
+		if !absorbed {
+			t.Fatalf("%d's inversion account must stay lossless on the absorbed carrier: %+v", pid, rank.AbsorbedItems)
+		}
 	}
 	gotJSON, _ := json.Marshal(other)
 	wantJSON, _ := json.Marshal(wantOther)

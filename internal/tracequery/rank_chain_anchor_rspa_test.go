@@ -724,27 +724,24 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	// §29.77 件⑤.
 	rankTrace := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	var chromeInversion *RootCauseRankItem
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): the 0.056ms
+	// inside share is no longer a refusal record — it is priced as 60560's ⛓
+	// scheduling-delay seat, the 19.302ms outside share is its plain ◇
+	// remainder, and the composite (19.358 ready, effective 12.173) stays
+	// whole off the chain as that seat's paired lossless detail.
 	renderRunningPublished := false
-	for _, items := range [][]RootCauseRankItem{rankTrace.Items, rankTrace.preTruncationItems} {
-		for i := range items {
-			item := &items[i]
-			if item.Thread.PID == 60560 && item.Type == "priority_inversion_runnable_wait" && chromeInversion == nil {
-				chromeInversion = item
-			}
-		}
-	}
+	chromeSeat, chromeRemainder, chromeInversion := hmc377PricedInversionShare(rankTrace, 60560)
 	for i := range rankTrace.Items {
 		if rankTrace.Items[i].Thread.PID == 59891 && rankTrace.Items[i].Type == "running" {
 			renderRunningPublished = true
 		}
 	}
-	if chromeInversion == nil || math.Abs(chromeInversion.RunnableMs-19.358) > 0.002 ||
+	if chromeInversion == nil || chromeSeat == nil || chromeRemainder == nil ||
+		math.Abs(chromeInversion.RunnableMs-19.358) > 0.002 ||
 		rootCauseItemIsOnChain(*chromeInversion) || chromeInversion.OnChainBasis != "" || chromeInversion.HostWakeupEdgeAnchorTs != 0 ||
-		math.Abs(chromeInversion.GatedCompositeEdgePreShareMs-0.056) > 0.002 ||
-		math.Abs(chromeInversion.GatedCompositeEdgePostShareMs-19.302) > 0.002 ||
-		math.Abs(chromeInversion.GatedCompositeEdgePreShareMs+chromeInversion.GatedCompositeEdgePostShareMs-chromeInversion.RunnableMs) > 0.0000005 {
-		t.Fatalf("tieba trace 60560 inversion seat must stay whole on its home lane with its inside/outside record: %+v", chromeInversion)
+		math.Abs(chromeSeat.RunnableMs-0.056) > 0.002 || math.Abs(chromeRemainder.RunnableMs-19.302) > 0.002 ||
+		math.Abs(chromeSeat.RunnableMs+chromeRemainder.RunnableMs-chromeInversion.RunnableMs) > 0.0000005 {
+		t.Fatalf("tieba trace 60560: inside seat / remainder / whole composite drifted: %+v / %+v / %+v", chromeSeat, chromeRemainder, chromeInversion)
 	}
 	for _, d := range rankTrace.GatedCompositeEdgeShareDisclosures {
 		if d.Thread.PID == 60560 {

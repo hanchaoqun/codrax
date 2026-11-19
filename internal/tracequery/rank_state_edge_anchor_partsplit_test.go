@@ -199,19 +199,45 @@ func TestPartsplitHarvestFloorAndValueOrder(t *testing.T) {
 	}
 }
 
+// hmc377PricedInversionShare finds, across the published board, the
+// pre-truncation pool and the absorbed carrier, the three rows HMC377 E2-R1
+// mints from one host's indivisible inversion window row: the ⛓ inside
+// scheduling-delay seat, the ◇ plain ready-time remainder twin and the
+// untouched composite paired with the seat as its lossless detail.
+func hmc377PricedInversionShare(rank RootCauseRankResult, pid int) (seat, remainder, composite *RootCauseRankItem) {
+	for _, items := range [][]RootCauseRankItem{rank.Items, rank.preTruncationItems, rank.AbsorbedItems} {
+		for i := range items {
+			item := &items[i]
+			if item.Thread.PID != pid {
+				continue
+			}
+			switch {
+			case item.Type == "runnable_wait" && item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState && seat == nil:
+				seat = item
+			case item.Type == "runnable_wait" && item.ChainAnchorRemainderSeat && item.HostWakeupEdgeAnchorTs > 0 && remainder == nil:
+				remainder = item
+			case item.Type == "priority_inversion_runnable_wait" && item.inversionAccountRepresentedBy != "" && composite == nil:
+				composite = item
+			}
+		}
+	}
+	return seat, remainder, composite
+}
+
 // TestPartsplitTiebaTraceBoardFloorAcceptance — POOL2-1 件③ live acceptance
-// (§29.160③ target, tieba trace board, window 144.557ms → floor 1.446ms):
-// micro shares vanish from the disclosure channel while their typed stamps
-// survive in the pool (audit).
+// (§29.160③ target, tieba trace board, window 144.557ms → floor 1.446ms).
 // RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
 // one row (Binder:43397_19-23088, 13.982 + 0.020 = 14.002) → no row; the
 // micro stamps of udk-irq-1-63 / udk-irq-4-67 are 0.049 / 0.007 → 0.037 /
-// 0.007, and Chrome_IOThread-60560 now carries a 0.056 stamp. 23088's one
-// wakeup ended a 0.524ms wait holding none of its ready time (raw oracle:
-// inside 0.000), so it has no share to disclose; each stamp is the ready time
-// inside the waits the thread's own wakeups ended (raw oracle: 0.037 /
-// 0.007 / 0.056). Kept meaning: the floor withholds every micro share from
-// the reader channel and the audit stamps survive.
+// 0.007, and Chrome_IOThread-60560 now carries a 0.056 stamp (raw oracle:
+// the ready time inside the waits each thread's own wakeups ended).
+// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): those inside
+// shares are no longer refusal stamps withheld below the floor — each is a Σ
+// of true ready segments and is priced as the thread's own ⛓ scheduling-delay
+// seat (0.037 / 0.007 / 0.056), the outside share as its plain ◇ remainder,
+// and the inversion composite keeps every value as that seat's paired
+// lossless detail. The disclosure channel is empty because nothing is
+// refused any more; 23088 still holds no share and mints nothing.
 func TestPartsplitTiebaTraceBoardFloorAcceptance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real-trace witness")
@@ -227,38 +253,41 @@ func TestPartsplitTiebaTraceBoardFloorAcceptance(t *testing.T) {
 	rank := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	if len(rank.GatedCompositeEdgeShareDisclosures) != 0 {
-		t.Fatalf("every share inside a closed wait on this board sits below the floor: %+v",
+		t.Fatalf("no inversion seat is refused any more, so nothing is disclosed: %+v",
 			rank.GatedCompositeEdgeShareDisclosures)
 	}
-	// 宁降不删: the withheld micro rows keep their typed stamps in the pool.
-	stamped := map[int]float64{}
-	for i := range rank.preTruncationItems {
-		item := &rank.preTruncationItems[i]
-		if item.GatedCompositeEdgePreShareMs > 0 {
-			stamped[item.Thread.PID] = item.GatedCompositeEdgePreShareMs
-		}
-	}
 	for pid, want := range map[int]float64{63: 0.037, 67: 0.007, 60560: 0.056} {
-		if math.Abs(stamped[pid]-want) > 0.002 {
-			t.Fatalf("pid %d must keep its typed stamp %.3f (the raw share inside the waits it ended) in the pool: %v", pid, want, stamped)
+		seat, remainder, composite := hmc377PricedInversionShare(rank, pid)
+		if seat == nil || remainder == nil || composite == nil {
+			t.Fatalf("pid %d: inside seat / remainder / paired composite missing: %v %v %v", pid, seat, remainder, composite)
+		}
+		if math.Abs(seat.RunnableMs-want) > 0.002 || !rootCauseItemIsOnChain(*seat) ||
+			math.Abs(seat.RunnableMs+remainder.RunnableMs-composite.RunnableMs) > 0.0000005 {
+			t.Fatalf("pid %d must price %.3f inside (raw) and keep inside + outside == account: seat=%.6f rem=%.6f account=%.6f",
+				pid, want, seat.RunnableMs, remainder.RunnableMs, composite.RunnableMs)
+		}
+		if composite.GatedCompositeEdgePreShareMs != 0 || composite.inversionAccountRepresentedBy != seat.inversionAccountRepresents {
+			t.Fatalf("pid %d: the composite is paired with its seat and carries no refusal stamp: %+v", pid, composite)
 		}
 	}
-	if _, ok := stamped[23088]; ok {
-		t.Fatalf("23088 has no share inside a wait it ended and must carry no stamp: %v", stamped)
+	if seat, _, _ := hmc377PricedInversionShare(rank, 23088); seat != nil {
+		t.Fatalf("23088 has no share inside a wait it ended and must mint nothing: %+v", seat)
 	}
 }
 
 // TestPartsplitDonghu2955WitnessDisclosure — live witness #2 (§29.150④
 // target): the donghu 2955 board's OS_FFRT_2_0-2614 inversion seat (19.563
-// census runnable, inversion-recast) refuses conversion and keeps its
-// account whole on its home lane.
+// census runnable, inversion-recast).
 // RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
 // refusal record 9.618 + 9.945 (side-channel row) → 0.018 + 19.545 (no
 // row). 2614's one wakeup at 13763.006174 ended a 1.124ms wait of 2955 and
-// only 0.018ms of 2614's ready time lies inside it (raw oracle); 0.018ms is
-// below the 2.332ms floor (1% of 233.190ms). X + Y == 19.563 still holds to
-// the µs and the record cites the same wakeup. Kept meaning: an indivisible
-// inversion seat is never split; its record partitions the account exactly.
+// only 0.018ms of 2614's ready time lies inside it (raw oracle).
+// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4): the 0.018 inside share is priced
+// as 2614's ⛓ scheduling-delay seat against the same wakeup, the 19.545
+// outside share is its plain ◇ remainder, and the composite (19.563 ready,
+// overlap unchanged) stays whole on its home lane as the seat's paired
+// lossless detail. Kept meaning: the indivisible inversion measurement is
+// never split, and inside + outside == the account to the µs.
 func TestPartsplitDonghu2955WitnessDisclosure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real-trace witness")
@@ -275,26 +304,20 @@ func TestPartsplitDonghu2955WitnessDisclosure(t *testing.T) {
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	for _, d := range rank.GatedCompositeEdgeShareDisclosures {
 		if d.Thread.PID == 2614 {
-			t.Fatalf("donghu 2614's 0.018ms inside share sits below the floor: %+v", d)
+			t.Fatalf("donghu 2614 is priced, not refused: %+v", d)
 		}
 	}
-	// The refused seat itself stays whole in the pool: background lane, no
-	// state basis, full census value (value/lane/ordinal zero-motion).
-	var seat *RootCauseRankItem
-	for i := range rank.preTruncationItems {
-		item := &rank.preTruncationItems[i]
-		if item.Thread.PID == 2614 && item.Type == "priority_inversion_runnable_wait" {
-			seat = item
-			break
-		}
+	seat, remainder, composite := hmc377PricedInversionShare(rank, 2614)
+	if seat == nil || remainder == nil || composite == nil {
+		t.Fatalf("donghu 2614 inside seat / remainder / paired composite missing: %v %v %v", seat, remainder, composite)
 	}
-	if seat == nil || seat.OnChainBasis != "" || seat.ChainRelevance != "background" ||
-		math.Abs(seat.RunnableMs-19.563) > 0.002 || seat.ChainAnchorRemainderSeat {
-		t.Fatalf("donghu 2614 refused seat must stay whole on its home lane: %+v", seat)
+	if composite.OnChainBasis != "" || composite.ChainRelevance != "background" ||
+		math.Abs(composite.RunnableMs-19.563) > 0.002 || composite.ChainAnchorRemainderSeat {
+		t.Fatalf("donghu 2614 composite must stay whole on its home lane: %+v", composite)
 	}
-	if math.Abs(seat.GatedCompositeEdgePreShareMs-0.018) > 0.002 || math.Abs(seat.GatedCompositeEdgePostShareMs-19.545) > 0.002 ||
-		math.Abs(seat.GatedCompositeEdgeAnchorTs-13763.006174) > 0.000001 || seat.GatedCompositeEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect ||
-		math.Abs(seat.GatedCompositeEdgePreShareMs+seat.GatedCompositeEdgePostShareMs-seat.RunnableMs) > 0.0000005 {
-		t.Fatalf("donghu 2614 refusal record must partition its account against the wait its wakeup ended: %+v", seat)
+	if math.Abs(seat.RunnableMs-0.018) > 0.002 || math.Abs(remainder.RunnableMs-19.545) > 0.002 ||
+		math.Abs(seat.HostWakeupEdgeAnchorTs-13763.006174) > 0.000001 || seat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect ||
+		math.Abs(seat.RunnableMs+remainder.RunnableMs-composite.RunnableMs) > 0.0000005 {
+		t.Fatalf("donghu 2614 must be partitioned against the wait its wakeup ended: seat=%+v rem=%+v", seat, remainder)
 	}
 }

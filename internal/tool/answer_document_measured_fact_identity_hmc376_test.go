@@ -184,8 +184,12 @@ func TestHMC376OccupancyShowsEachMeasuredStateAccountOncePublic(t *testing.T) {
 				if n.Subject != "NetworkService-60595" {
 					continue
 				}
+				// EVOLUTION RECORD (HMC377 R-377-4): the thread's ready time
+				// outside its dependency windows now rides a ◇ remainder row
+				// whose adjacent-channel ordinal is also 1; the priced seat is
+				// the CHAIN-channel rank 1.
 				switch {
-				case n.Rank == 1 && n.Predicate != "wakeup_causal_impact":
+				case n.Rank == 1 && n.Predicate != "wakeup_causal_impact" && n.ChainRelevance == "on_chain":
 					seat = n
 				case n.Predicate == "wakeup_causal_impact":
 					view = n
@@ -250,7 +254,12 @@ func TestHMC376HoneybirdOccupancyShowsMeasuredRunnableOnce(t *testing.T) {
 			adjacent = append(adjacent, n.ChainRelevance+" "+measuredFactMSHMC376(n.ImpactMS))
 		}
 	}
-	if strings.Join(onChain, "/") != "36.311/3.868/2.600/0.013" || strings.Join(adjacent, "/") != "adjacent 45.878" {
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): the adjacent whole-window account (45.878 ms) of the
+	// on-chain waker 64176 is no longer a second seat — it rides the chain
+	// seat as lossless detail — and only its ready time outside the
+	// dependency window remains adjacent: 45.878 − 45.378 = 0.500 ms (raw).
+	if strings.Join(onChain, "/") != "36.311/3.868/2.600/0.013" || strings.Join(adjacent, "/") != "adjacent 0.500" {
 		t.Fatalf("seats changed: on-chain=%v other=%v", onChain, adjacent)
 	}
 	if len(measuredFactRowsForHMC376(rows, "ele.crowdsource-64156 / sleep")) != 1 || len(measuredFactRowsForHMC376(rows, "ele.crowdsource-64156 / running")) != 1 {
@@ -313,8 +322,10 @@ func TestHMC376OccupancyShowsMultiOccurrenceAccountOncePublic(t *testing.T) {
 				if n.Subject != "NetworkService-60595" || n.StateKind != "runnable" {
 					continue
 				}
+				// EVOLUTION RECORD (HMC377 R-377-4): see above — the chain-
+				// channel rank 1, not the ◇ remainder's adjacent ordinal 1.
 				switch {
-				case n.Rank == 1:
+				case n.Rank == 1 && n.ChainRelevance == "on_chain":
 					seat = n
 				case n.Predicate == "wakeup_causal_aggregate":
 					aggregate = n

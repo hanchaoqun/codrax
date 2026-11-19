@@ -225,11 +225,28 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 	if !strings.Contains(pos, "因果位置: 确定性优化点(链上参与根因排序)") {
 		t.Fatalf("priced inside-wait semantic evidence participates in root-cause ranking:\n%s", pos)
 	}
-	// Tieba sentinels (positive window and negative window): no wakeup-anchored
-	// row at all.
+	// Tieba sentinels (positive window and negative window): the 61839
+	// VerifyClass span has no share inside a wait its wakeup ended, so no
+	// semantic row wears the wakeup credential.
+	// EVOLUTION RECORD (HMC377 E2-R1, owner ruling 2026-11-18): the negative
+	// window now renders ONE state seat with the credential — udk-irq-4-67's
+	// 0.007ms of ready time inside the wait of 59566 its own wakeup ended at
+	// 34579.471722 (raw oracle 0.007), formerly withheld as a refusal record
+	// of its indivisible inversion row. The sentinel's meaning (no
+	// wakeup-anchored SEMANTIC row on either window) is unchanged.
 	for _, w := range [][2]float64{{34579.490, 34579.500}, {34579.466, 34579.4965}} {
-		if fence := r3RealTreeFence(t, 59566, w[0], w[1]); strings.Contains(fence, "唤醒锚定(宿主→目标") {
-			t.Fatalf("tieba window %.4f..%.4f must not render any credential sentence:\n%s", w[0], w[1], fence)
+		fence := r3RealTreeFence(t, 59566, w[0], w[1])
+		head := ""
+		for _, line := range strings.Split(fence, "\n") {
+			// A row's head line is the first line that is not one of its "·"
+			// sub-lines; the credential sentence is a sub-line of its row.
+			if trimmed := strings.TrimLeft(line, " │"); trimmed != "" && !strings.HasPrefix(trimmed, "·") {
+				head = line
+			}
+			if strings.Contains(line, "唤醒锚定(宿主→目标") &&
+				(strings.Contains(head, "61839") || strings.Contains(head, "VerifyClass") || strings.Contains(head, "✦")) {
+				t.Fatalf("tieba window %.4f..%.4f must not render a wakeup-anchored semantic row:\n%s\n%s", w[0], w[1], head, line)
+			}
 		}
 	}
 }

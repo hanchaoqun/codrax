@@ -57,8 +57,8 @@ rival-30 (30) [001] .... 8.090000: sched_switch: prev_comm=rival prev_pid=30 pre
 	for _, tc := range []struct {
 		lang, word string
 	}{
-		{"zh", "优先级反转候选·同核可运行重叠"},
-		{"en", "priority inversion candidate · same-CPU runnable overlap"},
+		{"zh", "优先级反转候选·runnable(含同核低优先级运行重叠)"},
+		{"en", "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)"},
 	} {
 		t.Run(tc.lang, func(t *testing.T) {
 			bus := newBusForMutationTest()
@@ -112,8 +112,8 @@ func TestB1635bCandidateChannelsKeepDistinctSharedLabels(t *testing.T) {
 		zh                  bool
 		chainWord, selfWord string
 	}{
-		{true, "优先级反转候选", "优先级反转候选·同核可运行重叠"},
-		{false, "priority inversion (candidate)", "priority inversion candidate · same-CPU runnable overlap"},
+		{true, "优先级反转候选", "优先级反转候选·runnable(含同核低优先级运行重叠)"},
+		{false, "priority inversion (candidate)", "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)"},
 	} {
 		chain := gatedCalCompositeNode(2)
 		self := a5RunnableWaitSeat(3, 7.727)

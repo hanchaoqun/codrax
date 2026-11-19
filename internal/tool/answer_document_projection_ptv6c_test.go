@@ -312,8 +312,8 @@ func TestPTV6CImpactPointD4CombinedForm(t *testing.T) {
 		{"s_sleep", "sleep（s_sleep）", "s_sleep"},
 		// RULE3-1 件8 (§29.182②): the EN impact-point lane speaks the D4
 		// combined label-(token) form, mirroring the zh lane.
-		{"priority_inversion_runnable_wait", "优先级反转候选·同核可运行重叠", "priority inversion candidate · same-CPU runnable overlap"},
-		{"priority_inversion_runnable_wait/runnable", "优先级反转候选·同核可运行重叠/runnable", "priority inversion candidate · same-CPU runnable overlap/runnable"},
+		{"priority_inversion_runnable_wait", "优先级反转候选·runnable(含同核低优先级运行重叠)", "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)"},
+		{"priority_inversion_runnable_wait/runnable", "优先级反转候选·runnable(含同核低优先级运行重叠)/runnable", "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)/runnable"},
 		{"udk-irq-10-90", "udk-irq-10-90", "udk-irq-10-90"}, // unmapped: verbatim, never fabricated
 	}
 	for _, tc := range cases {
@@ -924,7 +924,7 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	if strings.Contains(fence, "反转影响") {
 		t.Fatalf("deleted 反转影响 resurfaced:\n%s", fence)
 	}
-	if !strings.Contains(fence, "影响点 优先级反转候选·同核可运行重叠") {
+	if !strings.Contains(fence, "影响点 优先级反转候选·runnable(含同核低优先级运行重叠)") {
 		t.Fatalf("影响点 must ride the D4 combined form:\n%s", fence)
 	}
 	// 关键行二 (成因 row): 名称即全词 (PTV7: runnable) → 重复 chip 融掉 (前:

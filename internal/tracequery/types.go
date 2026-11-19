@@ -4680,6 +4680,18 @@ type RootCauseRankItem struct {
 	// whose own typed identity contains the paired inode/entry interval; a
 	// generic burst or nearest-time association cannot set it.
 	resourceExactChainHostWork bool
+	// inversionAccountRepresentedBy / inversionAccountRepresents (unexported,
+	// HMC377 R-377-4 / E2-R1, never serialized): the paired typed identity
+	// of ONE physical thread's indivisible same-CPU inversion window account
+	// and the chain-tier seat that publishes the same thread's ready time
+	// inside the analysed thread's waits. The inversion row keeps every value
+	// (its overlap measurement is never split) and rides as that seat's
+	// lossless detail through the B4 absorbed carrier — one physical thread,
+	// one object. Minted only in pairs at the two sites that prove the
+	// identity (the RSPA inversion arm, the state-edge inversion arm); the
+	// reconciliation matches the exact key and nothing else.
+	inversionAccountRepresentedBy string
+	inversionAccountRepresents    string
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

@@ -131,6 +131,32 @@ func stateEdgeFullyAnchoredSummary(thread ThreadRef, family string, full float64
 		threadLabel(thread), family, full, stateEdgeWaitClause(split))
 }
 
+// stateEdgeInversionDetailClause — HMC377 E2-R1 / R-377-4: the clause a seat
+// priced from an indivisible inversion row's ready time carries. It names the
+// overlap measurement with its own word (measured over the whole ready
+// account, never split) and where that measurement rides.
+func stateEdgeInversionDetailClause(overlap, account float64) string {
+	return fmt.Sprintf("; the same-CPU lower-priority running overlap %.3fms was measured over the whole %.3fms ready-time account and is never split — that whole-account row rides as this seat's lossless detail",
+		overlap, account)
+}
+
+// stateEdgePlainRunnableCopy returns a ready-time (runnable_wait) copy of an
+// inversion-retyped window row: same thread, inventory and evidence, with
+// every inversion-only claim cleared (the copy publishes ready time only).
+func stateEdgePlainRunnableCopy(item RootCauseRankItem) RootCauseRankItem {
+	plain := cloneRootCauseMeasurementSources(item)
+	plain.Type = "runnable_wait"
+	plain.PriorityOverlap = nil
+	plain.GatedRunnableMs, plain.GatedRunningDeficitMs = 0, 0
+	plain.PriorityRelationCaliber = ""
+	plain.PriorityRelationProvenLowerMs = 0
+	plain.PriorityRelationUnknownOrNonLowerMs = 0
+	plain.PriorityRelationArtifactSources = nil
+	plain.inversionAccountRepresentedBy = ""
+	plain.inversionAccountRepresents = ""
+	return plain
+}
+
 // stateEdgeRemainderSummary — the ◇ clone's account: the host's time outside
 // every wait of the analysed thread that its wakeup ended. The ownership claim
 // reuses the RSPA verbatim anchor (the ⛓ twin IS a clipped ChainAnchorFullMs
@@ -233,6 +259,7 @@ func bareCensusEdgeStateSeatEligible(item *RootCauseRankItem, chainThreads map[i
 		threadInSet(chainThreads, item.Thread)
 	if strings.TrimSpace(item.OnChainBasis) != "" || item.AbsorbedByRankFamily ||
 		item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
+		item.inversionAccountRepresentedBy != "" ||
 		item.GatedShareConstituentSeat || item.ChainIdentityInheritance ||
 		((item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0) && !rspaZeroWholeRemainder) {
 		return stateEdgeLaneRefused // already adjudicated / processed forms (RSPA ⛓ and partition ◇ included)
@@ -396,20 +423,45 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 		}
 		priced := anchor.pricedBy(split)
 		if split.postMs > rspaAnchorIdentityTolMs {
-			// PARTSPLIT-1 (§29.150④, 2026-07-19) — EVOLUTION of the bare
-			// refusal: the R4-mirror gate still refuses the conversion
-			// (whole-seat floor — value/lane/ordinal byte-identical), but
-			// the refusal goes ON RECORD with its disclosure-only measures
-			// (HMC377 E2, owner ruling 2026-11-18: X inside the waits the
-			// host's wakeups ended + Y outside, X+Y == the runnable census
-			// account to the µs). Stamped atomically at this single site;
-			// deterministic re-stamp on the second pass (idempotent — same
-			// chain, same inventory, same windows).
-			item.GatedCompositeEdgePreShareMs = split.preMs
-			item.GatedCompositeEdgePostShareMs = split.postMs
-			item.GatedCompositeEdgeAnchorTs = priced.boundaryTs
-			item.GatedCompositeEdgeAnchorVia = priced.via()
-			return nil
+			// HMC377 E2-R1 (owner ruling 2026-11-18 "a thread that only
+			// delivered a wakeup is priced for its own time inside that wait";
+			// R-377-4 "one physical thread, one object") — EVOLUTION RECORD:
+			// PARTSPLIT-1 (§29.150④) refused the conversion whole and put the
+			// inside share on a disclosure-only record whose window-relative
+			// floor hid it (Yuanbao bindApplication: DefaultDispatch-10729
+			// ready 7.220ms inside an 8.163ms wait it ended, on no face). The
+			// inside share is a Σ of TRUE ready segments, not the gated
+			// composite: it is priced as its own on-chain scheduling-delay
+			// seat (the runnable_wait arm's ⛓ half, same partition). The
+			// inversion row itself is still never split: every value stays,
+			// and it rides as that seat's lossless detail (paired key →
+			// reconcileInversionAccountsRepresentedOnChain), so the thread is
+			// one object and its overlap measurement is never re-labelled.
+			// The inside and outside shares are the runnable_wait arm's exact
+			// partition (⛓ inside + ◇ remainder twin, Σ == the ready account),
+			// minted from a plain ready-time copy of the row.
+			plain := stateEdgePlainRunnableCopy(*item)
+			clone := plain
+			full := split.preMs + split.postMs
+			family := stateEdgeAnchorFamilyWord("runnable_wait")
+			seat := plain
+			seat.Rank, seat.BackgroundRank, seat.Tier = 0, 0, ""
+			convertStateSeatToEdgeAnchored(&seat, priced, split.preMs, split.preMs, 0, 0,
+				split.pre, nil, nil, split.stateEdgeSegmentSplit,
+				stateEdgeAnchoredSummary(item.Thread, family, split.preMs, full, split.postMs, split)+
+					stateEdgeInversionDetailClause(item.EffectiveImpactMs, item.RunnableMs))
+			seat.ChainAnchoredMs = split.preMs
+			seat.ChainAnchorFullMs = full
+			remainder := mintStateEdgeRemainderClone(clone, priced, split.preMs, full,
+				split.postMs, 0, 0, split.post, nil, nil, split.stateEdgeSegmentSplit,
+				stateEdgeRemainderSummary(item.Thread, family, split.postMs, full, split.preMs, split))
+			key := inversionAccountKey(*item)
+			seat.inversionAccountRepresents = key
+			item.inversionAccountRepresentedBy = key
+			item.Summary = appendRootCauseSummaryDetail(item.Summary,
+				fmt.Sprintf("its ready time inside %s (%.3fms of this %.3fms account) is priced as its own on-chain scheduling-delay seat and the rest as its adjacent remainder; this whole-account row keeps every value (the overlap measurement is never split) and rides as that seat's lossless detail",
+					stateEdgeWaitClause(split), split.preMs, item.RunnableMs))
+			return append(out, seat, remainder)
 		}
 		item.ChainRelevance = "on_chain"
 		item.Causality = "on_wakeup_chain"

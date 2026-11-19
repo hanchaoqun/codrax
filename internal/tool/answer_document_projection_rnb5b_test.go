@@ -508,7 +508,11 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 	for _, row := range model.TreeRows {
 		if row.Node.MicroAnchorFold {
 			foldLive = true
-			if row.MicroAnchorFoldDepthlessMembers != 2 {
+			// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4): 2→6 — four more
+			// µs-scale depthless ⛓ seats (inversion accounts' ready time
+			// inside their dependency windows, priced instead of refused)
+			// join the fold.
+			if row.MicroAnchorFoldDepthlessMembers != 6 {
 				t.Fatalf("the 2955 fold must carry the 2 remaining depthless members after B1260 promotes the qualified scheduling sub-seat: %+v", row)
 			}
 		}
@@ -528,9 +532,15 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 	// 0.228 of its 0.241ms ready time lies inside the waits of 2955 that its
 	// wakeups ended (raw oracle), so the indivisible seat keeps its home lane
 	// with its inside/outside record (0.228 + 0.013).
+	// EVOLUTION RECORD (HMC377 E2-R1 + R-377-4, owner rulings): 21→27 — the
+	// ready time of inversion window accounts inside their dependency windows
+	// is now priced as ⛓ seats (case-B chain threads render_service-1864,
+	// RSUniRenderThre-2188, VSyncGenerator-2179; host-edge wakers 2931, 2614,
+	// tppmgr-sched-in-4776) instead of riding ◇ whole or as refusal records;
+	// the census MAX below is unchanged.
 	n, x, _ := runtimeTraceProjUnadmittedOnChainDisclosure(model)
-	if n != 21 {
-		t.Fatalf("F8: the census must count fold members (want 21, got %d)", n)
+	if n != 27 {
+		t.Fatalf("F8: the census must count fold members (want 27, got %d)", n)
 	}
 	if x < 74.9 || x > 74.93 {
 		t.Fatalf("the census MAX stays the largest single row value (want ≈74.915, got %.3f)", x)

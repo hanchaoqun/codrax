@@ -440,6 +440,53 @@ func rspaLaneDemotionSummary(anchored, full float64, detail string) string {
 		anchored, full, detail)
 }
 
+// rspaInversionRepresentedSummary — HMC377 R-377-4: the engine-side sentence
+// for an inversion window account whose ready time inside the dependency
+// windows is published by the same thread's chain seat (the row becomes that
+// seat's lossless detail). It states the split of the RAW READY account; the
+// overlap measurement keeps its own name and is never re-labelled as the
+// whole account.
+func rspaInversionRepresentedSummary(anchored, full float64) string {
+	return fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the thread's typed wakeup-dependency windows, which that chain seat already publishes, and %.3fms lies outside them (published as the thread's adjacent ready-time remainder) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
+		anchored, full, full-anchored)
+}
+
+// inversionAccountKey is the paired identity minted on an indivisible
+// inversion window row and on the one seat that represents it (HMC377
+// R-377-4 / E2-R1). Exact typed fields only.
+func inversionAccountKey(item RootCauseRankItem) string {
+	return fmt.Sprintf("inversion_account:pid=%d|lines=%d-%d|window=%.6f..%.6f",
+		item.Thread.PID, item.LineStart, item.LineEnd, item.StatsWindowStartTs, item.StatsWindowEndTs)
+}
+
+// rspaChainRunnableSeatIndexByPID lists, per pid, the chain-lane seats that
+// own a runnable account under the rspaChainSeatPresenceByPID roles (the same
+// typed predicate: a priority_inversion_candidate row only through its gated
+// runnable component, every other chain row through DominantState runnable).
+func rspaChainRunnableSeatIndexByPID(items []RootCauseRankItem) map[int][]int {
+	var out map[int][]int
+	for i := range items {
+		if items[i].Thread.PID <= 0 || !strings.HasPrefix(strings.TrimSpace(items[i].Source), "wakeup_chain") ||
+			items[i].AbsorbedByRankFamily {
+			continue
+		}
+		runnable := false
+		if strings.TrimSpace(items[i].Type) == "priority_inversion_candidate" {
+			runnable = items[i].GatedRunnableMs > 0
+		} else {
+			runnable = items[i].DominantState == string(StateRunnable)
+		}
+		if !runnable {
+			continue
+		}
+		if out == nil {
+			out = map[int][]int{}
+		}
+		out[items[i].Thread.PID] = append(out[items[i].Thread.PID], i)
+	}
+	return out
+}
+
 // rspaRepresentedDemotionSummary — XLANE-1 件1 (§29.104.1/§29.104.2,
 // 2026-07-15): the honest engine-side sentence for the fully-anchored
 // satellite whose anchored share is already represented by the chain-lane
@@ -709,6 +756,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		return items
 	}
 	chainSeats := rspaChainSeatPresenceByPID(items)
+	chainRunnableSeatIndex := rspaChainRunnableSeatIndexByPID(items)
 	// RSPA M-D one-seat closure context transfer: the suppressed chain-lane
 	// D-IO rank row carried physical-extent (actual_*) and target-blocked
 	// disclosure the partition seats lack. When a pid holds EXACTLY ONE
@@ -817,7 +865,8 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 	for i := range items {
 		item := &items[i]
 		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily ||
-			item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat {
+			item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
+			item.inversionAccountRepresentedBy != "" {
 			continue
 		}
 		if item.Thread.PID <= 0 || !rootCauseItemIsOnChain(*item) {
@@ -944,6 +993,62 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				continue
 			}
 			if full <= 0 || full-anchored <= rspaAnchorIdentityTolMs {
+				continue
+			}
+			// HMC377 R-377-4 (owner ruling, §376 A audit failure 1): one
+			// physical thread, one object. The ready time of this window
+			// account inside the thread's dependency windows is the same time
+			// a chain seat of the thread publishes (case A: the chain lane
+			// already holds exactly one runnable seat of the pid) or must
+			// publish (case B: no chain runnable seat — the anchored share is
+			// minted as a plain ⛓ ready-time seat, the runnable_wait arm's
+			// clip). Either way the window account must not ride beside it as
+			// a separate time-adjacent "no chain credential" candidate: it
+			// keeps every value (the overlap measurement is still never split)
+			// and becomes that seat's lossless detail
+			// (reconcileInversionAccountsRepresentedOnChain, the B4 absorbed
+			// carrier). The ready time outside the windows is different time:
+			// the plain ◇ remainder twin, exactly as for an un-retyped window
+			// seat. Several chain runnable seats (no unique representative),
+			// or an un-retyped window runnable seat of the same pid that owns
+			// the same census account (case B would mint the anchored share
+			// twice), keep the former whole-seat demotion below.
+			if owners := chainRunnableSeatIndex[item.Thread.PID]; anchored > rspaAnchorIdentityTolMs &&
+				(len(owners) == 1 || (len(owners) == 0 && !decomposableRunnableWindowSeat[item.Thread.PID])) {
+				remainder := rspaClampNonNegative(full - anchored)
+				twin := stateEdgePlainRunnableCopy(*item)
+				twin.Rank, twin.BackgroundRank, twin.Tier = 0, 0, ""
+				presence := chainSeats[item.Thread.PID]
+				key := inversionAccountKey(*item)
+				switch {
+				case len(owners) == 1 && presence.runnable && decision.identityHolds &&
+					rspaWithinTol(presence.runnableMs, decision.anchoredMs):
+					rspaRewriteSeatToRemainder(&twin, anchored, full, remainder, 0, 0,
+						rspaRemainderSummary(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full))
+					items[owners[0]].inversionAccountRepresents = key
+				case len(owners) == 1:
+					rspaRewriteSeatToRemainder(&twin, anchored, full, remainder, 0, 0,
+						rspaRemainderSummaryDivergent(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+					twin.ChainAnchorOwnershipDivergent = true
+					twin.ChainAnchorChainLaneMs = presence.runnableMs
+					twin.ChainAnchorCensusMs = decision.anchoredMs
+					items[owners[0]].inversionAccountRepresents = key
+				default:
+					seat := stateEdgePlainRunnableCopy(*item)
+					seat.Rank, seat.BackgroundRank, seat.Tier = 0, 0, ""
+					rspaClipSeatToAnchored(&seat, anchored, full, anchored, 0, 0,
+						rspaAnchoredSummary(item.Thread, "runnable", anchored, full)+
+							stateEdgeInversionDetailClause(item.EffectiveImpactMs, item.RunnableMs))
+					seat.inversionAccountRepresents = key
+					appended = append(appended, seat)
+					rspaRewriteSeatToRemainder(&twin, anchored, full, remainder, 0, 0,
+						rspaRemainderSummary(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full))
+				}
+				appended = append(appended, twin)
+				item.inversionAccountRepresentedBy = key
+				item.Causality = "adjacent_to_wakeup_chain"
+				item.ChainRelevance = "adjacent"
+				item.Summary += rspaInversionRepresentedSummary(anchored, full)
 				continue
 			}
 			item.ChainCredentialLaneDemoted = true

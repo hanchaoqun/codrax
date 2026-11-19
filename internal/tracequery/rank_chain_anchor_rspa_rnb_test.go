@@ -407,15 +407,31 @@ func TestRSPARNBInversionRetypeLaneArm(t *testing.T) {
 	full.ledgerAnchoredRunnableMs = 8.0
 	items := reanchorOnChainStateSeats(chain, stats, []RootCauseRankItem{partial, full})
 	got := items[0]
-	if !got.ChainCredentialLaneDemoted || got.ChainRelevance != "adjacent" || got.Causality != "adjacent_to_wakeup_chain" {
-		t.Fatalf("partially anchored inversion seat must demote its lane: %+v", got)
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): with no chain-lane runnable seat of the pid, the anchored
+	// 5.0 ms of this account is minted as the thread's plain ⛓ ready-time
+	// seat (the runnable_wait case-B clip), the outside 3.0 ms is its plain ◇
+	// remainder, and the composite no longer rides ◇ as a separate "no chain
+	// credential" candidate: it keeps every value and pairs with the ⛓ seat
+	// as its lossless detail.
+	if got.ChainCredentialLaneDemoted || got.ChainRelevance != "adjacent" || got.Causality != "adjacent_to_wakeup_chain" ||
+		got.inversionAccountRepresentedBy == "" {
+		t.Fatalf("partially anchored inversion composite must pair with its ⛓ seat: %+v", got)
 	}
 	if got.RunnableMs != 8.0 || got.EffectiveImpactMs != 2.0 || got.GatedRunnableMs != 2.0 || got.Score != 1.5 ||
 		got.ChainAnchorFullMs != 0 || got.ChainAnchoredMs != 0 {
-		t.Fatalf("lane demotion must leave every published value untouched (值零动): %+v", got)
+		t.Fatalf("the composite keeps every published value untouched (值零动): %+v", got)
 	}
-	if !strings.Contains(got.Summary, "no chain credential for the full account") {
-		t.Fatalf("lane demotion must disclose: %q", got.Summary)
+	if len(items) != 4 {
+		t.Fatalf("⛓ seat and ◇ remainder must be appended: %+v", items)
+	}
+	seat, rem := items[2], items[3]
+	if seat.Type != "runnable_wait" || seat.ChainRelevance != "on_chain" || seat.RunnableMs != 5.0 ||
+		seat.inversionAccountRepresents != got.inversionAccountRepresentedBy || seat.GatedRunnableMs != 0 {
+		t.Fatalf("anchored share must be the plain ⛓ ready-time seat: %+v", seat)
+	}
+	if rem.Type != "runnable_wait" || !rem.ChainAnchorRemainderSeat || rem.RunnableMs != 3.0 || rem.ChainRelevance != "adjacent" {
+		t.Fatalf("outside share must be the plain ◇ remainder: %+v", rem)
 	}
 	kept := items[1]
 	if kept.ChainCredentialLaneDemoted || kept.ChainRelevance != "on_chain" {

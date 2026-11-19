@@ -289,45 +289,46 @@ func TestBareCensusEdgeStateSeatInversionR4Mirror(t *testing.T) {
 	if !strings.Contains(got.Summary, "the inversion seat is never split") {
 		t.Fatalf("① disclosure sentence drifted: %q", got.Summary)
 	}
-	// ② any post-edge share: the seat's published authority stays untouched —
-	// EVOLUTION RECORD (PARTSPLIT-1 §29.150④, 2026-07-19): the former
-	// byte-identical assertion evolves DELIBERATELY into the 拒转+披露 form:
-	// the refusal now goes on record as the four disclosure-only measure
-	// fields (X=3.5 pre + Y=1.5 post == the 5.0 runnable account, boundary
-	// 6.006, via=direct), while EVERY pre-existing field stays byte-identical
-	// (value/lane/ordinal zero-motion — the R4 whole-seat floor holds).
+	// ② any post-edge share — EVOLUTION RECORD (HMC377 E2-R1 + R-377-4,
+	// owner rulings 2026-11-18/19): PARTSPLIT-1 (§29.150④) refused the
+	// conversion and stamped a disclosure-only record (X=3.5 inside + Y=1.5
+	// outside). The inside share is a Σ of true ready segments, so it is now
+	// priced as its own ⛓ scheduling-delay seat (3.5) with the plain ◇
+	// remainder twin (1.5) — the runnable_wait arm's exact partition — while
+	// the inversion row itself keeps every value (never split) and pairs with
+	// the ⛓ seat as its lossless detail. No refusal record is stamped.
 	partial := base // segments straddle the 6.006 boundary
 	before := partial
 	items = anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{partial})
-	if len(items) != 1 {
-		t.Fatalf("② no clone may mint for the refused composite: %+v", items)
+	if len(items) != 3 {
+		t.Fatalf("② the inside/outside shares must be priced beside the untouched composite: %+v", items)
 	}
-	refused := items[0]
-	if math.Abs(refused.GatedCompositeEdgePreShareMs-3.5) > 0.0005 ||
-		math.Abs(refused.GatedCompositeEdgePostShareMs-1.5) > 0.0005 ||
-		math.Abs(refused.GatedCompositeEdgeAnchorTs-6.006) > 0.0000005 ||
-		refused.GatedCompositeEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
-		t.Fatalf("② the refusal record must carry the bisection measures: %+v", refused)
+	home, seat, rem := items[0], items[1], items[2]
+	if home.GatedCompositeEdgePreShareMs != 0 || home.GatedCompositeEdgePostShareMs != 0 ||
+		home.GatedCompositeEdgeAnchorTs != 0 || home.GatedCompositeEdgeAnchorVia != "" {
+		t.Fatalf("② a priced share is not a refusal record: %+v", home)
 	}
-	// µs identity: X + Y == the runnable census account, exactly.
-	if math.Abs(refused.GatedCompositeEdgePreShareMs+refused.GatedCompositeEdgePostShareMs-refused.RunnableMs) > 0.0000005 {
-		t.Fatalf("② X+Y==RunnableMs identity broken: %.6f + %.6f != %.6f",
-			refused.GatedCompositeEdgePreShareMs, refused.GatedCompositeEdgePostShareMs, refused.RunnableMs)
+	if math.Abs(seat.RunnableMs-3.5) > 0.0005 || math.Abs(rem.RunnableMs-1.5) > 0.0005 ||
+		math.Abs(seat.RunnableMs+rem.RunnableMs-home.RunnableMs) > 0.0000005 {
+		t.Fatalf("② inside + outside == the runnable account: %.6f + %.6f != %.6f", seat.RunnableMs, rem.RunnableMs, home.RunnableMs)
 	}
-	// Published authority zero-motion: strip the four disclosure fields and
-	// the row is byte-identical to its pre-pass copy.
-	stripped := refused
-	stripped.GatedCompositeEdgePreShareMs = 0
-	stripped.GatedCompositeEdgePostShareMs = 0
-	stripped.GatedCompositeEdgeAnchorTs = 0
-	stripped.GatedCompositeEdgeAnchorVia = ""
-	if !reflect.DeepEqual(stripped, before) {
-		t.Fatalf("② beyond the disclosure fields the refused seat must stay byte-identical:\n got=%+v\nwant=%+v", stripped, before)
+	if seat.ChainRelevance != "on_chain" || seat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState ||
+		math.Abs(seat.HostWakeupEdgeAnchorTs-6.006) > 0.0000005 || seat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
+		t.Fatalf("② the inside share carries the host-edge state basis: %+v", seat)
 	}
-	// Idempotency: the second pass re-stamps the same deterministic record.
-	again := anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{refused})
-	if len(again) != 1 || !reflect.DeepEqual(again[0], refused) {
-		t.Fatalf("② the refusal record must be idempotent across the double pass: %+v", again)
+	// The composite's published authority is untouched beyond its summary
+	// detail and the pairing key.
+	stripped := home
+	stripped.Summary = before.Summary
+	stripped.inversionAccountRepresentedBy = ""
+	if !reflect.DeepEqual(stripped, before) || home.inversionAccountRepresentedBy == "" ||
+		home.inversionAccountRepresentedBy != seat.inversionAccountRepresents {
+		t.Fatalf("② beyond the pairing the composite must stay byte-identical:\n got=%+v\nwant=%+v", stripped, before)
+	}
+	// Idempotency: the second pass mints nothing more.
+	again := anchorBareCensusEdgeStateSeats(chain, items)
+	if len(again) != 3 || !reflect.DeepEqual(again, items) {
+		t.Fatalf("② the partition must be idempotent across the double pass: %+v", again)
 	}
 }
 

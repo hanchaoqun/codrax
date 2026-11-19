@@ -24492,6 +24492,13 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 	// reader label must follow the row's typed causal position rather than the
 	// historical ClaimKey prefix; otherwise a symptom row is visually crowned
 	// as a root cause even though the value and admission logic remain honest.
+	// HMC377 R-377-4: a row the engine absorbed into another published row
+	// (root_cause_absorbed — its account is that row's lossless detail) is
+	// never a separate cause, adjacent candidate or background object; it is
+	// named as the merged detail it is.
+	if claim == "root_cause_absorbed" {
+		return label("合并明细观测", "merged-detail observation")
+	}
 	if strings.HasPrefix(claim, "root_cause") || strings.HasPrefix(claim, "root_evidence") {
 		if scoped := traceQueryObservationSupplementNonCauseLabel(record, zh); scoped != "" {
 			return scoped
@@ -24692,10 +24699,36 @@ func traceQueryObservationValue(record types.ObservationRecord, zh bool) string 
 	if unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
 		value += unit
 	}
+	// HMC377 R-377-4: the inversion runnable row's value is its whole
+	// ready-time account; the same-CPU lower-priority overlap is a part of it
+	// with its own typed value, named on the same line so the account is never
+	// read as the overlap.
+	if overlap := traceQueryObservationRunnableInversionOverlap(record); overlap != "" {
+		if zh {
+			return "值=" + value + "(全部 runnable 时间)；其中同核低优先级运行重叠=" + overlap + "ms"
+		}
+		return "value=" + value + " (whole runnable time); of which same-CPU lower-priority running overlap=" + overlap + "ms"
+	}
 	if zh {
 		return "值=" + value
 	}
 	return "value=" + value
+}
+
+// traceQueryObservationRunnableInversionOverlap returns the typed overlap of
+// a priority_inversion_runnable_wait row, or "". It reads the gated runnable
+// note (the overlap measurement itself), never the effective-attribution
+// note: a background row publishes effective 0 as its no-attribution
+// sentinel while its overlap measurement is unchanged.
+func traceQueryObservationRunnableInversionOverlap(record types.ObservationRecord) string {
+	typeToken := strings.ToLower(strings.TrimSpace(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyType)))
+	if typeToken == "" {
+		typeToken = strings.ToLower(strings.TrimSpace(record.Object))
+	}
+	if typeToken != "priority_inversion_runnable_wait" || strings.TrimSpace(record.Unit) != "ms" {
+		return ""
+	}
+	return strings.TrimSpace(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyGatedRunnable))
 }
 
 func traceQueryObservationIOActivityIndex(record types.ObservationRecord) string {
@@ -25059,6 +25092,20 @@ func traceQueryObservationSupplementWakeEndedBlockingRow(record types.Observatio
 		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyPeerSource) == tracequery.CounterpartSourceWakeupEdge
 }
 
+// traceQueryObservationSupplementAbsorbedLaneNote reports a lane note
+// (causal basis / chain relevance) on a row absorbed into another published
+// row (HMC377 R-377-4). Such a row's causal standing is the absorbing row's;
+// repeating its own pre-absorption lane would re-publish it as a separate
+// time-adjacent or background candidate for the same time. Exact typed claim
+// and note keys only.
+func traceQueryObservationSupplementAbsorbedLaneNote(record types.ObservationRecord, note string) bool {
+	if strings.TrimSpace(record.ClaimKey) != "root_cause_absorbed" {
+		return false
+	}
+	key, _, _ := strings.Cut(note, "=")
+	return key == types.TraceNoteKeyCausality || key == types.TraceNoteKeyChainRelevance
+}
+
 func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
 	seen := map[string]bool{}
 	notes := make([]string, 0, 4)
@@ -25099,6 +25146,10 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 			if note == "" || seen[note] || !strings.HasPrefix(note, prefix) {
 				continue
 			}
+			if traceQueryObservationSupplementAbsorbedLaneNote(record, note) {
+				seen[note] = true
+				continue
+			}
 			if redundant(note) {
 				seen[note] = true
 				continue
@@ -25114,6 +25165,9 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		}
 		note = strings.TrimSpace(note)
 		if note == "" || seen[note] || redundant(note) {
+			continue
+		}
+		if traceQueryObservationSupplementAbsorbedLaneNote(record, note) {
 			continue
 		}
 		for _, prefix := range traceQueryObservationSupplementAllowedNotePrefixes {

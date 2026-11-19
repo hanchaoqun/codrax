@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	a5RunnableWaitWordZH = "优先级反转候选·同核可运行重叠"
+	a5RunnableWaitWordZH = "优先级反转候选·runnable(含同核低优先级运行重叠)"
 	a5CandidateWordZH    = "优先级反转候选"
 )
 
@@ -53,7 +53,7 @@ func TestA5RunnableWaitTokenThreeFacesSameWord(t *testing.T) {
 	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, true); word != a5RunnableWaitWordZH {
 		t.Fatalf("行2 zh: got %q, want %q", word, a5RunnableWaitWordZH)
 	}
-	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority inversion candidate · same-CPU runnable overlap" {
+	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)" {
 		t.Fatalf("行2 en: got %q, want the §29.182② ruled word", word)
 	}
 	// Shape cell — same bytes, never the deleted third word and never a bare
@@ -61,7 +61,7 @@ func TestA5RunnableWaitTokenThreeFacesSameWord(t *testing.T) {
 	if cell, generic := runtimeTraceCausalProjectionImpactShapeCellTyped(node, true); cell != a5RunnableWaitWordZH || generic {
 		t.Fatalf("shape cell zh: got (%q, %v)", cell, generic)
 	}
-	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority inversion candidate · same-CPU runnable overlap" {
+	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)" {
 		t.Fatalf("shape cell en: got %q", cell)
 	}
 	// C7 family-word cell — same bytes (the form table's candidate CategoryZH

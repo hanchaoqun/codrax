@@ -99,6 +99,16 @@ func TestHMC377WholeOriginalHoneybirdOneIdentityPerThread(t *testing.T) {
 		case item.Type == "priority_inversion_runnable_wait" && item.Thread.PID == 64156:
 			overlap = item
 		case item.Type == "priority_inversion_runnable_wait" && item.Thread.PID == 64176:
+			t.Fatalf("one physical thread, one object (R-377-4): the waker's window account must not stay a separate board row: %s", hmc376RowLabel(*item))
+		}
+	}
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling): the waker's whole
+	// window ready account (45.878 ms, overlap 8.408 ms) used to ride the ◇
+	// lane as a second object beside its own chain seat; it is now that
+	// seat's lossless detail on the absorbed carrier, values unchanged.
+	for i := range native.RootCauseRank.AbsorbedItems {
+		item := &native.RootCauseRank.AbsorbedItems[i]
+		if item.Type == "priority_inversion_runnable_wait" && item.Thread.PID == 64176 {
 			adjacentOverlap = item
 		}
 	}

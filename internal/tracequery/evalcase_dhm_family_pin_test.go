@@ -89,11 +89,20 @@ func TestEvalcaseDHMA1aTwoRulerRunnableConservation(t *testing.T) {
 	// priced (none of it lies inside a wait of 59843 that 59566's wakeups
 	// ended — raw oracle 0.000), so the 0.399 wall seat takes #12 back;
 	// subjects, values and both subtotals stay unchanged.
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): wall seat ranks 4 / 12 → 4 / 13. NetworkService-60595,
+	// com.baidu.tieba-59566 and ThreadPoolForeg-60555 hold no chain-lane
+	// runnable seat; their inversion window accounts used to ride ◇ whole
+	// with "no chain credential" although 18.876 / 1.742 / 1.246 ms of their
+	// ready time lies inside their dependency windows. That anchored share is
+	// now their plain ⛓ ready-time seat (the runnable_wait case-B clip), so
+	// one more chain row ranks above the 0.399 wall seat; subjects, values
+	// and both subtotals stay unchanged.
 	if len(tr.WallSeats) != 2 || len(tr.EdgeSeats) != 1 {
 		t.Fatalf("DHM-A1a: ruler membership drifted: wall=%d edge=%d", len(tr.WallSeats), len(tr.EdgeSeats))
 	}
 	if tr.WallSeats[0].Rank != 4 || !near(tr.WallSeats[0].EffMs, 8.307, 0.001) ||
-		tr.WallSeats[1].Rank != 12 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
+		tr.WallSeats[1].Rank != 13 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
 		t.Fatalf("DHM-A1a: wall seats drifted: %+v", tr.WallSeats)
 	}
 	if tr.EdgeSeats[0].Rank != 7 || !near(tr.EdgeSeats[0].EffMs, 4.067, 0.001) {
@@ -294,8 +303,15 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 	// than being swallowed by DominantState, so the board holds 9 candidates
 	// + 6 wait rows. This is a publication pin; the test's composite-score
 	// subject stays present and is checked below.
-	if candidates != 9 || waits != 6 {
-		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 9/6), roster=%v", candidates, waits, inversionRoster)
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): waits 6 → 2. The whole-window inversion accounts of
+	// OS_FFRT_2_0-2614, ransmitThread-18132, wk:0/0/1/14-53879 and
+	// ransmitThread-18130 — each thread holding its own chain candidate seat —
+	// now ride as that seat's lossless detail on the absorbed carrier (values
+	// unchanged), and their ready time outside the dependency windows is the
+	// plain ◇ remainder. The 9 candidates are unchanged.
+	if candidates != 9 || waits != 2 {
+		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 9/2), roster=%v", candidates, waits, inversionRoster)
 	}
 	for _, item := range rank.Items {
 		if item.Type == "block_io_by_inode" && item.Thread.PID == 17267 && rootCauseItemIsOnChain(item) {
@@ -409,7 +425,12 @@ func TestEvalcaseDHMA7bSameTraceDualWindowScoping(t *testing.T) {
 		t.Fatalf("DHM-A7b: early-window inversion seat drifted: %+v", earlyInv)
 	}
 	lateRun := evalcaseDHMFindItem(late.Items, "runnable_wait", 59843)
-	if lateRun == nil || lateRun.Rank != 1 || !near(lateRun.ImpactMs, 0.689, 0.001) {
+	// EVOLUTION RECORD (HMC377 E2-R1, owner ruling 2026-11-18): adjacent
+	// ordinal 1 → 2. Chrome_IOThread-60560's inversion window account in the
+	// late window is now priced as its 0.056ms ⛓ inside share plus its plain
+	// 4.630ms ◇ outside remainder, which takes the first ◇ ordinal; this
+	// pin's window-scoping meaning (0.689ms here, never 19.372) is unchanged.
+	if lateRun == nil || lateRun.Rank != 2 || !near(lateRun.ImpactMs, 0.689, 0.001) {
 		t.Fatalf("DHM-A7b: late-window runnable seat drifted: %+v", lateRun)
 	}
 	// The early-window envelope value appears NOWHERE on the late board for

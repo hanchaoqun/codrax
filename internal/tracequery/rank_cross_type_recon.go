@@ -264,6 +264,7 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	// evidence retain each partition while the discounted periodic row is
 	// the sole rank-value owner.
 	reconcileRSPAMultiPartitionPeriodicAccounts(pool, absorbed)
+	reconcileInversionAccountsRepresentedOnChain(pool, absorbed)
 	// Resolve transitive ownership (for example scheduler_latency ->
 	// window_stats runnable -> causal runnable) onto the terminal active row.
 	// Cycles are impossible in the directed adjudication table; defend anyway.
@@ -328,6 +329,43 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	}
 	rank.Items = active
 	rank.AbsorbedItems = lossless
+}
+
+// reconcileInversionAccountsRepresentedOnChain (HMC377 R-377-4 / E2-R1, owner
+// ruling "one physical thread, one object"): an indivisible same-CPU inversion
+// window account whose thread's ready time inside the analysed thread's waits
+// is published by a chain-tier seat of the SAME thread joins that seat as
+// lossless detail. Closed typed proof only: the paired key minted at the two
+// proving sites (RSPA inversion arm — exactly one chain-lane runnable seat of
+// the pid; state-edge inversion arm — the inside-share seat it minted), the
+// same numeric TID on both rows, and exactly one representing row in the
+// pool. Anything else leaves the former publication untouched. Values never
+// participate: the absorbed row keeps every published value on the carrier.
+func reconcileInversionAccountsRepresentedOnChain(pool []RootCauseRankItem, absorbed map[int]int) {
+	owners := map[string][]int{}
+	for i := range pool {
+		if key := pool[i].inversionAccountRepresents; key != "" {
+			owners[key] = append(owners[key], i)
+		}
+	}
+	if len(owners) == 0 {
+		return
+	}
+	for i := range pool {
+		key := pool[i].inversionAccountRepresentedBy
+		if key == "" {
+			continue
+		}
+		if _, already := absorbed[i]; already {
+			continue
+		}
+		candidates := owners[key]
+		if len(candidates) != 1 || candidates[0] == i ||
+			pool[candidates[0]].Thread.PID <= 0 || pool[candidates[0]].Thread.PID != pool[i].Thread.PID {
+			continue
+		}
+		absorbed[i] = candidates[0]
+	}
 }
 
 func reconcileRSPAMultiPartitionPeriodicAccounts(pool []RootCauseRankItem, absorbed map[int]int) {

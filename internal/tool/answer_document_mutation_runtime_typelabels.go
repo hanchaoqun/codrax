@@ -43,7 +43,16 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// B1635b: this channel proves same-CPU runnable overlap, not a
 		// holder/waiter dependency. Keep its candidate boundary on every
 		// shared reader face without changing the typed cause or its rank.
-		return "优先级反转候选·同核可运行重叠"
+		//
+		// EVOLUTION RECORD (HMC377 R-377-4, owner ruling on §376 A audit
+		// failure 1): the word named only the overlap, but the row's value on
+		// every account face (headline, 值=, detail table, appendix) is the
+		// thread's whole ready-time account (Honeybird 64176: 45.878ms of
+		// ready time read as "same-core runnable overlap"; the overlap was
+		// 8.408ms). The measure word now names the account the value is —
+		// runnable — and the overlap as the part inside it; the effective
+		// faces keep their own 折算/有效归因 words for the overlap value.
+		return TraceRunnableInversionAccountWord(true)
 	case "io_latency":
 		return types.TraceIOValueCaliberLabel("", true)
 	case "io_wait":
@@ -164,7 +173,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "priority_inversion_candidate":
 		return "priority inversion (candidate)"
 	case "priority_inversion_runnable_wait":
-		return "priority inversion candidate · same-CPU runnable overlap"
+		return TraceRunnableInversionAccountWord(false)
 	case "io_latency":
 		return types.TraceIOValueCaliberLabel("", false)
 	case "io_wait":
@@ -258,6 +267,19 @@ func TraceRootCauseTypeZHLabel(token string) string {
 // lexicon to prompt consumers. The raw token remains the wire/audit identity;
 // callers use this label only to reduce model reconstruction work when
 // authoring visible prose. Unmapped values fail closed with an empty label.
+// TraceRunnableInversionAccountWord is the ONE word source for the
+// priority_inversion_runnable_wait row (HMC377 R-377-4): its published value
+// is the thread's ready-time (runnable) account, and the same-CPU
+// lower-priority running overlap is a part measured inside that account. The
+// word therefore names the account kind first and the overlap as contained in
+// it — never the overlap as if it were the whole value.
+func TraceRunnableInversionAccountWord(zh bool) string {
+	if zh {
+		return "优先级反转候选·runnable(含同核低优先级运行重叠)"
+	}
+	return "priority inversion candidate · runnable (incl. same-CPU lower-priority running overlap)"
+}
+
 func TraceRootCauseTypeDisplayLabel(token string, zh bool) string {
 	if zh {
 		return runtimeTraceRootCauseTypeZHLabel(token)
