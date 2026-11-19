@@ -512,7 +512,15 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 			// µs-scale depthless ⛓ seats (inversion accounts' ready time
 			// inside their dependency windows, priced instead of refused)
 			// join the fold.
-			if row.MicroAnchorFoldDepthlessMembers != 6 {
+			// EVOLUTION RECORD (HMC377 fix round 2, F3 — a chain member is
+			// priced over the union of its chain windows and the waits of
+			// the analysed thread its own wakeup ended): 6→5. Under this
+			// pin's degenerate chain caps RSUniRenderThre-2188's ⛓ seat is
+			// 0.056 → 0.571: raw, its 1.495ms ready account is 0.056 inside
+			// the walked window + 0.515 inside 2955's waits its own wakeups
+			// ended that the chain did not walk + 0.924 outside; it is no
+			// longer a µs-scale seat and leaves the micro fold.
+			if row.MicroAnchorFoldDepthlessMembers != 5 {
 				t.Fatalf("the 2955 fold must carry the 2 remaining depthless members after B1260 promotes the qualified scheduling sub-seat: %+v", row)
 			}
 		}

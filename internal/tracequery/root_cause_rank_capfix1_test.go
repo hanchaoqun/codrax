@@ -454,7 +454,14 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		// 12-seat cap to larger chain rows, while their whole-account
 		// composites leave the background pool for the absorbed carrier.
 		// Total 53 and the largest on-chain casualty are unchanged.
-		"; 53 valued candidate row(s) did not enter the published board (on_chain=6/adjacent=3/background=44)",
+		// EVOLUTION RECORD (HMC377 fix round 2, F3): old → new = "53 …
+		// (on_chain=6/…)" → "54 … (on_chain=7/…)". CookieMonsterCl-59843's
+		// ready time inside 59566's waits its own wakeups ended that the chain
+		// did not walk (raw 0.220 of its 26.762ms account, oracle/
+		// raw_tieba_trace.txt) is now an on-chain seat; it loses the 12-seat
+		// cap to larger chain rows. The largest on-chain casualty and the
+		// carve tooth are unchanged (a non-carving mutant reads one more).
+		"; 54 valued candidate row(s) did not enter the published board (on_chain=7/adjacent=3/background=44)",
 		"largest on_chain priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
 		"链上最大 priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
 		"另 1 行自身侧道已发布",

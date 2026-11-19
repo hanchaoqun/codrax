@@ -424,14 +424,36 @@ func TestEvalcaseDHMA7bSameTraceDualWindowScoping(t *testing.T) {
 	if earlyInv == nil || !near(earlyInv.ImpactMs, 19.372, 0.001) {
 		t.Fatalf("DHM-A7b: early-window inversion seat drifted: %+v", earlyInv)
 	}
-	lateRun := evalcaseDHMFindItem(late.Items, "runnable_wait", 59843)
 	// EVOLUTION RECORD (HMC377 E2-R1, owner ruling 2026-11-18): adjacent
 	// ordinal 1 → 2. Chrome_IOThread-60560's inversion window account in the
 	// late window is now priced as its 0.056ms ⛓ inside share plus its plain
 	// 4.630ms ◇ outside remainder, which takes the first ◇ ordinal; this
 	// pin's window-scoping meaning (0.689ms here, never 19.372) is unchanged.
-	if lateRun == nil || lateRun.Rank != 2 || !near(lateRun.ImpactMs, 0.689, 0.001) {
+	// EVOLUTION RECORD (HMC377 fix round 2, F3): old → new = ◇ remainder
+	// 0.689 at adjacent ordinal 2 → ◇ remainder 0.319 at ordinal 3 plus an
+	// on-chain ready-time seat 0.370. Raw (oracle/raw_tieba_late.txt): the
+	// late-window ready account 7.390 = 6.701 inside the walked chain windows
+	// + 0.370 inside 59566's waits that 59843's own wakeups ended but the
+	// chain did not walk + 0.319 outside; the 0.370 is a cause under the
+	// wakeup credential rule and no longer sits in the remainder. The
+	// window-scoping meaning is unchanged (late values only, never 19.372).
+	var lateRun, lateInside *RootCauseRankItem
+	for i := range late.Items {
+		item := &late.Items[i]
+		if item.Type != "runnable_wait" || item.Thread.PID != 59843 {
+			continue
+		}
+		if item.ChainAnchorRemainderSeat {
+			lateRun = item
+		} else if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
+			lateInside = item
+		}
+	}
+	if lateRun == nil || lateRun.Rank != 3 || !near(lateRun.ImpactMs, 0.319, 0.001) || !near(lateRun.ChainAnchorFullMs, 7.390, 0.001) {
 		t.Fatalf("DHM-A7b: late-window runnable seat drifted: %+v", lateRun)
+	}
+	if lateInside == nil || !near(lateInside.ImpactMs, 0.370, 0.001) || !rootCauseItemIsOnChain(*lateInside) {
+		t.Fatalf("DHM-A7b: late-window ready time inside the unwalked waits drifted: %+v", lateInside)
 	}
 	// The early-window envelope value appears NOWHERE on the late board for
 	// this thread (window-scoped accounting, no cross-window travel).
