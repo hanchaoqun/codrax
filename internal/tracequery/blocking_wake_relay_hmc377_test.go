@@ -193,3 +193,65 @@ func TestHMC377RelayNeedsTheWakerReleasedAndNotSleepingAgain(t *testing.T) {
 		t.Fatalf("a released waker passing the wake straight on is a relay: %+v", rows[100])
 	}
 }
+
+// HMC377 fix round 2, item F7: the "slept again in between" check reads a
+// per-thread index of the wakeup rows built once per relay pass instead of
+// scanning every event for each candidate pair. The verdict must be exactly
+// the row scan's: wakeup and waking rows naming the thread by id, strictly
+// inside (after, before), never a sched_wakeup_new incarnation row, rows of
+// other threads ignored, unsorted input handled, and no trace index proves
+// nothing (fail closed).
+func TestHMC377WakeRelayWakeupIndexMatchesTheRowScan(t *testing.T) {
+	scan := func(idx *Index, thread ThreadRef, after, before float64) bool {
+		if idx == nil {
+			return true
+		}
+		for i := range idx.Events {
+			ev := &idx.Events[i]
+			if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
+				continue
+			}
+			if ev.Ts <= after || ev.Ts >= before || schedWakeupStartsNewIncarnation(*ev) {
+				continue
+			}
+			if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
+				return true
+			}
+		}
+		return false
+	}
+	idx := &Index{Events: []Event{
+		{Type: EventSchedWakeup, Name: "sched_wakeup", Ts: 1.300, WakeePID: 7},
+		{Type: EventSchedWaking, Name: "sched_waking", Ts: 1.100, WakeePID: 7},
+		{Type: EventSchedWakeup, Name: "sched_wakeup_new", Ts: 1.500, WakeePID: 7},
+		{Type: EventSchedWakeup, Name: "sched_wakeup", Ts: 1.200, WakeePID: 8},
+		{Type: EventSchedSwitch, Ts: 1.250, PrevPID: 7, NextPID: 8},
+		{Type: EventSchedWakeup, Name: "sched_wakeup", Ts: 1.700, WakeePID: 7},
+	}}
+	items := []CriticalBlockingCandidate{
+		{Type: "blocking_span", PeerSource: CounterpartSourceWakeupEdge, Peer: ThreadRef{PID: 7, Comm: "w"}, peerWakeTs: 1, WaitObject: hmc377RelayWait},
+		{Type: "blocking_span", PeerSource: CounterpartSourceWakeupEdge, Peer: ThreadRef{PID: 8, Comm: "v"}, peerWakeTs: 1, WaitObject: hmc377RelayWait},
+	}
+	wakes := newWakeeWakeupIndex(idx, items)
+	bounds := []float64{1.000, 1.100, 1.150, 1.200, 1.250, 1.300, 1.400, 1.500, 1.600, 1.700, 1.800}
+	trues := 0
+	for _, thread := range []ThreadRef{{PID: 7, Comm: "w"}, {PID: 8, Comm: "v"}} {
+		for _, after := range bounds {
+			for _, before := range bounds {
+				want := scan(idx, thread, after, before)
+				if got := wakes.wokenBetween(thread, after, before); got != want {
+					t.Fatalf("thread %d (%.3f, %.3f): index says %v, the row scan says %v", thread.PID, after, before, got, want)
+				}
+				if want {
+					trues++
+				}
+			}
+		}
+	}
+	if trues == 0 {
+		t.Fatal("the grid must exercise woken verdicts")
+	}
+	if !(*wakeeWakeupIndex)(nil).wokenBetween(ThreadRef{PID: 7}, 1.0, 2.0) || newWakeeWakeupIndex(nil, items) != nil {
+		t.Fatal("no trace index must prove nothing (fail closed)")
+	}
+}
