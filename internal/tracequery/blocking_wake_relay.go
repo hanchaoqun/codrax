@@ -26,13 +26,20 @@ import (
 //     never a keyword test of the name);
 //   - the waker's own wait began before it woke this waiter, and its own wake
 //     edge lies inside this waiter's wait and no later than the wake it passed
-//     on.
+//     on;
+//   - HMC377 D2-R4: the waker's own recorded wait had ENDED when it woke this
+//     waiter (a waker still inside its own span is not released from it), and
+//     no wakeup named the waker between its own release and the wake it
+//     passed on (it never slept again in between — a later sleep means the
+//     wake it passed on came from other work, as the two real waitForever
+//     fence pairs showed). The second check reads the same wakeup rows the
+//     counterpart resolver reads; with no index the pair is not proven.
 //
 // The upstream party is the waker of the first non-relay wait along the relay
 // chain. The verdict is wording input only: values, chain relevance, rank and
 // every gate are untouched; rows without the proof keep the neutral
 // "the thread that woke the waiter" reading.
-func stampBlockingWakeRelays(items []CriticalBlockingCandidate) {
+func stampBlockingWakeRelays(idx *Index, items []CriticalBlockingCandidate) {
 	byThread := map[int][]int{}
 	for i := range items {
 		if blockingRowWokenByEdge(items[i]) && items[i].Thread.PID > 0 {
@@ -46,7 +53,7 @@ func stampBlockingWakeRelays(items []CriticalBlockingCandidate) {
 	for i := range items {
 		next[i] = -1
 		if blockingRowWokenByEdge(items[i]) {
-			next[i] = blockingWakeRelayRow(items, byThread, i)
+			next[i] = blockingWakeRelayRow(idx, items, byThread, i)
 		}
 	}
 	for i := range items {
@@ -82,7 +89,7 @@ func blockingRowWokenByEdge(item CriticalBlockingCandidate) bool {
 
 // blockingWakeRelayRow returns the index of the waker's own row that proves
 // row i's waker was a relay, or -1.
-func blockingWakeRelayRow(items []CriticalBlockingCandidate, byThread map[int][]int, i int) int {
+func blockingWakeRelayRow(idx *Index, items []CriticalBlockingCandidate, byThread map[int][]int, i int) int {
 	w := items[i]
 	wait := strings.TrimSpace(w.WaitObject)
 	for _, j := range byThread[w.Peer.PID] {
@@ -96,9 +103,33 @@ func blockingWakeRelayRow(items []CriticalBlockingCandidate, byThread map[int][]
 		if strings.TrimSpace(x.WaitObject) != wait || x.Peer.PID == w.Thread.PID {
 			continue
 		}
-		if x.StartTs <= w.peerWakeTs && x.peerWakeTs >= w.StartTs && x.peerWakeTs <= w.peerWakeTs {
+		if x.StartTs <= w.peerWakeTs && x.peerWakeTs >= w.StartTs && x.peerWakeTs <= w.peerWakeTs &&
+			x.EndTs <= w.peerWakeTs && !threadWokenBetween(idx, w.Peer, x.peerWakeTs, w.peerWakeTs) {
 			return j
 		}
 	}
 	return -1
+}
+
+// threadWokenBetween reports a wakeup row naming thread strictly after the
+// first timestamp and strictly before the second (HMC377 D2-R4: the waker
+// slept again between its own release and the wake it passed on). A missing
+// index reports true, so the relay stays unproven (fail closed).
+func threadWokenBetween(idx *Index, thread ThreadRef, after, before float64) bool {
+	if idx == nil {
+		return true
+	}
+	for i := range idx.Events {
+		ev := &idx.Events[i]
+		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
+			continue
+		}
+		if ev.Ts <= after || ev.Ts >= before || schedWakeupStartsNewIncarnation(*ev) {
+			continue
+		}
+		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
+			return true
+		}
+	}
+	return false
 }

@@ -101,7 +101,7 @@ func TestHMC377WakerStillWaitingIsNoRelay(t *testing.T) {
 		{Type: "blocking_span", Thread: ThreadRef{PID: 1}, Peer: ThreadRef{PID: 9}, PeerSource: CounterpartSourceWakeupEdge,
 			WaitObject: hmc377RelayWait, StartTs: 1.0, EndTs: 1.2, peerWakeTs: 1.15},
 	}
-	stampBlockingWakeRelays(items)
+	stampBlockingWakeRelays(nil, items)
 	if items[0].WakeRelay {
 		t.Fatalf("waker woken after it woke the waiter was marked a relay: %+v", items[0])
 	}
@@ -117,7 +117,7 @@ func TestHMC377TypedLockRowIsNeverARelay(t *testing.T) {
 		{Type: "blocking_span", BlockingKind: "monitor_contention", Thread: ThreadRef{PID: 1}, Peer: ThreadRef{PID: 9},
 			HolderSource: CounterpartSourceWakeupEdge, StartTs: 1.0, EndTs: 1.2, peerWakeTs: 1.05},
 	}
-	stampBlockingWakeRelays(items)
+	stampBlockingWakeRelays(nil, items)
 	for _, item := range items {
 		if item.WakeRelay {
 			t.Fatalf("typed lock row re-read as a relay: %+v", item)
@@ -139,5 +139,57 @@ func TestHMC377RankBoardNeverMintsAKindlessBlockingRow(t *testing.T) {
 	spec, ok := CausalTokenSpecFor("blocking_span")
 	if !ok || spec.Lane != CausalLaneLockContention || CausalTokenFixDirectionFor("blocking_span") != CausalFixDirectionLockPriority {
 		t.Fatalf("blocking_span registry row drifted: %+v", spec)
+	}
+}
+
+// HMC377 D2-R4 — the relay predicate needs the waker to have LEFT the shared
+// recorded wait and to have passed the wake on without sleeping again. Two
+// real false relays (unseen Douyin captures, "waitForever" on two different
+// fences) broke each half: the waker was still inside its own span when it
+// woke the waiter, or its matched span had ended long before and it slept and
+// was woken by other work before the wake it passed on.
+func TestHMC377RelayNeedsTheWakerReleasedAndNotSleepingAgain(t *testing.T) {
+	head := []string{
+		"            main-100   (  100) [001] ....   1.000000: tracing_mark_write: B|100|" + hmc377RelayWait,
+		"            main-100   (  100) [001] ....   1.000010: sched_switch: prev_comm=main prev_pid=100 prev_prio=120 prev_state=S ==> next_comm=swapper/1 next_pid=0 next_prio=120",
+		"              w1-101   (  100) [002] ....   1.000100: tracing_mark_write: B|100|" + hmc377RelayWait,
+		"              w1-101   (  100) [002] ....   1.000110: sched_switch: prev_comm=w1 prev_pid=101 prev_prio=120 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120",
+		"       collector-110   (  100) [004] ....   1.000300: sched_switch: prev_comm=swapper/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=collector next_pid=110 next_prio=120",
+		"       collector-110   (  100) [004] ....   1.050000: sched_wakeup: comm=w1 pid=101 prio=120 target_cpu=002",
+		"              w1-101   (  100) [002] ....   1.050010: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w1 next_pid=101 next_prio=120",
+	}
+	tail := []string{
+		"            main-100   (  100) [001] ....   1.070010: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=main next_pid=100 next_prio=120",
+		"            main-100   (  100) [001] ....   1.070020: tracing_mark_write: E|100",
+		"       collector-110   (  100) [004] ....   1.150000: sched_switch: prev_comm=collector prev_pid=110 prev_prio=120 prev_state=S ==> next_comm=swapper/4 next_pid=0 next_prio=120",
+	}
+	// Still inside its own span: w1 wakes main at 1.070000 and only ends its
+	// own wait at 1.080000.
+	stillInside := append(append(append([]string(nil), head...),
+		"              w1-101   (  100) [002] ....   1.070000: sched_wakeup: comm=main pid=100 prio=120 target_cpu=001",
+		"              w1-101   (  100) [002] ....   1.080000: tracing_mark_write: E|100",
+	), tail...)
+	if rows := hmc377BlockingRows(t, hmc377RelayCapture(stillInside...)); rows[100].Peer.PID != 101 || rows[100].WakeRelay {
+		t.Fatalf("a waker still inside its own recorded wait passed nothing on: %+v", rows[100])
+	}
+	// Released, then slept again and was woken by other work before waking
+	// main: the wake it passed on is not the shared wait's.
+	sleptAgain := append(append(append([]string(nil), head...),
+		"              w1-101   (  100) [002] ....   1.050020: tracing_mark_write: E|100",
+		"              w1-101   (  100) [002] ....   1.050030: sched_switch: prev_comm=w1 prev_pid=101 prev_prio=120 prev_state=S ==> next_comm=swapper/2 next_pid=0 next_prio=120",
+		"           other-120   (  120) [005] ....   1.065000: sched_wakeup: comm=w1 pid=101 prio=120 target_cpu=002",
+		"              w1-101   (  100) [002] ....   1.065010: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w1 next_pid=101 next_prio=120",
+		"              w1-101   (  100) [002] ....   1.070000: sched_wakeup: comm=main pid=100 prio=120 target_cpu=001",
+	), tail...)
+	if rows := hmc377BlockingRows(t, hmc377RelayCapture(sleptAgain...)); rows[100].Peer.PID != 101 || rows[100].WakeRelay {
+		t.Fatalf("a waker that slept again before passing the wake on is not a relay: %+v", rows[100])
+	}
+	// Control: released and passing the wake straight on is a relay.
+	relay := append(append(append([]string(nil), head...),
+		"              w1-101   (  100) [002] ....   1.050020: tracing_mark_write: E|100",
+		"              w1-101   (  100) [002] ....   1.070000: sched_wakeup: comm=main pid=100 prio=120 target_cpu=001",
+	), tail...)
+	if rows := hmc377BlockingRows(t, hmc377RelayCapture(relay...)); !rows[100].WakeRelay || rows[100].WakeRelayUpstream.PID != 110 {
+		t.Fatalf("a released waker passing the wake straight on is a relay: %+v", rows[100])
 	}
 }

@@ -23955,7 +23955,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	// HMC377 D2: a waker that only passed on the wake of a shared recorded
 	// wait is named as such (typed relay verdict, wording input only).
-	stampBlockingWakeRelays(res.Items)
+	stampBlockingWakeRelays(idx, res.Items)
 	for _, mem := range stats.MemoryKinds {
 		if mem.Kind != "reclaim" && mem.Kind != "page_fault" && mem.Kind != "gc" {
 			continue

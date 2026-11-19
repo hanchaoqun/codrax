@@ -270,6 +270,10 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 	}
 
 	seen := make(map[string]bool)
+	// HMC377 D2-R7: the mechanism scope belongs to the typed token, so it is
+	// printed once per token even when one token speaks several labels (the
+	// blocking words).
+	scopeSeen := make(map[string]bool)
 	for _, projection := range set.Projections {
 		pools := [][]types.TraceCausalProjectionNode{
 			projection.PrimaryRootCauses,
@@ -304,7 +308,8 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 					}
 					seen[key] = true
 					fmt.Fprintf(&b, "  - permitted_reader_cause_label=%q; raw_parenthetical_forbidden=true. Use only this reader label in model-authored prose; the wire identity stays in typed/audit fields and is intentionally omitted from this reader-facing handoff.\n", label)
-					if permitted, unproved := traceFinalReaderMechanismScope(token, zh); permitted != "" || unproved != "" {
+					if permitted, unproved := traceFinalReaderMechanismScope(token, zh); (permitted != "" || unproved != "") && !scopeSeen[strings.ToLower(token)] {
+						scopeSeen[strings.ToLower(token)] = true
 						fmt.Fprintf(&b, "    permitted_reader_mechanism_scope=%q; not_proven_reader_mechanisms=%q. These are evidence boundaries for this exact typed cause family, not a system-authored diagnosis.\n", permitted, unproved)
 					}
 				}

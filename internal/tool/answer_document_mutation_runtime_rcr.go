@@ -447,6 +447,11 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 			// consumers).
 			if fork, ok := runtimeTraceProjBlockingSpanBasisImpactForm(node); ok {
 				form = fork
+			} else if strings.TrimSpace(node.BlockingKind) == "" {
+				// HMC377 D2-R5: no typed contention payload and no basis —
+				// the token alone never names a lock (lock words come only
+				// from a parsed payload); the kind-neutral blocking-wait form.
+				form = runtimeTraceProjImpactFormBlockingWait
 			} else if !node.BlockingSubjectIsHolder {
 				// 件2 词面 bug 修 (§29.104.4 ②): the lock family's single
 				// spec word is the HOLDER word — a WAITER row (subject
@@ -603,6 +608,11 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 			// Pure-gap folds keep ◌ byte-identically.
 			if form == runtimeTraceProjImpactFormBlindSpot && runtimeTraceProjFoldSeedGapMasked(node) {
 				continue
+			}
+			// HMC377 D2-R5: a kind-less, basis-less blocking_span token is no
+			// lock evidence (the typed-kind lock arm returned above).
+			if form == runtimeTraceProjImpactFormLock && strings.TrimSpace(node.BlockingKind) == "" {
+				return runtimeTraceProjImpactFormBlockingWait
 			}
 			return form
 		}

@@ -25322,9 +25322,11 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 		// HMC377 D2: the related thread only passed the wakeup on.
 		upstream := traceQueryObservationSupplementEntityLabel(value, zh)
 		if zh {
-			return line("唤醒转发", "", "结束等待的唤醒方同在这项等待中，先被 "+upstream+" 唤醒后才唤醒本线程，不是本次等待所依赖的一方")
+			// HMC377 D2-R1: upstream is the far end of the relay chain, not
+			// necessarily the waker's own direct waker — state the chain fact.
+			return line("唤醒转发", "", "结束等待的唤醒方同在这项等待中，只转发了唤醒，不是本次等待所依赖的一方；唤醒链源头："+upstream)
 		}
-		return line("", "wakeup passed on", "the thread that woke this one was parked in the same wait and woke this thread only after "+upstream+" woke it; it is not the party this wait depended on")
+		return line("", "wakeup passed on", "the thread that woke this one was parked in the same wait and only passed the wakeup on; it is not the party this wait depended on; the wake chain leads to "+upstream)
 	case types.TraceNoteKeyCausality:
 		return line("因果依据", "causal basis", traceQueryObservationSupplementCausalBasis(value, zh))
 	case types.TraceNoteKeyChainDepth:

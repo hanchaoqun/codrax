@@ -30,7 +30,12 @@ func TestHMC377AppendixFellowWaiterReadsAsPassedOnWait(t *testing.T) {
 	got := traceQueryObservationSupplementText(hmc377FellowWaiterRecord(), true)
 	for _, want := range []string{
 		"背景支撑观测：urs_CalculatePu-11876 -> ease.cloudmusic-11077",
-		"唤醒转发：结束等待的唤醒方同在这项等待中，先被 HeapTaskDaemon-11098 唤醒后才唤醒本线程，不是本次等待所依赖的一方",
+		// EVOLUTION RECORD (HMC377 D2-R1): the note said 「先被 Y 唤醒后才唤醒本
+		// 线程」, but Y is the far end of the relay chain — on a depth-2 relay
+		// (raw reboot5 L573567: 11876 was woken by 11077, not by
+		// HeapTaskDaemon-11098) that direct wake never happened. It now states
+		// the chain fact.
+		"唤醒转发：结束等待的唤醒方同在这项等待中，只转发了唤醒，不是本次等待所依赖的一方；唤醒链源头：HeapTaskDaemon-11098",
 		"观测类型：阻塞等待",
 		"结束等待的唤醒方：ease.cloudmusic-11077",
 	} {
@@ -38,16 +43,19 @@ func TestHMC377AppendixFellowWaiterReadsAsPassedOnWait(t *testing.T) {
 			t.Fatalf("appendix line lacks %q:\n%s", want, got)
 		}
 	}
-	for _, banned := range []string{"持锁", "关键阻塞", "锁竞争"} {
+	for _, banned := range []string{"持锁", "关键阻塞", "锁竞争", "先被", "唤醒后才唤醒本线程"} {
 		if strings.Contains(got, banned) {
 			t.Fatalf("appendix line of a recorded wait without lock evidence says %q:\n%s", banned, got)
 		}
 	}
 	en := traceQueryObservationSupplementText(hmc377FellowWaiterRecord(), false)
-	for _, want := range []string{"background supporting observation", "observation type: blocking wait", "thread whose wakeup ended the wait: ease.cloudmusic-11077", "wakeup passed on"} {
+	for _, want := range []string{"background supporting observation", "observation type: blocking wait", "thread whose wakeup ended the wait: ease.cloudmusic-11077", "wakeup passed on", "the wake chain leads to HeapTaskDaemon-11098"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("EN appendix line lacks %q:\n%s", want, en)
 		}
+	}
+	if strings.Contains(en, "only after HeapTaskDaemon-11098 woke it") {
+		t.Fatalf("EN appendix line claims a direct wake by the chain's far end:\n%s", en)
 	}
 }
 

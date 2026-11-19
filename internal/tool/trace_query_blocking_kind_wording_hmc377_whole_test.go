@@ -154,8 +154,15 @@ func TestHMC377WholeOriginalRecordedWaitNeverReadsAsLock(t *testing.T) {
 // Real lock evidence keeps its words (positive control). Douyin Lite reboot
 // cold start: the main thread waits 50.246 ms (envelope) in "monitor
 // contention with owner #tp-io-18 (2220)" (raw L189297–L192435); thread 11293
-// is that owner (its sched_wakeup comm is #tp-io-18) and is itself blocked on
-// a second monitor. Raw oracle: oracle_lock_spans.py.
+// is that owner (its sched_wakeup comm is #tp-io-18). CORRECTED RATIONALE
+// (HMC377 D2-R3): 11293 is NOT parked on a second monitor — every payload
+// names the same Runtime.loadLibrary0 monitor (L186109, L189297, L190953),
+// and 11293 itself contended for it for about 24.9 ms of the main thread's
+// 50.246 ms wait ([141.651862,141.675168), [141.696056,141.719079)). This pin
+// guards only that a typed monitor payload keeps its lock words on the waiter
+// and holder rows; whether an inferred holder that is itself contending for
+// the same monitor should be named the holder is an open holder-inference
+// question, not validated here. Raw oracle: oracle_lock_spans.py.
 func TestHMC377WholeOriginalRealMonitorContentionKeepsLockWords(t *testing.T) {
 	path := hmc376Original(t, "CODRAX_HMC377_DOUYIN_REBOOT", "8087138a5810347675fe7764974f5103cad4a9a71e56d7d1702d65da2256892e", 138438125)
 	blocking, faces := hmc377PublicBlockingRun(t, path, 11105, 141.670, 141.730)

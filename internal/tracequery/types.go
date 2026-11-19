@@ -5817,17 +5817,21 @@ type CriticalBlockingCandidate struct {
 	// WakeRelay / WakeRelayUpstream (HMC377 D2): typed verdict on a
 	// payload-less blocking_span row (no lock or monitor payload) whose wait
 	// was ended by a wakeup edge from a thread that was itself parked in the
-	// SAME recorded wait (same platform-vocabulary wait row, otherwise the same
-	// verbatim span name), whose own wait had been ended by another thread's
-	// wakeup before it woke this waiter. That waker only passed the wakeup on
-	// after the awaited work finished: it is not the party this wait depended
-	// on. WakeRelayUpstream is the first non-relay waker along that relay
+	// SAME recorded wait (the same verbatim span name — the platform wait
+	// vocabulary is deliberately not used), whose own wait had been ended by
+	// another thread's wakeup before it woke this waiter, whose own span had
+	// ended by then, and which was not woken again in between (HMC377
+	// D2-R4). That waker only passed the wakeup on after the awaited work
+	// finished: it is not the party this wait depended on. WakeRelayUpstream is the first non-relay waker along that relay
 	// chain (the thread that ended the earliest wait of the chain). Exact
 	// typed comparisons over rows of the same result only; absent = no proof
 	// (the waker keeps the neutral "woke the waiter" reading). Wording input
-	// only: no rank, chain relevance or value reads it.
+	// only: no rank, chain relevance or value reads it. HMC377 D2-R7: the
+	// upstream is omitted from the payload when absent (omitzero — a struct
+	// is never empty under omitempty, so every row used to carry {}).
+	// Absent = no proof.
 	WakeRelay         bool      `json:"wake_relay,omitempty"`
-	WakeRelayUpstream ThreadRef `json:"wake_relay_upstream,omitempty"`
+	WakeRelayUpstream ThreadRef `json:"wake_relay_upstream,omitzero"`
 	// peerWakeTs is the timestamp of the wakeup edge that resolved a
 	// payload-less row's counterpart (resolveCounterpartViaWakeupEdge). Never
 	// on the wire; the relay verdict orders the two wake edges with it.
