@@ -272,10 +272,10 @@ func TestHMC377FollowUpWholeSurfaceUsesTheLaneMatchedTeaching(t *testing.T) {
 func hmc377FollowUpSystem(t *testing.T, live *hmc377Live, dimensions bool) string {
 	t.Helper()
 	_, repair := live.base.buildInitialMessagesAndRepairTeaching(hmc377Context(dimensions)(t), live.skill)
-	if repair == nil || repair.followUpSystem == "" || !strings.Contains(repair.followUpSystem, live.skill.AnswerDocumentFollowUpTeaching().Goal) {
+	if repair == nil || repair.followUpSystem == nil || !strings.Contains(repair.followUpSystem(nil), live.skill.AnswerDocumentFollowUpTeaching(nil).Goal) {
 		t.Fatal("an enforced built-in finalizer dispatch must prepare the follow-up teaching")
 	}
-	return repair.followUpSystem
+	return repair.followUpSystem(nil)
 }
 
 // On the three pinned whole originals, through the actual finalizer loop with
@@ -351,7 +351,7 @@ func TestHMC377WholeOriginalSelectionFollowUpIsPlannedAndDelivered(t *testing.T)
 // accepted answer ships unchanged, and a typed receipt records that the offer
 // was not delivered and why, for both refusal points of the loop.
 func TestHMC377FollowUpThatCannotFitLeavesATypedReceipt(t *testing.T) {
-	reasoning := strings.Repeat("provider reasoning channel ", 4000)
+	reasoning := strings.Repeat("provider reasoning channel ", 4400)
 	script := hmc377Script(reasoning)
 	wide := hmc377Run{window: 1_000_000, script: script}.execute(t)
 	if len(wide.adapter.messages) != 2 {
@@ -363,10 +363,16 @@ func TestHMC377FollowUpThatCannotFitLeavesATypedReceipt(t *testing.T) {
 		t.Fatalf("a sent follow-up must leave its typed receipt: %+v", sent)
 	}
 	allocation := wide.adapter.size(0) + 512
-	if wide.adapter.size(1)-len(hmc376Notes("DRAFT", 1250)) <= allocation {
-		t.Fatal("fixture: the reasoning channel must keep the follow-up over the allocation after every rung")
-	}
 	window := hmc376Window(allocation)
+	// Every rung: the lane-matched teaching for the operations the request
+	// publishes, then the free text of the accepted attempt. The reasoning
+	// channel must keep the request over the allocation and over the hard
+	// ratio of the context-pressure case after all of them.
+	_, repair := wide.live.base.buildInitialMessagesAndRepairTeaching(hmc377Context(false)(t), wide.live.skill)
+	floor := wide.adapter.size(1) - (len(wide.adapter.messages[1][0].Content) - len(repair.followUpSystem(sent.Operations))) - len(hmc376Notes("DRAFT", 1250))
+	if floor <= hmc376Allocation(window) || float64(floor) < 0.9*float64(window*types.BytesPerToken) {
+		t.Fatalf("fixture: the reasoning channel must keep the follow-up over the allocation and the hard ratio after every rung (%d B)", floor)
+	}
 	for _, c := range []struct {
 		name     string
 		settings types.AgentSettings
@@ -454,7 +460,7 @@ func TestHMC377FollowUpOperationsAreDeclaredPerLane(t *testing.T) {
 // the follow-up request.
 func TestHMC377FollowUpTeachingSharesTheRepairItems(t *testing.T) {
 	sk := traceTeachingSkill(t, "answer-document-skill")
-	repair, follow := sk.AnswerDocumentPatchTeaching(), sk.AnswerDocumentFollowUpTeaching()
+	repair, follow := sk.AnswerDocumentPatchTeaching(), sk.AnswerDocumentFollowUpTeaching(nil)
 	if repair == nil || follow == nil || len(repair.Workflow) != len(follow.Workflow) {
 		t.Fatal("the built-in skill must have both representations")
 	}
@@ -480,7 +486,7 @@ func TestHMC377FollowUpTeachingSharesTheRepairItems(t *testing.T) {
 	}
 	custom := *sk
 	custom.Goal += " customer wording"
-	if custom.AnswerDocumentFollowUpTeaching() != nil {
+	if custom.AnswerDocumentFollowUpTeaching(nil) != nil {
 		t.Fatal("a customer skill must never be replaced")
 	}
 }

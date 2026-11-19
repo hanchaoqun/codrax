@@ -149,7 +149,7 @@ func TestHMC377OrderPlusSelectionHintNamesOnlyPublishedOperations(t *testing.T) 
 // D1-R3: the follow-up representation does not declare every item optional;
 // each item in the latest message states its own optionality.
 func TestHMC377FollowUpTeachingLeavesOptionalityToTheItems(t *testing.T) {
-	follow := traceTeachingSkill(t, "answer-document-skill").AnswerDocumentFollowUpTeaching()
+	follow := traceTeachingSkill(t, "answer-document-skill").AnswerDocumentFollowUpTeaching(nil)
 	text := follow.Goal + "\n" + strings.Join(follow.Workflow, "\n") + "\n" + follow.OutputFormat
 	for _, banned := range []string{"Every item is optional", "Optionally add"} {
 		if strings.Contains(text, banned) {

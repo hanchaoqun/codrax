@@ -3,6 +3,7 @@ package skill
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -51,10 +52,17 @@ const (
 // AnswerDocumentFollowUpTeaching is the representation of the built-in skill
 // for the one optional follow-up offered after an accepted answer (HMC §377
 // D1). The answer is already accepted, so this lane neither calls it a draft
-// nor asks for a repair; the operation, graph and fact items are the same
-// items the necessary patch carries. It is never longer than the patch
-// representation, so the planned repair frame also covers this request.
-func (c *Config) AnswerDocumentFollowUpTeaching() *Config {
+// nor asks for a repair; the graph and fact items are the same items the
+// necessary patch carries. It is never longer than the patch representation,
+// so the planned repair frame also covers this request.
+//
+// operations are the patch operations the follow-up request publishes; empty
+// means the whole compatibility surface, which keeps the operation item the
+// necessary patch carries. A projected surface publishes each operation's rule
+// as its schema field description, so the operation items name exactly the
+// published operations and restate no rule of an operation left out (HMC377
+// F5: one source, the published operation set).
+func (c *Config) AnswerDocumentFollowUpTeaching(operations []string) *Config {
 	out := c.AnswerDocumentPatchTeaching()
 	if out == nil {
 		return nil
@@ -64,14 +72,40 @@ func (c *Config) AnswerDocumentFollowUpTeaching() *Config {
 	// dimension or ordering item in the same request says to cover all items
 	// in one patch. Which items are optional is stated by each item in the
 	// latest message (one source); this representation no longer decides it.
+	operationTeaching, replaceBlocks := types.AnswerDocumentPatchOperationTeaching, true
+	if len(operations) > 0 {
+		operationTeaching, replaceBlocks = answerDocumentFollowUpPublishedOperationTeaching(operations), false
+		for _, operation := range operations {
+			replaceBlocks = replaceBlocks || operation == "replace_blocks"
+		}
+	}
+	preserve := "Keep every block you do not revise exactly as accepted."
+	if replaceBlocks {
+		preserve += " A replace_blocks entry is a complete replacement of that block; copy its unchanged fields and change only what an item names."
+	}
 	out.Goal = "Your structured answer is accepted. Handle the follow-up items in at most one scoped tool call; it stays as accepted unless the tool validates the merged document."
 	out.Workflow = []string{
 		"Read the follow-up items in the latest message and the projected patch tool schema; each item says whether it is optional. The current schema is the sole authority for field names, types, enum values, and available operations. Do not reopen evidence or start a new answer.",
-		types.AnswerDocumentPatchOperationTeaching,
-		"Keep every block you do not revise exactly as accepted. A replace_blocks entry is a complete replacement of that block; copy its unchanged fields and change only what an item names. Do not attach raw JSON as a string or write a parallel answer in prose.",
+		operationTeaching,
+		preserve + " Do not attach raw JSON as a string or write a parallel answer in prose.",
 		answerDocumentPatchGraphTeaching,
 		answerDocumentPatchFactTeaching,
 	}
 	out.OutputFormat = "Submit at most one actual `emit_answer_document_patch` function call, using its projected patch tool schema and the follow-up items. The following generic answer-emission prohibitions also apply to the merged document and to this patch; they do not request another full submission."
 	return out
+}
+
+// answerDocumentFollowUpPublishedOperationTeaching names the operations of a
+// projected follow-up surface in their published order. It states no
+// operation's rule: each rule is that field's description in the schema.
+func answerDocumentFollowUpPublishedOperationTeaching(operations []string) string {
+	names := make([]string, 0, len(operations))
+	for _, operation := range operations {
+		names = append(names, "`"+operation+"`")
+	}
+	list := names[0]
+	if n := len(names); n > 1 {
+		list = strings.Join(names[:n-1], ", ") + " and " + names[n-1]
+	}
+	return "This follow-up publishes only " + list + "; no other patch operation is offered, and each field's description in the schema is its rule."
 }

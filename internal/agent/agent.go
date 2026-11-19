@@ -4697,8 +4697,14 @@ func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContex
 				repairTeaching.draftSystem, repairTeaching.patchSystem = messages[0].Content, patch
 				// The follow-up representation is planned by the same frame:
 				// it is used only while it is no longer than the patch one.
-				if followUp := promptctx.AnswerDocumentFollowUpSystemTeaching(pc, promptSkill); followUp != "" && len(followUp) <= len(patch) {
-					repairTeaching.followUpSystem = followUp
+				// It is rendered for the operations the follow-up request
+				// publishes, which exist only once the offer is latched.
+				system := &types.PromptContext{Stage: pc.Stage, SystemSections: pc.SystemSections}
+				repairTeaching.followUpSystem = func(operations []string) string {
+					if followUp := promptctx.AnswerDocumentFollowUpSystemTeaching(system, promptSkill, operations); len(followUp) <= len(patch) {
+						return followUp
+					}
+					return ""
 				}
 			}
 		}

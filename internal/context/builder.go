@@ -1598,9 +1598,10 @@ func AnswerDocumentPatchSystemTeaching(pc *types.PromptContext, sk *skill.Config
 }
 
 // AnswerDocumentFollowUpSystemTeaching is the same projection for the one
-// optional follow-up after an accepted answer (HMC §377 D1).
-func AnswerDocumentFollowUpSystemTeaching(pc *types.PromptContext, sk *skill.Config) string {
-	return answerDocumentLaneSystemTeaching(pc, sk.AnswerDocumentFollowUpTeaching())
+// optional follow-up after an accepted answer (HMC §377 D1), for the patch
+// operations that follow-up request publishes (empty = the whole surface).
+func AnswerDocumentFollowUpSystemTeaching(pc *types.PromptContext, sk *skill.Config, operations []string) string {
+	return answerDocumentLaneSystemTeaching(pc, sk.AnswerDocumentFollowUpTeaching(operations))
 }
 
 func answerDocumentLaneSystemTeaching(pc *types.PromptContext, patch *skill.Config) string {

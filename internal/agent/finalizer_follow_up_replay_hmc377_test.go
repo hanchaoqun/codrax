@@ -128,15 +128,22 @@ func TestHMC377SealedFollowUpReplay(t *testing.T) {
 	const allocation, window, hard = 700000, 800000, 0.9
 	sealed := map[int]struct{ refused, lanes int }{642266: {707552, 1}, 675652: {781288, 1}}
 	pad := func(n int) string { return strings.Repeat("x", n) }
-	delta := func() int {
+	// The follow-up teaching is rendered for the operations the request
+	// publishes (HMC377 F5); its size relative to the repair teaching is
+	// measured on a built-in dispatch for that operation set.
+	repair := func() *finalizerRepairTeaching {
 		live := &hmc377Live{skill: traceTeachingSkill(t, "answer-document-skill")}
 		live.base = NewFinalizerAgent(&Dependencies{LLM: &hmc376Adapter{window: 1_000_000}, Tools: tool.NewRegistry(), MaxIterations: 1,
 			AgentSettings: types.AgentSettings{FinalizerRequestBytePolicy: types.FinalizerRequestByteEnforce}}).(*BaseAgent)
 		_, repair := live.base.buildInitialMessagesAndRepairTeaching(hmc377Context(false)(t), live.skill)
-		return len(repair.followUpSystem) - len(repair.patchSystem)
+		return repair
 	}()
-	if delta > 0 {
-		t.Fatalf("the follow-up teaching is longer than the repair teaching by %d B", delta)
+	delta := func(operations []string) int {
+		followUp := repair.followUpSystem(operations)
+		if followUp == "" {
+			t.Fatalf("the follow-up teaching for %v is longer than the repair teaching", operations)
+		}
+		return len(followUp) - len(repair.patchSystem)
 	}
 	seen := 0
 	for _, path := range filepath.SplitList(list) {
@@ -203,7 +210,7 @@ func TestHMC377SealedFollowUpReplay(t *testing.T) {
 				t.Fatalf("the catalog projection does not follow the delivered rows: %d B", llm.EstimateToolSchemasBytes(tools))
 			}
 			teaching := &finalizerRepairTeaching{draftSystem: s.initial[0].Content, patchSystem: pad(len(s.initial[0].Content) - s.dividend)}
-			teaching.followUpSystem = pad(len(teaching.patchSystem) + delta)
+			teaching.followUpSystem = func(operations []string) string { return pad(len(teaching.patchSystem) + delta(operations)) }
 			projected := teaching.project(ctx, e, request, tools)
 			got := llm.EstimateRequestBytes(projected, tools)
 			pressure := float64(got) / window

@@ -177,14 +177,16 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 // finalizerRepairTeaching retains the representations of the canonical
 // system message and the attempt history of one dispatch. patchSystem is
 // empty when the teaching is not replaceable (a custom skill or assembler);
-// the history still serves that dispatch. followUpSystem is the accepted-answer
-// follow-up representation, set only beside a patchSystem it does not exceed.
+// the history still serves that dispatch. followUpSystem renders the
+// accepted-answer follow-up representation for the patch operations the
+// follow-up request publishes (empty = the whole surface); it is set only
+// beside a patchSystem and returns "" for a rendering that would exceed it.
 // Every projection is request-only: the durable history, each submitted tool
 // call, validation feedback and evidence stay intact.
 type finalizerRepairTeaching struct {
 	draftSystem    string
 	patchSystem    string
-	followUpSystem string
+	followUpSystem func(operations []string) string
 	history        finalizerRepairHistory
 }
 
@@ -222,7 +224,12 @@ func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluato
 	lane, phase := "", "repair_prompt_budget"
 	switch {
 	case followUp:
-		lane, phase = t.followUpSystem, "follow_up_prompt_budget"
+		// HMC377 F5: the teaching of the operations this request publishes,
+		// the same set the projection applied and the receipt records.
+		phase = "follow_up_prompt_budget"
+		if t.followUpSystem != nil {
+			lane = t.followUpSystem(e.followUpPublishedOperations)
+		}
 	case (e.preferPatchNext || e.emitFullDocFailStreak >= 2) && !e.forceFullEmitNext:
 		lane = t.patchSystem
 	}
