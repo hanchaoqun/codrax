@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -24,6 +25,15 @@ func TestHMC376RunningBreakdownNeverPointsAtARecordedWait(t *testing.T) {
 	tag, count, best := runtimeTraceProjFourStateSemanticPointer(model)
 	if tag != " ➋ [E2]" || count != 1 || best != 0.071 {
 		t.Fatalf("pointer=%q count=%d best=%.3f, want the executed work only", tag, count, best)
+	}
+	// A vocabulary name that records work being executed stays in the breakdown.
+	const executed = "Background concurrent copying GC"
+	if hit, ok := tracequery.TraceSpanVocabulary(executed); !ok || hit.Stance != "executes" {
+		t.Fatalf("control: %q must be a vocabulary row that executes work, got %+v ok=%v", executed, hit, ok)
+	}
+	model.TreeRows = append(model.TreeRows, row(3, "E3", executed, 12.5))
+	if tag, count, best := runtimeTraceProjFourStateSemanticPointer(model); tag != " ➌ [E3]" || count != 2 || best != 12.5 {
+		t.Fatalf("pointer=%q count=%d best=%.3f, want the executed collection to lead the running breakdown", tag, count, best)
 	}
 	model.TreeRows = model.TreeRows[:1]
 	if tag, count, _ := runtimeTraceProjFourStateSemanticPointer(model); tag != "" || count != 0 {

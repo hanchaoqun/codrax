@@ -44,7 +44,6 @@ func TestHMC376WholeOriginalFinalizerInstructionIsIndependentOfCaptureDirectory(
 	if source == "" {
 		t.Skip("requires CODRAX_HMC376_NETEASE_REBOOT_FRAME (the pinned complete capture)")
 	}
-	locator := regexp.MustCompile(`strong:[0-9a-z<>:]+|trace-query-result-[0-9a-f]*|[0-9a-f]{8,}`)
 	clock := regexp.MustCompile(`20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[-+][0-9:]+)`)
 	start, end := 153.763595, 153.887340
 	root := t.TempDir()
@@ -88,7 +87,7 @@ func TestHMC376WholeOriginalFinalizerInstructionIsIndependentOfCaptureDirectory(
 		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: ctx.Mutable.DispatchToolResults()})
 		system, user := finalizerReaderFieldMessages(t, ctx)
 		text := strings.ReplaceAll(strings.ReplaceAll(system+"\n"+user, dir, "<dir>"), work, "<work>")
-		text = clock.ReplaceAllString(locator.ReplaceAllString(text, "<digest>"), "<time>")
+		text = clock.ReplaceAllString(hmc376MaskLocators(text), "<time>")
 		if !strings.Contains(text, "source_records=") {
 			t.Fatal("control: the instruction must list source records")
 		}

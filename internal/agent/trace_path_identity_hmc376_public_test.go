@@ -17,7 +17,32 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-var hmc376Digest = regexp.MustCompile(`[0-9a-f]{16,}`)
+// Both masks try a decimal first: the fractional digits of a published value
+// look like a digest, and a value that moves with the capture's location must
+// stay visible to the comparison.
+var (
+	hmc376DecimalValue = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+	hmc376Digest       = regexp.MustCompile(`[0-9]+\.[0-9]+|[0-9a-f]{16,}`)
+	// A file generation token ends in a sub-second change time of any length,
+	// so the token is masked whole rather than field by field. A stored result's
+	// name is a digest that the row budget may cut short.
+	hmc376Locator = regexp.MustCompile(`[0-9]+\.[0-9]+|strong:[0-9a-z<>:]+|trace-query-result-[0-9a-f]*|[0-9a-f]{8,}`)
+)
+
+// hmc376MaskKeepingDecimals replaces what mask matches, except decimal values.
+func hmc376MaskKeepingDecimals(mask *regexp.Regexp, text string) string {
+	return mask.ReplaceAllStringFunc(text, func(token string) string {
+		if hmc376DecimalValue.MatchString(token) {
+			return token
+		}
+		return "<digest>"
+	})
+}
+
+// hmc376MaskLocators masks every locator of a finalizer instruction.
+func hmc376MaskLocators(text string) string {
+	return hmc376MaskKeepingDecimals(hmc376Locator, text)
+}
 
 // hmc376NeutralLocators replaces the capture directory and every digest, leaving
 // the order and the content of the text to compare.
@@ -25,7 +50,34 @@ func hmc376NeutralLocators(text string, dirs ...string) string {
 	for _, dir := range dirs {
 		text = strings.ReplaceAll(text, dir, "<dir>")
 	}
-	return hmc376Digest.ReplaceAllString(text, "<digest>")
+	return hmc376MaskKeepingDecimals(hmc376Digest, text)
+}
+
+// The masks hide locators and nothing a reader is told as a number.
+func TestHMC376LocatorMasksKeepDecimalValuesVisible(t *testing.T) {
+	digest := strings.Repeat("0a", 32)
+	for _, c := range []struct{ text, want string }{
+		{"end±0.000500000", "end±0.000500000"},
+		{"peak 0.00800000000822 ms", "peak 0.00800000000822 ms"},
+		{"share 0.12345678901234567", "share 0.12345678901234567"},
+		{"trace_query:publication-" + digest + "#rank:1", "trace_query:publication-<digest>#rank:1"},
+	} {
+		if got := hmc376MaskLocators(c.text); got != c.want {
+			t.Errorf("hmc376MaskLocators(%q) = %q, want %q", c.text, got, c.want)
+		}
+		if got := hmc376NeutralLocators(c.text); got != c.want {
+			t.Errorf("hmc376NeutralLocators(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+	for text, want := range map[string]string{
+		"id=abcdef01":                  "id=<digest>",
+		"trace-query-result-0a1b":      "<digest>",
+		"token strong:12:ab<x>:3 kept": "token <digest> kept",
+	} {
+		if got := hmc376MaskLocators(text); got != want {
+			t.Errorf("hmc376MaskLocators(%q) = %q, want %q", text, got, want)
+		}
+	}
 }
 
 func hmc376FirstDifferentLine(a, b string) string {
@@ -83,18 +135,18 @@ func TestHMC376BusinessAccountsAreIndependentOfCapturePathPublic(t *testing.T) {
 // order, once the locators themselves are masked.
 func TestHMC376FinalizerInstructionIsIndependentOfCapturePathPublic(t *testing.T) {
 	observedAt := regexp.MustCompile(`20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:]+[-+][0-9:]+`)
-	// A file generation token ends in a sub-second change time of any length,
-	// so the token is masked whole rather than field by field.
-	// A stored result's name is a digest that the row budget may cut short.
-	shortDigest := regexp.MustCompile(`strong:[0-9a-z<>:]+|trace-query-result-[0-9a-f]*|[0-9a-f]{8,}`)
+	// A locator the row budget cut can end in the sequence number of its copy.
+	cutCopySequence := regexp.MustCompile(`/[0-9]{1,3}(\.\.\.|…)\[truncated\]`)
 	// Prompt budgets charge locator bytes. One short root keeps every copy
-	// inside the same budget whatever temporary directory the run was given.
+	// inside the same budget whatever temporary directory the run was given;
+	// t.TempDir prefers GOTMPDIR to TMPDIR.
 	root, err := os.MkdirTemp("/tmp", "h376")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	t.Setenv("TMPDIR", root)
+	t.Setenv("GOTMPDIR", root)
 	var first, firstDir string
 	for i := 0; i < 8; i++ {
 		ctx, path := hmc323BusinessBudgetContext(t)
@@ -108,7 +160,8 @@ func TestHMC376FinalizerInstructionIsIndependentOfCapturePathPublic(t *testing.T
 		}
 		system, user := finalizerReaderFieldMessages(t, ctx)
 		text := hmc376NeutralLocators(system+"\n"+user, filepath.Dir(path), ctx.WorkDir)
-		text = observedAt.ReplaceAllString(shortDigest.ReplaceAllString(text, "<digest>"), "<time>")
+		text = observedAt.ReplaceAllString(hmc376MaskLocators(text), "<time>")
+		text = cutCopySequence.ReplaceAllString(text, "/<seq>${1}[truncated]")
 		for _, control := range []string{"business-population-3", "### Trace Event Search Inventories"} {
 			if !strings.Contains(text, control) {
 				t.Fatalf("control: the instruction must carry %q", control)

@@ -42,3 +42,26 @@ func TestHMC376RecordListsFollowPublicationOrderNotTheDigest(t *testing.T) {
 		}
 	}
 }
+
+// One blocking occurrence published by two records lists them in publication
+// order, whichever digests the capture's location gave those records.
+func TestHMC376BlockingOccurrenceRecordsFollowPublicationOrderNotTheDigest(t *testing.T) {
+	request := traceValueOccurrenceAuthorityRequest()
+	id := func(digest string) string {
+		return "trace_query:publication-" + strings.Repeat(digest, 64) + "#critical_blocking:1"
+	}
+	for _, digests := range [][2]string{{"a", "f"}, {"f", "a"}} {
+		first := traceBlockingWallClockAuthorityRecord(id(digests[0]), "binder_wait", 1.409, 13762.835861, 13762.837270,
+			"peer=binder:496_9-10961", "flags=0x10", "blocking_candidate=true")
+		second := first
+		second.ID = id(digests[1])
+		authorities := BuildTraceBlockingWallClockAuthorities(ObservationLedger{Records: []ObservationRecord{first, second}}, &request)
+		if len(authorities) != 1 || len(authorities[0].Occurrences) != 1 {
+			t.Fatalf("digests %v: control: want one occurrence, got %+v", digests, authorities)
+		}
+		got := authorities[0].Occurrences[0].RecordIDs
+		if len(got) != 2 || got[0] != first.ID || got[1] != second.ID {
+			t.Fatalf("digests %v: record ids %v, want publication order [%s %s]", digests, got, first.ID, second.ID)
+		}
+	}
+}

@@ -255,39 +255,135 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 	}
 }
 
+// hmc376ExportedReferences counts, per enclosing function, what one file does
+// with the named exported symbols of this package: calls, function values bound
+// to a name, and references through an import alias. A dot import would hide
+// them, so it is reported instead of counted.
+func hmc376ExportedReferences(file *ast.File, symbols map[string]bool) (counts map[string]int, dotImport bool) {
+	const importPath = `"github.com/hanchaoqun/codrax/internal/tracequery"`
+	locals := map[string]bool{}
+	for _, spec := range file.Imports {
+		switch {
+		case spec.Path.Value != importPath:
+		case spec.Name == nil:
+			locals["tracequery"] = true
+		case spec.Name.Name == ".":
+			dotImport = true
+		default:
+			locals[spec.Name.Name] = true
+		}
+	}
+	counts = map[string]int{}
+	for _, decl := range file.Decls {
+		owner := "<package level>"
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			owner = fn.Name.Name
+		}
+		ast.Inspect(decl, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok && symbols[sel.Sel.Name] {
+				if x, ok := sel.X.(*ast.Ident); ok && locals[x.Name] {
+					counts[sel.Sel.Name+" in "+owner]++
+				}
+			}
+			return true
+		})
+	}
+	return counts, dotImport
+}
+
 // The exported description has two display consumers outside this package: the
 // zero-model trace census, and the running breakdown sentence, which reads the
 // stance to keep a recorded wait out of running time. Neither gates or ranks
-// anything. (The advisory wrapper beside it has the census alone.)
+// anything, so each reference is pinned to its file and function, one by one.
+// (The advisory wrapper beside it has the census alone.)
 func TestHMC376ExportedVocabularyHasOnlyTheCensusConsumer(t *testing.T) {
-	for symbol, want := range map[string][]string{
-		"tracequery.TraceSpanVocabulary(":             {"tool/answer_document_mutation_runtime_tree.go", "tracediag/census.go"},
-		"tracequery.TraceSpanNearMissesSemanticWork(": {"tracediag/census.go"},
-	} {
-		var got []string
-		err := filepath.WalkDir("..", func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			body, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			if strings.Contains(string(body), symbol) {
-				got = append(got, filepath.ToSlash(strings.TrimPrefix(path, ".."+string(filepath.Separator))))
+	symbols := map[string]bool{"TraceSpanVocabulary": true, "TraceSpanNearMissesSemanticWork": true}
+
+	// Scanner self-check against the shapes a per-file text search misses.
+	fset := token.NewFileSet()
+	bypass, err := parser.ParseFile(fset, "bypass_shapes.go", `package consumer
+
+import tq "github.com/hanchaoqun/codrax/internal/tracequery"
+
+var bound = tq.TraceSpanVocabulary
+
+func display(name string) bool { _, ok := tq.TraceSpanVocabulary(name); return ok }
+
+func gate(name string) bool {
+	_, first := tq.TraceSpanVocabulary(name)
+	_, second := tq.TraceSpanVocabulary(name)
+	return first && second && tq.TraceSpanNearMissesSemanticWork(name)
+}
+
+func label(hit tq.TraceSpanVocabularyHit) string { return hit.ID }
+`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBypass := map[string]int{
+		"TraceSpanVocabulary in <package level>":  1,
+		"TraceSpanVocabulary in display":          1,
+		"TraceSpanVocabulary in gate":             2,
+		"TraceSpanNearMissesSemanticWork in gate": 1,
+	}
+	if got, dot := hmc376ExportedReferences(bypass, symbols); dot || !reflect.DeepEqual(got, wantBypass) {
+		t.Fatalf("scanner self-check failed: got %v dot=%v want %v", got, dot, wantBypass)
+	}
+	dotted, err := parser.ParseFile(fset, "dot_import.go", `package consumer
+
+import . "github.com/hanchaoqun/codrax/internal/tracequery"
+
+var bound = TraceSpanVocabulary
+`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, dot := hmc376ExportedReferences(dotted, symbols); !dot {
+		t.Fatal("scanner self-check failed: a dot import must be reported")
+	}
+
+	want := map[string]map[string]int{
+		"tool/answer_document_mutation_runtime_tree.go": {"TraceSpanVocabulary in runtimeTraceProjSemanticRowRecordsWait": 1},
+		"tracediag/census.go": {
+			"TraceSpanVocabulary in renderFormatCensus":             1,
+			"TraceSpanNearMissesSemanticWork in renderFormatCensus": 1,
+		},
+	}
+	got := map[string]map[string]int{}
+	scan := func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" {
+				return filepath.SkipDir
 			}
 			return nil
-		})
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
+			return err
+		}
+		rel := filepath.ToSlash(strings.TrimPrefix(path, ".."+string(filepath.Separator)))
+		counts, dot := hmc376ExportedReferences(file, symbols)
+		if dot {
+			t.Errorf("%s dot-imports this package, which hides its consumers from this pin", rel)
+		}
+		if len(counts) > 0 {
+			got[rel] = counts
+		}
+		return nil
+	}
+	for _, root := range []string{"..", filepath.Join("..", "..", "cmd")} {
+		if err := filepath.WalkDir(root, scan); err != nil {
 			t.Fatal(err)
 		}
-		sort.Strings(got)
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("%s consumers changed: got %v want %v", symbol, got, want)
-		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("exported vocabulary consumers changed:\n got %v\nwant %v", got, want)
 	}
 }
 
