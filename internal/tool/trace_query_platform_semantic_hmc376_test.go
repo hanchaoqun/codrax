@@ -681,6 +681,20 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 	for _, row := range native.RootCauseRank.Items {
 		publishedRank[fmt.Sprintf("%s|%s-%d|%.3f|%.3f|%s", row.Type, row.Thread.Comm, row.Thread.PID, row.ImpactMs, row.EffectiveImpactMs, row.ChainRelevance)] = true
 	}
+	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread,
+	// one object"): an inversion window account of a thread that holds its
+	// own chain seat (whole capture: wk:1/1/0/8-25647, 0.208 ready / 0.035
+	// overlap beside its 0.573 chain seat) is now that seat's lossless detail
+	// on the absorbed carrier, with every value unchanged; it is still
+	// published, as merged detail rather than a second row.
+	absorbedRank := map[string]bool{}
+	absorbedSubjectType := map[string]bool{}
+	for _, row := range native.RootCauseRank.AbsorbedItems {
+		absorbedRank[fmt.Sprintf("%s|%s-%d|%.3f|%.3f|%s", row.Type, row.Thread.Comm, row.Thread.PID, row.ImpactMs, row.EffectiveImpactMs, row.ChainRelevance)] = true
+		if row.Type == "priority_inversion_runnable_wait" {
+			absorbedSubjectType[fmt.Sprintf("%s-%d|%s", row.Thread.Comm, row.Thread.PID, row.Type)] = true
+		}
+	}
 	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): the two
 	// binder:196_8-33560 runnable rows were the host-edge split of its ready
 	// account at its one wakeup of the target (on-chain 0.092 + adjacent
@@ -722,7 +736,7 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 			}
 			continue
 		}
-		if !publishedRank[row] {
+		if !publishedRank[row] && !(strings.HasPrefix(row, "priority_inversion_runnable_wait|") && absorbedRank[row]) {
 			t.Errorf("rank row published before the vocabulary is gone: %s", row)
 		}
 	}
@@ -751,7 +765,7 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 		if fields[1] == repricedHost && fields[3] == "runnable_wait" {
 			continue // re-priced by HMC377 E2 (see above)
 		}
-		if !publishedProjection[row] {
+		if !publishedProjection[row] && !absorbedSubjectType[fields[1]+"|"+fields[3]] {
 			t.Errorf("projection row published before the vocabulary is gone: %s", row)
 		}
 	}

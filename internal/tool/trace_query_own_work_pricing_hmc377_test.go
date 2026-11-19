@@ -133,8 +133,13 @@ func TestHMC377WholeOriginalDouyinRebootOwnWorkIsComplete(t *testing.T) {
 	if !strings.Contains(published.Summary, "member_count=127 member_not_listed=95 own_work_on_cpu=80.201ms") {
 		t.Fatal("the model-facing board row must state the complete count, the members not listed and the on-CPU share")
 	}
+	// EVOLUTION RECORD (HMC377 E1E6-R4): the bound caveat keeps the
+	// lower-bound word for the one face still aggregated from the listed
+	// spans (trace_mark_category), by name; no semantic family total is
+	// called a lower bound.
 	for _, caveat := range rank.Caveats {
-		if strings.Contains(caveat, "lower bound") {
+		if strings.Contains(caveat, "Published semantic family totals are lower bounds") ||
+			(strings.Contains(caveat, "lower bound") && !strings.Contains(caveat, "trace_mark_category totals of this result are still computed from the listed spans only")) {
 			t.Fatalf("no semantic family total is a lower bound any more: %s", caveat)
 		}
 	}
