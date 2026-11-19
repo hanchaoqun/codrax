@@ -96,8 +96,16 @@ func TestHMC370HoneybirdWholePriorityRolesKeepNativePartiesAndIntervals(t *testi
 		!strings.Contains(measured, "dependency analysis window (not a continuous state interval)") || strings.Contains(measured, "window_projection=") {
 		t.Fatalf("full-capture dependency occupancy was confused with a query window: %s", measured)
 	}
+	// EVOLUTION RECORD (HMC377 D3, merge of fix round 2): old → new =
+	// "ready thread main-64156" → "ready thread ele.crowdsource-64156" (here
+	// and in the sidecar evidence below). One physical thread now carries one
+	// display name on every face; 64156's `main` is the zygote-inherited name
+	// it dropped at L20057 (11343.248385), and the overlap's own rows name it
+	// ele.crowdsource (L25227 sched_wakeup comm=ele.crowdsource pid=64156,
+	// L25229 next_comm=ele.crowdsource). Value, lines, CPU and interval are
+	// unchanged.
 	hmc370PriorityRoleLine(t, got, "priority_inversion_runnable_wait",
-		[]string{"0.013ms", "same-CPU ready/run overlap", "ready thread main-64156", "running competitor", "-64176", "CPU4",
+		[]string{"0.013ms", "same-CPU ready/run overlap", "ready thread ele.crowdsource-64156", "running competitor", "-64176", "CPU4",
 			"[11343.297396, 11343.297409)", "after recorded wakeup (line 25227)", "25229"},
 		[]string{"before_downstream_wakeup", "lower_priority_dependency_only"})
 	ledger := answerDocObservationLedger(ctx)
@@ -122,7 +130,8 @@ func TestHMC370HoneybirdWholePriorityRolesKeepNativePartiesAndIntervals(t *testi
 		evidence := strings.Join(item.Evidence, " ")
 		if item.MechanismQualifier != types.TraceMechanismSameCPURunnableOverlapCandidate ||
 			item.ImpactSeconds == nil || *item.ImpactSeconds != .000013 || item.ImpactBreakdown == nil ||
-			!strings.Contains(evidence, "L25227–L25229") || !strings.Contains(evidence, "main-64156") ||
+			!strings.Contains(evidence, "L25227–L25229") || !strings.Contains(evidence, "就绪线程 ele.crowdsource-64156（L25227–L25229）") ||
+			strings.Contains(evidence, "main-64156") ||
 			!strings.Contains(evidence, "-64176") || strings.Contains(evidence, "低优先级依赖方供给候选") {
 			t.Fatalf("sidecar applied the wrong scope or magnitude: %+v", item)
 		}
