@@ -14449,8 +14449,12 @@ func detectThreadDrifts(idx *Index, q Query, max int) []ThreadDriftSummary {
 			acc = &threadDriftAcc{names: map[string]bool{}, tgids: map[int]bool{}, lineStart: line, lineEnd: line}
 			accs[pid] = acc
 		}
-		if strings.TrimSpace(comm) != "" {
-			acc.names[comm] = true
+		// HMC377 D3-R9: the kernel's "<...>" placeholder (comm not in the
+		// saved-cmdline cache) is not a name — the same rule as the display
+		// ledger (threadDisplayUsableComm) — so it never makes a thread look
+		// renamed.
+		if usable, ok := threadDisplayUsableComm(comm); ok {
+			acc.names[usable] = true
 		}
 		if tgid > 0 {
 			acc.tgids[tgid] = true

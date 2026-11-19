@@ -595,17 +595,74 @@ type threadDisplayRewriter struct {
 }
 
 // threadDisplayFacePriority orders the identity disclosure: the analysed
-// thread first, then threads on the causal faces, then the rest, so the
-// bounded list never drops a chain member for a background thread.
+// thread first, then threads on the causal faces, then the rest. HMC377
+// D3-R4: inside the causal faces, the threads of the dependency chain itself
+// (chain nodes and edges, on-chain rank rows — threadDisplayChainTIDs) take
+// class 1 ahead of every census, adjacent or background thread of the same
+// faces (class 2), so the bounded list never drops a chain member for a
+// background thread.
 func threadDisplayFacePriority(field string) int {
 	switch field {
 	case "Timeline", "TargetWindowStates", "ThreadSelection":
 		return 0
 	case "RootCauseRank", "WakeupChain", "CriticalBlocking", "FrameRootCauseBundle", "IPCGraph":
-		return 1
-	default:
 		return 2
+	default:
+		return 3
 	}
+}
+
+// threadDisplayIdentityOrder returns the bounded disclosure order: the face
+// class each TID was referenced under (a chain thread lifted to class 1),
+// then TID ascending.
+func threadDisplayIdentityOrder(referenced map[int]int, chain map[int]bool, limit int) []int {
+	class := make(map[int]int, len(referenced))
+	tids := make([]int, 0, len(referenced))
+	for tid, priority := range referenced {
+		if chain[tid] && priority > 1 {
+			priority = 1
+		}
+		class[tid] = priority
+		tids = append(tids, tid)
+	}
+	sort.Slice(tids, func(i, j int) bool {
+		if class[tids[i]] != class[tids[j]] {
+			return class[tids[i]] < class[tids[j]]
+		}
+		return tids[i] < tids[j]
+	})
+	if len(tids) > limit {
+		tids = tids[:limit]
+	}
+	return tids
+}
+
+// threadDisplayChainTIDs is the dependency chain's own thread set of a
+// result: the wakeup-chain nodes and edges, and every on-chain rank row.
+func threadDisplayChainTIDs(res Result) map[int]bool {
+	out := map[int]bool{}
+	add := func(t ThreadRef) {
+		if t.PID > 0 {
+			out[t.PID] = true
+		}
+	}
+	if chain := res.WakeupChain; chain != nil {
+		for _, node := range chain.Nodes {
+			add(node.Thread)
+		}
+		for _, edge := range chain.Edges {
+			add(edge.Waker)
+			add(edge.Wakee)
+		}
+	}
+	if rank := res.RootCauseRank; rank != nil {
+		for _, item := range rank.Items {
+			if rootCauseItemIsOnChain(item) {
+				add(item.Thread)
+			}
+		}
+	}
+	return out
 }
 
 var (
@@ -875,19 +932,7 @@ func publishThreadDisplayIdentity(idx *Index, q Query, res Result) Result {
 	if len(w.referenced) == 0 {
 		return res
 	}
-	tids := make([]int, 0, len(w.referenced))
-	for tid := range w.referenced {
-		tids = append(tids, tid)
-	}
-	sort.Slice(tids, func(i, j int) bool {
-		if w.referenced[tids[i]] != w.referenced[tids[j]] {
-			return w.referenced[tids[i]] < w.referenced[tids[j]]
-		}
-		return tids[i] < tids[j]
-	})
-	if len(tids) > threadDisplayIdentityCap {
-		tids = tids[:threadDisplayIdentityCap]
-	}
+	tids := threadDisplayIdentityOrder(w.referenced, threadDisplayChainTIDs(res), threadDisplayIdentityCap)
 	res.ThreadIdentities = nil
 	for _, tid := range tids {
 		if identity, ok := view.published(tid); ok {

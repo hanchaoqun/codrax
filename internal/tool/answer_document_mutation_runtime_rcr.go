@@ -1172,9 +1172,11 @@ func runtimeTraceProjInversionUncountedCaliber(node types.TraceCausalProjectionN
 	switch strings.TrimSpace(node.TypeToken) {
 	case "priority_inversion_runnable_wait":
 		if zh {
-			return "全额计入与更低优先级线程同核运行重叠的部分;其余" + amount + "同核没有更低优先级线程在运行,不计入"
+			// HMC377 D3-R7: the uncounted share is not proven to overlap a
+			// lower-priority thread — never "no lower-priority thread ran".
+			return "全额计入与更低优先级线程同核运行重叠的部分;其余" + amount + "未证明同核有更低优先级线程在运行,不计入"
 		}
-		return "in full for the share overlapping a lower-priority thread running on the same CPU; the other " + amount + " had no lower-priority thread running there and is not counted"
+		return "in full for the share overlapping a lower-priority thread running on the same CPU; the other " + amount + " is not proven to overlap a lower-priority thread running there and is not counted"
 	case "priority_inversion_candidate":
 		if zh {
 			return "全额计入已证明优先级低于其下游等待线程的部分;其余" + amount + "未证明优先级更低,不计入"

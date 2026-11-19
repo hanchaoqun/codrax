@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -65,8 +66,24 @@ func TestHMC377RunnableOverlapComponentNamesMeasuredReadyAndOverlap(t *testing.T
 	if strings.Contains(fence, "runnable 原始 8.408ms") {
 		t.Fatalf("the overlap estimate must not read as the measured ready time:\n%s", fence)
 	}
-	if strings.Contains(fence, "原始 45.878ms") && !strings.Contains(fence, "其余37.470ms同核没有更低优先级线程在运行,不计入") {
+	if strings.Contains(fence, "原始 45.878ms") && !strings.Contains(fence, "其余37.470ms未证明同核有更低优先级线程在运行,不计入") {
 		t.Fatalf("a measured ready time beside the overlap must name the uncounted share:\n%s", fence)
+	}
+	// HMC377 D3-R7: the fence above may render neither component, which made
+	// this pin vacuous; the component builder itself must name the measured
+	// ready time, the counted overlap, and the uncounted share as NOT PROVEN
+	// to overlap (never "no lower-priority thread ran").
+	components, _, ok := runtimeTraceProjInversionComponents(node, false, true)
+	if !ok {
+		t.Fatal("the overlap node must decompose into its measured components")
+	}
+	joined := ""
+	for _, c := range components {
+		joined += fmt.Sprintf("%+v\n", c)
+	}
+	if !strings.Contains(joined, "45.878") || !strings.Contains(joined, "其余37.470ms未证明同核有更低优先级线程在运行,不计入") ||
+		strings.Contains(joined, "同核没有更低优先级线程在运行") {
+		t.Fatalf("components must state the measured account and the unproven share:\n%s", joined)
 	}
 }
 

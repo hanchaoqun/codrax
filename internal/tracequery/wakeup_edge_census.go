@@ -60,6 +60,12 @@ type wakeupEdgeCensusKey struct {
 	wakerPID  int
 	wakeeComm string
 	wakeePID  int
+	// wakerGen / wakeeGen (HMC377 D3-R3): the lifetime of each numeric TID
+	// at the row — the count of in-window lifecycle boundaries (exit,
+	// sched_wakeup_new) of that TID before the row. A rename keeps one
+	// lifetime (one pair); a reused TID is two threads and stays two pairs.
+	wakerGen int
+	wakeeGen int
 }
 
 // wakeupExitStateBucket classifies which scheduler state a wakee LEFT when a
@@ -145,6 +151,27 @@ func buildWakeupEdgeCensus(idx *Index, cache *chainQueryCache, q Query, res *Cha
 		}
 		return true
 	}
+	// HMC377 D3-R3: in-window lifecycle boundaries per numeric TID (exit /
+	// new incarnation), so the name-free pair key never merges two lifetimes
+	// of a reused TID.
+	resetsByPID := map[int][]int{}
+	for i := range idx.Events {
+		if !inWindow(idx.Events[i].Ts) {
+			continue
+		}
+		if pid, ok := schedulerLifecycleResetPID(idx.Events[i]); ok {
+			resetsByPID[pid] = append(resetsByPID[pid], i)
+		}
+	}
+	lifetime := func(pid, at int) int {
+		n := 0
+		for _, reset := range resetsByPID[pid] {
+			if reset < at {
+				n++
+			}
+		}
+		return n
+	}
 	// --- raw scan (pre-cap 全量折叠; per-event-index dedup) ----------------
 	fold := map[wakeupEdgeCensusKey]*WakeupEdgeCensusPair{}
 	var order []wakeupEdgeCensusKey
@@ -201,9 +228,11 @@ func buildWakeupEdgeCensus(idx *Index, cache *chainQueryCache, q Query, res *Cha
 				// gives the thread its one display name.
 				if key.wakerPID > 0 {
 					key.wakerComm = ""
+					key.wakerGen = lifetime(key.wakerPID, i)
 				}
 				if key.wakeePID > 0 {
 					key.wakeeComm = ""
+					key.wakeeGen = lifetime(key.wakeePID, i)
 				}
 				pair, ok := fold[key]
 				if !ok {
