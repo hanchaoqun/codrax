@@ -6,10 +6,16 @@ import (
 )
 
 type TraceRankRosterSeat struct {
-	Rank                     int
-	Tier                     string
-	Type                     string
-	IOValueCaliber           string
+	Rank           int
+	Tier           string
+	Type           string
+	IOValueCaliber string
+	// HMC377 D2: a blocking seat's typed kind, value basis and holder role,
+	// so the seat's reader word says what was proven (lock words only with a
+	// parsed contention payload).
+	BlockingKind             string
+	BlockingValueBasis       string
+	BlockingSubjectIsHolder  bool
 	Subject                  string
 	EffectiveImpactMS        float64
 	EffectiveImpactPublished bool
@@ -79,6 +85,9 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 				Tier:                     strings.TrimSpace(node.Tier),
 				Type:                     firstNonEmptyTraceRankRosterString(node.TypeToken, node.Object, node.Predicate, "unknown"),
 				IOValueCaliber:           node.IOValueCaliber,
+				BlockingKind:             strings.TrimSpace(node.BlockingKind),
+				BlockingValueBasis:       strings.TrimSpace(node.BlockingValueBasis),
+				BlockingSubjectIsHolder:  node.BlockingSubjectIsHolder,
 				Subject:                  strings.TrimSpace(node.Subject),
 				EffectiveImpactMS:        node.EffectiveImpactMS,
 				EffectiveImpactPublished: node.EffectiveImpactPublished,

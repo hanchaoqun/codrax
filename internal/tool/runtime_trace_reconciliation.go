@@ -44,6 +44,10 @@ type RuntimeTraceReconciliationRow struct {
 	CauseToken     string
 	IOValueCaliber string
 	FixDirection   string
+	// CauseLabelZH (HMC377 D2) is the rank-one row's zh cause word from the
+	// node itself (TraceMeasurementNodeTypeDisplayLabel): a blocking seat
+	// keeps its typed-kind word on this appendix too.
+	CauseLabelZH string
 }
 
 // TraceStateNonIODStateWord is the ONE customer-face word for the exclusive
@@ -138,6 +142,7 @@ func RuntimeTraceReconciliationRows(ctx *types.BusContext) []RuntimeTraceReconci
 			CauseToken:     strings.TrimSpace(row.Node.TypeToken),
 			IOValueCaliber: row.Node.IOValueCaliber,
 			FixDirection:   strings.TrimSpace(row.Node.FixDirection),
+			CauseLabelZH:   strings.TrimSpace(TraceMeasurementNodeTypeDisplayLabel(row.Node.TypeToken, row.Node, true)),
 		})
 	}
 	return out

@@ -42,6 +42,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -7238,6 +7239,10 @@ func answerDocTraceRankReaderCauseLabel(raw string, zh bool) string {
 }
 
 func answerDocTraceRankReaderMeasuredCauseLabel(seat types.TraceRankRosterSeat, zh bool) string {
+	// HMC377 D2: a blocking seat speaks its typed blocking kind.
+	if strings.EqualFold(strings.TrimSpace(seat.Type), "blocking_span") {
+		return tool.TraceBlockingRowDisplayLabel(seat.BlockingKind, seat.BlockingValueBasis, seat.BlockingSubjectIsHolder, zh)
+	}
 	if label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(seat.Type, seat.IOValueCaliber, zh)); label != "" {
 		return label
 	}
@@ -24395,6 +24400,11 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	if types.TraceUsesIOValueCaliber(record.Object, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber)) {
 		object = tool.TraceMeasurementTypeDisplayLabel(record.Object, traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOValueCaliber), zh)
 	}
+	// HMC377 D2: a blocking row whose Object is its type token speaks the
+	// row's typed-kind word (a lock word only with a parsed payload).
+	if strings.EqualFold(strings.TrimSpace(record.Object), "blocking_span") {
+		object = traceQueryObservationSupplementBlockingWord(record, zh)
+	}
 	// Renderer-invented labels and separators follow the answer language.
 	// Raw claim/note tokens remain byte-preserved in the observation ledger and
 	// diagnostics; only this customer-facing projection is localized.
@@ -24463,6 +24473,19 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 	if strings.HasPrefix(claim, "root_cause") || strings.HasPrefix(claim, "root_evidence") {
 		if scoped := traceQueryObservationSupplementNonCauseLabel(record, zh); scoped != "" {
 			return scoped
+		}
+	}
+	// HMC377 D2: the same rule for the critical-blocking family — a row the
+	// engine published off the dependency chain (a fellow waiter of the same
+	// work, background load) is supporting context and is never crowned
+	// 关键阻塞. Exact typed chain_relevance markers only; on-chain and
+	// unmarked rows keep the family label.
+	if strings.HasPrefix(claim, "critical_blocking") {
+		switch strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyChainRelevance)) {
+		case "background":
+			return label("背景支撑观测", "background supporting observation")
+		case "adjacent":
+			return label("邻近支撑观测", "adjacent supporting observation")
 		}
 	}
 	switch {
@@ -24834,6 +24857,8 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	// ordering, because no ordering could ever admit them. Registry-backed
 	// constants only (blocking family, already registered — no new keys).
 	types.TraceNoteKeyBlockingKind + "=", types.TraceNoteKeyHolderSite + "=", types.TraceNoteKeyWaiters + "=",
+	// HMC377 D2: the typed wake-relay upstream of a payload-less blocking row.
+	types.TraceNoteKeyBlockingWakeRelayUpstream + "=",
 	types.TraceNoteKeyCausality + "=", types.TraceNoteKeyChainDepth + "=", types.TraceNoteKeyPriorityRelation + "=", "priority_inversion_candidate=",
 	types.TraceNoteKeyOccurrenceWindows + "=",
 	// F3② (§22 PTV7-SPN, huadong_01 P1): the span name was table-level
@@ -24893,6 +24918,9 @@ var (
 	// subject_state_*, the holder being the subject itself). A row carries only
 	// one family, so both prefix pairs are listed and COEXIST — never replace.
 	traceQueryObservationSupplementBlockingPriorityPrefixes = []string{
+		// HMC377 D2: a relay verdict leads (present only on payload-less
+		// rows, which never carry the kind/site pair below).
+		types.TraceNoteKeyBlockingWakeRelayUpstream + "=",
 		types.TraceNoteKeyBlockingKind + "=",
 		types.TraceNoteKeyHolderSite + "=",
 		"peer_state_dominant=",
@@ -24990,6 +25018,25 @@ func traceQueryObservationSupplementNoteValue(record types.ObservationRecord, ke
 	return ""
 }
 
+// traceQueryObservationSupplementBlockingWord (HMC377 D2) is the record's
+// blocking word from its own typed kind / value basis / holder-role notes
+// through the single blocking word source.
+func traceQueryObservationSupplementBlockingWord(record types.ObservationRecord, zh bool) string {
+	return tool.TraceBlockingRowDisplayLabel(
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyBlockingKind),
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyBlockingValueBasis),
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeySubjectIsLockHolder) == "true", zh)
+}
+
+// traceQueryObservationSupplementWakeEndedBlockingRow (HMC377 D2) reports a
+// blocking_span record with no parsed lock payload whose counterpart came from
+// the waiter's wakeup edge — exact typed notes only.
+func traceQueryObservationSupplementWakeEndedBlockingRow(record types.ObservationRecord) bool {
+	return strings.EqualFold(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyType), "blocking_span") &&
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyBlockingKind) == "" &&
+		traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyPeerSource) == tracequery.CounterpartSourceWakeupEdge
+}
+
 func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh bool) string {
 	seen := map[string]bool{}
 	notes := make([]string, 0, 4)
@@ -25068,6 +25115,32 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 				readerNotes = append(readerNotes, "观测类型："+label)
 			} else {
 				readerNotes = append(readerNotes, "observation type: "+label)
+			}
+			continue
+		}
+		// HMC377 D2: a blocking row's type word comes from the same row's
+		// typed blocking kind / holder role / value basis notes (the single
+		// blocking word source) — lock words only with a parsed payload.
+		if key, token, ok := strings.Cut(note, "="); ok && key == types.TraceNoteKeyType &&
+			strings.EqualFold(strings.TrimSpace(token), "blocking_span") {
+			label := traceQueryObservationSupplementBlockingWord(record, zh)
+			if zh {
+				readerNotes = append(readerNotes, "观测类型："+label)
+			} else {
+				readerNotes = append(readerNotes, "observation type: "+label)
+			}
+			continue
+		}
+		// HMC377 D2: on a blocking row with no lock payload the counterpart
+		// is only the thread whose wakeup ended the wait (typed peer source),
+		// so the note says exactly that instead of a bare related thread.
+		if key, peer, ok := strings.Cut(note, "="); ok && key == types.TraceNoteKeyPeer &&
+			traceQueryObservationSupplementWakeEndedBlockingRow(record) {
+			entity := traceQueryObservationSupplementEntityLabel(strings.TrimSpace(peer), zh)
+			if zh {
+				readerNotes = append(readerNotes, "结束等待的唤醒方："+entity)
+			} else {
+				readerNotes = append(readerNotes, "thread whose wakeup ended the wait: "+entity)
 			}
 			continue
 		}
@@ -25169,6 +25242,13 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 		return line("持有方位置", "holder site", value)
 	case types.TraceNoteKeyWaiters:
 		return line("等待线程数", "waiting thread count", value)
+	case types.TraceNoteKeyBlockingWakeRelayUpstream:
+		// HMC377 D2: the related thread only passed the wakeup on.
+		upstream := traceQueryObservationSupplementEntityLabel(value, zh)
+		if zh {
+			return line("唤醒转发", "", "结束等待的唤醒方同在这项等待中，先被 "+upstream+" 唤醒后才唤醒本线程，不是本次等待所依赖的一方")
+		}
+		return line("", "wakeup passed on", "the thread that woke this one was parked in the same wait and woke this thread only after "+upstream+" woke it; it is not the party this wait depended on")
 	case types.TraceNoteKeyCausality:
 		return line("因果依据", "causal basis", traceQueryObservationSupplementCausalBasis(value, zh))
 	case types.TraceNoteKeyChainDepth:

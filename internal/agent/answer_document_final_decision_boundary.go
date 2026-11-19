@@ -290,9 +290,17 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 					if key == "" || seen[key] {
 						continue
 					}
-					label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(token, node.IOValueCaliber, zh))
+					// HMC377 D2: a blocking token's permitted word is the
+					// row's own typed-kind word; one handoff line per word.
+					label := strings.TrimSpace(tool.TraceMeasurementNodeTypeDisplayLabel(token, node, zh))
 					if label == "" || strings.EqualFold(label, token) {
 						continue
+					}
+					if strings.EqualFold(token, "blocking_span") {
+						key += "\x00" + label
+						if seen[key] {
+							continue
+						}
 					}
 					seen[key] = true
 					fmt.Fprintf(&b, "  - permitted_reader_cause_label=%q; raw_parenthetical_forbidden=true. Use only this reader label in model-authored prose; the wire identity stays in typed/audit fields and is intentionally omitted from this reader-facing handoff.\n", label)
@@ -705,7 +713,7 @@ func traceFinalReaderTargetAuthority(projection types.TraceCausalProjection, aut
 }
 
 func traceFinalReaderCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
-	label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh))
+	label := strings.TrimSpace(tool.TraceMeasurementNodeTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node, zh))
 	if label != "" {
 		return label
 	}
@@ -782,7 +790,7 @@ func traceFinalReaderTargetSelfStateSymptom(projection types.TraceCausalProjecti
 }
 
 func traceFinalReaderContextLabel(node types.TraceCausalProjectionNode, zh bool) string {
-	label := strings.TrimSpace(tool.TraceMeasurementTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node.IOValueCaliber, zh))
+	label := strings.TrimSpace(tool.TraceMeasurementNodeTypeDisplayLabel(traceDecisionEliminableSeatKind(node), node, zh))
 	if label != "" {
 		return label
 	}

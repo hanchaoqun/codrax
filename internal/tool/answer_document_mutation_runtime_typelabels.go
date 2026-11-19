@@ -106,10 +106,15 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "trace span"
 	case "blocking_span":
 		// PTV8-RCR-B (UXA 域A #1 / 域D 漏审 S1, 2026-07-08): the lead sentence
-		// and the compare primary cell rendered the bare wire token — the zh
-		// word matches the E4 row / monitor_contention wording (one token, one
-		// translation); the raw token stays in typed evidence/audit carriers.
-		return "持锁阻塞"
+		// and the compare primary cell rendered the bare wire token; the raw
+		// token stays in typed evidence/audit carriers.
+		// EVOLUTION RECORD (HMC377 D2, 2026-11-19): the bare token no longer
+		// names a lock. One token covers typed lock/monitor rows AND recorded
+		// waits with no lock payload (a GC completion wait), so the
+		// token-only word is the kind-neutral recorded-wait word; lock words
+		// come only from the row's typed blocking kind through
+		// TraceBlockingRowDisplayLabel (the single blocking word source).
+		return TraceBlockingRowDisplayLabel("", "", false, true)
 	case "missing_wakeup":
 		// PTV8-RCR-B (UXA 域A #22 / 域B #15 / 域D #7, 任务令终词 2026-07-08),
 		// narrowed by EVAL-B27-MWAUTH1: the data-gap marker says exactly what
@@ -215,7 +220,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "trace_span":
 		return "trace span"
 	case "blocking_span":
-		return "lock-holder blocking"
+		return TraceBlockingRowDisplayLabel("", "", false, false)
 	case "missing_wakeup":
 		return "no matching wakeup record found in window"
 	case "trace_gap":
@@ -394,12 +399,21 @@ func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProj
 		if kind == "d_state_or_io_wait" && node.DStateRefinedNonIO {
 			kind = "d_state_refined"
 		}
-		return qualify(runtimeTraceCausalProjectionResolvedPeerText(kind, runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh), zh))
+		peer := runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh)
+		if text, ok := runtimeTraceBlockingWakeRelayText(node, kind, peer, zh); ok {
+			return qualify(text)
+		}
+		return qualify(runtimeTraceCausalProjectionResolvedPeerText(kind, peer, zh))
 	}
 	// DSTATE-REFINE arm a (件③): a raw-lane merged cause word consumes the
 	// engine's refined-D proof — 「D-state」 instead of 「D-state/iowait」.
 	if runtimeTraceCausalProjectionCanonicalNode(node.Object) == "d_state_or_io_wait" && node.DStateRefinedNonIO {
 		return qualify(runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: "d_state"}, zh))
+	}
+	// HMC377 D2: a blocking row's cause word speaks its typed blocking kind
+	// (lock words only with a parsed contention payload).
+	if runtimeTraceCausalProjectionCanonicalNode(node.Object) == "blocking_span" {
+		return qualify(TraceMeasurementNodeTypeDisplayLabel(node.Object, node, zh))
 	}
 	return qualify(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
 }
@@ -664,6 +678,10 @@ func runtimeTraceCausalProjectionDetailTypeLabel(node types.TraceCausalProjectio
 		return word
 	}
 	raw := runtimeTraceCausalProjectionRawTypeToken(node)
+	// HMC377 D2: the blocking type word comes from the node's typed kind.
+	if runtimeTraceCausalProjectionCanonicalNode(raw) == "blocking_span" {
+		return TraceMeasurementNodeTypeDisplayLabel(raw, node, zh)
+	}
 	if label := TraceRootCauseTypeDisplayLabel(raw, zh); label != "" {
 		return label
 	}

@@ -13597,7 +13597,10 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"holder_site=SomeManager.list(SomeManager.java:1258)", "waiters=2", "chain_relevance=on_chain",
 	}}
 	got = notesOf(blocking)
-	want = "details: blocking type: monitor contention; holder site: SomeManager.list(SomeManager.java:1258); observation type: lock-holder blocking; related thread: Holder_Operate_0-42067"
+	// EVOLUTION RECORD (HMC377 D2): this waiter-subject row's type word is
+	// the waiter word of its parsed payload (a waiter never holds the lock);
+	// the slot selection under test is unchanged.
+	want = "details: blocking type: monitor contention; holder site: SomeManager.list(SomeManager.java:1258); observation type: lock contention wait; related thread: Holder_Operate_0-42067"
 	if got != want {
 		t.Fatalf("blocking_span priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -13607,7 +13610,8 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"peer_state_dominant=running", "peer_state_sleep=0.000ms",
 	}}
 	got = notesOf(blockingNoPayload)
-	want = "details: related-thread dominant state: running time; related-thread sleep wait: 0.000ms; observation type: lock-holder blocking; related thread: unresolved peer thread"
+	// HMC377 D2: no parsed payload → the kind-neutral recorded-wait word.
+	want = "details: related-thread dominant state: running time; related-thread sleep wait: 0.000ms; observation type: blocking wait; related thread: unresolved peer thread"
 	if got != want {
 		t.Fatalf("payload-less blocking_span priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -13621,7 +13625,9 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"subject_state_dominant=running", "subject_state_sleep=0.000ms",
 	}}
 	got = notesOf(holderSubjectRank)
-	want = "details: current-thread dominant state: running time; current-thread sleep wait: 0.000ms; observation type: lock-holder blocking; related thread: Waiter-99"
+	// HMC377 D2: this slot-fallback fixture carries no parsed payload, so its
+	// type word is the kind-neutral one (lock words need the payload).
+	want = "details: current-thread dominant state: running time; current-thread sleep wait: 0.000ms; observation type: blocking wait; related thread: Waiter-99"
 	if got != want {
 		t.Fatalf("holder-subject subject_state priority selection (BLK-2):\n got %q\nwant %q", got, want)
 	}
@@ -13631,6 +13637,9 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 	// absent holder_site/peer_state_* prefixes to reach subject_state_dominant.
 	holderSubjectFolded := types.ObservationRecord{RichNotes: []string{
 		"type=blocking_span", "peer=Waiter-99", "blocking_kind=monitor_contention",
+		// HMC377 D2: the production holder-subject rank record carries the
+		// typed holder-role note; it takes no note slot.
+		"subject_is_lock_holder=true",
 		"chain_relevance=on_chain", "subject_state_dominant=running", "subject_state_sleep=0.000ms",
 	}}
 	got = notesOf(holderSubjectFolded)

@@ -6386,7 +6386,9 @@ func runtimeTraceCausalProjectionEvidenceDisplayDetail(node types.TraceCausalPro
 	// typed token. Unknown wire values stay available in diagnostics but never
 	// leak into this customer-facing panel by fallback.
 	for _, token := range []string{node.TypeToken, node.SemanticClass, node.Object, node.Predicate} {
-		label := strings.TrimSpace(TraceMeasurementTypeDisplayLabel(token, node.IOValueCaliber, zh))
+		// HMC377 D2: a blocking row's type word comes from its typed
+		// blocking kind (lock words only with a parsed contention payload).
+		label := strings.TrimSpace(TraceMeasurementNodeTypeDisplayLabel(token, node, zh))
 		if label == "" || strings.EqualFold(label, strings.TrimSpace(token)) {
 			continue
 		}
@@ -6920,15 +6922,17 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 	if node.BlockingSubjectIsHolder {
 		waiter := strings.TrimSpace(node.BlockingPeer)
 		if zh {
+			// HMC377 D2: the head word is the single blocking word source.
+			head := TraceBlockingRowDisplayLabel(node.BlockingKind, node.BlockingValueBasis, true, true)
 			switch {
 			case waiter != "" && inferred:
-				return "持锁阻塞(等待方 " + waiter + ";持有者推断)"
+				return head + "(等待方 " + waiter + ";持有者推断)"
 			case waiter != "":
-				return "持锁阻塞(等待方 " + waiter + ")"
+				return head + "(等待方 " + waiter + ")"
 			case inferred:
-				return "持锁阻塞(持有者推断)"
+				return head + "(持有者推断)"
 			}
-			return "持锁阻塞"
+			return head
 		}
 		switch {
 		case waiter != "" && inferred:
@@ -6940,10 +6944,7 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 		}
 		return "holds lock"
 	}
-	name := "锁竞争等待"
-	if !zh {
-		name = "lock contention wait"
-	}
+	name := TraceBlockingRowDisplayLabel(node.BlockingKind, node.BlockingValueBasis, false, zh)
 	if peer := strings.TrimSpace(node.BlockingPeer); peer != "" {
 		switch {
 		case zh && inferred:

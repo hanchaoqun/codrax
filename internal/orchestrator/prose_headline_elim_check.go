@@ -192,6 +192,21 @@ type proseHeadlineSeatRow struct {
 	// engine-stamped registry direction token, verbatim from the typed
 	// fix_direction note ("" when unstamped — absence stays absent).
 	fixDirection string
+	// blockingKind / blockingValueBasis / blockingHolder (HMC377 D2): a
+	// blocking seat's typed kind notes, so its class word is the same
+	// kind-aware word every report surface renders.
+	blockingKind       string
+	blockingValueBasis string
+	blockingHolder     bool
+}
+
+// proseHeadlineSeatClassLabel is the seat's display class word: the single
+// blocking word source for a blocking seat, the shared lexicon otherwise.
+func proseHeadlineSeatClassLabel(seat proseHeadlineSeatRow, zh bool) string {
+	if seat.classToken == "blocking_span" {
+		return tool.TraceBlockingRowDisplayLabel(seat.blockingKind, seat.blockingValueBasis, seat.blockingHolder, zh)
+	}
+	return tool.TraceRootCauseTypeDisplayLabel(seat.classToken, zh)
 }
 
 // proseHeadlineClassFamily collapses the published cause-class token to its
@@ -253,6 +268,10 @@ func proseHeadlineCollectSeatRows(ledger types.ObservationLedger) []proseHeadlin
 			adjacent:     relevance == "adjacent",
 			boardTarget:  strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyRankBoardTarget)),
 			fixDirection: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyFixDirection)),
+			// HMC377 D2: typed blocking-kind notes (empty on other seats).
+			blockingKind:       strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyBlockingKind)),
+			blockingValueBasis: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyBlockingValueBasis)),
+			blockingHolder:     strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeySubjectIsLockHolder)) == "true",
 		}
 		// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正):
 		// composite-score rows publish the *_score twin instead of the ms
@@ -367,7 +386,7 @@ func proseHeadlineClassWords(rows []proseHeadlineSeatRow) []proseHeadlineClassWo
 			add(token, r.family, true)
 			continue
 		}
-		if zh := tool.TraceRootCauseTypeZHLabel(token); zh != "" && zh != token {
+		if zh := proseHeadlineSeatClassLabel(r, true); zh != "" && zh != token {
 			add(zh, r.family, false)
 		}
 		add(token, r.family, true)
@@ -626,7 +645,7 @@ func proseHeadlineBestSeat(rows []proseHeadlineSeatRow, entity proseHeadlineEnti
 func proseHeadlineSeatLabel(seat proseHeadlineSeatRow, zh, includeRank bool) string {
 	classWord := seat.classToken
 	if zh || seat.classToken == "priority_inversion_runnable_wait" {
-		if label := tool.TraceRootCauseTypeDisplayLabel(seat.classToken, zh); label != "" {
+		if label := proseHeadlineSeatClassLabel(seat, zh); label != "" {
 			classWord = label
 		}
 	}

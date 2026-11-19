@@ -69,6 +69,11 @@ func runtimeTraceCausalProjectionNarrativeCauseNameNode(node types.TraceCausalPr
 	if word, ok := runtimeTraceIOValueWord(node, zh); ok {
 		return word
 	}
+	// HMC377 D2: a blocking row's narrative word speaks its typed blocking
+	// kind (the single blocking word source), never the bare-token word.
+	if runtimeTraceCausalProjectionCanonicalNode(node.Object) == "blocking_span" {
+		return TraceMeasurementNodeTypeDisplayLabel(node.Object, node, zh)
+	}
 	return runtimeTraceCausalProjectionNarrativeCauseName(node.Object, zh)
 }
 

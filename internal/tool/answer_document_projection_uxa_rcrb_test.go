@@ -124,13 +124,19 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 // TestUXALeadBlockingSpanZHLabel — UXA 域A #1 / 域D 漏审 S1: the narrative
 // lane no longer leaks the bare wire token; the detail 类型 row keeps it
 // (§22.2.1 兜底结构).
+//
+// EVOLUTION RECORD (HMC377 D2, 2026-11-19): the token alone cannot prove a
+// lock (it also carries recorded waits without a lock payload), so the
+// token-only narrative word is the kind-neutral 阻塞等待 / blocking wait; the
+// lock words of typed rows are pinned by TestHMC377LockRankRowsKeepLockWords.
+// The pin's meaning — the reader lane never leaks the wire token — is kept.
 func TestUXALeadBlockingSpanZHLabel(t *testing.T) {
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", true); got != "持锁阻塞" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", true); got != "阻塞等待" {
 		t.Fatalf("zh narrative blocking_span = %q", got)
 	}
-	// RULE3-1 件8 (§29.182②): the EN narrative speaks the combined
-	// label-(token) form; the detail 类型 row below keeps the raw token.
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "lock-holder blocking" {
+	// RULE3-1 件8 (§29.182②): the EN narrative speaks the reader label; the
+	// detail 类型 row below keeps the raw token.
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "blocking wait" {
 		t.Fatalf("en narrative combined form drifted: %q", got)
 	}
 	if got := runtimeTraceCausalProjectionRawTypeToken(types.TraceCausalProjectionNode{Object: "blocking_span"}); got != "blocking_span" {
@@ -472,10 +478,15 @@ func TestUXABoundaryTruncateNoMidWordResidue(t *testing.T) {
 // on the conclusion line (fixture mirrors the opendir lead shape).
 func TestUXAConclusionLeadSpeaksZhBlockingWord(t *testing.T) {
 	projection := rcrHopOnlyProjection(112.175, 112.223)
+	// EVOLUTION RECORD (HMC377 D2): the fixture now carries the typed
+	// contention payload the real opendir lead carries (monitor contention,
+	// holder subject) — the lock word is earned by that payload, not by the
+	// bare token.
 	projection.PrimaryRootCauses = []types.TraceCausalProjectionNode{{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "bs-1",
 		Subject: "#RxComputationT-16816", Predicate: "root_cause_primary",
 		Object: "blocking_span", Rank: 1, Tier: "primary",
+		BlockingKind: "monitor_contention", BlockingSubjectIsHolder: true,
 		ChainRelevance: "on_chain", ChainDepth: 1,
 		ImpactMS: 112.223, CumulativeImpactMS: 112.223, EffectiveImpactMS: 112.223,
 		Confidence: 0.67,

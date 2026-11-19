@@ -317,6 +317,16 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	// blocking_span gains its zh display word 持锁阻塞 via
 	// runtimeTraceRootCauseTypeZHLabel (the lead sentence rendered the bare
 	// wire token) — LabelZhRef column ONLY; lane untouched.
+	// EVOLUTION RECORD (HMC377 D2, 2026-11-19): the token covers typed
+	// lock/monitor contention rows AND recorded waits without a lock payload
+	// (critical_blocking rows only, e.g. a GC completion wait). The
+	// lock_contention lane and the lock_priority fix direction below hold
+	// because the rank lane admits typed contention payloads only (query.go
+	// buildRootCauseRankFromWithCache, pinned by
+	// TestHMC377RankBoardNeverMintsAKindlessBlockingRow); the token-only zh
+	// word is the kind-neutral 阻塞等待 and lock words come only from the
+	// row's typed BlockingKind (tool TraceBlockingRowDisplayLabel). Columns
+	// unchanged.
 	"blocking_span": {Lane: CausalLaneLockContention, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// monitor_contention / lock_contention are BlockingKind refinements on
 	// blocking_span rows (§7.30.3 D1) — never row tokens themselves.

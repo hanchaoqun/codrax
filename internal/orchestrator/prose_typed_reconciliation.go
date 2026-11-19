@@ -145,6 +145,10 @@ func renderTargetStateReconciliation(row tool.RuntimeTraceReconciliationRow) pro
 func renderRankOneReconciliation(row tool.RuntimeTraceReconciliationRow) proseScalarBindingFinding {
 	artifactZH, artifactEN := reconciliationArtifactPrefix(row.ArtifactLabel)
 	causeZH := tool.TraceRootCauseTypeZHLabel(row.CauseToken)
+	// HMC377 D2: a blocking seat keeps the node's typed-kind word.
+	if row.CauseToken == "blocking_span" && row.CauseLabelZH != "" {
+		causeZH = row.CauseLabelZH
+	}
 	if strings.TrimSpace(causeZH) == "" {
 		causeZH = strings.TrimSpace(row.CauseToken)
 	}
