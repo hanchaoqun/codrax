@@ -229,6 +229,12 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 			sum := sha256.Sum256([]byte(previous))
 			got = hex.EncodeToString(sum[:])
 		}
+		if item.typ == reflect.TypeOf(tracequery.RootCauseRankItem{}) {
+			// HMC377: the later reviewed own-work fields are stripped first.
+			previous := rankItemSchemaBeforeOwnWorkPricing(t, item.typ, schema)
+			sum := sha256.Sum256([]byte(previous))
+			got = hex.EncodeToString(sum[:])
+		}
 		want := nonEventPrioritySchemaPins[item.typ]
 		if got != want {
 			t.Errorf("%s schema drift: got=%s want=%s\ncurrent_schema=%s", item.name, got, want, schema)
@@ -263,6 +269,8 @@ func nonEventSchemaBeforeIOValueCaliber(t *testing.T, typ reflect.Type, schema s
 	if typ != reflect.TypeOf(tracequery.RootCauseRankItem{}) {
 		return schema
 	}
+	// HMC377: the later reviewed own-work fields are stripped first.
+	schema = rankItemSchemaBeforeOwnWorkPricing(t, typ, schema)
 	const added = "IOValueCaliber|string|io_value_caliber,omitempty"
 	var previous []string
 	addedCount := 0
@@ -281,12 +289,16 @@ func nonEventSchemaBeforeIOValueCaliber(t *testing.T, typ reflect.Type, schema s
 
 func TestNonEventRootCauseSchemaAddsOnlyIOValueCaliber(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.RootCauseRankItem{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, full := detailSchemaFingerprint(typ)
+	// HMC377: the later reviewed own-work fields are stripped first.
+	schema := rankItemSchemaBeforeOwnWorkPricing(t, typ, full)
+	currentSum := sha256.Sum256([]byte(schema))
+	current := hex.EncodeToString(currentSum[:])
 	const want = "bad0b686f07912dee16bb40b67241e6812a67264c71517295bad537f9d72196f"
 	if current != want {
 		t.Fatalf("IO value-caliber schema drift: got=%s want=%s\ncurrent_schema=%s", current, want, schema)
 	}
-	previous := nonEventSchemaBeforeIOValueCaliber(t, typ, schema)
+	previous := nonEventSchemaBeforeIOValueCaliber(t, typ, full)
 	sum := sha256.Sum256([]byte(previous))
 	const beforeIOCaliber = "2427fa750275e117d254e44e6c2a366ec690905148a2d7228b4d851e9a075c9e"
 	if got := hex.EncodeToString(sum[:]); got != beforeIOCaliber {
