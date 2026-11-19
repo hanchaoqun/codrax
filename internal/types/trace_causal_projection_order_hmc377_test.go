@@ -78,3 +78,32 @@ func TestHMC377ClassifiedOrderIsAStrictWeakOrder(t *testing.T) {
 		t.Fatalf("equal-value rows must order ranked-before-unranked transitively")
 	}
 }
+
+// HMC377 E2-R3 — two roles of the same rank (root_cause_context and
+// semantic_span) are compared by the hop order, never left incomparable: the
+// relative order of two context rows must not depend on an unrelated
+// semantic row sorted with them.
+func TestHMC377ClassifiedOrderSameRankRolesAreComparable(t *testing.T) {
+	a := TraceCausalProjectionNode{Role: TraceCausalRoleRootCauseContext, ChainRelevance: "adjacent", Subject: "a-1", CumulativeImpactMS: 5}
+	s := TraceCausalProjectionNode{Role: TraceCausalRoleSemanticSpan, ChainRelevance: "adjacent", Subject: "s-2", CumulativeImpactMS: 3}
+	c := TraceCausalProjectionNode{Role: TraceCausalRoleRootCauseContext, ChainRelevance: "adjacent", Subject: "c-3", CumulativeImpactMS: 1}
+	less := func(x, y TraceCausalProjectionNode) bool {
+		return traceCausalProjectionClassifiedLess(x, y, map[string]int{})
+	}
+	if !less(a, s) || !less(s, c) || !less(a, c) {
+		t.Fatalf("mixed same-rank roles must follow the hop order: a<s=%v s<c=%v a<c=%v", less(a, s), less(s, c), less(a, c))
+	}
+	order := func(in []TraceCausalProjectionNode) string {
+		sorted := traceCausalProjectionSortYieldingApart(in, less)
+		var ids []string
+		for _, n := range sorted {
+			if n.Subject != "s-2" {
+				ids = append(ids, n.Subject)
+			}
+		}
+		return strings.Join(ids, ",")
+	}
+	if with, without := order([]TraceCausalProjectionNode{c, s, a}), order([]TraceCausalProjectionNode{c, a}); with != without {
+		t.Fatalf("context order depends on an unrelated semantic row: with=%s without=%s", with, without)
+	}
+}

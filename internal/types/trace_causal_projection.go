@@ -5232,8 +5232,12 @@ func traceCausalProjectionClassifiedLess(a, b TraceCausalProjectionNode, pathInd
 	if aRelevance != bRelevance {
 		return aRelevance < bRelevance
 	}
-	if a.Role != b.Role {
-		return traceCausalProjectionRoleRank(a.Role) < traceCausalProjectionRoleRank(b.Role)
+	// HMC377 E2-R3: two roles of the same rank (root_cause_context and
+	// semantic_span) fall through to the hop order; returning false both ways
+	// there left them incomparable while each compared to a third row, so
+	// the relative order of two context rows depended on a semantic row.
+	if ra, rb := traceCausalProjectionRoleRank(a.Role), traceCausalProjectionRoleRank(b.Role); ra != rb {
+		return ra < rb
 	}
 	return traceCausalProjectionHopLess(a, b, pathIndex)
 }
