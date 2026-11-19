@@ -81,6 +81,22 @@ func r3TiebaSentinelHostWindows(t *testing.T, idx *Index, q Query) (semanticHost
 // none of it is time the target spent waiting for 61839: no on-chain
 // semantic row. The pin keeps its meaning (the bare edge is still the
 // admitted credential, µs-exact; what it prices is the wait it closed).
+//
+// EVOLUTION RECORD (batch-owner ruling R-377-3, 2026-11-19): this pin is the
+// successor of the retired sealed eval case
+// eval/cases/real_traces/real_trace_h8_semantic_edge_anchor_sentinel.case
+// (SEAL-1, §29.101). The case sealed the positive arm end to end — "类校验
+// 0.285 唤醒锚定 直接裸边 仅关系凭证 优化项,非根因" and the credential sentence
+// 「最晚相关边 34579.496810s·凭证=直接裸边」 — which the owner-approved E2
+// bound (2026-11-18) made false on two counts: the span is no longer an
+// on-chain row, and the credential words are now 唤醒锚定 / 直接唤醒 /
+// 结束等待的唤醒. Its sentinel survives here as a NEGATIVE witness: the same
+// window, the same 0.285ms verification and the same µs-exact credential,
+// pinned to price nothing because it lies outside the one wait that wakeup
+// ended. Re-sealing a positive arm needs a capture whose host-edge
+// deterministic work lies inside the target wait its wakeup ended (the
+// synthetic public-entry twin is
+// TestHMC377SemanticWorkIsOnChainOnlyInsideTheWaitTheWakeupEnded).
 func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), r3TiebaTrace)
 	if err != nil {
