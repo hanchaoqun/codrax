@@ -500,7 +500,7 @@ func TestRunCancelStatsSubBuildersShortCircuitAfterFire(t *testing.T) {
     display-30 (30) [002] .... 3.004500: dma_fence_wait_end: driver=display timeline=present context=7 seqno=9
        task-42 (42) [001] .... 3.005000: mm_filemap_add_to_page_cache: dev 260:132 ino 0x259ff pfn=1 ofs=0
      drifty-77 (77) [003] .... 3.006000: sched_switch: prev_comm=drifty prev_pid=77 prev_prio=120 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
-    renamed-77 (77) [003] .... 3.006500: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=renamed next_pid=77 next_prio=120
+    renamed-77 (78) [003] .... 3.006500: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=renamed next_pid=77 next_prio=120
      ui-100 (100) [000] .... 3.007000: tracing_mark_write: B|100|doFrame
      ui-100 (100) [000] .... 3.007500: tracing_mark_write: E|100
 `

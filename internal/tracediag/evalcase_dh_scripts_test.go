@@ -161,7 +161,11 @@ func TestEvalcaseDHIO2ChurnEndToEnd(t *testing.T) {
 		"page_cache_churn=2167",
 		"top_inode=0x9903f",
 		"sysmgr-reclaim0-9",
-		"sh-19629 thread load running=19.402ms",
+		// HMC377: TID 19629 records OS_FFRT_2_0 (13763.005358) then sh
+		// (13763.020089) and the row header param; it is one thread under
+		// one display name per result, so the row is pinned by its thread
+		// number and its measured running, not by one of its names.
+		"-19629 thread load running=19.402ms",
 		"mm_filemap_delete",
 	})
 	// In this capture D time is admitted to the activity index; I/O-wait

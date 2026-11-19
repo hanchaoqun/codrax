@@ -19,7 +19,7 @@ const packetFlowsSchemaAddition = "PacketFlows|*tracewire.PacketFlowsResult|pack
 // declaration order are still checked by every prior complete fingerprint.
 func resultSchemaBeforePacketFlows(t *testing.T, schema string) string {
 	t.Helper()
-	previous, err := stripPacketFlowsSchemaAddition(schema)
+	previous, err := stripPacketFlowsSchemaAddition(resultSchemaBeforeThreadIdentities(t, schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,12 +44,16 @@ func stripPacketFlowsSchemaAddition(schema string) (string, error) {
 
 func TestHMC306PacketFlowsResultSchemaAddsOnlyReviewedOptionalField(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.Result{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, full := detailSchemaFingerprint(typ)
+	// HMC377: the later reviewed thread-identities addition is stripped first.
+	schema := resultSchemaBeforeThreadIdentities(t, full)
+	currentSum := sha256.Sum256([]byte(schema))
+	current := hex.EncodeToString(currentSum[:])
 	const currentFullResult = "8a6e67555e8d211b42a85a74170fbb011a02b5d08e8472440d0d413e00abd6bb"
 	if current != currentFullResult {
 		t.Fatalf("packet-flows Result schema drift: got=%s want=%s\nschema=%s", current, currentFullResult, schema)
 	}
-	previous := resultSchemaBeforePacketFlows(t, schema)
+	previous := resultSchemaBeforePacketFlows(t, full)
 	sum := sha256.Sum256([]byte(previous))
 	const previousFullResult = "068194140d8edb5f26727356721b8640eeb1f2a1cd2a2743f1b3ccedb194cd20"
 	if got := hex.EncodeToString(sum[:]); got != previousFullResult {

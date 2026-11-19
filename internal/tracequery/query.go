@@ -14473,10 +14473,19 @@ func detectThreadDrifts(idx *Index, q Query, max int) []ThreadDriftSummary {
 		add(ev.WakeePID, ev.WakeeComm, 0, ev.Line)
 	}
 	var out []ThreadDriftSummary
+	ledger := ensureThreadDisplayLedger(idx)
 	for pid, acc := range accs {
 		names := sortedStringSet(acc.names)
 		tgids := sortedIntSet(acc.tgids)
 		if len(names) <= 1 && len(tgids) <= 1 {
+			continue
+		}
+		// HMC377: a thread that only renamed itself is one thread (one
+		// generation, one process number): its names are disclosed once in
+		// the result's thread identities and its identity is not in doubt.
+		// Only an unreconciled TID (two process numbers, reuse, cap) keeps
+		// the lower-confidence caveat.
+		if len(tgids) <= 1 && ledger.record(pid) != nil {
 			continue
 		}
 		out = append(out, ThreadDriftSummary{
