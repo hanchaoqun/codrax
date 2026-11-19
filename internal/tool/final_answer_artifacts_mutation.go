@@ -588,6 +588,15 @@ func traceRootCauseIgnoredOutcome(ctx *types.BusContext, carrier string, err err
 // line on whichever result the call returns. Precise signals only: the
 // typed contract flag, the roster length, and the nil accepted/staged
 // reports. Returns "" (the ledger drops blank notes) for every other shape.
+//
+// EVOLUTION RECORD (HMC377 R-377-5, owner ruling on D1 open question 2 —
+// one route source): the note used to name two submission routes ("in the
+// next emit_answer_document_patch or as trace_root_causes on a full
+// re-emit"). On an accepted answer the only request that can still carry a
+// selection is the optional follow-up, which offers the patch tool alone and
+// names its own route; the note therefore states the fact and the
+// legitimacy of omission only, and every route is taught by the request that
+// offers it.
 func traceRootCauseOmittedSelectorNote(ctx *types.BusContext, carrier string) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
@@ -607,7 +616,7 @@ func traceRootCauseOmittedSelectorNote(ctx *types.BusContext, carrier string) st
 	for _, candidate := range selectable {
 		ids = append(ids, candidate.Decision.CandidateID)
 	}
-	return fmt.Sprintf("%s omitted: the run's default root-cause JSON will report no model selection while %d selectable candidate_id value(s) remain (%s); if a selection is intended, send the complete ordered selection as replace_trace_root_causes in the next emit_answer_document_patch or as trace_root_causes on a full re-emit — omitting it stays accepted",
+	return fmt.Sprintf("%s omitted: the run's default root-cause JSON will report no model selection while %d selectable candidate_id value(s) remain (%s); omitting it stays accepted",
 		carrier, len(ids), strings.Join(ids, ", "))
 }
 

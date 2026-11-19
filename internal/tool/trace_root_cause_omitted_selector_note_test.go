@@ -46,6 +46,14 @@ func TestEmitAnswerDocumentOmittedSelectorWithSelectableRosterNotesOnce(t *testi
 	if strings.Count(result.Summary, "trace_root_causes omitted:") != 1 {
 		t.Fatalf("the note must ride exactly once:\n%s", result.Summary)
 	}
+	// HMC377 R-377-5 (one route source): the note on an accepted result names
+	// no submission route — the optional follow-up that may still carry a
+	// selection offers the patch tool alone and teaches its own route.
+	for _, route := range []string{"full re-emit", "emit_answer_document_patch", "replace_trace_root_causes", "next emit"} {
+		if strings.Contains(result.Summary, route) {
+			t.Fatalf("the omission note must not name a submission route (%q):\n%s", route, result.Summary)
+		}
+	}
 	if len(result.OptionalCarrierOutcomes) != 0 {
 		t.Fatalf("omission is a legitimate choice — no typed outcome may be minted: %+v", result.OptionalCarrierOutcomes)
 	}
