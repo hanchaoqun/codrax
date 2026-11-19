@@ -382,6 +382,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology fail-open
 	// disclosure marker.
 	"BlockingOwnerKeyUnregistered": {Status: "displayed", Ref: "明细持有者核查行(owner 未解析·形态未注册)"},
+	// HMC377 D2: the typed wake-relay verdict of a payload-less blocking row.
+	"BlockingWakeRelay":         {Status: "displayed", Ref: "关系词「唤醒由同在等待的 X 转发」+ 核对附录唤醒转发行"},
+	"BlockingWakeRelayUpstream": {Status: "displayed", Ref: "关系词「上游 Y」+ 核对附录唤醒转发行"},
 	// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components — the
 	// zh/EN withdrawal lanes each word their own sentence from them.
 	"BlockingHolderContradictionParts": {Status: "displayed", Ref: "自相矛盾撤回披露(两 lane 各自措辞)"},

@@ -5776,6 +5776,24 @@ type CriticalBlockingCandidate struct {
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.
 	WaitObject string `json:"wait_object,omitempty"`
+	// WakeRelay / WakeRelayUpstream (HMC377 D2): typed verdict on a
+	// payload-less blocking_span row (no lock or monitor payload) whose wait
+	// was ended by a wakeup edge from a thread that was itself parked in the
+	// SAME recorded wait (same platform-vocabulary wait row, otherwise the same
+	// verbatim span name), whose own wait had been ended by another thread's
+	// wakeup before it woke this waiter. That waker only passed the wakeup on
+	// after the awaited work finished: it is not the party this wait depended
+	// on. WakeRelayUpstream is the first non-relay waker along that relay
+	// chain (the thread that ended the earliest wait of the chain). Exact
+	// typed comparisons over rows of the same result only; absent = no proof
+	// (the waker keeps the neutral "woke the waiter" reading). Wording input
+	// only: no rank, chain relevance or value reads it.
+	WakeRelay         bool      `json:"wake_relay,omitempty"`
+	WakeRelayUpstream ThreadRef `json:"wake_relay_upstream,omitempty"`
+	// peerWakeTs is the timestamp of the wakeup edge that resolved a
+	// payload-less row's counterpart (resolveCounterpartViaWakeupEdge). Never
+	// on the wire; the relay verdict orders the two wake edges with it.
+	peerWakeTs float64
 	// OwnerKeyUnregistered (LOCKNS-FIX 件3, §29.104.12, 2026-07-16): the span
 	// name speaks lock-owner vocabulary (word-boundary `owner`) but matched NO
 	// registered lock-contention morphology — the row fail-opened to the

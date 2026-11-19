@@ -1333,6 +1333,17 @@ const (
 	TraceNoteKeyBlockingWaitBudgetRunningMS    = "blocking_wait_budget_running_ms"
 	TraceNoteKeyBlockingWaitCoveragePartial    = "blocking_wait_coverage_partial"
 	TraceNoteKeyBlockingWaitAccountCoveredMS   = "blocking_wait_account_covered_ms"
+	// TraceNoteKeyBlockingWakeRelay / TraceNoteKeyBlockingWakeRelayUpstream
+	// (HMC377 D2): the engine's typed relay verdict on a payload-less
+	// blocking_span row (tracequery.CriticalBlockingCandidate.WakeRelay) —
+	// the thread that woke this waiter was itself parked in the same recorded
+	// wait and only passed the wakeup on; the upstream key names the first
+	// non-relay waker of that chain. Hard read-ins: the projection compile
+	// parses both into TraceCausalProjectionNode and the relation wording of
+	// every blocking face forks on them (absence keeps the neutral
+	// "woke the waiter" wording byte-identically).
+	TraceNoteKeyBlockingWakeRelay         = "blocking_wake_relay"
+	TraceNoteKeyBlockingWakeRelayUpstream = "blocking_wake_relay_upstream"
 	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
 	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
 	// whose peer= is the blocked WAITER). The projection compile reads it into
@@ -2114,6 +2125,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// node-field read-ins driving the detail 覆盖核查 line.
 	{TraceNoteKeyBlockingWaitCoveragePartial, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBlockingWaitAccountCoveredMS, "blocking", TraceNoteCarrierHardConsumer},
+	// HMC377 D2: typed wake-relay verdict + upstream waker — hard node-field
+	// read-ins driving the relation wording of payload-less blocking rows.
+	{TraceNoteKeyBlockingWakeRelay, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWakeRelayUpstream, "blocking", TraceNoteCarrierHardConsumer},
 	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology fail-open
 	// marker — hard node-field read-in driving the detail 持有者核查
 	// 「owner 未解析(形态未注册)」 line on payload-less rows.

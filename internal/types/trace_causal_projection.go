@@ -1574,6 +1574,15 @@ type TraceCausalProjectionNode struct {
 	// minted). Drives the detail 持有者核查 「owner 未解析(形态未注册)」
 	// disclosure line only — never a behavior gate.
 	BlockingOwnerKeyUnregistered bool `json:"blocking_owner_key_unregistered,omitempty"`
+	// BlockingWakeRelay / BlockingWakeRelayUpstream (HMC377 D2) mirror the
+	// engine's typed blocking_wake_relay / blocking_wake_relay_upstream notes
+	// on a payload-less blocking row: the thread that woke this waiter was
+	// itself parked in the same recorded wait and only passed the wakeup on;
+	// the upstream is the first non-relay waker of that chain. Wording input
+	// only (relation words of the blocking faces); absence keeps the neutral
+	// "the thread that woke the waiter" wording.
+	BlockingWakeRelay         bool   `json:"blocking_wake_relay,omitempty"`
+	BlockingWakeRelayUpstream string `json:"blocking_wake_relay_upstream,omitempty"`
 	// BlockingHolderContradictionParts (G10-EN 根修, QH2-A 2026-07-14):
 	// the typed components of the withdrawal witness above, assembled from
 	// the holder_self_contradiction_* note quintet — the zh/EN detail lanes
@@ -4473,6 +4482,14 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// marker — parsed OUTSIDE the BlockingKind gate (it mints exactly on
 	// payload-less rows). Disclosure input only.
 	node.BlockingOwnerKeyUnregistered = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingOwnerKeyUnregistered)) == "true"
+	// HMC377 D2: the typed wake-relay verdict (payload-less rows only; the
+	// upstream label is read only beside the verdict).
+	if node.BlockingKind == "" && strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingWakeRelay)) == "true" {
+		if upstream := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingWakeRelayUpstream)); traceCausalProjectionKnownSubject(upstream) {
+			node.BlockingWakeRelay = true
+			node.BlockingWakeRelayUpstream = upstream
+		}
+	}
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)

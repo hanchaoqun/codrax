@@ -91,6 +91,10 @@ var traceNoteKeyGoldenRows = []string{
 	"blocking_wait_coverage_partial|blocking|hard_consumer",
 	"blocking_wait_segment_ms|blocking|hard_consumer",
 	"blocking_wait_sleep_ms|blocking|hard_consumer",
+	// HMC377 D2: typed wake-relay verdict pair (relation wording of
+	// payload-less blocking rows).
+	"blocking_wake_relay|blocking|hard_consumer",
+	"blocking_wake_relay_upstream|blocking|hard_consumer",
 	// P0-E CHAIN-PATH (ledger §22.1): per-branch path record identity + the
 	// rank/impact rows' owning-branch attach domain.
 	"branch|chain_path|hard_consumer",

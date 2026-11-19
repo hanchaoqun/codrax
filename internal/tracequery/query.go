@@ -23932,6 +23932,9 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	for _, row := range collectBlockingSpanRows(idx, q, stats) {
 		add(row.cand)
 	}
+	// HMC377 D2: a waker that only passed on the wake of a shared recorded
+	// wait is named as such (typed relay verdict, wording input only).
+	stampBlockingWakeRelays(res.Items)
 	for _, mem := range stats.MemoryKinds {
 		if mem.Kind != "reclaim" && mem.Kind != "page_fault" && mem.Kind != "gc" {
 			continue
@@ -25225,6 +25228,7 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 			if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
 				cand.Peer = fb.Waker
 				cand.PeerSource = CounterpartSourceWakeupEdge
+				cand.peerWakeTs = fb.WakeupTs
 				cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
 				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(0, ""))
 			}

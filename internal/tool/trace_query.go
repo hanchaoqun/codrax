@@ -12574,6 +12574,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// on full-coverage rows).
 		{types.TraceNoteKeyBlockingWaitCoveragePartial, traceQueryTypedBool(item.WaitCoveragePartial)},
 		{types.TraceNoteKeyBlockingWaitAccountCoveredMS, traceQueryObservationMSValue(item.WaitAccountCoveredMs)},
+		// HMC377 D2: the engine's typed wake-relay verdict (zero-dropped on
+		// rows without the proof — absence keeps the neutral relation words).
+		{types.TraceNoteKeyBlockingWakeRelay, traceQueryTypedBool(item.WakeRelay)},
+		{types.TraceNoteKeyBlockingWakeRelayUpstream, traceQueryWakeRelayUpstreamLabel(item)},
 		// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology
 		// fail-open marker (payload-less rows only; drives the detail
 		// 持有者核查 「owner 未解析(形态未注册)」 disclosure).
@@ -16256,6 +16260,15 @@ func traceQueryTypedBool(v bool) string {
 		return ""
 	}
 	return "true"
+}
+
+// traceQueryWakeRelayUpstreamLabel publishes the upstream waker of a typed
+// wake-relay row only beside the verdict itself (HMC377 D2).
+func traceQueryWakeRelayUpstreamLabel(item tracequery.CriticalBlockingCandidate) string {
+	if !item.WakeRelay {
+		return ""
+	}
+	return traceThreadLabelOptional(item.WakeRelayUpstream)
 }
 
 // traceQueryMeasuredStateAccountNote publishes a rank seat's measured-account

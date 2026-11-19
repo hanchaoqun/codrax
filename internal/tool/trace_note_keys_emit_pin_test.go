@@ -1213,6 +1213,18 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				DurationMs:           0.8, StartTs: 1.45, EndTs: 1.4508, LineStart: 90, LineEnd: 91,
 				Confidence: 0.72, Summary: "unregistered owner form rides the payload-less lane",
 			}, {
+				// HMC377 D2: a fellow waiter whose waker only passed the
+				// wakeup on — exercises the blocking_wake_relay contract pair.
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "fellowwaiter", PID: 112},
+				Peer:               tracequery.ThreadRef{Comm: "relaywaker", PID: 113},
+				PeerSource:         tracequery.CounterpartSourceWakeupEdge,
+				WaitObject:         "GC: Wait For Completion Alloc",
+				BlockingValueBasis: tracequery.BlockingValueBasisWaitSegments,
+				WakeRelay:          true,
+				WakeRelayUpstream:  tracequery.ThreadRef{Comm: "collector", PID: 114},
+				DurationMs:         0.9, StartTs: 1.46, EndTs: 1.4609, LineStart: 92, LineEnd: 93,
+				Confidence: 0.62, Summary: "relay wake of a shared recorded wait",
+			}, {
 				// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-
 				// proven demoted D-state view row — exercises the
 				// chain_credential_segments + chain_credential_segment_disjoint
