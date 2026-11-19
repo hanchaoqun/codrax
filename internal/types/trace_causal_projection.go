@@ -2327,16 +2327,15 @@ func traceCausalProjectionFromParentResult(records []ObservationRecord, userEnti
 	// PTV6 (PTS 连带, 永不静默丢): the former silent hops[:limit] discard is
 	// gone — the hop surface caps by folding with a count AFTER aggregation
 	// (below), where the count is the post-merge truth (复核 P1 同型).
-	sort.SliceStable(classified, func(i, j int) bool {
-		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
-	})
+	classifiedLess := func(a, b TraceCausalProjectionNode) bool {
+		return traceCausalProjectionClassifiedLess(a, b, pathIndex)
+	}
+	classified = traceCausalProjectionSortYieldingApart(classified, classifiedLess)
 	classified = traceCausalProjectionDedupeSemanticAliasPublications(classified)
 	classified = traceCausalProjectionConvergeSemanticPhysicalSeats(classified)
 	classified = traceCausalProjectionDedupeNodes(classified)
 	classified = traceCausalProjectionPrioritizeRequestedWindowNodes(classified, requestedScope)
-	sort.SliceStable(semantic, func(i, j int) bool {
-		return traceCausalProjectionClassifiedLess(semantic[i], semantic[j], pathIndex)
-	})
+	semantic = traceCausalProjectionSortYieldingApart(semantic, classifiedLess)
 	semantic = traceCausalProjectionDedupeSemanticAliasPublications(semantic)
 	semantic = traceCausalProjectionConvergeSemanticPhysicalSeats(semantic)
 	semantic = traceCausalProjectionDedupeNodes(semantic)
@@ -5161,21 +5160,42 @@ func traceCausalProjectionContextValueSeat(node TraceCausalProjectionNode) bool 
 // classified order — the hop comparator). Yielding rows follow both, so the
 // bucket cap reaches them first.
 func traceCausalProjectionSortContextBucket(nodes []TraceCausalProjectionNode, pathIndex map[string]int) []TraceCausalProjectionNode {
-	sort.SliceStable(nodes, func(i, j int) bool {
-		aSeat, bSeat := traceCausalProjectionContextValueSeat(nodes[i]), traceCausalProjectionContextValueSeat(nodes[j])
+	return traceCausalProjectionSortYieldingApart(nodes, func(a, b TraceCausalProjectionNode) bool {
+		aSeat, bSeat := traceCausalProjectionContextValueSeat(a), traceCausalProjectionContextValueSeat(b)
 		if aSeat != bSeat {
 			return aSeat
 		}
 		if aSeat {
-			return traceCausalProjectionNodeLess(nodes[i], nodes[j])
+			return traceCausalProjectionNodeLess(a, b)
 		}
 		// Non-seat context rows keep the legacy classified order (role tier
 		// then the hop comparator) so their relative order is unchanged from
 		// the pre-D1 bucket both at compile assembly and at the
 		// post-aggregation resort (one comparator, two call sites).
-		return traceCausalProjectionClassifiedLess(nodes[i], nodes[j], pathIndex)
+		return traceCausalProjectionClassifiedLess(a, b, pathIndex)
 	})
-	return TraceCausalProjectionYieldingNodesLast(nodes)
+}
+
+// traceCausalProjectionSortYieldingApart sorts the yielding rows and all other
+// rows separately and puts the yielding rows last. These comparators treat rows
+// of different roles as ties, so a yielding row sorted among the others could
+// change the order of rows that would have been published without it.
+func traceCausalProjectionSortYieldingApart(nodes []TraceCausalProjectionNode, less func(a, b TraceCausalProjectionNode) bool) []TraceCausalProjectionNode {
+	if len(nodes) == 0 {
+		return nodes
+	}
+	kept := make([]TraceCausalProjectionNode, 0, len(nodes))
+	var yielding []TraceCausalProjectionNode
+	for _, node := range nodes {
+		if TraceCausalProjectionNodeYieldsBoundedSeat(node) {
+			yielding = append(yielding, node)
+		} else {
+			kept = append(kept, node)
+		}
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return less(kept[i], kept[j]) })
+	sort.SliceStable(yielding, func(i, j int) bool { return less(yielding[i], yielding[j]) })
+	return append(kept, yielding...)
 }
 
 // traceCausalProjectionLimitContextNodesFold — RNB-1 D1 修复轮: the zero-

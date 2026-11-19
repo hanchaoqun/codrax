@@ -2511,12 +2511,20 @@ func runtimeTraceOccupancySemanticCandidates(
 		if name != "" {
 			subject += " / " + name
 		}
+		group := "semantic"
 		caliber := "确定性工作 span 的原始窗内墙钟；不以有效归因替代"
 		if !zh {
 			caliber = "raw in-window wall clock of deterministic work spans; effective attribution does not replace it"
 		}
+		if runtimeTraceProjSemanticRowRecordsWait(node) {
+			group = "recorded_wait"
+			caliber = "所记录等待的原始窗内墙钟；这段时间线程在等待，不属于确定性工作"
+			if !zh {
+				caliber = "raw in-window wall clock of a recorded wait; the thread was waiting, so this is not deterministic work"
+			}
+		}
 		out = append(out, runtimeTraceOccupancyCandidate{
-			group:            runtimeTraceOccupancyGroupLabel("semantic", zh),
+			group:            runtimeTraceOccupancyGroupLabel(group, zh),
 			subject:          subject,
 			totalMS:          node.ImpactMS,
 			maxMS:            maxValue,
@@ -2670,6 +2678,8 @@ func runtimeTraceOccupancyGroupLabel(group string, zh bool) string {
 			return "关键路径 / 状态占用（墙钟）"
 		case "semantic":
 			return "确定性工作 span（墙钟）"
+		case "recorded_wait":
+			return "已记录的等待（墙钟）"
 		case "business":
 			return "业务 span 族（墙钟）"
 		case "cpu":
@@ -2681,6 +2691,8 @@ func runtimeTraceOccupancyGroupLabel(group string, zh bool) string {
 		return "Critical path / state occupancy (wall clock)"
 	case "semantic":
 		return "Deterministic work spans (wall clock)"
+	case "recorded_wait":
+		return "Recorded waits (wall clock)"
 	case "business":
 		return "Business span families (wall clock)"
 	case "cpu":

@@ -383,12 +383,12 @@ func semanticPlatformVocabularyNearMiss(lower string) bool {
 }
 
 // semanticSpanMintedByPlatformVocabulary reports that the span's class comes
-// from a vocabulary Operation row, i.e. no built-in arm classifies the name.
-// It reads the classifier's own verdict, so there is no second list of
-// built-in arms to keep in step.
+// only from a vocabulary Operation row: no built-in arm classifies the name and
+// no operator pattern classifies it either. It reads the classifier's own
+// verdict, so there is no second list of built-in arms to keep in step.
 func semanticSpanMintedByPlatformVocabulary(name string) bool {
 	_, owner, ok := traceSpanSemanticWorkClassWithOwner(name)
-	return ok && owner == traceSpanSemanticOwnerPlatformVocabulary
+	return ok && owner == traceSpanSemanticOwnerPlatformVocabulary && !traceSpanOperatorPatternClassifies(name)
 }
 
 // semanticSpanAdmitsHostEdgeLane is false only for a span minted by a

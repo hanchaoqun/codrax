@@ -2415,7 +2415,9 @@ type traceCausalProjectionUnionOutcome struct {
 //     lower bound that never invents and never drops below the largest single
 //     member. Members without a window identity or without a valid interval
 //     contribute their full value and never deduct from anyone (fail-open to
-//     the legacy SUM semantics for exactly those members).
+//     the legacy SUM semantics for exactly those members), except that a nested
+//     span row without a window still counts its interval once. Two members of
+//     one window citing the same line range are one record and count once.
 //
 // The periodic Σ-effective lane (VS-1 F6(a)) consumes this function's slot
 // assignment (slots/slotOf on the outcome) for its own cross-window
@@ -2583,26 +2585,33 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 		memberNodes = append(memberNodes, nodes[idx])
 	}
 	// A phase inside its collection re-measures the collection's wall clock even
-	// inside one query window.
+	// inside one query window. A nested row read without a query window counts in
+	// a slot of its own: it may have been read from any of the windows.
 	spansNest := traceCausalProjectionSpanMembersNest(memberNodes)
-	perSlot := make([]TraceCausalProjectionIntervalSet, len(slots))
+	windowlessSlot := len(slots)
+	perSlot := make([]TraceCausalProjectionIntervalSet, len(slots)+1)
+	// One record published twice in a window (the rank seat of a wait and the span
+	// that records it cite the same lines) is one stretch of time.
+	type slotRecord struct{ slot, lineStart, lineEnd int }
+	perRecord := map[slotRecord]*TraceCausalProjectionIntervalSet{}
 	total := 0.0
 	ioCaliberSeen := false
 	for _, k := range order {
 		node := nodes[members[k]]
 		display := traceCausalProjectionDisplayValue(node)
 		contribution := display
-		if slotOf[k] >= 0 && traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+		slot := slotOf[k]
+		if slot < 0 && spansNest {
+			slot = windowlessSlot
+		}
+		if slot >= 0 && traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
 			// Wall clock inside THIS member's interval already counted by other
 			// windows: union the other slots' coverage clipped to the member's
 			// interval first (two other windows overlapping each other must not
 			// deduct twice), then bound the deduction by the member's own value.
 			var counted TraceCausalProjectionIntervalSet
-			for si := range perSlot {
-				if si == slotOf[k] && !spansNest {
-					continue
-				}
-				for _, span := range perSlot[si].Spans() {
+			addCounted := func(coverage *TraceCausalProjectionIntervalSet) {
+				for _, span := range coverage.Spans() {
 					lo, hi := span.StartTs, span.EndTs
 					if lo < node.StartTs {
 						lo = node.StartTs
@@ -2615,13 +2624,30 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 					}
 				}
 			}
+			for si := range perSlot {
+				if si == slot && !spansNest {
+					continue
+				}
+				addCounted(&perSlot[si])
+			}
+			record := slotRecord{slot, node.LineStart, node.LineEnd}
+			citesRecord := node.LineStart > 0 && node.LineEnd >= node.LineStart
+			if coverage := perRecord[record]; citesRecord && coverage != nil {
+				addCounted(coverage)
+			}
 			if dedupMS := counted.TotalSeconds() * 1000; dedupMS > 0 {
 				if dedupMS > display {
 					dedupMS = display
 				}
 				contribution = display - dedupMS
 			}
-			perSlot[slotOf[k]].Add(node.StartTs, node.EndTs)
+			perSlot[slot].Add(node.StartTs, node.EndTs)
+			if citesRecord {
+				if perRecord[record] == nil {
+					perRecord[record] = &TraceCausalProjectionIntervalSet{}
+				}
+				perRecord[record].Add(node.StartTs, node.EndTs)
+			}
 		}
 		total += contribution
 		traceCausalProjectionIncludeIOValueCaliber(&out.ioValueCaliber, &ioCaliberSeen, node.IOValueCaliber, contribution)

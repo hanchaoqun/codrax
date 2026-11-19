@@ -17124,7 +17124,16 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 	// prose pointer joins §29.191's one-space rule — 「➊ [E1]」, exactly one
 	// space after the badge glyph, no exempt compound token. Pin: the
 	// compound-token arm of the TestA2BadgeGlyphGeometry family.
-	return " " + runtimeTraceProjBadgeGlyph(best.Badge) + " [" + best.EvidenceTag + "]", count, bestValue
+	return runtimeTraceProjProsePointer(best.Badge, best.EvidenceTag), count, bestValue
+}
+
+// runtimeTraceProjProsePointer renders the pointer a sentence ends on. A row past
+// the badged seats has no glyph, and then only the evidence tag follows the space.
+func runtimeTraceProjProsePointer(badge int, evidenceTag string) string {
+	if glyph := runtimeTraceProjBadgeGlyph(badge); glyph != "" {
+		return " " + glyph + " [" + evidenceTag + "]"
+	}
+	return " [" + evidenceTag + "]"
 }
 
 // runtimeTraceProjSemanticRowRecordsWait reports a row whose marker records the
@@ -17160,7 +17169,7 @@ func runtimeTraceProjFourStateSupplyPointer(model runtimeTraceProjTreeModel) (fl
 			if strings.TrimSpace(row.EvidenceTag) != "" {
 				// SMALL3-1 件1 (§29.196②): same one-space compound as the
 				// semantic pointer above — settled there.
-				tag = " " + runtimeTraceProjBadgeGlyph(row.Badge) + " [" + row.EvidenceTag + "]"
+				tag = runtimeTraceProjProsePointer(row.Badge, row.EvidenceTag)
 			}
 			return row.Node.SupplyFoldDeficitMS, tag, true
 		}

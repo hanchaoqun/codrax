@@ -11045,6 +11045,64 @@ func criticalBlockingVocabularyRowsLast(items []CriticalBlockingCandidate) []Cri
 	return append(kept, yielding...)
 }
 
+// criticalBlockingVocabularyOnChainSeats counts the on-chain rows that reached
+// the view only through a vocabulary seat. Each is additional to a bound on the
+// list, so it never pushes out a row published without the vocabulary.
+func criticalBlockingVocabularyOnChainSeats(items []CriticalBlockingCandidate) int {
+	seats := 0
+	for _, item := range items {
+		if item.seatedByVocabularyOnly && item.ChainRelevance == "on_chain" {
+			seats++
+		}
+	}
+	return seats
+}
+
+// traceSpansVocabularySeatsLast moves spans seated only by the vocabulary behind
+// every other span; both groups keep their order.
+func traceSpansVocabularySeatsLast(spans []TraceSpanSummary) []TraceSpanSummary {
+	kept := make([]TraceSpanSummary, 0, len(spans))
+	var yielding []TraceSpanSummary
+	for _, span := range spans {
+		if span.seatedByVocabularyOnly {
+			yielding = append(yielding, span)
+			continue
+		}
+		kept = append(kept, span)
+	}
+	return append(kept, yielding...)
+}
+
+// traceMarkCategoriesWithinSeats keeps max categories of published, which stays
+// in its published order. Seats go by the time of spans published without the
+// vocabulary, so a category holding only vocabulary seats takes a seat last.
+func traceMarkCategoriesWithinSeats(published []TraceMarkCategory, ownMs map[string]float64, max int) []TraceMarkCategory {
+	key := func(item TraceMarkCategory) string { return item.Category + "/" + item.Subcategory }
+	order := make([]int, len(published))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		aMs, aOwn := ownMs[key(published[order[a]])]
+		bMs, bOwn := ownMs[key(published[order[b]])]
+		if aOwn != bOwn {
+			return aOwn
+		}
+		return aMs > bMs
+	})
+	seated := make(map[int]bool, max)
+	for _, i := range order[:max] {
+		seated[i] = true
+	}
+	out := make([]TraceMarkCategory, 0, max)
+	for i, item := range published {
+		if seated[i] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 // semanticSeatFamilyKey is the retention and census key of a semantic span.
 // SHADERCACHE-1: the refined subcategory joins the key — one cache-outcome
 // family can never lose its seat behind its sibling outcome undisclosed.
@@ -23425,6 +23483,7 @@ func traceSpanSubcategory(name string) string {
 
 func computeTraceMarkCategories(spans []TraceSpanSummary, max int) []TraceMarkCategory {
 	accs := map[string]*TraceMarkCategory{}
+	ownMs := map[string]float64{}
 	for _, span := range spans {
 		category := firstNonEmpty(span.Category, traceSpanCategory(span.Name), "trace_span")
 		sub := firstNonEmpty(span.Subcategory, traceSpanSubcategory(span.Name))
@@ -23433,6 +23492,9 @@ func computeTraceMarkCategories(spans []TraceSpanSummary, max int) []TraceMarkCa
 		if item == nil {
 			item = &TraceMarkCategory{Category: category, Subcategory: sub, LineStart: span.StartLine, LineEnd: span.EndLine}
 			accs[key] = item
+		}
+		if !span.seatedByVocabularyOnly {
+			ownMs[key] += span.DurationMs
 		}
 		item.Count++
 		item.TotalMs += span.DurationMs
@@ -23460,7 +23522,7 @@ func computeTraceMarkCategories(spans []TraceSpanSummary, max int) []TraceMarkCa
 		return out[i].LineStart < out[j].LineStart
 	})
 	if max > 0 && len(out) > max {
-		out = out[:max]
+		out = traceMarkCategoriesWithinSeats(out, ownMs, max)
 	}
 	return out
 }
@@ -23945,7 +24007,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		return res.Items[i].LineStart < res.Items[j].LineStart
 	})
 	res.Items = criticalBlockingVocabularyRowsLast(res.Items)
-	limit := ViewCapacityFor("critical_blocking_calls").ClampLimit(q.Limit)
+	limit := ViewCapacityFor("critical_blocking_calls").ClampLimit(q.Limit) + criticalBlockingVocabularyOnChainSeats(res.Items)
 	if len(res.Items) > limit {
 		last := res.Items[limit-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
@@ -27722,7 +27784,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
-	for _, span := range stats.TraceSpans {
+	for _, span := range traceSpansVocabularySeatsLast(stats.TraceSpans) {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(span.Thread),
 			Predicate:  "trace_span_duration",
@@ -28094,6 +28156,7 @@ func evidenceFromFrameTimeline(frame FrameTimelineResult) []EvidenceFact {
 
 func evidenceFromCriticalBlocking(blocking CriticalBlockingResult) []EvidenceFact {
 	var out []EvidenceFact
+	maxFacts := 16 + criticalBlockingVocabularyOnChainSeats(blocking.Items)
 	for _, item := range blocking.Items {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
@@ -28106,7 +28169,7 @@ func evidenceFromCriticalBlocking(blocking CriticalBlockingResult) []EvidenceFac
 			EndTs:      item.EndTs,
 			Confidence: item.Confidence,
 		})
-		if len(out) >= 16 {
+		if len(out) >= maxFacts {
 			break
 		}
 	}
