@@ -438,9 +438,11 @@ func TraceBusinessSpanMentionDependencyPart(m TraceCausalProjectionBusinessSpanM
 // TraceBusinessSpanMentionBudgetedSelection is the one rule a budgeted
 // consumer uses to pick at most limit rows per tier from the producer's
 // selection: the analysed thread's own phases first, ordered by the time that
-// is their own (self time when known, otherwise the inclusive total), then the
+// is their own (self time when known; unknown own time ranks last), then the
 // dependency threads by their counted total. Ties keep producer order. A
-// non-positive limit keeps every row.
+// non-positive limit keeps every row. HMC377 E3-R2: an own phase whose own
+// time is unknown ranks after every known own time — its inclusive total is
+// never read as own time.
 func TraceBusinessSpanMentionBudgetedSelection(in []TraceCausalProjectionBusinessSpanMention, limit int) []TraceCausalProjectionBusinessSpanMention {
 	var own, dependency []TraceCausalProjectionBusinessSpanMention
 	for _, m := range in {
@@ -457,7 +459,7 @@ func TraceBusinessSpanMentionBudgetedSelection(in []TraceCausalProjectionBusines
 		if m.SelfKnown {
 			return m.SelfMS
 		}
-		return m.TotalMS
+		return -1
 	}
 	sort.SliceStable(own, func(i, j int) bool { return ownTime(own[i]) > ownTime(own[j]) })
 	sort.SliceStable(dependency, func(i, j int) bool { return dependency[i].TotalMS > dependency[j].TotalMS })

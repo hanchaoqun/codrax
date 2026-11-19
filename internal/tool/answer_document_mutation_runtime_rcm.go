@@ -854,7 +854,9 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 // time (not inside its named child phases) and, on the tree row, how that
 // time split between running and waiting; for a chain member whose span
 // extends past the waits it ended, that only the part inside those waits is
-// counted, with the span's full length beside it. "" when the record carries
+// counted, with the span's in-window wall beside it (HMC377 E3-R1: WallMS is
+// the members' wall clipped to the query window — never the span's full
+// length, which can begin before the window). "" when the record carries
 // neither (older records render byte-identically).
 func runtimeTraceProjBusinessSpanMentionAccountClause(m types.TraceCausalProjectionBusinessSpanMention, withStates, zh bool) string {
 	var parts []string
@@ -872,9 +874,9 @@ func runtimeTraceProjBusinessSpanMentionAccountClause(m types.TraceCausalProject
 	}
 	if types.TraceBusinessSpanMentionDependencyPart(m) {
 		if zh {
-			parts = append(parts, fmt.Sprintf("仅计其唤醒结束的等待区间内部分,span全长%.3fms", m.WallMS))
+			parts = append(parts, fmt.Sprintf("仅计其唤醒结束的等待区间内部分,窗内span墙钟%.3fms", m.WallMS))
 		} else {
-			parts = append(parts, fmt.Sprintf("only the part inside the waits its wakeups ended; full span %.3fms", m.WallMS))
+			parts = append(parts, fmt.Sprintf("only the part inside the waits its wakeups ended; in-window span wall %.3fms", m.WallMS))
 		}
 	}
 	if len(parts) == 0 {

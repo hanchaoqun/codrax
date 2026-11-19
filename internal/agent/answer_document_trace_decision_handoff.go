@@ -1464,7 +1464,9 @@ func traceDecisionBusinessSpanCandidates(in []types.TraceCausalProjectionBusines
 
 // traceDecisionBusinessSpanAccount renders the facts behind a business-clue
 // row's total for the handoff: own time and scheduler split of an own phase,
-// or the full span length of a chain member counted only inside its waits.
+// or the in-window span wall of a dependency row counted only inside its
+// waits (HMC377 E3-R1: the wall is clipped to the query window, never the
+// span's full length).
 func traceDecisionBusinessSpanAccount(span types.TraceCausalProjectionBusinessSpanMention) string {
 	var b strings.Builder
 	if types.TraceBusinessSpanMentionOwnPhase(span) && span.SelfKnown {
@@ -1475,7 +1477,7 @@ func traceDecisionBusinessSpanAccount(span types.TraceCausalProjectionBusinessSp
 		}
 	}
 	if types.TraceBusinessSpanMentionDependencyPart(span) {
-		fmt.Fprintf(&b, "; total_counts_only_inside_the_waits_its_wakeups_ended=true; full_span=%.3fms", span.WallMS)
+		fmt.Fprintf(&b, "; total_counts_only_inside_the_waits_its_wakeups_ended=true; in_window_span_wall=%.3fms", span.WallMS)
 	}
 	return b.String()
 }

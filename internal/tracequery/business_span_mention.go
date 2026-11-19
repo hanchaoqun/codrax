@@ -497,11 +497,16 @@ func selectBusinessSpanMentionTier(tier []*BusinessSpanMention) []*BusinessSpanM
 	byTotal := byKey(func(m *BusinessSpanMention) float64 { return m.TotalMs })
 	criteria := [][]*BusinessSpanMention{byTotal, byKey(func(m *BusinessSpanMention) float64 { return m.MaxSingleMs })}
 	if BusinessSpanMentionIsOwnPhase(tier[0].OnChainBasis) {
+		// HMC377 E3-R2: a family whose own time is unknown (no marker-tree
+		// self account — an async slice is one) has no own-time rank; its
+		// inclusive total is never read as own time, so it ranks after every
+		// known own time on this criterion (the total criterion above still
+		// sees it).
 		criteria = append(criteria, byKey(func(m *BusinessSpanMention) float64 {
 			if m.Phase != nil {
 				return m.Phase.SelfMs
 			}
-			return m.TotalMs
+			return -1
 		}))
 	}
 	selected := map[*BusinessSpanMention]bool{}

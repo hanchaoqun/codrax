@@ -30,15 +30,15 @@ func TestHMC377HostEdgeBusinessClueShowsItsWallBeside(t *testing.T) {
 		t.Fatalf("a host-edge row whose spans lie wholly inside the waits carries no wall clause: %+v", whole)
 	}
 	zh, ok := runtimeTraceProjBusinessSpanMentionRowText(host, nil, true)
-	if !ok || !strings.Contains(zh, "合计5.000ms(仅计其唤醒结束的等待区间内部分,span全长20.000ms) 行22..28 凭证:唤醒凭证(等待内)") {
+	if !ok || !strings.Contains(zh, "合计5.000ms(仅计其唤醒结束的等待区间内部分,窗内span墙钟20.000ms) 行22..28 凭证:唤醒凭证(等待内)") {
 		t.Fatalf("host-edge tree row must show the wall beside the counted part: %s", zh)
 	}
 	en, _ := runtimeTraceProjBusinessSpanMentionRowText(host, nil, false)
-	if !strings.Contains(en, "total 5.000ms (only the part inside the waits its wakeups ended; full span 20.000ms)") {
+	if !strings.Contains(en, "total 5.000ms (only the part inside the waits its wakeups ended; in-window span wall 20.000ms)") {
 		t.Fatalf("host-edge EN row must show the wall beside the counted part: %s", en)
 	}
 	wholeRow, _ := runtimeTraceProjBusinessSpanMentionRowText(whole, nil, true)
-	if strings.Contains(wholeRow, "span全长") {
+	if strings.Contains(wholeRow, "窗内span墙钟") {
 		t.Fatalf("no wall clause when the wall equals the counted part: %s", wholeRow)
 	}
 

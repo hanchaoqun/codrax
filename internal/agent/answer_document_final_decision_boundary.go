@@ -598,9 +598,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 				}
 				if types.TraceBusinessSpanMentionDependencyPart(span) {
 					if zh {
-						extra += fmt.Sprintf("（只计它唤醒结束的等待区间内的部分，span 全长 %.3f 毫秒）", span.WallMS)
+						extra += fmt.Sprintf("（只计它唤醒结束的等待区间内的部分，窗口内 span 墙钟 %.3f 毫秒）", span.WallMS)
 					} else {
-						extra += fmt.Sprintf(" (only the part inside the waits its wakeups ended; full span %.3f ms)", span.WallMS)
+						extra += fmt.Sprintf(" (only the part inside the waits its wakeups ended; in-window span wall %.3f ms)", span.WallMS)
 					}
 				}
 				if zh {

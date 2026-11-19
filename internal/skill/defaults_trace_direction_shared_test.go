@@ -31,7 +31,9 @@ func TestB1590aTraceDirectionSharedExtractionPreservesSkillBytes(t *testing.T) {
 		"(`member_roster` / `member_wall_ms` / `member_count`; the value and `member_count` always cover every member, and `member_not_listed` counts the members the roster leaves out)", "(`member_roster` / `member_wall_ms` / `member_count`)",
 		// HMC377 E3 (reviewed): business-clue rows gained the own-phase and
 		// dependency-part facts; the mention duty names one row per tier.
-		" The analysed thread's own phases come first and may also carry their own time (the part not inside a named child phase) and its running/waiting split; another thread's row counts only the part of its spans inside the waits its wakeups ended, with the full span length beside it — never restate that full length as on-chain time.", "",
+		// HMC377 E3-R1 (reviewed): the wall beside a dependency part is the
+		// in-window span wall, never the span's full length.
+		" The analysed thread's own phases come first and may also carry their own time (the part not inside a named child phase) and its running/waiting split; another thread's row counts only the part of its spans inside the waits its wakeups ended, with its in-window span wall beside it — never restate that wall as on-chain time.", "",
 		"(at least the analysed thread's phase with the largest own time and, when present, the largest row of another thread, each with its trio)", "(at least the largest by total, with its trio)",
 	).Replace(legacy)
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(legacy))); got != afterHash {

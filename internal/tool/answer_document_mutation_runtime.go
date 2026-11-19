@@ -2558,17 +2558,42 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 			continue
 		}
 		location := runtimeTraceOccupancyLineLocation(span.StartLine, span.EndLine, zh)
-		caliber := fmt.Sprintf("原始墙钟；按线程和 span 名称归组；链上依据：%s；只提供业务排查方向，不进入%s或"+tracefence.OptimizationPotentialZH+"汇总", basisWord, tracefence.SeatChannelChainZH)
+		// HMC377 E3-R6: the caliber names what the total IS first. A
+		// dependency row's total is only its part inside the waits its
+		// wakeups ended — never the raw wall clock — with the in-window span
+		// wall beside it; an own phase's total is the raw wall clock.
+		lead := "原始墙钟"
 		if !zh {
-			caliber = fmt.Sprintf("raw wall clock grouped by thread and span name; on-chain basis: %s; a business investigation lead only, excluded from root-cause ordering and eliminable-impact totals", basisWord)
+			lead = "raw wall clock"
 		}
-		// HMC377 E3: the same account clause as the ◈ rows (one source).
-		if clause := strings.TrimSpace(runtimeTraceProjBusinessSpanMentionAccountClause(span, true, zh)); clause != "" {
-			separator := "; "
-			if zh {
-				separator = "；"
+		dependencyPart := types.TraceBusinessSpanMentionDependencyPart(span)
+		if dependencyPart {
+			lead = fmt.Sprintf("仅计其唤醒结束的等待区间内部分（窗内 span 墙钟 %.3fms）", span.WallMS)
+			if !zh {
+				lead = fmt.Sprintf("only the part inside the waits its wakeups ended (in-window span wall %.3fms)", span.WallMS)
 			}
-			caliber += separator + clause
+		}
+		caliber := fmt.Sprintf("%s；按线程和 span 名称归组；链上依据：%s；只提供业务排查方向，不进入%s或"+tracefence.OptimizationPotentialZH+"汇总", lead, basisWord, tracefence.SeatChannelChainZH)
+		if !zh {
+			leadSep := " "
+			if dependencyPart {
+				leadSep = "; "
+			}
+			caliber = fmt.Sprintf("%s%sgrouped by thread and span name; on-chain basis: %s; a business investigation lead only, excluded from root-cause ordering and eliminable-impact totals", lead, leadSep, basisWord)
+		}
+		// HMC377 E3: the same account clause as the ◈ rows (one source); the
+		// dependency part already leads the caliber, and the clause joins the
+		// caliber list as one more item (no stray parenthesis after the
+		// separator).
+		if !dependencyPart {
+			if clause := strings.TrimSpace(runtimeTraceProjBusinessSpanMentionAccountClause(span, true, zh)); clause != "" {
+				separator := "; "
+				if zh {
+					separator = "；"
+				}
+				clause = strings.TrimSuffix(strings.TrimPrefix(clause, "("), ")")
+				caliber += separator + clause
+			}
 		}
 		out = append(out, runtimeTraceOccupancyCandidate{
 			group:    runtimeTraceOccupancyGroupLabel("business", zh),

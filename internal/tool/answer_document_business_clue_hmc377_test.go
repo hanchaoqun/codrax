@@ -9,7 +9,8 @@ import (
 
 // HMC377 E3 reader faces: an own phase says how much of its time is its own
 // and how that time split between running and waiting; a chain member counted
-// only inside the waits it ended says so, with the full span beside it; a
+// only inside the waits it ended says so, with its in-window span wall
+// beside it (HMC377 E3-R1: never called the span's full length); a
 // record without those facts renders exactly as before.
 func TestHMC377BusinessClueAccountClauseFaces(t *testing.T) {
 	own := types.TraceCausalProjectionBusinessSpanMention{Subject: "app-100", Name: "attachBaseContext", Count: 1, TotalMS: 303.032, MaxMS: 303.032,
@@ -25,11 +26,11 @@ func TestHMC377BusinessClueAccountClauseFaces(t *testing.T) {
 		t.Fatalf("own phase tree row: %s", zhOwn)
 	}
 	zhDep, _ := runtimeTraceProjBusinessSpanMentionRowText(dep, nil, true)
-	if !strings.Contains(zhDep, "合计122.897ms(仅计其唤醒结束的等待区间内部分,span全长123.314ms) 行30..40 凭证:链上节点") {
+	if !strings.Contains(zhDep, "合计122.897ms(仅计其唤醒结束的等待区间内部分,窗内span墙钟123.314ms) 行30..40 凭证:链上节点") {
 		t.Fatalf("dependency part tree row: %s", zhDep)
 	}
 	enDep, _ := runtimeTraceProjBusinessSpanMentionRowText(dep, nil, false)
-	if !strings.Contains(enDep, "total 122.897ms (only the part inside the waits its wakeups ended; full span 123.314ms) · lines 30..40") {
+	if !strings.Contains(enDep, "total 122.897ms (only the part inside the waits its wakeups ended; in-window span wall 123.314ms) · lines 30..40") {
 		t.Fatalf("dependency part EN row: %s", enDep)
 	}
 	compact, _ := runtimeTraceProjBusinessSpanMentionCompactRowText(own, nil, true)
