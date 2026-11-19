@@ -525,7 +525,7 @@ func threadLabelWordByte(c byte) bool {
 // display name. Only exact recorded names of that TID match; the longest
 // recorded name that ends at the '-' wins, so a display name that contains an
 // alias as its tail is never touched.
-func (v *threadDisplayView) rewriteLabels(s string, referenced map[int]bool) (string, bool) {
+func (v *threadDisplayView) rewriteLabels(s string, note func(int)) (string, bool) {
 	if v == nil || len(v.ledger.records) == 0 || len(s) < 3 || strings.IndexByte(s, '-') < 0 {
 		return s, false
 	}
@@ -562,8 +562,8 @@ func (v *threadDisplayView) rewriteLabels(s string, referenced map[int]bool) (st
 			if !ok {
 				break
 			}
-			if referenced != nil {
-				referenced[tid] = true
+			if note != nil {
+				note(tid)
 			}
 			if name != display {
 				b.WriteString(s[last:start])
@@ -586,9 +586,26 @@ func (v *threadDisplayView) rewriteLabels(s string, referenced map[int]bool) (st
 // mutating any value it may share with an index cache: every changed struct,
 // slice, map or pointer target is copied (copy-on-write).
 type threadDisplayRewriter struct {
-	view       *threadDisplayView
-	referenced map[int]bool
+	view *threadDisplayView
+	// referenced maps every unified TID the result names to the most
+	// prominent face naming it (see threadDisplayFacePriority).
+	referenced map[int]int
+	priority   int
 	skip       map[reflect.Type]bool
+}
+
+// threadDisplayFacePriority orders the identity disclosure: the analysed
+// thread first, then threads on the causal faces, then the rest, so the
+// bounded list never drops a chain member for a background thread.
+func threadDisplayFacePriority(field string) int {
+	switch field {
+	case "Timeline", "TargetWindowStates", "ThreadSelection":
+		return 0
+	case "RootCauseRank", "WakeupChain", "CriticalBlocking", "FrameRootCauseBundle", "IPCGraph":
+		return 1
+	default:
+		return 2
+	}
 }
 
 var (
@@ -640,10 +657,14 @@ func (w *threadDisplayRewriter) mayContain(t reflect.Type) bool {
 }
 
 func (w *threadDisplayRewriter) note(tid int) {
-	if w.view.ledger.record(tid) != nil {
-		if _, ok := w.view.display(tid); ok {
-			w.referenced[tid] = true
-		}
+	if w.view.ledger.record(tid) == nil {
+		return
+	}
+	if _, ok := w.view.display(tid); !ok {
+		return
+	}
+	if prior, seen := w.referenced[tid]; !seen || w.priority < prior {
+		w.referenced[tid] = w.priority
 	}
 }
 
@@ -763,7 +784,7 @@ func (w *threadDisplayRewriter) rewrite(v reflect.Value) (reflect.Value, bool) {
 			if f.Type.Kind() == reflect.String {
 				switch {
 				case threadDisplayLabelFields[f.Name]:
-					if s, changed := w.view.rewriteLabels(field.String(), w.referenced); changed {
+					if s, changed := w.view.rewriteLabels(field.String(), w.note); changed {
 						ensure()
 						out.Field(i).SetString(s)
 					}
@@ -818,21 +839,35 @@ func reflectKeyLess(a, b reflect.Value) bool {
 // publishThreadDisplayIdentity is the single publication point: every typed
 // thread field and every system label of the result names a unified thread by
 // its display name for the result's window, and the result lists the identity
-// of each such thread it references once (TID ascending, bounded).
+// of each such thread it references once (analysed thread first, then the
+// causal faces, then the rest; TID ascending inside a class; bounded).
 func publishThreadDisplayIdentity(idx *Index, q Query, res Result) Result {
 	ledger := ensureThreadDisplayLedger(idx)
 	if ledger == nil || len(ledger.records) == 0 {
 		return res
 	}
 	view := newThreadDisplayView(ledger, q.TimeStart, q.TimeEnd)
-	w := &threadDisplayRewriter{view: view, referenced: map[int]bool{}, skip: map[reflect.Type]bool{}}
-	native := res.nativeTargetTimeline
-	if out, changed := w.rewrite(reflect.ValueOf(res)); changed {
-		res = out.Interface().(Result)
+	w := &threadDisplayRewriter{view: view, referenced: map[int]int{}, skip: map[reflect.Type]bool{}}
+	// Walk the result's own fields one face at a time (copy-on-write per
+	// field) so each named thread records the most prominent face naming it.
+	out := reflect.New(reflect.TypeOf(res)).Elem()
+	out.Set(reflect.ValueOf(res))
+	t := out.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" || f.Type.Kind() == reflect.String {
+			continue
+		}
+		w.priority = threadDisplayFacePriority(f.Name)
+		if elem, changed := w.rewrite(out.Field(i)); changed {
+			out.Field(i).Set(elem)
+		}
 	}
-	if native != nil {
-		if out, changed := w.rewrite(reflect.ValueOf(native)); changed {
-			res.nativeTargetTimeline = out.Interface().(*TimelineResult)
+	res = out.Interface().(Result)
+	if native := res.nativeTargetTimeline; native != nil {
+		w.priority = 0
+		if rewritten, changed := w.rewrite(reflect.ValueOf(native)); changed {
+			res.nativeTargetTimeline = rewritten.Interface().(*TimelineResult)
 		}
 	}
 	if len(w.referenced) == 0 {
@@ -842,7 +877,12 @@ func publishThreadDisplayIdentity(idx *Index, q Query, res Result) Result {
 	for tid := range w.referenced {
 		tids = append(tids, tid)
 	}
-	sort.Ints(tids)
+	sort.Slice(tids, func(i, j int) bool {
+		if w.referenced[tids[i]] != w.referenced[tids[j]] {
+			return w.referenced[tids[i]] < w.referenced[tids[j]]
+		}
+		return tids[i] < tids[j]
+	})
 	if len(tids) > threadDisplayIdentityCap {
 		tids = tids[:threadDisplayIdentityCap]
 	}
