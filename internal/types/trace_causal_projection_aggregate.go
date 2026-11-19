@@ -1694,8 +1694,14 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		if TraceCausalProjectionOccurrenceDomainsConflict(members) {
 			continue
 		}
-		if traceCausalProjectionSpanMembersNest(members) {
-			continue
+		if traceCausalProjectionSpanMembersNest(members) && !traceCausalProjectionCrossWindowUnion(nodes, g.members).applied {
+			// Rows that nest stay as their own rows; the disjoint occurrences
+			// beside them still form the repeated family.
+			g.members = traceCausalProjectionSpanMembersClearOfNesting(nodes, g.members)
+			if len(g.members) == 0 {
+				continue
+			}
+			g.first = g.members[0]
 		}
 		if len(g.members) < traceCausalProjectionSameKindAggregateMin {
 			// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane
@@ -2572,6 +2578,13 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 		return traceCausalProjectionDisplayValue(nodes[members[order[a]]]) >
 			traceCausalProjectionDisplayValue(nodes[members[order[b]]])
 	})
+	memberNodes := make([]TraceCausalProjectionNode, 0, len(members))
+	for _, idx := range members {
+		memberNodes = append(memberNodes, nodes[idx])
+	}
+	// A phase inside its collection re-measures the collection's wall clock even
+	// inside one query window.
+	spansNest := traceCausalProjectionSpanMembersNest(memberNodes)
 	perSlot := make([]TraceCausalProjectionIntervalSet, len(slots))
 	total := 0.0
 	ioCaliberSeen := false
@@ -2586,7 +2599,7 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 			// deduct twice), then bound the deduction by the member's own value.
 			var counted TraceCausalProjectionIntervalSet
 			for si := range perSlot {
-				if si == slotOf[k] {
+				if si == slotOf[k] && !spansNest {
 					continue
 				}
 				for _, span := range perSlot[si].Spans() {
@@ -3065,26 +3078,52 @@ func traceCausalProjectionResortAfterAggregation(out *TraceCausalProjection) {
 // traceCausalProjectionSpanMembersNest reports trace-span rows of one thread,
 // read from one query window, whose recorded intervals overlap without being the
 // same interval. A phase inside its collection is not a repeated occurrence of
-// it, so such rows stay separate and their durations never add up. Copies of one
-// interval and rows of different query windows keep their own merge rules.
+// it, so such rows never add up as one. Copies of one interval and rows of
+// different query windows keep their own merge rules.
 func traceCausalProjectionSpanMembersNest(members []TraceCausalProjectionNode) bool {
-	for _, member := range members {
-		if traceCausalProjectionCanonicalNode(member.Object) != "trace_span" {
-			return false
-		}
-	}
 	for i, a := range members {
 		for _, b := range members[i+1:] {
-			if a.QueryWindowStartTs != b.QueryWindowStartTs || a.QueryWindowEndTs != b.QueryWindowEndTs {
-				continue
-			}
-			if a.StartTs == b.StartTs && a.EndTs == b.EndTs {
-				continue
-			}
-			if a.StartTs < b.EndTs && b.StartTs < a.EndTs {
+			if traceCausalProjectionSpanRowsNest(a, b) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// traceCausalProjectionSpanMembersClearOfNesting keeps the members that nest
+// with no other member of the group.
+func traceCausalProjectionSpanMembersClearOfNesting(nodes []TraceCausalProjectionNode, members []int) []int {
+	clear := make([]int, 0, len(members))
+	for _, idx := range members {
+		nests := false
+		for _, other := range members {
+			if other != idx && traceCausalProjectionSpanRowsNest(nodes[idx], nodes[other]) {
+				nests = true
+				break
+			}
+		}
+		if !nests {
+			clear = append(clear, idx)
+		}
+	}
+	return clear
+}
+
+// traceCausalProjectionSpanRowsNest is the pair rule of the two functions above.
+// A row without a query window may have been read from the other row's window.
+func traceCausalProjectionSpanRowsNest(a, b TraceCausalProjectionNode) bool {
+	if traceCausalProjectionCanonicalNode(a.Object) != "trace_span" || traceCausalProjectionCanonicalNode(b.Object) != "trace_span" {
+		return false
+	}
+	if traceCausalProjectionIntervalValid(a.QueryWindowStartTs, a.QueryWindowEndTs) &&
+		traceCausalProjectionIntervalValid(b.QueryWindowStartTs, b.QueryWindowEndTs) &&
+		(math.Abs(a.QueryWindowStartTs-b.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
+			math.Abs(a.QueryWindowEndTs-b.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS) {
+		return false
+	}
+	if a.StartTs == b.StartTs && a.EndTs == b.EndTs {
+		return false
+	}
+	return traceCausalProjectionSpansOverlap(a, b)
 }

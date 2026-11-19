@@ -569,7 +569,8 @@ func targetWindowWaitOccurrences(intervals []Interval) []TargetWindowStateOccurr
 // targetSemanticRunningMs computes union(target semantic-span member
 // intervals) ∩ union(target running intervals) in ms — the 确定性工作 lane of
 // the running partition. Same pairwise-intersection-then-union algebra as
-// semanticTraceSpanChainIntersectionProjection (§29.26③-1 交集机械).
+// semanticTraceSpanChainIntersectionProjection (§29.26③-1 交集机械). A marker
+// that records a wait names no work the target ran, so it adds nothing here.
 func targetSemanticRunningMs(stats *WindowStats, target ThreadRef, window TimeWindow, running []foldInterval) float64 {
 	if stats == nil || len(running) == 0 {
 		return 0
@@ -580,6 +581,9 @@ func targetSemanticRunningMs(stats *WindowStats, target ThreadRef, window TimeWi
 			continue
 		}
 		if strings.TrimSpace(span.SemanticClass) == "" && traceSpanSemanticClass(span.Name) == "" {
+			continue
+		}
+		if hit, ok := TraceSpanVocabulary(strings.TrimSpace(span.Name)); ok && hit.Stance == "waits" {
 			continue
 		}
 		start, end, ok := overlapTimeWindow(span.StartTs, span.EndTs, window.StartTs, window.EndTs)

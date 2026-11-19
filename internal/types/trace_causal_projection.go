@@ -5203,11 +5203,68 @@ func traceCausalProjectionLimitContextNodesFold(nodes []TraceCausalProjectionNod
 	if limit <= 0 || len(capped) == 0 || len(capped) <= limit {
 		return append(traceCausalProjectionLimitNodes(capped, limit), sideRail...)
 	}
-	kept := append([]TraceCausalProjectionNode(nil), capped[:limit]...)
-	fold := traceCausalProjectionOverflowFoldRow(capped[limit:])
-	fold.ChainRelevance = relevance
-	fold.OnChainOverflowFold = false
-	return append(append(kept, fold), sideRail...)
+	seatable, contained := traceCausalProjectionSplitContainedSpanRows(capped)
+	if len(seatable) < limit {
+		limit = len(seatable)
+	}
+	kept := append([]TraceCausalProjectionNode(nil), seatable[:limit]...)
+	overflow := append([]TraceCausalProjectionNode(nil), seatable[limit:]...)
+	var phases []TraceCausalProjectionNode
+	for _, row := range contained {
+		if traceCausalProjectionSpanRowContainedByAny(row, kept) {
+			phases = append(phases, row)
+			continue
+		}
+		overflow = append(overflow, row)
+	}
+	out := kept
+	if len(overflow) > 0 {
+		fold := traceCausalProjectionOverflowFoldRow(overflow)
+		fold.ChainRelevance = relevance
+		fold.OnChainOverflowFold = false
+		out = append(out, fold)
+	}
+	return append(append(out, phases...), sideRail...)
+}
+
+// traceCausalProjectionSplitContainedSpanRows separates the rows recorded inside
+// a longer row of the same thread and query window. A phase shown beside its
+// seated collection takes no seat from another thread's row.
+func traceCausalProjectionSplitContainedSpanRows(nodes []TraceCausalProjectionNode) (seatable, contained []TraceCausalProjectionNode) {
+	for _, node := range nodes {
+		if traceCausalProjectionSpanRowContainedByAny(node, nodes) {
+			contained = append(contained, node)
+			continue
+		}
+		seatable = append(seatable, node)
+	}
+	return seatable, contained
+}
+
+// traceCausalProjectionSpanRowContainedByAny reports a row strictly inside a
+// longer row of the same thread that was read from the same query window. The
+// interval of a merged family only spans its occurrences, so it contains nothing.
+func traceCausalProjectionSpanRowContainedByAny(row TraceCausalProjectionNode, nodes []TraceCausalProjectionNode) bool {
+	if traceCausalProjectionCanonicalNode(row.Object) != "trace_span" ||
+		row.MergedCount > 1 ||
+		strings.TrimSpace(row.Subject) == "" ||
+		!traceCausalProjectionIntervalValid(row.StartTs, row.EndTs) {
+		return false
+	}
+	for _, other := range nodes {
+		if traceCausalProjectionCanonicalNode(other.Object) != "trace_span" ||
+			other.MergedCount > 1 ||
+			strings.TrimSpace(other.Subject) != strings.TrimSpace(row.Subject) ||
+			!traceCausalProjectionIntervalValid(other.StartTs, other.EndTs) ||
+			math.Abs(other.QueryWindowStartTs-row.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
+			math.Abs(other.QueryWindowEndTs-row.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS {
+			continue
+		}
+		if other.StartTs <= row.StartTs && row.EndTs <= other.EndTs && other.EndTs-other.StartTs > row.EndTs-row.StartTs {
+			return true
+		}
+	}
+	return false
 }
 
 func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {

@@ -10940,52 +10940,67 @@ func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpan
 // row after every other row by its own rule.
 const traceMarkPlatformSemanticSpanCap = 8
 
-// traceMarkSpanPools is the complete span population of one window BEFORE any
-// bound, split by who classifies the name. builtIn and platform together are
-// every classified span of the window, so exact per-family totals can be
-// computed from them ahead of the seat bound.
+// traceMarkSpanPools splits the spans of one window BEFORE any seat bound by who
+// classifies the name and whether the duration bound seats them.
 type traceMarkSpanPools struct {
-	generic  []TraceSpanSummary // no class
-	builtIn  []TraceSpanSummary // classified by a built-in arm or an operator pattern
-	platform []TraceSpanSummary // classified only by the platform vocabulary
+	durationSeated []TraceSpanSummary // generic and platform spans inside the duration bound
+	platformSeated []TraceSpanSummary // the platform spans among durationSeated
+	builtIn        []TraceSpanSummary // classified by a built-in arm or an operator pattern
+	platform       []TraceSpanSummary // platform spans past the duration bound
 }
 
 // partitionTraceMarkSpansBySemanticOwner keeps the caller's (duration-sorted)
 // order inside every pool.
 //
-// Without the vocabulary a platform span competes with the generic spans for the
-// first durationSeats seats; one that falls past them is marked as seated by the
-// vocabulary alone.
+// The duration bound seats exactly the spans it seated before the vocabulary
+// existed: generic and platform spans compete for durationSeats together, and a
+// span an operator pattern also classifies stays with the classified spans. The
+// vocabulary therefore only adds seats. A platform span past the bound is marked
+// as seated by the vocabulary alone; a generic span past it has no seat.
 func partitionTraceMarkSpansBySemanticOwner(spans []TraceSpanSummary, durationSeats int) traceMarkSpanPools {
 	var pools traceMarkSpanPools
 	competing := 0
 	for _, span := range spans {
 		_, owner, ok := traceSpanSemanticWorkClassWithOwner(span.Name)
-		switch {
-		case !ok:
-			pools.generic = append(pools.generic, span)
-			competing++
-		case owner == traceSpanSemanticOwnerPlatformVocabulary:
-			span.seatedByVocabularyOnly = competing >= durationSeats
-			pools.platform = append(pools.platform, span)
-			competing++
-		default:
+		platformOwned := ok && owner == traceSpanSemanticOwnerPlatformVocabulary
+		if ok && (!platformOwned || traceSpanOperatorPatternClassifies(span.Name)) {
 			pools.builtIn = append(pools.builtIn, span)
+			continue
+		}
+		seated := competing < durationSeats
+		competing++
+		switch {
+		case seated:
+			pools.durationSeated = append(pools.durationSeated, span)
+			if platformOwned {
+				pools.platformSeated = append(pools.platformSeated, span)
+			}
+		case platformOwned:
+			span.seatedByVocabularyOnly = true
+			pools.platform = append(pools.platform, span)
 		}
 	}
 	return pools
 }
 
-// boundTraceMarkSpansForTarget bounds the three pools independently:
-//   - generic spans: the caller's duration cap;
+// traceSpanOperatorPatternClassifies reports a name an operator pattern gives a
+// class of its own, whichever classifier owns the name.
+func traceSpanOperatorPatternClassifies(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	_, ok := customTraceSpanSemanticClass(lower, traceSpanNameTokenSet(lower))
+	return ok
+}
+
+// boundTraceMarkSpansForTarget bounds the spans in three independent groups:
+//   - generic and platform spans inside the duration bound: all kept;
 //   - built-in semantic spans: 16 seats, one representative of every
 //     (thread,class) family first, then the next largest members — the
 //     selection that existed before the platform vocabulary, unchanged;
-//   - platform semantic spans: 8 seats of their own, walked in typed tiers
-//     (semanticSpanSeatTier). Every span the target's dependency chain can
-//     reach is seated first, one representative of every such family and then
-//     the rest of them; only then does other work on other threads get seats,
-//     and waits recorded on other threads after it.
+//   - platform semantic spans past the duration bound: 8 extra seats, walked in
+//     typed tiers (semanticSpanSeatTier). Every span the target's dependency
+//     chain can reach is seated first, one representative of every such family
+//     and then the rest of them; only then does other work on other threads get
+//     seats, and waits recorded on other threads after it.
 //
 // seats carries the resolved query target and the chain members' typed windows;
 // its zero value means no target is known and the first tier is empty.
@@ -10998,15 +11013,11 @@ func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, seats seman
 		return spans, traceMarkSemanticBoundInfo{}
 	}
 	pools := partitionTraceMarkSpansBySemanticOwner(spans, max)
-	generic := pools.generic
-	if len(generic) > max {
-		generic = generic[:max]
-	}
 	builtIn := boundSemanticSeatPool(pools.builtIn, traceMarkSemanticSpanCap, nil)
 	platform := boundSemanticSeatPool(pools.platform, traceMarkPlatformSemanticSpanCap, seats.tierOf())
-	info := semanticSeatBoundInfo(builtIn, platform)
-	out := make([]TraceSpanSummary, 0, len(generic)+len(builtIn.kept)+len(platform.kept))
-	out = append(out, generic...)
+	info := semanticSeatBoundInfo(builtIn, semanticSeatPoolBound{kept: pools.platformSeated}, platform)
+	out := make([]TraceSpanSummary, 0, len(pools.durationSeated)+len(builtIn.kept)+len(platform.kept))
+	out = append(out, pools.durationSeated...)
 	out = append(out, builtIn.kept...)
 	out = append(out, platform.kept...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -11019,8 +11030,8 @@ func boundTraceMarkSpansForTarget(spans []TraceSpanSummary, max int, seats seman
 }
 
 // criticalBlockingVocabularyRowsLast moves off-chain rows that reached the view
-// only through a vocabulary seat behind every other row, so the view's bound
-// never drops a row that would have been published without the vocabulary.
+// only through a vocabulary seat behind every other row, so no bound on the list
+// drops a row that would have been published without the vocabulary.
 func criticalBlockingVocabularyRowsLast(items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
 	kept := make([]CriticalBlockingCandidate, 0, len(items))
 	var yielding []CriticalBlockingCandidate
@@ -23933,9 +23944,9 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		}
 		return res.Items[i].LineStart < res.Items[j].LineStart
 	})
+	res.Items = criticalBlockingVocabularyRowsLast(res.Items)
 	limit := ViewCapacityFor("critical_blocking_calls").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
-		res.Items = criticalBlockingVocabularyRowsLast(res.Items)
 		last := res.Items[limit-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "critical_blocking_calls",

@@ -233,9 +233,9 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 		"semanticPlatformVocabularyNearMiss":     {"traceSpanNearMissesSemanticWorkClassification"},
 		"traceSpanSemanticWorkClassWithOwner":    {"traceSpanSemanticWorkClass", "semanticSpanMintedByPlatformVocabulary", "partitionTraceMarkSpansBySemanticOwner"},
 		"semanticSpanMintedByPlatformVocabulary": {"init", "semanticSpanAdmitsHostEdgeLane", "semanticSpanCapLowerBoundCaveat", "semanticFamilyMintedByPlatformVocabulary", "FoldSemanticSpanFamilies", "computeBusinessSpanMentions"},
-		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions"},
+		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions", "FoldSemanticSpanFamilies"},
 		"semanticSpanSeatTier":                   {"tierOf"},
-		"TraceSpanVocabulary":                    {},
+		"TraceSpanVocabulary":                    {"targetSemanticRunningMs"},
 		// The advisory naming-drift signal: two caveat builders and the
 		// exported census wrapper. No lane, tier, gate or score reads it.
 		"traceSpanNearMissesSemanticWorkClassification": {"TraceSpanNearMissesSemanticWork", "incompleteSemanticTraceMarkCaveats", "buildRootCauseRankFromWithCache"},
@@ -740,6 +740,33 @@ func TestHMC376LowerBoundCaveatCountsBuiltInPoolOnly(t *testing.T) {
 // hmc376PreviousBound is the selection as it was before the platform seat
 // pool existed, kept here as the reference the built-in pool is compared
 // with. It must not be edited to follow the production code.
+// hmc376BoundWithoutVocabulary returns the non-platform spans the bound keeps
+// when platform spans are plain names competing for the duration seats, and how
+// many duration seats those platform spans hold.
+func hmc376BoundWithoutVocabulary(spans []TraceSpanSummary, max int) ([]TraceSpanSummary, int) {
+	var classified, kept []TraceSpanSummary
+	competing, platformSeats := 0, 0
+	for _, span := range spans {
+		platform := semanticSpanMintedByPlatformVocabulary(span.Name)
+		if _, ok := traceSpanSemanticWorkClass(span.Name); ok && !platform {
+			classified = append(classified, span)
+			continue
+		}
+		if competing < max {
+			if platform {
+				platformSeats++
+			} else {
+				kept = append(kept, span)
+			}
+		}
+		competing++
+	}
+	bounded, _ := hmc376PreviousBound(classified, traceMarkSemanticSpanCap)
+	kept = append(kept, bounded...)
+	hmc376SortSpans(kept)
+	return kept, platformSeats
+}
+
 func hmc376PreviousBound(spans []TraceSpanSummary, max int) ([]TraceSpanSummary, traceMarkSemanticBoundInfo) {
 	if max <= 0 || len(spans) <= max {
 		return spans, traceMarkSemanticBoundInfo{}
@@ -865,7 +892,8 @@ func hmc376Population(rng *rand.Rand, count, threads int, names []string, firstL
 // For any window without a platform span the bound is what it was: same kept
 // spans in the same order, same disclosure. With platform spans added, the
 // spans that were classified before keep exactly the seats they had, and the
-// generic spans keep theirs.
+// duration bound seats what it seated without the vocabulary: platform spans
+// compete for it with the generic spans, and the vocabulary only adds seats.
 func TestHMC376BuiltInSeatSelectionMatchesPreviousAlgorithm(t *testing.T) {
 	previousNames := []string{
 		"VerifyClass com.example.A", "VerifyClass com.example.B", "JIT compiling void a.b() (kind=Baseline)",
@@ -892,10 +920,8 @@ func TestHMC376BuiltInSeatSelectionMatchesPreviousAlgorithm(t *testing.T) {
 		with := append(append([]TraceSpanSummary(nil), before...), hmc376Population(rng, 1+rng.Intn(30), 1+rng.Intn(30), platformNames, 10000)...)
 		hmc376SortSpans(with)
 		mixed, _ := boundTraceMarkSpansForTarget(append([]TraceSpanSummary(nil), with...), 8, hmc376SeatsFor(1000))
-		var keptBefore, keptAfter []TraceSpanSummary
-		for _, span := range wantOut {
-			keptBefore = append(keptBefore, span)
-		}
+		keptBefore, platformDurationSeats := hmc376BoundWithoutVocabulary(with, 8)
+		var keptAfter []TraceSpanSummary
 		platformKept := 0
 		for _, span := range mixed {
 			if semanticSpanMintedByPlatformVocabulary(span.Name) {
@@ -907,8 +933,8 @@ func TestHMC376BuiltInSeatSelectionMatchesPreviousAlgorithm(t *testing.T) {
 		if !reflect.DeepEqual(keptAfter, keptBefore) {
 			t.Fatalf("trial %d: platform spans changed the seats of previously classified or generic spans", trial)
 		}
-		if platformKept > traceMarkPlatformSemanticSpanCap {
-			t.Fatalf("trial %d: %d platform spans kept, cap is %d", trial, platformKept, traceMarkPlatformSemanticSpanCap)
+		if platformKept > platformDurationSeats+traceMarkPlatformSemanticSpanCap {
+			t.Fatalf("trial %d: %d platform spans kept, %d hold duration seats and the pool adds %d", trial, platformKept, platformDurationSeats, traceMarkPlatformSemanticSpanCap)
 		}
 	}
 	if !sawFullPool || !sawOmittedFamily {
@@ -971,7 +997,8 @@ func TestHMC376PlatformSeatPoolSeatsTargetFirst(t *testing.T) {
 		t.Fatalf("platform seats without a target:\n got %v\nwant %v", kept, want)
 	}
 
-	// Spare seats go to the target's further members before anyone else's.
+	// Spans inside the duration bound keep their seats, and the target's further
+	// members take seats the pool adds.
 	spans = spans[:0]
 	for i := 0; i < 5; i++ {
 		add(100, "H:PartialGC::RunPhases0;GCReason12", 1+float64(i))
@@ -987,8 +1014,8 @@ func TestHMC376PlatformSeatPoolSeatsTargetFirst(t *testing.T) {
 	for _, span := range out {
 		perThread[span.Thread.PID]++
 	}
-	if !reflect.DeepEqual(perThread, map[int]int{100: 5, 300: 1, 200: 1, 201: 1}) || info.keptSpans != 8 || info.totalSpans != 11 || info.omittedFamilies != 0 {
-		t.Fatalf("spare seats must complete the target's family first: %v %+v", perThread, info)
+	if !reflect.DeepEqual(perThread, map[int]int{100: 5, 300: 4, 200: 1, 201: 1}) || info.keptSpans != 11 || info.totalSpans != 11 || info.omittedFamilies != 0 {
+		t.Fatalf("every duration seat stays and the target's family completes: %v %+v", perThread, info)
 	}
 }
 

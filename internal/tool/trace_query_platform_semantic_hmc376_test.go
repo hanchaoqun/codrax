@@ -323,8 +323,11 @@ func TestHMC376PlatformSpansNeverTakeBuiltInSeats(t *testing.T) {
 	if strings.Join(with, "\n") != strings.Join(without, "\n") {
 		t.Fatalf("platform spans changed the kept class-verification set:\nwithout:\n%s\nwith:\n%s", strings.Join(without, "\n"), strings.Join(with, "\n"))
 	}
-	if platform != 8 {
-		t.Fatalf("13 collection spans must fill their own 8 seats, kept %d", platform)
+	if platform != 13 {
+		t.Fatalf("the duration seats and the 8 added seats hold all 13 collection spans, kept %d", platform)
+	}
+	if _, crowded := kept(hmc376SyntheticCapture(t, "H:FullGC::RunPhases;GCReason2", "GC: Wait For Completion Alloc", 30, 20)); crowded != 16 {
+		t.Fatalf("31 collection spans fill 8 duration seats and 8 added seats, kept %d", crowded)
 	}
 }
 
@@ -360,7 +363,7 @@ func TestHMC376TargetPlatformFamilyKeepsItsSeat(t *testing.T) {
 	}
 	disclosed := false
 	for _, caveat := range rank.Caveats {
-		if strings.Contains(caveat, "semantic span bound kept 8/21 classified span(s) across 21 family/families; omitted 13 span(s) from 13 whole family/families") {
+		if strings.Contains(caveat, "semantic span bound kept 16/21 classified span(s) across 21 family/families; omitted 5 span(s) from 5 whole family/families") {
 			disclosed = true
 		}
 	}
@@ -499,8 +502,8 @@ func TestHMC376ChainMemberCollectionKeepsItsSeat(t *testing.T) {
 	}
 }
 
-// The target's own collections take the platform seats before any shorter span
-// of another thread does.
+// The target's own collections keep their duration seats and take the added
+// platform seats before any shorter span of another thread does.
 func TestHMC376TargetCollectionsFillTheirSeatsFirst(t *testing.T) {
 	var last string
 	for _, others := range []int{0, 6, 8, 12} {
@@ -519,8 +522,8 @@ func TestHMC376TargetCollectionsFillTheirSeatsFirst(t *testing.T) {
 		c.sleep(10.240000, "main", 100, 100, 1)
 		result := hmc376Query(t, c.write(t), "root_cause_rank", 100, 10.0, 10.25)
 		row := hmc376OwnRow(result.RootCauseRank, 100, "gc_pause")
-		if row == nil || !hmc376Near(row.ImpactMs, 80) || !hmc376Near(result.TargetWindowStates.DeterministicRunningMs, 80) {
-			t.Fatalf("%d other threads: the target keeps its eight seats (80 ms): row=%v deterministic=%.3f\n%s", others, row != nil, result.TargetWindowStates.DeterministicRunningMs, hmc376Board(result.RootCauseRank))
+		if row == nil || !hmc376Near(row.ImpactMs, 100) || !hmc376Near(result.TargetWindowStates.DeterministicRunningMs, 100) {
+			t.Fatalf("%d other threads: the target keeps all ten collections (100 ms): row=%v deterministic=%.3f\n%s", others, row != nil, result.TargetWindowStates.DeterministicRunningMs, hmc376Board(result.RootCauseRank))
 		}
 		label := hmc376RowLabel(*row)
 		if last != "" && label != last {
@@ -547,11 +550,11 @@ func TestHMC376OmittedOnChainCollectionStaysMentioned(t *testing.T) {
 	}
 	// The collection runs after the wakeup, outside the waker's chain window,
 	// so the seat tiers give it no priority over longer collections elsewhere.
-	seated := hmc376Query(t, hmc376WakerCapture(t, marker, 10.205, 10.225, 7), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
+	seated := hmc376Query(t, hmc376WakerCapture(t, marker, 10.205, 10.225, 15), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
 	if hmc376OwnRow(seated, 150, "gc_pause") == nil || mention(seated) != nil {
 		t.Fatalf("with a free seat the collection is a ranked row and nothing else:\n%s", hmc376Board(seated))
 	}
-	omitted := hmc376Query(t, hmc376WakerCapture(t, marker, 10.205, 10.225, 8), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
+	omitted := hmc376Query(t, hmc376WakerCapture(t, marker, 10.205, 10.225, 16), "root_cause_rank", 100, 10.0, 10.3).RootCauseRank
 	family := mention(omitted)
 	if hmc376OwnRow(omitted, 150, "gc_pause") != nil || family == nil {
 		t.Fatalf("without a seat the collection must stay mentioned: mention=%v\n%s", family != nil, hmc376Board(omitted))

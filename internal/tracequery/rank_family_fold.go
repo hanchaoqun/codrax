@@ -434,6 +434,9 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		// platform vocabulary out of the family of a span classified without
 		// it, so the value of that family stays what it was.
 		platformOffChain bool
+		// recordsWait keeps a marker that records a wait out of the family of
+		// work the thread ran, so neither is read as the other.
+		recordsWait bool
 	}
 	type acc struct {
 		family  SemanticSpanFamily
@@ -447,7 +450,8 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		}
 		lane, depth, state := semanticSpanFamilyLane(chain, span)
 		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), subcategory: span.Subcategory, lane: lane, source: span.SourcePath,
-			platformOffChain: lane == semanticSpanLaneOff && semanticSpanMintedByPlatformVocabulary(span.Name)}
+			platformOffChain: lane == semanticSpanLaneOff && semanticSpanMintedByPlatformVocabulary(span.Name),
+			recordsWait:      !semanticSpanAdmitsHostEdgeLane(span.Name)}
 		group, ok := groups[key]
 		if !ok {
 			basis := ""
