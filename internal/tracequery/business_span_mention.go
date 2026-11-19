@@ -36,10 +36,12 @@ package tracequery
 //   - On-chain (含自身), existing credential machinery only (禁自造第二套边
 //     判定): self = chain.Target; chain member = wakeupChainThreadSet; host =
 //     hostSemanticSpanEdgeAnchor R3 edge credential, and only members lying
-//     ENTIRELY before the latest credential edge count (relation-qualified raw
-//     business occupancy, not a priced semantic-completion claim;
-//     a boundary-crossing span is excluded whole — no bisected values on
-//     this verbatim face). A thread with NO typed credential is never
+//     ENTIRELY inside one wait of the target that the host's own wakeup
+//     ended count (HMC377 E2, owner ruling 2026-11-18 — the same dependency
+//     windows that price the host's seats; relation-qualified raw business
+//     occupancy, not a priced semantic-completion claim; a span reaching
+//     outside such a wait is excluded whole — no partitioned values on this
+//     verbatim face). A thread with NO typed credential is never
 //     mentioned (硬纪律).
 //   - Significance floor (微窗噪音门, user ruling 2026-07-19 verbatim: 「过于
 //     微窗的不必关注,容易引入噪音,除非占用时长达到显著」): family total ≥
@@ -192,12 +194,13 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 	}
 	// Per-thread typed credential memo. "" = no credential (never mentioned).
 	basisByTid := map[int]string{}
-	boundaryByTid := map[int]float64{}
-	threadBasis := func(thread ThreadRef) (string, float64) {
+	windowsByTid := map[int][]targetWaitDependencyWindow{}
+	threadBasis := func(thread ThreadRef) (string, []targetWaitDependencyWindow) {
 		if basis, seen := basisByTid[thread.PID]; seen {
-			return basis, boundaryByTid[thread.PID]
+			return basis, windowsByTid[thread.PID]
 		}
-		basis, boundary := "", 0.0
+		basis := ""
+		var windows []targetWaitDependencyWindow
 		switch {
 		case chain.Target.PID > 0 && thread.PID == chain.Target.PID:
 			basis = BusinessSpanMentionBasisSelf
@@ -206,12 +209,12 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		default:
 			if anchor, ok := hostSemanticSpanEdgeAnchor(&chain, thread); ok {
 				basis = BusinessSpanMentionBasisHostWakeupEdge
-				boundary = anchor.boundaryTs
+				windows = anchor.windows
 			}
 		}
 		basisByTid[thread.PID] = basis
-		boundaryByTid[thread.PID] = boundary
-		return basis, boundary
+		windowsByTid[thread.PID] = windows
+		return basis, windows
 	}
 	type familyKey struct {
 		tid  int
@@ -238,22 +241,21 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if class != "" && !omittedPlatformFamily {
 			continue
 		}
-		basis, boundary := threadBasis(span.Thread)
+		basis, hostWindows := threadBasis(span.Thread)
 		if basis == "" {
 			continue
 		}
 		if omittedPlatformFamily && basis == BusinessSpanMentionBasisHostWakeupEdge && !semanticSpanAdmitsHostEdgeLane(span.Name) {
 			continue
 		}
-		if basis == BusinessSpanMentionBasisHostWakeupEdge && (span.StartTs >= boundary || span.EndTs > boundary) {
-			// R3 semantics, whole-segment strict (返工轮 P1-1, 对抗官实证):
-			// only members lying ENTIRELY before the credential edge carry it
-			// (边前=有效 / 边后=解除). A boundary-crossing span is EXCLUDED
-			// whole — bisecting it would mint a derived value, and this face
-			// publishes ONLY verbatim inventory segments (原始值纪律; the
-			// seat machinery's R3 bisection lane keeps that job). The old
-			// StartTs-only gate let post-edge time leak into a row whose
-			// credential word says 边前.
+		if basis == BusinessSpanMentionBasisHostWakeupEdge && !spanInsideOneDependencyWindow(hostWindows, span.StartTs, span.EndTs) {
+			// Whole-segment strict (返工轮 P1-1, 对抗官实证; HMC377 E2): only
+			// members lying ENTIRELY inside one wait of the target that the
+			// host's own wakeup ended carry the credential. A span reaching
+			// outside it is EXCLUDED whole — partitioning it would mint a
+			// derived value, and this face publishes ONLY verbatim inventory
+			// segments (原始值纪律; the seat machinery's partition keeps that
+			// job).
 			continue
 		}
 		key := familyKey{span.Thread.PID, span.Name}

@@ -160,13 +160,17 @@ func TestBareCensusEdgeStateSeatRunnableBisect(t *testing.T) {
 	if len(seat.familyMemberIntervals) != 0 || len(rem.familyMemberIntervals) != 0 {
 		t.Fatalf("group hulls must be cleared on both halves")
 	}
-	// Sentences: the R4 family language + the RSPA verbatim twin anchors (the
-	// existing twin-visibility pass owns their downgrade).
-	if !strings.Contains(seat.Summary, "edge=credential") || !strings.Contains(seat.Summary, rspaSummaryRemainderTwinPublished) {
-		t.Fatalf("⛓ sentence must speak edge=credential + the twin anchor: %q", seat.Summary)
+	// Sentences: the one wait clause + the RSPA verbatim twin anchors (the
+	// existing twin-visibility pass owns their downgrade). RE-BASED (HMC377
+	// E2, owner ruling 2026-11-18): old substring "edge=credential" → the
+	// wait clause naming the waits the host's wakeup ended (same meaning: the
+	// row states its credential and which time it prices).
+	clause := "inside the analysed thread's wait(s) that this thread's own wakeup ended (1 wait(s), 6.000ms of waiting; last such wakeup at 6.006000)"
+	if !strings.Contains(seat.Summary, clause) || !strings.Contains(seat.Summary, rspaSummaryRemainderTwinPublished) {
+		t.Fatalf("⛓ sentence must name the waits it is priced inside + the twin anchor: %q", seat.Summary)
 	}
-	if !strings.Contains(rem.Summary, "edge=credential") || !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat) {
-		t.Fatalf("◇ sentence must speak edge=credential + the ownership anchor: %q", rem.Summary)
+	if !strings.Contains(rem.Summary, "outside the analysed thread's wait(s) that this thread's own wakeup ended") || !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat) {
+		t.Fatalf("◇ sentence must say it lies outside those waits + the ownership anchor: %q", rem.Summary)
 	}
 	// Score re-derives from the published value (§7.30 S1).
 	if math.Abs(seat.Score-3.5*seat.Confidence*rootCauseItemScoreWeight(*seat)) > 0.0005 {
@@ -244,7 +248,9 @@ func TestBareCensusEdgeStateSeatFullyPreEdge(t *testing.T) {
 	if math.Abs(seat.ImpactMs-3.0) > 0.0005 || math.Abs(seat.EffectiveImpactMs-3.0) > 0.0005 {
 		t.Fatalf("whole conversion must publish the full account on every value channel: %+v", seat)
 	}
-	if !strings.Contains(seat.Summary, "fully pre-edge") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): "fully pre-edge" →
+	// "lies entirely inside" the waits the host's wakeup ended.
+	if !strings.Contains(seat.Summary, "3.000ms lies entirely inside the analysed thread's wait(s) that this thread's own wakeup ended") {
 		t.Fatalf("whole conversion sentence drifted: %q", seat.Summary)
 	}
 	if len(seat.familyMemberIntervals) != 0 {
@@ -277,7 +283,10 @@ func TestBareCensusEdgeStateSeatInversionR4Mirror(t *testing.T) {
 		math.Abs(got.RunnableMs-3.0) > 0.0005 {
 		t.Fatalf("① every published value must stay untouched (gated composite never split): %+v", got)
 	}
-	if !strings.Contains(got.Summary, "the gated composite is never split") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): "the gated composite is
+	// never split" → "the inversion seat is never split" (reader wording,
+	// same promise).
+	if !strings.Contains(got.Summary, "the inversion seat is never split") {
 		t.Fatalf("① disclosure sentence drifted: %q", got.Summary)
 	}
 	// ② any post-edge share: the seat's published authority stays untouched —

@@ -171,16 +171,18 @@ const selfSemNonTargetTrace = `        app-100 (100) [001] .... 5.000000: sched_
 //
 // EVOLUTION RECORD (R3-IMPL, §29.88.1 user ruling 2026-07-14): N1 originally
 // pinned the huadong E21 form — a NON-target chain-node span without
-// chain-window overlap stays ADJACENT. R3 supersedes that lane verdict for
-// exactly this fixture's shape: verify-200 holds a REAL in-window typed
-// wakeup edge toward the target (5.006) and its span (5.0005..5.0025) lies
-// entirely BEFORE it → the pre-edge share seats on-chain on the typed
-// host-edge basis (边=凭证,边前=有效). N1's ORIGINAL core intent is kept
-// verbatim: the SELF basis/causality tokens must never mint on a non-target
-// row (§23.1 道别红线 protects membership-alone flips — R3 flips on the
-// host's own EDGE, never on membership; N2's edge-less form still proves it).
-//   - N1 (R3 form): the chain-node host's pre-edge span takes
-//     host_wakeup_edge_pre_span + on_wakeup_chain — never a self token;
+// chain-window overlap stays ADJACENT. R3 then seated this fixture's span on
+// the host-edge basis because it lay before verify-200's 5.006 wakeup of the
+// target. RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old →
+// new = on-chain host-edge seat (anchor 5.006) → the original adjacent form.
+// The only wait of the target that verify-200's wakeup ended is
+// [5.003, 5.006]; the class verification (5.0005..5.0025) finished 0.5 ms
+// before that wait began, so it is not time the target spent waiting for
+// verify-200. N1's core intent is kept verbatim: the SELF basis/causality
+// tokens never mint on a non-target row, and membership alone never flips
+// the lane (§23.1 道别红线).
+//   - N1: the chain-node host's span outside the wait its wakeup ended keeps
+//     the adjacent lane — never a self token, never a host-edge seat;
 //   - N2 (cmp_01 E2 形): an other-process compile span with no chain
 //     membership AND no edge keeps its non-chain lane byte-identically
 //     (background board, BackgroundRank stamped).
@@ -200,23 +202,13 @@ func TestSelfSemNonTargetLanesUntouched(t *testing.T) {
 	if verify == nil || other == nil {
 		t.Fatalf("fixture drifted: both semantic rows must mint: %+v", rank.Items)
 	}
-	// N1 (R3): the host's own in-window edge anchors the pre-edge span
-	// on-chain — on the HOST-EDGE basis, never a self token.
-	if verify.ChainRelevance != "on_chain" || verify.OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
-		t.Fatalf("N1 (R3): a pre-edge non-target span must seat on the typed host-edge basis: %+v", verify)
-	}
-	if verify.Causality != "on_wakeup_chain" {
-		t.Fatalf("N1 (R3): the host-edge seat speaks the honest edge token: %+v", verify)
+	// N1: outside the wait the host's wakeup ended — adjacent, unpriced on
+	// the chain, no host-edge disclosure.
+	if verify.ChainRelevance != "adjacent" || verify.OnChainBasis != "" || verify.HostWakeupEdgeAnchorTs != 0 {
+		t.Fatalf("N1: a non-target span outside the wait its host's wakeup ended must keep the adjacent lane: %+v", verify)
 	}
 	if verify.Causality == RootCauseCausalitySelfDeterministic || rootCauseOnChainBasisIsSelf(verify.OnChainBasis) {
 		t.Fatalf("N1: the self tokens must never mint on a non-target row: %+v", verify)
-	}
-	if verify.HostWakeupEdgeAnchorTs != 5.006 {
-		t.Fatalf("N1 (R3): the anchor boundary must be the host's latest in-window edge: %+v", verify)
-	}
-	// The span lies fully pre-edge: no bisection pair, no remainder clone.
-	if verify.ChainAnchorFullMs != 0 || verify.ChainAnchorRemainderSeat {
-		t.Fatalf("N1 (R3): a fully pre-edge span carries no bipartition pair: %+v", verify)
 	}
 	// N2: other-process span off the chain, edge-less → background unchanged.
 	if other.ChainRelevance != "background" || other.OnChainBasis != "" || other.BackgroundRank <= 0 {

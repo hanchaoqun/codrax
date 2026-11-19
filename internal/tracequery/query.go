@@ -16900,10 +16900,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, fam.Members[0], hasCausalChain); ok {
 				item.platformVocabularyMinted = fam.platformVocabularyMinted
 				items = append(items, item)
-				// R3-IMPL (§29.88.1 跨边按边界二分): a host-edge-anchored
-				// span crossing its credential boundary seats the pre-edge
-				// share above and clones the post-edge share onto the ◇
-				// remainder lane (RSPA remainder trio — existing plumbing).
+				// R3-IMPL (§29.88.1) bounded by HMC377 E2: a host-edge span
+				// reaching outside the target's waits its host's wakeup ended
+				// seats the inside share above and clones the outside share
+				// onto the ◇ remainder lane (RSPA remainder trio — existing
+				// plumbing).
 				if rem, ok := semanticEdgeAnchorRemainderSeat(item); ok {
 					items = append(items, rem)
 				}
@@ -16914,8 +16915,8 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		if item, ok := rootCauseItemFromSemanticSpanFamily(q, fam, hasCausalChain); ok {
 			item.platformVocabularyMinted = fam.platformVocabularyMinted
 			items = append(items, item)
-			// R3-IMPL: same bisection clone at family grain (the remainder
-			// extent is the family's post-boundary member union).
+			// R3-IMPL / HMC377 E2: same partition clone at family grain (the
+			// remainder is the family's member union outside those waits).
 			if rem, ok := semanticEdgeAnchorRemainderSeat(item); ok {
 				items = append(items, rem)
 			}
@@ -17012,12 +17013,13 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		//
 		// ONCHAIN-3c (2026-07-19): bare-census-edge hosts join the thread-total
 		// census mint scope (帽基当全量 fifth instance) — a host holding a REAL
-		// typed wakeup edge toward the target with a positive pre-edge runnable
-		// share would otherwise have NO seat at all when it sits below the
+		// typed wakeup edge toward the target with a positive runnable share
+		// inside the target's waits its wakeup ended (HMC377 E2) would
+		// otherwise have NO seat at all when it sits below the
 		// top-8 display cap (tieba witness: Binder:43397 13.959ms census
 		// runnable, RunnableTop floor 17.311), and the state-seat credential
 		// arm (anchorBareCensusEdgeStateSeats) can only re-lane EXISTING seats.
-		// Admission is the conversion predicate itself (credential ∧ pre-edge
+		// Admission is the conversion predicate itself (credential ∧ inside
 		// share > 0 ∧ ordered-stream premise) so the widening never strands a
 		// background row it will not examine; the population is bounded by
 		// the census-edge host count (noise-bounded by construction — every
@@ -19895,18 +19897,26 @@ type semanticTraceSpanProjection struct {
 	// OnChainBasis (SELF-SEM §29.61.1): "" = chain-window overlap basis;
 	// RootCauseOnChainBasisSelfDeterministicSpan = the target's own
 	// deterministic span admitted without overlap (E2 fall-through self arm);
-	// RootCauseOnChainBasisHostWakeupEdge = R3-IMPL (§29.88.1) — a non-target
-	// host's span anchored before the host's own in-window typed wakeup edge
-	// toward the target (ImpactMs = the pre-edge in-window projection).
+	// RootCauseOnChainBasisHostWakeupEdge = R3-IMPL (§29.88.1) bounded by
+	// HMC377 E2 (owner ruling 2026-11-18) — a non-target host's span priced
+	// for its part inside the analysis target's waits that the host's own
+	// wakeup ended (ImpactMs = that inside projection).
 	OnChainBasis string
-	// EdgeAnchor* (R3-IMPL, host-edge basis only): the bisection boundary,
-	// the typed credential inventory word, and the post-boundary (边后)
-	// remainder extent destined for the ◇ remainder clone (zero-width when
-	// the span lies fully pre-edge).
+	// EdgeAnchor* (host-edge basis only): the wakeup that closed the latest
+	// priced wait, the via word, and the extent of the part outside the
+	// host's dependency windows destined for the ◇ remainder clone
+	// (zero-width when the span lies entirely inside them).
 	EdgeAnchorBoundaryTs       float64
 	EdgeAnchorVia              string
 	EdgeAnchorRemainderStartTs float64
 	EdgeAnchorRemainderEndTs   float64
+	// edgeAnchorInsideIntervals / edgeAnchorRemainderIntervals — the exact
+	// inside / outside pieces (HMC377 E2); each side may hold more than one
+	// piece when the span reaches over a wait boundary on both sides.
+	edgeAnchorInsideIntervals    []foldInterval
+	edgeAnchorRemainderIntervals []foldInterval
+	// edgeAnchorWaitClause — the reader sentence naming the priced waits.
+	edgeAnchorWaitClause string
 }
 
 func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSpanSummary, hasCausalChain bool) (RootCauseRankItem, bool) {
@@ -19930,11 +19940,12 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	// row's competitive strength is unchanged while no boosted ms ever leaves
 	// the engine as a value or a token.
 	// CROWNSEM-1 (user ruling 2026-09-02, ledger colleague_merge_audit §40.28
-	// ①, restoring §29.88.1 R3 / §29.88.2 R4): the pre-edge share of a
-	// non-target semantic span seated by its host's typed wakeup edge — or a
+	// ①, restoring §29.88.1 R3 / §29.88.2 R4; bounded by HMC377 E2, owner
+	// ruling 2026-11-18): the part of a non-target semantic span that lies
+	// inside the target's waits closed by its host's own wakeup — or a
 	// non-target span's exact typed chain-interval intersection — IS priced
-	// on-chain effective attribution: 边=凭证, 边前=有效, 边后=解除 is the ONE
-	// credential rule for every state family, semantic spans included. The
+	// on-chain effective attribution: one credential rule for every state
+	// family, semantic spans included. The
 	// B829/B830 "relation credential → effective=0" branch is retired: it
 	// substituted a mechanism-proof demand ("the target waited for span
 	// completion") for the ruled credential semantics, and priced the host's
@@ -19989,25 +20000,36 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.ChainRelevance = "on_chain"
 		item.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
 	} else if projection.OnChain && projection.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
-		// R3-IMPL (§29.88.1): host-edge-anchored on-chain seat — a REAL typed
-		// wakeup edge toward the target exists, so "on_wakeup_chain" is the
-		// honest token (unlike the self bases). The typed disclosure pair +
-		// the R4-family sentence ride the row; a bisected span additionally
-		// carries the RSPA bipartition trio and its ◇ remainder extent for
-		// the mint loop's clone (跨边按边界二分).
+		// R3-IMPL (§29.88.1) bounded by HMC377 E2 (owner ruling 2026-11-18):
+		// host-edge seat — a REAL typed wakeup edge toward the target exists,
+		// so "on_wakeup_chain" is the honest token (unlike the self bases).
+		// The typed disclosure pair + the wait sentence ride the row; a span
+		// reaching outside the priced waits additionally carries the RSPA
+		// bipartition trio and its ◇ remainder inventory for the mint loop's
+		// clone.
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
 		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
 		item.HostWakeupEdgeAnchorTs = projection.EdgeAnchorBoundaryTs
 		item.HostWakeupEdgeAnchorVia = projection.EdgeAnchorVia
-		item.Summary = fmt.Sprintf("%s; edge_anchored=host→target pre-edge share priced on-chain (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; host's latest in-window typed wakeup edge toward the analysis target at %.6f, via=%s)",
-			item.Summary, projection.EdgeAnchorBoundaryTs, projection.EdgeAnchorVia)
+		item.Summary = fmt.Sprintf("%s; the part inside %s is priced on the chain; whether finishing this work triggered the wakeup is unproven (disclosure only)",
+			item.Summary, projection.edgeAnchorWaitClause)
+		if len(projection.edgeAnchorInsideIntervals) > 1 {
+			// Support == claim: the seat's inventory is its inside pieces.
+			item.semanticMemberIntervals = append([]foldInterval(nil), projection.edgeAnchorInsideIntervals...)
+		}
 		if projection.EdgeAnchorRemainderEndTs > projection.EdgeAnchorRemainderStartTs {
-			remMs := (projection.EdgeAnchorRemainderEndTs - projection.EdgeAnchorRemainderStartTs) * 1000
+			remMs := 0.0
+			for _, iv := range projection.edgeAnchorRemainderIntervals {
+				remMs += (iv.end - iv.start) * 1000
+			}
 			item.ChainAnchoredMs = projection.ImpactMs
 			item.ChainAnchorFullMs = projection.ImpactMs + remMs
 			item.hostEdgeRemainderStartTs = projection.EdgeAnchorRemainderStartTs
 			item.hostEdgeRemainderEndTs = projection.EdgeAnchorRemainderEndTs
+			if len(projection.edgeAnchorRemainderIntervals) > 1 {
+				item.hostEdgeRemainderIntervals = append([]foldInterval(nil), projection.edgeAnchorRemainderIntervals...)
+			}
 		}
 	} else if projection.OnChain {
 		item.Causality = "on_wakeup_chain"
@@ -20096,33 +20118,35 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 		if selfDeterministicSemanticSpanLane(&chain, span) {
 			fallThrough.OnChain = true
 			fallThrough.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
-		} else if anchor, ok := hostSemanticSpanEdgeAnchor(&chain, span.Thread); ok && start < anchor.boundaryTs && semanticSpanAdmitsHostEdgeLane(span.Name) {
+		} else if anchor, split, ok := hostSemanticSpanDependencySplit(&chain, span.Thread, start, end); ok && semanticSpanAdmitsHostEdgeLane(span.Name) {
 			// A wait minted by the platform vocabulary on a thread other
 			// than the target never takes this arm
 			// (semanticSpanAdmitsHostEdgeLane): it stays on the background
 			// board like any other off-chain span.
 			//
-			// R3-IMPL (§29.88.1 user ruling, 2026-07-14): the no-overlap
-			// fall-through's HOST-EDGE arm — a non-target thread's span whose
-			// host holds an in-window typed wakeup edge toward the target
-			// takes the on-chain relation channel for its PRE-EDGE raw share
-			// (effective=0 until a stronger binding; SCAN-3 positive sentinel: tieba 61839
-			// VerifyClass 0.285ms entirely before the 34579.496810 裸边).
-			// The post-edge share (if any) rides the ◇ remainder clone via
-			// the projection's remainder extent (跨边按边界二分). Spans that
-			// start at/after the boundary (边后) and credential-less hosts
-			// keep the legacy lane byte-identically (决不给席 — the donghu
-			// 17267 decoy straddles someone ELSE's edge and stays put).
-			preStart, preEnd, postStart, postEnd := semanticEdgeAnchorSplit(start, end, anchor.boundaryTs)
+			// R3-IMPL (§29.88.1 user ruling, 2026-07-14) bounded by HMC377 E2
+			// (owner ruling 2026-11-18): the no-overlap fall-through's
+			// HOST-EDGE arm — a non-target thread's span whose host holds an
+			// in-window typed wakeup edge toward the target takes the on-chain
+			// channel for the part that lies inside the target's waits closed
+			// by the host's own wakeup. The rest rides the ◇ remainder clone.
+			// Spans with no share inside such a wait (the SCAN-3 61839
+			// verification ended before the 0.057 ms sleep its host's wakeup
+			// ended) and credential-less hosts keep the legacy lane
+			// byte-identically (决不给席 — the donghu 17267 decoy straddles
+			// someone ELSE's edge and stays put).
 			fallThrough.OnChain = true
 			fallThrough.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
-			fallThrough.StartTs = preStart
-			fallThrough.EndTs = preEnd
-			fallThrough.ImpactMs = (preEnd - preStart) * 1000
+			fallThrough.StartTs = split.preStart
+			fallThrough.EndTs = split.preEnd
+			fallThrough.ImpactMs = split.preMs
 			fallThrough.EdgeAnchorBoundaryTs = anchor.boundaryTs
 			fallThrough.EdgeAnchorVia = anchor.via()
-			fallThrough.EdgeAnchorRemainderStartTs = postStart
-			fallThrough.EdgeAnchorRemainderEndTs = postEnd
+			fallThrough.EdgeAnchorRemainderStartTs = split.postStart
+			fallThrough.EdgeAnchorRemainderEndTs = split.postEnd
+			fallThrough.edgeAnchorInsideIntervals = split.pre
+			fallThrough.edgeAnchorRemainderIntervals = split.post
+			fallThrough.edgeAnchorWaitClause = stateEdgeWaitClause(split)
 		}
 		return fallThrough, 0
 	}
@@ -20174,9 +20198,9 @@ func semanticTraceSpanProjectionScope(projection semanticTraceSpanProjection, ha
 			return "the analysis target's own in-window deterministic work (self on-chain basis, no wakeup-edge claim)"
 		}
 		if projection.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
-			// R3-IMPL: the scope word names the credential honestly — a
-			// host-owned typed wakeup edge, not a chain-window overlap.
-			return "the pre-edge share before the host's own in-window wakeup edge toward the analysis target"
+			// The scope word names the credential honestly — waits of the
+			// target ended by the host's own wakeup, not a chain-window overlap.
+			return "the analysed thread's waits that this thread's own wakeup ended"
 		}
 		return "direct wakeup-chain interval"
 	}

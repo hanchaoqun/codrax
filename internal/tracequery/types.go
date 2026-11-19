@@ -4142,48 +4142,45 @@ const RootCauseOnChainBasisSelfWallClockInterval = types.TraceCausalOnChainBasis
 const RootCauseOnChainBasisSemanticChainIntervalRelation = types.TraceCausalOnChainBasisSemanticChainIntervalRelation
 
 // RootCauseOnChainBasisHostWakeupEdge (R3-IMPL, §29.88.1 user ruling
-// 2026-07-14, ledger real_trace_campaign_20260705.md; R4 §29.88.2 通则):
-// the THIRD non-empty member of the OnChainBasis closed set — a NON-target
-// thread's deterministic semantic span admitted to the on-chain channel by
-// the HOST thread's own in-window typed wakeup edge toward the analysis
-// target (direct raw census edge host→target, or the host's own chain edge —
-// 凭证沿链传递, the 60595 depth-2 multi-hop form), with the span lying BEFORE
-// that edge. This basis proves relation and an exact raw pre-edge occupancy
-// boundary; it does NOT prove that the target waited for semantic completion
-// or that completion caused the wakeup. The pre-edge projection therefore
-// stays on projected/cumulative/raw lanes while effective_impact is zero; a
-// crossing span bisects at the boundary (the raw pre-edge part stays on this
-// context seat, the raw post-edge part rides a ◇ ChainAnchorRemainderSeat
-// clone). No credential edge → the span keeps the legacy adjacent/background
-// lane byte-identically (SCAN-3 negative sentinel; the donghu 17267 decoy pin:
-// a span straddling SOMEONE ELSE's edge earns nothing — the credential is the
-// host's OWN edge, never window co-presence). Causality carries the honest
-// "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists),
-// while rank=0/context_only follows from the zero effective attribution.
+// 2026-07-14, ledger real_trace_campaign_20260705.md; R4 §29.88.2 通则;
+// priced since CROWNSEM-1 §40.28 ①; bounded by the HMC377 E2 product-owner
+// ruling of 2026-11-18): the THIRD non-empty member of the OnChainBasis closed
+// set — a NON-target thread's deterministic semantic span admitted to the
+// on-chain channel by the HOST thread's own in-window typed wakeup edge toward
+// the analysis target (the credential: direct raw census edge host→target, or
+// the host's own chain edge). It prices exactly the part of the span that
+// lies inside a wait of the target closed by the host's own recorded wakeup,
+// [wait start, wakeup] (target_wait_dependency.go); the part outside rides a
+// ◇ ChainAnchorRemainderSeat clone (inside + outside == the span's in-window
+// projection). A chain-hop edge opens no such window (its window is the chain
+// node window, priced by the overlap lane), so a priced row is always
+// via=direct. The basis proves the dependency window and the exact share; it
+// does NOT prove that completing the work caused the wakeup (a disclosure on
+// the row). No credential, or no share inside a closed wait (the SCAN-3 61839
+// verification ended before the 0.057 ms sleep its wakeup closed) → the span
+// keeps its non-chain lane byte-identically; the donghu 17267 decoy pin: a
+// span straddling SOMEONE ELSE's edge earns nothing — the credential is the
+// host's OWN edge, never window co-presence. Causality carries the honest
+// "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists).
 const RootCauseOnChainBasisHostWakeupEdge = types.TraceCausalOnChainBasisHostWakeupEdgeSpan
 
 // RootCauseOnChainBasisHostWakeupEdgeState (ONCHAIN-3c — R3 凭证臂扩射程到
-// 状态席, mint audit 反向缺口5, 2026-07-19): the FOURTH non-empty member of
-// the OnChainBasis closed set — a NON-target, NON-chain-member thread's
-// runnable / D-IO STATE seat admitted to the on-chain channel by the same
-// credential function as the span basis above (hostSemanticSpanEdgeAnchor,
-// zero-change reuse: the host's own in-window typed wakeup edge toward the
-// analysis target; in practice always via=direct — a chain-member host is
-// excluded structurally because RSPA owns chain members' state-credential
-// vocabulary). Same boundary semantics verbatim (边=凭证,边前=有效,边后=
-// 解除): the participation value is the Σ of the seat's TRUE segment
-// inventory's pre-edge shares (runnableIntervals / dioSegmentIntervals* —
-// never the StartTs..EndTs hull), a boundary-crossing account bisects
-// per-segment (pre-edge share keeps this seat, the post-edge share rides a ◇
-// ChainAnchorRemainderSeat clone; full = pre + post is an exact partition).
-// A SIBLING token rather than a reuse of the span token: the display wording
-// forks on the single OnChainBasis field (types 纪律 below — never a
-// basis∧type recomposition), and the two carriers publish different value
-// forms (span pre-edge window projection vs state-segment pre-edge Σ with a
-// per-state D/IO split). SCAN-3 61839 判例: the bare census edge host whose
-// dio 3.550ms + runnable 0.370ms pre-edge shares had no door onto the chain
-// tier while its semantic span already rode the span basis. Causality
-// carries the honest "on_wakeup_chain" (a REAL typed edge exists).
+// 状态席, mint audit 反向缺口5, 2026-07-19; bounded by the HMC377 E2
+// product-owner ruling of 2026-11-18): the FOURTH non-empty member of the
+// OnChainBasis closed set — a NON-target thread's runnable / D-IO STATE seat
+// (a non-chain-member host, or since STATERES-1 a chain member's residual
+// segments) admitted by the same credential function as the span basis above.
+// Same pricing: the participation value is the Σ of the seat's TRUE segment
+// inventory (runnableIntervals / dioSegmentIntervals* — never the
+// StartTs..EndTs hull) inside the target's waits that the host's own wakeup
+// ended; the outside share rides a ◇ ChainAnchorRemainderSeat clone (full =
+// inside + outside is an exact partition, per state for D/IO). A wakeup that
+// found the target not waiting prices nothing. A SIBLING token rather than a
+// reuse of the span token: the display wording forks on the single
+// OnChainBasis field (types 纪律 below — never a basis∧type recomposition),
+// and the two carriers publish different value forms (span window projection
+// vs state-segment Σ with a per-state D/IO split). Causality carries the
+// honest "on_wakeup_chain" (a REAL typed edge exists).
 const RootCauseOnChainBasisHostWakeupEdgeState = types.TraceCausalOnChainBasisHostWakeupEdgeState
 
 // Closed set for RootCauseRankItem.HostWakeupEdgeAnchorVia (R3-IMPL): which
@@ -4533,39 +4530,40 @@ type RootCauseRankItem struct {
 	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
 	// RootCauseOnChainBasisHostWakeupEdge semantic seat, a
 	// RootCauseOnChainBasisHostWakeupEdgeState state seat (ONCHAIN-3c,
-	// 2026-07-19) and their ◇ remainder clones. AnchorTs is the LATEST
-	// in-window credential edge timestamp — the bisection boundary (every
-	// span instant ≤ it lies before SOME credential edge; instants after it
-	// are 边后=解除). Via names the typed edge inventory that supplied the
-	// credential (closed set: "direct" = raw wakeup-census pair host→target;
-	// "chain_hop" = the host's own chain edge, 凭证沿链传递;
-	// "direct+chain_hop" = both). Absent (0/"") on every other row.
+	// 2026-07-19) and their ◇ remainder clones. Since HMC377 E2 (owner ruling
+	// 2026-11-18) AnchorTs is the recorded wakeup that closed the latest wait
+	// of the analysis target holding a priced piece of this seat (equal to the
+	// former "latest in-window credential edge" whenever that edge closed a
+	// wait). Via names the typed edge inventory (closed set: "direct" = raw
+	// wakeup-census pair host→target; "chain_hop" = the host's own chain
+	// edge; "direct+chain_hop" = both); a priced row is "direct" by
+	// construction. Absent (0/"") on every other row.
 	HostWakeupEdgeAnchorTs  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
 	HostWakeupEdgeAnchorVia string  `json:"host_wakeup_edge_anchor_via,omitempty"`
-	// GatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling 2026-07-19): the
-	// R4-mirror REFUSAL record + its disclosure-only bisection measures on a
-	// gated composite seat (priority_inversion_runnable_wait family). The
-	// ONCHAIN-3c inversion arm computed a true pre/post bisection of the
-	// seat's runnable census inventory at the host's own credential-edge
-	// boundary but REFUSED the lane conversion because a post-edge share
-	// exists (the gated eff is an indivisible composite — RSPA R4/§29.83 件③:
-	// splitting it would mint a value equal to neither the measurement nor
-	// any partition term). These four fields are stamped ATOMICALLY at that
-	// single refusal site and nowhere else — their presence IS the typed
-	// refusal record (LEVELMERGE 披露拆分范式: split the MEASURE for
-	// disclosure, never the published authority):
-	//   GatedCompositeEdgePreShareMs  — X: the pre-edge share of the runnable
-	//                                   census account (Σ of the pre-boundary
-	//                                   segment clips);
-	//   GatedCompositeEdgePostShareMs — Y: the post-edge share; X + Y == the
-	//                                   seat's runnable census account
+	// GatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling 2026-07-19;
+	// HMC377 E2, owner ruling 2026-11-18): the R4-mirror REFUSAL record + its
+	// disclosure-only measures on a gated composite seat
+	// (priority_inversion_runnable_wait family). The ONCHAIN-3c inversion arm
+	// partitions the seat's runnable census inventory against the waits of the
+	// analysis target that the host's own wakeup ended but REFUSES the lane
+	// conversion because a share outside those waits exists (the gated eff is
+	// an indivisible composite — RSPA R4/§29.83 件③: splitting it would mint a
+	// value equal to neither the measurement nor any partition term). These
+	// four fields are stamped ATOMICALLY at that single refusal site and
+	// nowhere else — their presence IS the typed refusal record (LEVELMERGE
+	// 披露拆分范式: split the MEASURE for disclosure, never the published
+	// authority):
+	//   GatedCompositeEdgePreShareMs  — X: the share inside those waits;
+	//   GatedCompositeEdgePostShareMs — Y: the share outside them; X + Y ==
+	//                                   the seat's runnable census account
 	//                                   (RunnableMs) to the µs by
 	//                                   construction (the arm's own Σ gate);
-	//   GatedCompositeEdgeAnchorTs/Via — WHICH boundary bisected the account
-	//                                   (the same closed-set via vocabulary
-	//                                   as HostWakeupEdgeAnchorVia; a
-	//                                   DEDICATED pair so the R3 keep arms
-	//                                   never read a refused seat).
+	//   GatedCompositeEdgeAnchorTs/Via — the wakeup that closed the latest
+	//                                   wait holding a piece of X (the same
+	//                                   closed-set via vocabulary as
+	//                                   HostWakeupEdgeAnchorVia; a DEDICATED
+	//                                   pair so the R3 keep arms never read a
+	//                                   refused seat).
 	// Disclosure/wording inputs only — every published value channel, lane,
 	// ordinal and score stays byte-identical (R4 整席不拆 floor); never a
 	// rank/score/sort input. Absent (0/"") on every other row.
@@ -4804,12 +4802,12 @@ type RootCauseRankItem struct {
 	//   "host_wakeup_edge_pre_span" — R3-IMPL (§29.88.1/§29.88.2): a NON-target
 	//                               thread's deterministic semantic span whose
 	//                               HOST holds an in-window typed wakeup edge
-	//                               toward the target (direct or via its own
-	//                               chain edge), the span lying BEFORE that
-	//                               edge. The pre-edge in-window projection is
-	//                               the priced on-chain effective (CROWNSEM-1
-	//                               §40.28 ①: 边=凭证, 边前=有效, 边后=解除 —
-	//                               the same rule as the state families); the
+	//                               toward the target. The part of the span
+	//                               inside the target's waits that the host's
+	//                               own wakeup ended (HMC377 E2, owner ruling
+	//                               2026-11-18) is the priced on-chain
+	//                               effective (CROWNSEM-1 §40.28 ① — the same
+	//                               rule as the state families); the
 	//                               semantic completion/delay mechanism stays a
 	//                               disclosure only. Causality carries the honest
 	//                               relation token "on_wakeup_chain" (a REAL
@@ -4817,13 +4815,13 @@ type RootCauseRankItem struct {
 	//   "host_wakeup_edge_pre_state" — ONCHAIN-3c (R3 射程扩展, 2026-07-19): a
 	//                               NON-target, NON-chain-member thread's
 	//                               runnable / D-IO STATE seat anchored by the
-	//                               SAME host-edge credential (same boundary
-	//                               semantics; the participation value is the
-	//                               seat's true segment inventory's pre-edge Σ,
+	//                               SAME host-edge credential (same pricing;
+	//                               the participation value is the Σ of the
+	//                               seat's true segments inside those waits,
 	//                               per-state for D/IO — see the sibling const
 	//                               doc). Same honest "on_wakeup_chain"
-	//                               causality; the post-edge share rides a ◇
-	//                               ChainAnchorRemainderSeat clone.
+	//                               causality; the share outside the waits
+	//                               rides a ◇ ChainAnchorRemainderSeat clone.
 	// Minted ONCE (mint time for SELF-SEM, the ONE enrich lane decision for
 	// SELF-ALL); the enrich pass KEEPS an existing self basis instead of
 	// re-deciding the lane (§23.1 lane-decided-once discipline).
@@ -5088,18 +5086,21 @@ type RootCauseRankItem struct {
 	// ThreadDuration.cpuUnknownReason). Word-face consumer only — the family
 	// roster's cpu=unknown why word; no gate/ordinal/value lane reads it.
 	runnableCPUUnknownReason string
-	// hostEdgeRemainderStartTs/EndTs (unexported, R3-IMPL §29.88.1): the
-	// post-boundary (边后) extent of a host-edge-anchored semantic seat's
-	// span/family union — the mint loop clones the ◇ remainder seat from
-	// this stash (跨边按边界二分). Zero-width on fully pre-edge seats.
+	// hostEdgeRemainderStartTs/EndTs (unexported, R3-IMPL §29.88.1; HMC377
+	// E2): the extent of the part of a host-edge semantic seat's span/family
+	// union that lies outside the target's waits its host's wakeup ended —
+	// the mint loop clones the ◇ remainder seat from this stash. Zero-width
+	// when the whole union lies inside those waits.
 	hostEdgeRemainderStartTs float64
 	hostEdgeRemainderEndTs   float64
-	// hostEdgeRemainderIntervals (unexported, CROWNSEM-1 复核收编 2026-09-02):
-	// the host-edge FAMILY's post-edge member intervals, handed to the ◇
-	// remainder clone as ITS direction-support inventory (the seat keeps the
-	// pre-edge intervals in semanticMemberIntervals — the support a seat
-	// exposes to P3M/direction unions is exactly the share it prices; the
-	// single-span lane needs no stash: its StartTs..EndTs IS its segment).
+	// hostEdgeRemainderIntervals (unexported, CROWNSEM-1 复核收编 2026-09-02;
+	// HMC377 E2): the outside pieces of a host-edge seat (family members, or
+	// a single span reaching over both ends of a wait), handed to the ◇
+	// remainder clone as ITS direction-support inventory and value (Σ, never
+	// the extent); the seat keeps the inside pieces in semanticMemberIntervals
+	// — the support a seat exposes to P3M/direction unions is exactly the
+	// share it prices. A single span whose outside is one piece needs no
+	// stash: its remainder StartTs..EndTs IS that segment.
 	hostEdgeRemainderIntervals []foldInterval
 	// selfGapRunningIntervals (unexported, XLANE-2 件2 裁定④ §29.104.17,
 	// 2026-07-17): the self running supply-fold deficit seat's OWN typed
@@ -5354,29 +5355,32 @@ type SemanticSpanFamily struct {
 	// FoldCaliber ∈ {sum_disjoint, interval_union} (semantic member values ARE
 	// window-clipped interval lengths, so the union is always computable).
 	FoldCaliber string `json:"fold_caliber,omitempty"`
-	// EdgeAnchor* (R3-IMPL, §29.88.1 user ruling 2026-07-14): set only on a
-	// RootCauseOnChainBasisHostWakeupEdge family. BoundaryTs is the latest
-	// in-window credential edge (the bisection boundary); Via is the typed
-	// credential inventory word (HostWakeupEdgeAnchorVia* closed set). The
-	// Remainder pair is the post-boundary (边后) member-union extent — the
-	// mint loop clones the ◇ remainder seat from it; zero-width when every
-	// member lies fully pre-edge. ProjectedImpactMs on this lane carries the
-	// raw pre-edge in-window union; the rank item's EffectiveImpactMs is zero
-	// until a stronger exact intersection/self semantic basis exists.
+	// EdgeAnchor* (R3-IMPL, §29.88.1 user ruling 2026-07-14, bounded by
+	// HMC377 E2 — owner ruling 2026-11-18): set only on a
+	// RootCauseOnChainBasisHostWakeupEdge family. BoundaryTs is the wakeup
+	// that closed the latest priced wait of the analysis target; Via is the
+	// typed credential inventory word (HostWakeupEdgeAnchorVia* closed set;
+	// direct by construction on a priced family). The Remainder pair is the
+	// extent of the member union OUTSIDE the target's waits that the host's own
+	// wakeup ended — the mint loop clones the ◇ remainder seat from it;
+	// zero-width when every member lies inside them. ProjectedImpactMs on this
+	// lane carries the inside union, which is the priced value.
 	EdgeAnchorBoundaryTs       float64 `json:"edge_anchor_boundary_ts,omitempty"`
 	EdgeAnchorVia              string  `json:"edge_anchor_via,omitempty"`
 	EdgeAnchorRemainderMs      float64 `json:"edge_anchor_remainder_ms,omitempty"`
 	EdgeAnchorRemainderStartTs float64 `json:"edge_anchor_remainder_start_ts,omitempty"`
 	EdgeAnchorRemainderEndTs   float64 `json:"edge_anchor_remainder_end_ts,omitempty"`
 	// edgeAnchorPreIntervals / edgeAnchorPostIntervals (unexported, CROWNSEM-1
-	// 复核收编 2026-09-02): the bisected member inventories — pre-edge merged
-	// intervals (Σ == ProjectedImpactMs, the priced share) and post-edge merged
-	// intervals (Σ == EdgeAnchorRemainderMs). The mint hands the pre set to the
+	// 复核收编 2026-09-02; HMC377 E2): the partitioned member inventories —
+	// inside merged intervals (Σ == ProjectedImpactMs, the priced share) and
+	// outside merged intervals (Σ == EdgeAnchorRemainderMs). The mint hands the pre set to the
 	// seat's direction support and the post set to the ◇ clone, so no consumer
 	// ever measures a host-edge family by its UNCLIPPED member spans (the
 	// P3M double-booking the batch-one review caught).
 	edgeAnchorPreIntervals  []foldInterval
 	edgeAnchorPostIntervals []foldInterval
+	// edgeAnchorWaitClause — the reader sentence naming the priced waits.
+	edgeAnchorWaitClause string
 	// platformVocabularyMinted: every member is classified only by the
 	// platform vocabulary (semanticFamilyMintedByPlatformVocabulary).
 	platformVocabularyMinted bool
@@ -6135,6 +6139,17 @@ type ChainResult struct {
 	// a seat gate). Empty (e.g. a JSON-roundtripped chain) degrades to the
 	// trimmed view — see chainRankAggregateCensus.
 	rankAggregateCensus []WakeupCausalAggregate
+	// directDependencyWindows (HMC377 E2, owner ruling 2026-11-18;
+	// engine-internal, never serialized): per waking TID, the analysis
+	// target's own typed waits (S sleep, D, IO wait) inside the chain window
+	// that this thread's recorded wakeup ended, [wait start, wakeup] — the same
+	// closed window the chain expansion hands to every waker it walks. The
+	// host-edge lanes price a thread's inventory only inside these windows
+	// (target_wait_dependency.go). directDependencyWindowsBuilt distinguishes
+	// "built, none for this thread" from "carrier absent" (a literal or
+	// JSON-roundtripped chain): absent prices nothing, never the old reading.
+	directDependencyWindows      map[int][]targetWaitDependencyWindow
+	directDependencyWindowsBuilt bool
 }
 
 // ChainViaThreadReport is the typed RN-14a via verdict for one wakeup chain.

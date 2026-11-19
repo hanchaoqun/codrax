@@ -15,7 +15,10 @@ package tracequery
 //
 // 【Stamp closed set — all PRECISE typed signals, zero new admission signals】
 //   S1  wakeup_anchored    — OnChainBasis host_wakeup_edge_pre_span/_state
-//                            (R3/ONCHAIN-3c real typed edge credential; the
+//                            (R3/ONCHAIN-3c real typed edge credential; since
+//                            HMC377 E2 the stamp also carries the interval
+//                            proof — every priced segment lies inside a wait
+//                            of the target that the host's wakeup ended; the
 //                            S8 constructive wakeup_chain source is
 //                            deliberately tiered under S8' interval_proven —
 //                            see that row).

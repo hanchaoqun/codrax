@@ -403,9 +403,17 @@ func TestB1636TiebaRestoredOverlapKeepsFamilyMembersAndOtherCauses(t *testing.T)
 	}
 	// Before/after source audit: all fourteen non-target rows remain. The
 	// one-row census reduction is a same-target merge, not a cap eviction.
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+	// "59566/io_wait" (host-edge seat 0.635) and "60555/d_state_or_io_wait"
+	// (host-edge seat 0.171) leave; "474/low_frequency" and
+	// "61238/runnable_wait" take the freed seats. Neither departed seat had
+	// time inside a wait of 60560 that its thread's wakeup ended (raw oracle:
+	// 59566's one wakeup found 60560 not waiting; 60555's wakeups ended
+	// 0.058ms of waits holding 0.000ms of its D time). Every other entry is
+	// unchanged; the same-target family merge this pin guards is untouched.
 	wantOther := map[string]int{
-		"60595/priority_inversion_candidate": 2, "897/runnable_wait": 1, "59566/io_wait": 1,
-		"60559/priority_inversion_candidate": 1, "60555/d_state_or_io_wait": 1, "61238/running": 1,
+		"60595/priority_inversion_candidate": 2, "897/runnable_wait": 1, "474/low_frequency": 1,
+		"60559/priority_inversion_candidate": 1, "61238/runnable_wait": 1, "61238/running": 1,
 		"9388/trace_span": 1, "7640/trace_span": 1, "0/supply_pressure": 1,
 		"897/priority_inversion_runnable_wait": 1, "918/priority_inversion_runnable_wait": 1,
 		"919/priority_inversion_runnable_wait": 1, "60595/priority_inversion_runnable_wait": 1,

@@ -324,12 +324,12 @@ const (
 	semanticSpanLaneChainOverlap
 	semanticSpanLaneChainSelf
 	// semanticSpanLaneChainEdgeAnchored (R3-IMPL, §29.88.1 user ruling
-	// 2026-07-14): a NON-target host's span admitted by the host's own
-	// in-window typed wakeup edge toward the target, its pre-edge share
-	// carrying raw occupancy (relation credential; effective attribution is
-	// zero until a stronger binding exists). The FOURTH
-	// lane value — the three on-chain calibers (overlap / self union /
-	// pre-edge projection) never cross-fold.
+	// 2026-07-14, bounded by HMC377 E2 — owner ruling 2026-11-18): a
+	// NON-target host's span admitted by the host's own in-window typed wakeup
+	// edge toward the target and holding a positive share inside a wait of the
+	// target that wakeup ended; that share is priced. The FOURTH lane value —
+	// the on-chain calibers (overlap / self union / inside-wait projection)
+	// never cross-fold.
 	semanticSpanLaneChainEdgeAnchored
 )
 
@@ -393,14 +393,15 @@ func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (lane sem
 	if selfDeterministicSemanticSpanLane(chain, span) {
 		return semanticSpanLaneChainSelf, 0, ""
 	}
-	// R3-IMPL (§29.88.1): the no-overlap fall-through's host-edge arm — the
-	// span must hold a POSITIVE pre-edge share (a span at/after the boundary
-	// is 边后=解除 and keeps the legacy lane; no fabricated overlap: depth/
-	// state stay zero/empty, same discipline as the self lane). The same
-	// shared bar as the single-span arm applies: a wait minted by the platform
-	// vocabulary on a thread other than the target never takes this lane
-	// (semanticSpanAdmitsHostEdgeLane).
-	if anchor, ok := hostSemanticSpanEdgeAnchor(chain, span.Thread); ok && span.StartTs < anchor.boundaryTs && semanticSpanAdmitsHostEdgeLane(span.Name) {
+	// R3-IMPL (§29.88.1) bounded by HMC377 E2 (owner ruling 2026-11-18): the
+	// no-overlap fall-through's host-edge arm — the span must hold a POSITIVE
+	// share inside a wait of the target that the host's own wakeup ended (a
+	// span with no such share keeps the legacy lane; no fabricated overlap:
+	// depth/state stay zero/empty, same discipline as the self lane). The
+	// same shared bar as the single-span arm applies: a wait minted by the
+	// platform vocabulary on a thread other than the target never takes this
+	// lane (semanticSpanAdmitsHostEdgeLane).
+	if _, _, ok := hostSemanticSpanDependencySplit(chain, span.Thread, span.StartTs, span.EndTs); ok && semanticSpanAdmitsHostEdgeLane(span.Name) {
 		return semanticSpanLaneChainEdgeAnchored, 0, ""
 	}
 	return semanticSpanLaneOff, projection.ChainDepth, projection.DominantState
@@ -569,26 +570,20 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			fam.ChainDepth = chainProjection.projection.ChainDepth
 			fam.ChainBranch = chainProjection.projection.ChainBranch
 		} else if fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
-			// R3-IMPL (§29.88.1): the host-edge lane's participation is the
-			// PRE-EDGE member union (边前段窗内投影); the post-edge union is
-			// stashed for the mint loop's ◇ remainder clone (跨边按边界二分).
-			// TotalMs deliberately remains the complete member union (the
-			// §24.10 disclosure caliber, same dual-caliber shape as the
+			// R3-IMPL (§29.88.1) bounded by HMC377 E2 (owner ruling
+			// 2026-11-18): the host-edge lane's participation is the member
+			// union INSIDE the target's waits that the host's own wakeup ended;
+			// the outside union is stashed for the mint loop's ◇ remainder
+			// clone. TotalMs deliberately remains the complete member union
+			// (the §24.10 disclosure caliber, same dual-caliber shape as the
 			// overlap lane). No fabricated overlap: depth/state stay 0/"".
 			if anchor, ok := hostSemanticSpanEdgeAnchor(chain, fam.Thread); ok {
-				fam.EdgeAnchorBoundaryTs = anchor.boundaryTs
-				fam.EdgeAnchorVia = anchor.via()
-				var pre, post []foldInterval
-				for _, interval := range intervals {
-					preStart, preEnd, postStart, postEnd := semanticEdgeAnchorSplit(interval.start, interval.end, anchor.boundaryTs)
-					if preEnd > preStart {
-						pre = append(pre, foldInterval{start: preStart, end: preEnd})
-					}
-					if postEnd > postStart {
-						post = append(post, foldInterval{start: postStart, end: postEnd})
-					}
-				}
-				preMerged, _ := foldIntervalUnionWithDisjoint(pre)
+				split := splitFoldIntervalsByDependencyWindows(intervals, anchor.windows)
+				priced := anchor.pricedBy(split)
+				fam.EdgeAnchorBoundaryTs = priced.boundaryTs
+				fam.EdgeAnchorVia = priced.via()
+				fam.edgeAnchorWaitClause = stateEdgeWaitClause(split)
+				preMerged, _ := foldIntervalUnionWithDisjoint(split.pre)
 				fam.edgeAnchorPreIntervals = preMerged
 				for _, interval := range preMerged {
 					fam.ProjectedImpactMs += (interval.end - interval.start) * 1000
@@ -600,7 +595,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 				if fam.ProjectedImpactMs > fam.TotalMs {
 					fam.ProjectedImpactMs = fam.TotalMs
 				}
-				postMerged, _ := foldIntervalUnionWithDisjoint(post)
+				postMerged, _ := foldIntervalUnionWithDisjoint(split.post)
 				fam.edgeAnchorPostIntervals = postMerged
 				for _, interval := range postMerged {
 					fam.EdgeAnchorRemainderMs += (interval.end - interval.start) * 1000
@@ -723,8 +718,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// intersection union (see the FoldSemanticSpanFamilies OnChain record
 	// above); full-overlap families — the §29.22 textup 102.172 witness —
 	// are byte-identical because there intersection == union.
-	// CROWNSEM-1 (user ruling 2026-09-02, §40.28 ①, restoring R3/R4): the
-	// host-edge family's pre-edge share and the non-target family's exact
+	// CROWNSEM-1 (user ruling 2026-09-02, §40.28 ①, restoring R3/R4; bounded
+	// by HMC377 E2, owner ruling 2026-11-18): the host-edge family's share
+	// inside the target's waits its host's wakeup ended and the non-target
+	// family's exact
 	// chain-interval intersection are priced on-chain effective attribution
 	// — one credential rule for every state family. The B829/B830 zeroing
 	// branch is retired (see rootCauseItemFromSemanticTraceSpan).
@@ -741,10 +738,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	} else if edgeBasis {
-		// R3-IMPL: the R4-family edge=credential wording — the participation
-		// is the pre-edge share, the complete union stays disclosed.
-		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms pre-edge share priced on-chain before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+		// The participation is the share inside the waits the host's wakeup
+		// ended; the complete union stays disclosed.
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms inside %s, priced on the chain (whether finishing this work triggered the wakeup is unproven — disclosure only) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			familyLabel, len(fam.Members), participationMs, fam.edgeAnchorWaitClause, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else if intervalRelationBasis {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms exact overlap with typed chain intervals from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); interval-proven credential priced on-chain per R4, semantic completion mechanism unproven — disclosure only; effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
@@ -806,16 +803,16 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	} else if edgeBasis {
 		// R3-IMPL (§29.88.1): a REAL typed wakeup edge toward the target
 		// exists, so "on_wakeup_chain" is honest; the typed basis + edge
-		// disclosure pair ride the row. NO OverlapMs — the pre-edge share is
-		// an edge relation, never a chain-window overlap claim (不伪造重叠).
+		// disclosure pair ride the row. NO OverlapMs — the inside-wait share
+		// is an edge relation, never a chain-window overlap claim (不伪造重叠).
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
 		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
 		item.HostWakeupEdgeAnchorTs = fam.EdgeAnchorBoundaryTs
 		item.HostWakeupEdgeAnchorVia = fam.EdgeAnchorVia
 		if fam.EdgeAnchorRemainderMs > 0 {
-			// 跨边按边界二分: the bipartition trio + the ◇ clone stash (the
-			// mint loop emits the remainder seat right after this row).
+			// The bipartition trio + the ◇ clone stash for the part outside the
+			// waits (the mint loop emits the remainder seat right after this row).
 			item.ChainAnchoredMs = participationMs
 			item.ChainAnchorFullMs = participationMs + fam.EdgeAnchorRemainderMs
 			item.hostEdgeRemainderStartTs = fam.EdgeAnchorRemainderStartTs
@@ -851,10 +848,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	item.semanticMemberIntervals = fam.memberIntervalInventory(queryWindowStartsAtDeterminedZero(q))
 	if edgeBasis && len(item.semanticMemberIntervals) > 0 {
 		// CROWNSEM-1 复核收编 (2026-09-02): the host-edge family's support
-		// inventory IS its priced pre-edge share (the same clip the state
+		// inventory IS its priced inside share (the same partition the state
 		// lane and the single-span lane already apply at the mint) — the
-		// post-edge share rides the ◇ clone's inventory instead, so P3M /
-		// direction unions never book the released share twice.
+		// outside share rides the ◇ clone's inventory instead, so P3M /
+		// direction unions never book it twice.
 		item.semanticMemberIntervals = append([]foldInterval(nil), fam.edgeAnchorPreIntervals...)
 		item.hostEdgeRemainderIntervals = append([]foldInterval(nil), fam.edgeAnchorPostIntervals...)
 	}

@@ -8,30 +8,37 @@ package tracequery
 //
 // Shape: a NON-chain-member host thread (or, since STATERES-1, a chain-member
 // host's RESIDUAL segments — see the ownership boundary below) holds a REAL
-// typed wakeup edge toward the analysis target (the raw census pair host→target — the SCAN-3 61839
-// sentinel: a bare edge that woke an already-runnable target, invisible to
-// every chain-window intersection lane), yet only its deterministic semantic
-// spans could ride the chain tier (R3 span basis). Its runnable / D-IO state
-// seats had no door: RSPA re-anchoring only runs for pids with depth>0 chain
-// anchor windows, and the generic enrich lane sees no node-window overlap —
-// the whole state account rode ◇/background while its pre-edge share is
-// direct supply-side causality (边前 runnable = the waker itself was
-// CPU-starved and DELAYED the wakeup it provably delivered; 边前 D/IO = the
-// waker was blocked on IO before delivering it).
+// typed wakeup edge toward the analysis target (the raw census pair
+// host→target), yet only its deterministic semantic spans could ride the
+// chain tier (R3 span basis). Its runnable / D-IO state seats had no door:
+// RSPA re-anchoring only runs for pids with depth>0 chain anchor windows, and
+// the generic enrich lane sees no node-window overlap.
+//
+// Pricing (HMC377 E2, owner ruling 2026-11-18 — supersedes the ONCHAIN-3c
+// [window start, latest edge] reading of §29.139 and the §40.30 residual
+// lane's same reading): the host's segments INSIDE a wait of the analysis
+// target that the host's own recorded wakeup ended are direct supply-side
+// causality (ready there = the waker was CPU-starved and delayed the wakeup
+// the target was waiting for; D/IO there = the waker was blocked before
+// delivering it). Segments before that wait began, between waits or after the
+// wakeup are not a statement about the target: they go to the adjacent
+// remainder, totals conserved. A wakeup that found the target not waiting
+// prices nothing.
 //
 // Mechanism (existing templates only, zero new credential machinery):
-//   - credential  = hostSemanticSpanEdgeAnchor (R3 function, zero-change
-//     reuse — typed census/chain-edge inventories, degenerate-window
-//     fail-closed, target carve);
-//   - bisection   = semanticEdgeAnchorSplit per TRUE segment (the seat's
-//     validated close-site inventory: runnableIntervals /
+//   - credential  = hostSemanticSpanEdgeAnchor (R3 function — typed census/
+//     chain-edge inventories, degenerate-window fail-closed, target carve);
+//     its windows are the host's dependency windows (target_wait_dependency.go);
+//   - partition   = splitFoldIntervalsByDependencyWindows per TRUE segment
+//     (the seat's validated close-site inventory: runnableIntervals /
 //     dioSegmentIntervals* — never the StartTs..EndTs hull; HULL-CRED
-//     discipline), pre-edge share ⛓ / post-edge share ◇;
+//     discipline), inside share ⛓ / outside share ◇;
 //   - remainder   = the RSPA bipartition trio + ChainAnchorRemainderSeat
 //     clone (side-lane plumbing, twin-visibility verbatim anchors, fold
 //     anchor-form keys — all existing consumers);
-//   - disclosure  = the R4 family sentence (边=凭证,边前=有效,边后=解除)
-//     with the typed HostWakeupEdgeAnchorTs/Via pair; span/state co-billing
+//   - disclosure  = one wait clause (stateEdgeWaitClause) with the typed
+//     HostWakeupEdgeAnchorTs/Via pair = the wakeup that closed the latest
+//     priced wait, via the host's own direct wakeup; span/state co-billing
 //     of one host is disclosed by the AXIOM-V2 件2 cross-direction mutual
 //     pointers (runnable=scheduling_supply, D-IO=io_dependency, semantic
 //     spans=self_workload — different directions, same thread, both support
@@ -39,30 +46,25 @@ package tracequery
 //
 // Ownership boundary (one lane, one vocabulary owner): RSPA owns chain
 // members' state-credential vocabulary (§29.61.10 处置矩阵, RNB-1 §29.88
-// R2/R4) — an RSPA ⛓ clipped seat or ◇ remainder is NEVER re-judged here
-// (re-anchoring one through the R3 boundary would re-litigate the RNB-1
-// customer escapes). STATERES-1 (user ruling §40.30 V-STATE-1 plan A,
-// 2026-09-02, "RSPA 优先、R3 补残"): a chain-member host's runnable / D-IO
-// seat whose TYPED segment inventory lies outside EVERY RSPA chain window of
-// that host (zero overlap, belt-checked against the census-time ledger
-// stamp) had no door at all — RSPA had nothing to price and this lane refused
-// the pid wholesale, so the very same host wore the R3 credential on its
-// semantic span and none on its pre-edge runnable (tieba narrow-window
-// sentinel: VerifyClass 0.285 priced, runnable 0.095 「邻近·无直接唤醒边」).
-// Such a residual seat now takes the SAME credential, restricted to the
-// host's DIRECT census edge toward the target (never its chain-hop edge —
-// that is what the chain windows price), bisected by the same helpers and
-// disclosed by the same R4 family sentence (via=direct). The
+// R2/R4) — an RSPA ⛓ clipped seat or ◇ remainder is NEVER re-judged here.
+// STATERES-1 (user ruling §40.30 V-STATE-1 plan A, 2026-09-02, "RSPA 优先、R3
+// 补残"): a chain-member host's runnable / D-IO seat whose TYPED segment
+// inventory lies outside EVERY RSPA chain window of that host (zero overlap,
+// belt-checked against the census-time ledger stamp) takes the SAME
+// credential, restricted to the host's DIRECT census edge toward the target
+// (never its chain-hop edge — that is what the chain windows price). Its
+// walked waits are inside its chain windows, so only the waits the expansion
+// did not walk can price a residual segment. The
 // priority_inversion_runnable_wait R4-mirror arm stays bare-host only
 // (ruling scope = runnable / D-IO state segments; knowledge-pinned). The
 // analysis target is excluded (self-causality, R8).
 //
 // Fail-closed forms (宁漏勿假指): no credential / degenerate window (R3
-// gate), all segments post-edge (边后=解除 grants nothing, SCAN-3 negative
-// sentinel semantics), missing or Σ-broken segment inventory, MAX-fallback
-// folds (producer disjointness lost), inversion-rewritten or gated-algebra
-// seats (indivisible composite — the RSPA R4 arm's reasoning), periodic-
-// discounted rows. Every skipped row keeps its lane and bytes untouched.
+// gate), absent dependency carrier, no segment inside a wait the host ended,
+// missing or Σ-broken segment inventory, MAX-fallback folds (producer
+// disjointness lost), inversion-rewritten or gated-algebra seats (indivisible
+// composite — the RSPA R4 arm's reasoning), periodic-discounted rows. Every
+// refused row keeps its lane and bytes untouched.
 
 import (
 	"fmt"
@@ -70,46 +72,15 @@ import (
 	"strings"
 )
 
-// stateEdgeSegmentSplit is one inventory's exact bisection at the credential
-// boundary: the two clipped segment lists partition the in-window inventory,
-// and preMs + postMs reproduces the inventory Σ exactly (同源二分).
+// stateEdgeSegmentSplit is one inventory's exact partition: pre* = the pieces
+// inside the host's dependency windows (the chain seat), post* = the pieces
+// outside them (the adjacent remainder); preMs + postMs reproduces the
+// inventory Σ exactly (同源二分). Built by splitFoldIntervalsByDependencyWindows.
 type stateEdgeSegmentSplit struct {
 	preMs, postMs      float64
 	pre, post          []foldInterval
 	preStart, preEnd   float64
 	postStart, postEnd float64
-}
-
-// splitFoldIntervalsAtBoundary bisects a validated segment inventory at the
-// credential boundary via the R3 split primitive (semanticEdgeAnchorSplit).
-func splitFoldIntervalsAtBoundary(intervals []foldInterval, boundary float64) stateEdgeSegmentSplit {
-	var out stateEdgeSegmentSplit
-	for _, iv := range intervals {
-		preS, preE, postS, postE := semanticEdgeAnchorSplit(iv.start, iv.end, boundary)
-		if preE > preS {
-			ms := (preE - preS) * 1000
-			out.preMs += ms
-			out.pre = append(out.pre, foldInterval{start: preS, end: preE, valueMs: ms})
-			if out.preStart == 0 || preS < out.preStart {
-				out.preStart = preS
-			}
-			if preE > out.preEnd {
-				out.preEnd = preE
-			}
-		}
-		if postE > postS {
-			ms := (postE - postS) * 1000
-			out.postMs += ms
-			out.post = append(out.post, foldInterval{start: postS, end: postE, valueMs: ms})
-			if out.postStart == 0 || postS < out.postStart {
-				out.postStart = postS
-			}
-			if postE > out.postEnd {
-				out.postEnd = postE
-			}
-		}
-	}
-	return out
 }
 
 // foldIntervalsLengthMs sums a segment inventory's clipped lengths; ok=false
@@ -134,49 +105,55 @@ func stateEdgeAnchorFamilyWord(typ string) string {
 	return "D/IO blocking"
 }
 
-// stateEdgeAnchoredSummary — the ⛓ pre-edge seat's engine-side account for a
-// boundary-crossing inventory. The twin-pointer claim reuses the RSPA
-// verbatim anchor so rspaPatchSummariesForTwinVisibility downgrades it
-// honestly when the ◇ clone dies at the cap.
-// 备案 (o3c fixround): this family hangs the twin parenthetical directly
-// after "post-edge remainder", while the RSPA sister sentence
-// (rspaAnchoredSummary) interposes "outside the dependency windows"
-// first — a known cross-family micro-divergence; each family is internally
-// self-consistent and the shared verbatim anchor is what twin-visibility
-// matches.
-func stateEdgeAnchoredSummary(thread ThreadRef, family string, pre, full, post, boundary float64, via string) string {
-	return fmt.Sprintf("%s %s pre-edge share %.3fms anchored by the host's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; latest credential edge %.6f, via=%s); full-window account %.3fms = this pre-edge share + %.3fms post-edge remainder %s — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, pre, boundary, via, full, post, rspaSummaryRemainderTwinPublished)
+// stateEdgeWaitClause — the shared description of WHICH waits priced a host
+// share (HMC377 E2, owner ruling 2026-11-18): the analysed thread's waits that
+// this thread's own recorded wakeup ended, how many there were, how long they
+// lasted together and when the last of them was ended. One clause, every
+// host-edge sentence (state seats, their remainders, spans, disclosures).
+func stateEdgeWaitClause(split dependencyWindowSplit) string {
+	return fmt.Sprintf("the analysed thread's wait(s) that this thread's own wakeup ended (%d wait(s), %.3fms of waiting; last such wakeup at %.6f)",
+		split.waitCount, split.waitMs, split.lastWakeupTs)
+}
+
+// stateEdgeAnchoredSummary — the ⛓ seat's engine-side account for an
+// inventory partly inside the host's dependency windows. The twin-pointer
+// claim reuses the RSPA verbatim anchor so rspaPatchSummariesForTwinVisibility
+// downgrades it honestly when the ◇ clone dies at the cap.
+func stateEdgeAnchoredSummary(thread ThreadRef, family string, inside, full, outside float64, split dependencyWindowSplit) string {
+	return fmt.Sprintf("%s %s %.3fms inside %s; full-window account %.3fms = this share + %.3fms outside those waits %s — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, inside, stateEdgeWaitClause(split), full, outside, rspaSummaryRemainderTwinPublished)
 }
 
 // stateEdgeFullyAnchoredSummary — the whole-account conversion form (every
-// segment pre-edge; no bipartition, no twin claim).
-func stateEdgeFullyAnchoredSummary(thread ThreadRef, family string, full, boundary float64, via string) string {
-	return fmt.Sprintf("%s %s %.3fms fully pre-edge: every segment lies before the host's latest in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; latest credential edge %.6f, via=%s)",
-		threadLabel(thread), family, full, boundary, via)
+// segment inside the host's dependency windows; no bipartition, no twin).
+func stateEdgeFullyAnchoredSummary(thread ThreadRef, family string, full float64, split dependencyWindowSplit) string {
+	return fmt.Sprintf("%s %s %.3fms lies entirely inside %s",
+		threadLabel(thread), family, full, stateEdgeWaitClause(split))
 }
 
-// stateEdgeRemainderSummary — the ◇ post-edge clone's account. The ownership
-// claim reuses the RSPA verbatim anchor (the ⛓ pre-edge twin IS a clipped
-// ChainAnchorFullMs seat, so the existing twin-visibility pass verifies it).
-func stateEdgeRemainderSummary(thread ThreadRef, family string, post, full, pre, boundary float64, via string) string {
-	return fmt.Sprintf("%s %s post-edge remainder %.3fms — the share AFTER the host's latest in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; latest credential edge %.6f, via=%s); full-window account %.3fms = %.3fms pre-edge share %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, post, boundary, via, full, pre, rspaSummaryOwnedByChainSeat)
+// stateEdgeRemainderSummary — the ◇ clone's account: the host's time outside
+// every wait of the analysed thread that its wakeup ended. The ownership claim
+// reuses the RSPA verbatim anchor (the ⛓ twin IS a clipped ChainAnchorFullMs
+// seat, so the existing twin-visibility pass verifies it).
+func stateEdgeRemainderSummary(thread ThreadRef, family string, outside, full, inside float64, split dependencyWindowSplit) string {
+	return fmt.Sprintf("%s %s remainder %.3fms outside %s — the analysed thread was not waiting for this thread there (no chain credential for these segments); full-window account %.3fms = %.3fms inside those waits %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, outside, stateEdgeWaitClause(split), full, inside, rspaSummaryOwnedByChainSeat)
 }
 
 // bareCensusEdgeHostRunnableMintSet (ONCHAIN-3c mint-domain widening — 帽基
 // 当全量 fifth instance) returns the pids of bare-census-edge hosts whose
-// runnable census carries a POSITIVE pre-edge share: exactly the rows the
-// state-seat credential arm will examine, so the widening never strands a
-// background row it will not examine (admission ≠ conversion: an examined row
-// may still be refused and hold its home lane — the tieba 23088 live form,
-// minted then inversion-recast then R4-mirror refused). Gates (all typed):
-// the ordered-stream premise (a regressed trace cannot prove the bisection Σ
-// — same premise as the RSPA decision gate 4), the R3 credential function
+// runnable census carries a POSITIVE share inside the host's dependency
+// windows (HMC377 E2): exactly the rows the state-seat credential arm will
+// examine, so the widening never strands a background row it will not
+// examine (admission ≠ conversion: an examined row may still be refused and
+// hold its home lane — the indivisible inversion form, minted then
+// inversion-recast then R4-mirror refused). Gates (all typed): the
+// ordered-stream premise (a regressed trace cannot prove the partition Σ —
+// same premise as the RSPA decision gate 4), the R3 credential function
 // verbatim (single edge-judgment authority, 禁自造第二套边判定 — covers the
 // degenerate-window fail-close and the target carve), host ∉ chain thread
 // set (RSPA vocabulary ownership), and Σ over the pid's census segment
-// inventories of the pre-boundary clip > tolerance.
+// inventories inside the dependency windows > tolerance.
 func bareCensusEdgeHostRunnableMintSet(chain ChainResult, chainThreads map[int]bool,
 	census map[string]ThreadDuration, producerDisjoint bool) map[int]bool {
 	if !producerDisjoint || len(census) == 0 {
@@ -200,17 +177,15 @@ func bareCensusEdgeHostRunnableMintSet(chain ChainResult, chainThreads map[int]b
 		if !ok {
 			continue
 		}
+		if len(anchor.windows) == 0 {
+			continue // every wakeup found the target not waiting: nothing to price
+		}
 		preMs := 0.0
 		for _, td := range census {
 			if td.Thread.PID != host.PID {
 				continue
 			}
-			for _, iv := range td.runnableIntervals {
-				preS, preE, _, _ := semanticEdgeAnchorSplit(iv.start, iv.end, anchor.boundaryTs)
-				if preE > preS {
-					preMs += (preE - preS) * 1000
-				}
-			}
+			preMs += splitFoldIntervalsByDependencyWindows(td.runnableIntervals, anchor.windows).preMs
 		}
 		if preMs <= rspaAnchorIdentityTolMs {
 			continue
@@ -357,187 +332,185 @@ func anchorBareCensusEdgeStateSeats(chain ChainResult, items []RootCauseRankItem
 			continue
 		}
 		anchorFor := fullAnchorFor
-		appendedBefore := len(appended)
+		var saved RootCauseRankItem
+		restore := false
 		if lane == stateEdgeLaneChainMemberResidual {
 			anchorFor = directAnchorFor
 			if item.ChainAnchorRemainderSeat {
 				// RSPA's zero-anchored whole-account ◇ form: the remainder IS the
-				// full account — start the residual bisection from a clean seat.
+				// full account — start the residual partition from a clean seat,
+				// and give the row back untouched when nothing converts (a
+				// refused row keeps its lane and bytes; HMC377 E2 makes the
+				// refusal the common outcome for residual seats).
+				saved, restore = *item, true
 				item.ChainAnchorRemainderSeat = false
 				item.ChainAnchoredMs, item.ChainAnchorFullMs = 0, 0
 			}
 		}
-		switch strings.TrimSpace(item.Type) {
-		case "priority_inversion_runnable_wait":
-			if lane != stateEdgeLaneBareCensusHost {
-				continue // STATERES-1 scope: the R4-mirror arm stays bare-host only
-			}
-			// RSPA R4 mirror arm (§29.88 R4; §29.83 件③ narrowing): the
-			// inversion-rewritten seat's gated eff is an INDIVISIBLE composite
-			// that cannot be split along the credential boundary without
-			// minting a value equal to neither the measurement nor any
-			// partition term. A FULLY pre-edge account changes lane whole with
-			// every published value untouched (the inversion claim is pre-edge
-			// too — the R4 「fully-anchored keeps the chain lane」 form in the
-			// promotion direction); any post-edge share leaves the whole seat
-			// on its home lane untouched (宁漏勿假指).
-			if item.Source != "window_stats" || item.DominantState != string(StateRunnable) {
-				continue
-			}
-			if len(item.runnableIntervals) == 0 || !item.memberSegmentsProducerDisjoint {
-				continue
-			}
-			lengthMs, ok := foldIntervalsLengthMs(item.runnableIntervals)
-			if !ok || !rspaWithinTol(lengthMs, item.RunnableMs) {
-				continue
-			}
-			anchor, ok := anchorFor(item.Thread)
-			if !ok {
-				continue
-			}
-			split := splitFoldIntervalsAtBoundary(item.runnableIntervals, anchor.boundaryTs)
-			if split.preMs <= rspaAnchorIdentityTolMs {
-				continue // 边后=解除 grants nothing (negative sentinel semantics)
-			}
-			if split.postMs > rspaAnchorIdentityTolMs {
-				// PARTSPLIT-1 (§29.150④, 2026-07-19) — EVOLUTION of the bare
-				// refusal: the R4-mirror gate still refuses the conversion
-				// (whole-seat floor — value/lane/ordinal byte-identical), but
-				// the refusal now goes ON RECORD with its disclosure-only
-				// bisection measures (X pre-edge + Y post-edge, X+Y == the
-				// runnable census account to the µs). Stamped atomically at
-				// this single site; deterministic re-stamp on the second pass
-				// (idempotent — same chain, same inventory, same boundary).
-				item.GatedCompositeEdgePreShareMs = split.preMs
-				item.GatedCompositeEdgePostShareMs = split.postMs
-				item.GatedCompositeEdgeAnchorTs = anchor.boundaryTs
-				item.GatedCompositeEdgeAnchorVia = anchor.via()
-				continue
-			}
-			item.ChainRelevance = "on_chain"
-			item.Causality = "on_wakeup_chain"
-			item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
-			item.HostWakeupEdgeAnchorTs = anchor.boundaryTs
-			item.HostWakeupEdgeAnchorVia = anchor.via()
-			item.Summary = appendRootCauseSummaryDetail(item.Summary,
-				// §29.187① rename (2026-07-21): the credential word family root on
-				// the model-face summary co-moves (FREQDIR lesson: new word face
-				// reaches every LLM-visible surface in the same batch).
-				fmt.Sprintf("wakeup-anchored (host→target): the whole runnable account lies before the host's latest in-window typed wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) — every published value unchanged, the gated composite is never split",
-					anchor.boundaryTs, anchor.via()))
-		case "runnable_wait":
-			if item.Source != "window_stats" || item.DominantState != string(StateRunnable) {
-				continue
-			}
-			if item.GatedRunnableMs > 0 || item.GatedRunningDeficitMs > 0 {
-				continue // gated composite algebra — indivisible (RSPA R4 reasoning)
-			}
-			if len(item.runnableIntervals) == 0 || !item.memberSegmentsProducerDisjoint {
-				continue
-			}
-			lengthMs, ok := foldIntervalsLengthMs(item.runnableIntervals)
-			if !ok || !rspaWithinTol(lengthMs, item.RunnableMs) {
-				continue // inventory does not reproduce the account — fail closed
-			}
-			anchor, ok := anchorFor(item.Thread)
-			if !ok {
-				continue
-			}
-			split := splitFoldIntervalsAtBoundary(item.runnableIntervals, anchor.boundaryTs)
-			if split.preMs <= rspaAnchorIdentityTolMs {
-				continue // 边后=解除 grants nothing (negative sentinel semantics)
-			}
-			full := split.preMs + split.postMs
-			family := stateEdgeAnchorFamilyWord(item.Type)
-			if split.postMs <= rspaAnchorIdentityTolMs {
-				// Whole-account conversion: every segment pre-edge — the seat
-				// changes lane with its published account intact (值通道重铸为
-				// 全账,无二分 trio,无余席 — the span basis' fully-pre form).
-				convertStateSeatToEdgeAnchored(item, anchor, item.RunnableMs, item.RunnableMs, 0, 0,
-					item.runnableIntervals, nil, nil, split,
-					stateEdgeFullyAnchoredSummary(item.Thread, family, item.RunnableMs, anchor.boundaryTs, anchor.via()))
-				continue
-			}
-			clone := *item
-			convertStateSeatToEdgeAnchored(item, anchor, split.preMs, split.preMs, 0, 0,
-				split.pre, nil, nil, split,
-				stateEdgeAnchoredSummary(item.Thread, family, split.preMs, full, split.postMs, anchor.boundaryTs, anchor.via()))
-			item.ChainAnchoredMs = split.preMs
-			item.ChainAnchorFullMs = full
-			appended = append(appended, mintStateEdgeRemainderClone(clone, anchor, split.preMs, full,
-				split.postMs, 0, 0, split.post, nil, nil, split,
-				stateEdgeRemainderSummary(item.Thread, family, split.postMs, full, split.preMs, anchor.boundaryTs, anchor.via())))
-		case "d_state_or_io_wait", "io_wait":
-			if item.Source != "window_stats" && item.Source != "window_stats.io_wait_top" {
-				continue
-			}
-			switch item.DominantState {
-			case string(StateDSleep), string(StateIOWait):
-			default:
-				continue
-			}
-			if len(item.dioSegmentIntervals) == 0 {
-				continue // no true-segment carrier (缺证≠证无 — fail closed)
-			}
-			dLen, okD := foldIntervalsLengthMs(item.dioSegmentIntervalsD)
-			ioLen, okIO := foldIntervalsLengthMs(item.dioSegmentIntervalsIO)
-			if !okD || !okIO || !rspaWithinTol(dLen, item.DStateMs) || !rspaWithinTol(ioLen, item.IOWaitMs) {
-				continue // per-state inventories must reproduce both channels
-			}
-			anchor, ok := anchorFor(item.Thread)
-			if !ok {
-				continue
-			}
-			splitD := splitFoldIntervalsAtBoundary(item.dioSegmentIntervalsD, anchor.boundaryTs)
-			splitIO := splitFoldIntervalsAtBoundary(item.dioSegmentIntervalsIO, anchor.boundaryTs)
-			splitAll := splitFoldIntervalsAtBoundary(item.dioSegmentIntervals, anchor.boundaryTs)
-			preMs := splitD.preMs + splitIO.preMs
-			postMs := splitD.postMs + splitIO.postMs
-			if preMs <= rspaAnchorIdentityTolMs {
-				continue
-			}
-			full := preMs + postMs
-			family := stateEdgeAnchorFamilyWord(item.Type)
-			if postMs <= rspaAnchorIdentityTolMs {
-				convertStateSeatToEdgeAnchored(item, anchor, item.DStateMs+item.IOWaitMs, 0, item.DStateMs, item.IOWaitMs,
-					nil, item.dioSegmentIntervalsD, item.dioSegmentIntervalsIO, splitAll,
-					stateEdgeFullyAnchoredSummary(item.Thread, family, item.DStateMs+item.IOWaitMs, anchor.boundaryTs, anchor.via()))
-				continue
-			}
-			clone := *item
-			convertStateSeatToEdgeAnchored(item, anchor, preMs, 0, splitD.preMs, splitIO.preMs,
-				nil, splitD.pre, splitIO.pre, splitAll,
-				stateEdgeAnchoredSummary(item.Thread, family, preMs, full, postMs, anchor.boundaryTs, anchor.via()))
-			item.ChainAnchoredMs = preMs
-			item.ChainAnchorFullMs = full
-			appended = append(appended, mintStateEdgeRemainderClone(clone, anchor, preMs, full,
-				postMs, splitD.postMs, splitIO.postMs, nil, splitD.post, splitIO.post, splitAll,
-				stateEdgeRemainderSummary(item.Thread, family, postMs, full, preMs, anchor.boundaryTs, anchor.via())))
+		clones := anchorStateSeatInsideDependencyWindows(item, lane, anchorFor)
+		if restore && strings.TrimSpace(item.OnChainBasis) == "" {
+			*item = saved
 		}
-		if lane == stateEdgeLaneChainMemberResidual {
-			// The residual lane prices by the DIRECT census edge only: its
-			// disclosure must not call that edge the host's "latest typed
-			// wakeup edge" when a later chain-hop edge exists (§40.30 scope —
-			// chain-hop edges are what the chain windows price).
-			item.Summary = stateEdgeResidualDirectWording(item.Summary)
-			for j := appendedBefore; j < len(appended); j++ {
-				appended[j].Summary = stateEdgeResidualDirectWording(appended[j].Summary)
-			}
-		}
+		appended = append(appended, clones...)
 	}
 	return append(items, appended...)
 }
 
-// stateEdgeResidualDirectWording rewrites the shared R4 family sentence for
-// the chain-member residual lane (STATERES-1): the credential is the host's
-// latest in-window DIRECT census edge, not its latest typed edge of any kind.
-func stateEdgeResidualDirectWording(summary string) string {
-	summary = strings.ReplaceAll(summary,
-		"the host's latest in-window typed wakeup edge toward the analysis target",
-		"the host's latest in-window DIRECT wakeup edge toward the analysis target (chain-hop edges are priced by the chain windows)")
-	return strings.ReplaceAll(summary,
-		"the host's own in-window typed wakeup edge toward the analysis target",
-		"the host's own in-window DIRECT wakeup edge toward the analysis target (chain-hop edges are priced by the chain windows)")
+// anchorStateSeatInsideDependencyWindows converts one admitted state seat
+// (HMC377 E2): its true segment inventory is partitioned against the host's
+// dependency windows; the inside share takes the chain seat, the outside share
+// the adjacent remainder clone it returns. A refused seat returns nil.
+func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateEdgeCredentialLane, anchorFor func(ThreadRef) (semanticHostEdgeAnchor, bool)) []RootCauseRankItem {
+	var out []RootCauseRankItem
+	switch strings.TrimSpace(item.Type) {
+	case "priority_inversion_runnable_wait":
+		if lane != stateEdgeLaneBareCensusHost {
+			return nil // STATERES-1 scope: the R4-mirror arm stays bare-host only
+		}
+		// RSPA R4 mirror arm (§29.88 R4; §29.83 件③ narrowing): the
+		// inversion-rewritten seat's gated eff is an INDIVISIBLE composite
+		// that cannot be split along the credential boundary without
+		// minting a value equal to neither the measurement nor any
+		// partition term. A FULLY pre-edge account changes lane whole with
+		// every published value untouched (the inversion claim is pre-edge
+		// too — the R4 「fully-anchored keeps the chain lane」 form in the
+		// promotion direction); any post-edge share leaves the whole seat
+		// on its home lane untouched (宁漏勿假指).
+		if item.Source != "window_stats" || item.DominantState != string(StateRunnable) {
+			return nil
+		}
+		if len(item.runnableIntervals) == 0 || !item.memberSegmentsProducerDisjoint {
+			return nil
+		}
+		lengthMs, ok := foldIntervalsLengthMs(item.runnableIntervals)
+		if !ok || !rspaWithinTol(lengthMs, item.RunnableMs) {
+			return nil
+		}
+		anchor, ok := anchorFor(item.Thread)
+		if !ok {
+			return nil
+		}
+		split := splitFoldIntervalsByDependencyWindows(item.runnableIntervals, anchor.windows)
+		if split.preMs <= rspaAnchorIdentityTolMs {
+			return nil // no share inside a wait the host ended: grants nothing
+		}
+		priced := anchor.pricedBy(split)
+		if split.postMs > rspaAnchorIdentityTolMs {
+			// PARTSPLIT-1 (§29.150④, 2026-07-19) — EVOLUTION of the bare
+			// refusal: the R4-mirror gate still refuses the conversion
+			// (whole-seat floor — value/lane/ordinal byte-identical), but
+			// the refusal goes ON RECORD with its disclosure-only measures
+			// (HMC377 E2, owner ruling 2026-11-18: X inside the waits the
+			// host's wakeups ended + Y outside, X+Y == the runnable census
+			// account to the µs). Stamped atomically at this single site;
+			// deterministic re-stamp on the second pass (idempotent — same
+			// chain, same inventory, same windows).
+			item.GatedCompositeEdgePreShareMs = split.preMs
+			item.GatedCompositeEdgePostShareMs = split.postMs
+			item.GatedCompositeEdgeAnchorTs = priced.boundaryTs
+			item.GatedCompositeEdgeAnchorVia = priced.via()
+			return nil
+		}
+		item.ChainRelevance = "on_chain"
+		item.Causality = "on_wakeup_chain"
+		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
+		item.HostWakeupEdgeAnchorTs = priced.boundaryTs
+		item.HostWakeupEdgeAnchorVia = priced.via()
+		item.Summary = appendRootCauseSummaryDetail(item.Summary,
+			fmt.Sprintf("the whole runnable account lies inside %s — every published value unchanged, the inversion seat is never split",
+				stateEdgeWaitClause(split)))
+	case "runnable_wait":
+		if item.Source != "window_stats" || item.DominantState != string(StateRunnable) {
+			return nil
+		}
+		if item.GatedRunnableMs > 0 || item.GatedRunningDeficitMs > 0 {
+			return nil // gated composite algebra — indivisible (RSPA R4 reasoning)
+		}
+		if len(item.runnableIntervals) == 0 || !item.memberSegmentsProducerDisjoint {
+			return nil
+		}
+		lengthMs, ok := foldIntervalsLengthMs(item.runnableIntervals)
+		if !ok || !rspaWithinTol(lengthMs, item.RunnableMs) {
+			return nil // inventory does not reproduce the account — fail closed
+		}
+		anchor, ok := anchorFor(item.Thread)
+		if !ok {
+			return nil
+		}
+		split := splitFoldIntervalsByDependencyWindows(item.runnableIntervals, anchor.windows)
+		if split.preMs <= rspaAnchorIdentityTolMs {
+			return nil // no share inside a wait the host ended: grants nothing
+		}
+		priced := anchor.pricedBy(split)
+		full := split.preMs + split.postMs
+		family := stateEdgeAnchorFamilyWord(item.Type)
+		if split.postMs <= rspaAnchorIdentityTolMs {
+			// Whole-account conversion: every segment inside the waits the
+			// host ended — the seat changes lane with its published account
+			// intact (值通道重铸为全账,无二分 trio,无余席).
+			convertStateSeatToEdgeAnchored(item, priced, item.RunnableMs, item.RunnableMs, 0, 0,
+				item.runnableIntervals, nil, nil, split.stateEdgeSegmentSplit,
+				stateEdgeFullyAnchoredSummary(item.Thread, family, item.RunnableMs, split))
+			return nil
+		}
+		clone := *item
+		convertStateSeatToEdgeAnchored(item, priced, split.preMs, split.preMs, 0, 0,
+			split.pre, nil, nil, split.stateEdgeSegmentSplit,
+			stateEdgeAnchoredSummary(item.Thread, family, split.preMs, full, split.postMs, split))
+		item.ChainAnchoredMs = split.preMs
+		item.ChainAnchorFullMs = full
+		return append(out, mintStateEdgeRemainderClone(clone, priced, split.preMs, full,
+			split.postMs, 0, 0, split.post, nil, nil, split.stateEdgeSegmentSplit,
+			stateEdgeRemainderSummary(item.Thread, family, split.postMs, full, split.preMs, split)))
+	case "d_state_or_io_wait", "io_wait":
+		if item.Source != "window_stats" && item.Source != "window_stats.io_wait_top" {
+			return nil
+		}
+		switch item.DominantState {
+		case string(StateDSleep), string(StateIOWait):
+		default:
+			return nil
+		}
+		if len(item.dioSegmentIntervals) == 0 {
+			return nil // no true-segment carrier (缺证≠证无 — fail closed)
+		}
+		dLen, okD := foldIntervalsLengthMs(item.dioSegmentIntervalsD)
+		ioLen, okIO := foldIntervalsLengthMs(item.dioSegmentIntervalsIO)
+		if !okD || !okIO || !rspaWithinTol(dLen, item.DStateMs) || !rspaWithinTol(ioLen, item.IOWaitMs) {
+			return nil // per-state inventories must reproduce both channels
+		}
+		anchor, ok := anchorFor(item.Thread)
+		if !ok {
+			return nil
+		}
+		splitD := splitFoldIntervalsByDependencyWindows(item.dioSegmentIntervalsD, anchor.windows)
+		splitIO := splitFoldIntervalsByDependencyWindows(item.dioSegmentIntervalsIO, anchor.windows)
+		splitAll := splitFoldIntervalsByDependencyWindows(item.dioSegmentIntervals, anchor.windows)
+		preMs := splitD.preMs + splitIO.preMs
+		postMs := splitD.postMs + splitIO.postMs
+		if preMs <= rspaAnchorIdentityTolMs {
+			return nil
+		}
+		priced := anchor.pricedBy(splitAll)
+		full := preMs + postMs
+		family := stateEdgeAnchorFamilyWord(item.Type)
+		if postMs <= rspaAnchorIdentityTolMs {
+			convertStateSeatToEdgeAnchored(item, priced, item.DStateMs+item.IOWaitMs, 0, item.DStateMs, item.IOWaitMs,
+				nil, item.dioSegmentIntervalsD, item.dioSegmentIntervalsIO, splitAll.stateEdgeSegmentSplit,
+				stateEdgeFullyAnchoredSummary(item.Thread, family, item.DStateMs+item.IOWaitMs, splitAll))
+			return nil
+		}
+		clone := *item
+		convertStateSeatToEdgeAnchored(item, priced, preMs, 0, splitD.preMs, splitIO.preMs,
+			nil, splitD.pre, splitIO.pre, splitAll.stateEdgeSegmentSplit,
+			stateEdgeAnchoredSummary(item.Thread, family, preMs, full, postMs, splitAll))
+		item.ChainAnchoredMs = preMs
+		item.ChainAnchorFullMs = full
+		return append(out, mintStateEdgeRemainderClone(clone, priced, preMs, full,
+			postMs, splitD.postMs, splitIO.postMs, nil, splitD.post, splitIO.post, splitAll.stateEdgeSegmentSplit,
+			stateEdgeRemainderSummary(item.Thread, family, postMs, full, preMs, splitAll)))
+	}
+	return out
 }
 
 // convertStateSeatToEdgeAnchored rewrites one bare-census state seat into the

@@ -524,14 +524,19 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	// cause words never leave their seats (§29.50.5 分区机械零改).
 	//
 	// EVOLUTION RECORD (ONCHAIN-3c, 2026-07-19): the bare-census-edge
-	// state-seat arm now seats T7@ZeusThreadPo-61839 (the SCAN-3 sentinel
-	// host — direct census edge 61839→59566 at 34579.496810, NOT a chain
-	// member) on the chain tier: io_wait 3.550 fully pre-edge + runnable
-	// 0.370⛓/0.075◇ of its 0.445 census account (hand: census groups 0.038+
-	// 0.023+0.026+0.058… runnable buckets Σ 0.445; every io segment before
-	// the edge). The 12-seat candidate cap then displaces the two
-	// zero-anchored hmfs dust seats (Σ 0.316, adjacent) off the PUBLISHED
-	// board into the compaction disclosure. The partition machinery itself is
+	// state-seat arm seated T7@ZeusThreadPo-61839 (the SCAN-3 sentinel host —
+	// direct census edge 61839→59566 at 34579.496810, NOT a chain member) on
+	// the chain tier: io_wait 3.550 + runnable 0.370⛓/0.075◇ of its 0.445
+	// census account. RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续",
+	// given after being told it re-prices this witness to zero): old → new =
+	// 3.550 + 0.370 on-chain → 0 on-chain. The 34579.496810 wakeup ended the
+	// target's 0.057ms sleep [34579.496753, 34579.496810] — the only wait of
+	// 59566 that 61839 ended in this window (raw oracle: 1 edge, inside ready
+	// 0.000 / D 0.000) — and none of 61839's IO or ready time lies inside it.
+	// Its io_wait account keeps its home lane with its 3.550 value. The
+	// 12-seat candidate cap still displaces the two zero-anchored hmfs dust
+	// seats (Σ 0.316, adjacent) off the PUBLISHED board into the compaction
+	// disclosure. The partition machinery itself is
 	// zero-drift: all four cause accounts keep their exact values/lanes in
 	// the pre-truncation pool (population conservation below), and the two
 	// anchored cause seats still publish on-chain.
@@ -628,29 +633,25 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	if math.Abs(sum-18.135) > 0.002 {
 		t.Fatalf("partition Σ must reconstruct the full scheduler-state truth 18.135, got %.3f", sum)
 	}
-	// ONCHAIN-3c live-trace witness pins (SCAN-3 61839 判例正收): the io seat
-	// converts whole (3.550 fully pre-edge, no bipartition trio), the runnable
-	// account bisects 0.370⛓ + 0.075◇ = 0.445 census full (exact partition
-	// identity), both wear the state basis + the typed edge pair.
-	if edgeIOSeat == nil || math.Abs(edgeIOSeat.IOWaitMs-3.550) > 0.002 ||
-		edgeIOSeat.ChainRelevance != "on_chain" || edgeIOSeat.Causality != "on_wakeup_chain" ||
-		edgeIOSeat.ChainAnchorFullMs != 0 ||
-		math.Abs(edgeIOSeat.HostWakeupEdgeAnchorTs-34579.496810) > 0.000001 ||
-		edgeIOSeat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
-		t.Fatalf("tieba 61839 edge-anchored io seat drifted: %+v", edgeIOSeat)
+	// HMC377 E2 (see the evolution record above): no 61839 seat carries the
+	// wakeup credential; its io_wait account stays whole on its home lane.
+	if edgeIOSeat != nil || edgeRunnableSeat != nil || edgeRunnableRem != nil {
+		t.Fatalf("tieba 61839 must take no wakeup credential (its wakeup closed a wait holding none of its time): io=%+v runnable=%+v rem=%+v", edgeIOSeat, edgeRunnableSeat, edgeRunnableRem)
 	}
-	if edgeRunnableSeat == nil || math.Abs(edgeRunnableSeat.RunnableMs-0.370) > 0.002 ||
-		math.Abs(edgeRunnableSeat.ChainAnchoredMs-0.370) > 0.002 ||
-		math.Abs(edgeRunnableSeat.ChainAnchorFullMs-0.445) > 0.002 {
-		t.Fatalf("tieba 61839 edge-anchored runnable seat drifted: %+v", edgeRunnableSeat)
+	var homeIO *RootCauseRankItem
+	for _, items := range [][]RootCauseRankItem{rank.Items, rank.preTruncationItems} {
+		for i := range items {
+			item := &items[i]
+			if item.Thread.PID == 61839 && item.Type == "io_wait" && homeIO == nil {
+				homeIO = item
+			}
+			if item.Thread.PID == 61839 && item.HostWakeupEdgeAnchorTs != 0 {
+				t.Fatalf("tieba 61839 row carries a wakeup credential pair: %+v", item)
+			}
+		}
 	}
-	if edgeRunnableRem == nil || math.Abs(edgeRunnableRem.CumulativeImpactMs-0.075) > 0.002 ||
-		edgeRunnableRem.ChainRelevance != "adjacent" || edgeRunnableRem.HostWakeupEdgeAnchorTs <= 0 {
-		t.Fatalf("tieba 61839 edge-anchored runnable remainder drifted: %+v", edgeRunnableRem)
-	}
-	if math.Abs(edgeRunnableSeat.CumulativeImpactMs+edgeRunnableRem.CumulativeImpactMs-edgeRunnableSeat.ChainAnchorFullMs) > 0.002 {
-		t.Fatalf("tieba 61839 bipartition identity broken: %.3f + %.3f != %.3f",
-			edgeRunnableSeat.CumulativeImpactMs, edgeRunnableRem.CumulativeImpactMs, edgeRunnableSeat.ChainAnchorFullMs)
+	if homeIO == nil || math.Abs(homeIO.IOWaitMs-3.550) > 0.002 || rootCauseItemIsOnChain(*homeIO) {
+		t.Fatalf("tieba 61839 io_wait keeps its 3.550ms account on its home lane: %+v", homeIO)
 	}
 	// Priority-point authority keeps each giant's full runnable census on the
 	// disclosure lane, but only the closed-range-stable lower-priority overlap
@@ -679,65 +680,45 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		t.Fatalf("NetworkService proven/full inversion account drifted: %+v", networkInversion)
 	}
 	// ONCHAIN-3c 拒转负臂 (o3c fixround 件3, live) — EVOLUTION RECORD
-	// (PARTSPLIT-1 §29.150④ user ruling, 2026-07-19): the pin evolves
-	// DELIBERATELY from bare refusal to the 拒转+披露 form. Binder:43397_19-
-	// 23088's 13.979 census runnable account minted through the widened
-	// thread-total scope, was recast by the inversion enrich, and the
-	// R4-mirror arm still REFUSES the lane change (a 0.020ms post-edge tail —
-	// the indivisible gated composite is never split): ordinary inversion
-	// row, background lane, no state basis, no R3 edge pair, no remainder
-	// marker, full census value intact. NEW: the refusal is on record — the
-	// disclosure-only bisection measures ride the seat (13.959 pre + 0.020
-	// post == 13.979 to the µs, boundary 34579.555890, via=direct) and the
-	// result-level side channel discloses it as a NON-SEAT row with the
-	// off-board honesty bit (the seat lives only in the pool).
-	var binderInversion *RootCauseRankItem
-	for i := range rank.preTruncationItems {
-		item := &rank.preTruncationItems[i]
-		if item.Thread.PID == 23088 && item.Type == "priority_inversion_runnable_wait" {
-			binderInversion = item
-			break
+	// (PARTSPLIT-1 §29.150④ user ruling, 2026-07-19): Binder:43397_19-23088's
+	// 13.979 census runnable account was minted through the widened
+	// thread-total scope, recast by the inversion enrich, refused by the
+	// R4-mirror arm and disclosed (13.959 before the edge + 0.020 after,
+	// boundary 34579.555890). RE-BASED (HMC377 E2, owner ruling 2026-11-18):
+	// old → new = refusal record 13.959 + 0.020 and a side-channel row → no
+	// seat, no record, no row. Its one wakeup ended a 0.524ms wait of the
+	// target holding none of its ready time (raw oracle: inside 0.000), so
+	// the mint widening (admission = a positive share inside such a wait)
+	// no longer reaches it; a background thread with no dependency share
+	// keeps the ordinary display scope.
+	for _, items := range [][]RootCauseRankItem{rank.Items, rank.preTruncationItems} {
+		for i := range items {
+			item := &items[i]
+			if item.Thread.PID == 23088 && (item.GatedCompositeEdgePreShareMs != 0 || item.HostWakeupEdgeAnchorTs != 0 || rootCauseItemIsOnChain(*item)) {
+				t.Fatalf("tieba 23088 must carry no wakeup credential record: %+v", item)
+			}
 		}
 	}
-	if binderInversion == nil || binderInversion.OnChainBasis != "" ||
-		binderInversion.ChainAnchorRemainderSeat || binderInversion.HostWakeupEdgeAnchorTs != 0 ||
-		binderInversion.ChainRelevance != "background" ||
-		math.Abs(binderInversion.RunnableMs-13.979) > 0.002 {
-		t.Fatalf("tieba 23088 R4-mirror refusal drifted (must stay an ordinary inversion seat, no state basis): %+v", binderInversion)
-	}
-	if math.Abs(binderInversion.GatedCompositeEdgePreShareMs-13.959) > 0.002 ||
-		math.Abs(binderInversion.GatedCompositeEdgePostShareMs-0.020) > 0.002 ||
-		math.Abs(binderInversion.GatedCompositeEdgeAnchorTs-34579.555890) > 0.000001 ||
-		binderInversion.GatedCompositeEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
-		t.Fatalf("tieba 23088 refusal record (PARTSPLIT-1 disclosure measures) drifted: %+v", binderInversion)
-	}
-	if math.Abs(binderInversion.GatedCompositeEdgePreShareMs+binderInversion.GatedCompositeEdgePostShareMs-binderInversion.RunnableMs) > 0.0000005 {
-		t.Fatalf("tieba 23088 X+Y==RunnableMs identity broken: %.6f + %.6f != %.6f",
-			binderInversion.GatedCompositeEdgePreShareMs, binderInversion.GatedCompositeEdgePostShareMs, binderInversion.RunnableMs)
-	}
-	partsplitDisclosed := false
 	for _, d := range rank.GatedCompositeEdgeShareDisclosures {
-		if d.Thread.PID != 23088 {
-			continue
+		if d.Thread.PID == 23088 {
+			t.Fatalf("tieba 23088 must not disclose a share inside the waits it ended (raw 0.000): %+v", d)
 		}
-		partsplitDisclosed = true
-		if math.Abs(d.PreMs-13.959) > 0.002 || math.Abs(d.PostMs-0.020) > 0.002 ||
-			math.Abs(d.AccountMs-13.979) > 0.002 || d.SeatPublished ||
-			math.Abs(d.PreMs+d.PostMs-d.AccountMs) > 0.0000005 {
-			t.Fatalf("tieba 23088 side-channel disclosure drifted: %+v", d)
-		}
-	}
-	if !partsplitDisclosed {
-		t.Fatalf("tieba 23088 refusal must disclose on the result side channel (cap-dead seat, 账在池): %+v", rank.GatedCompositeEdgeShareDisclosures)
 	}
 	rspaAssertBoardBipartitionInvariants(t, rank)
 
 	// ONCHAIN-3c 链上席挤出形 (o3c fixround 件2, live): on the wider tieba
-	// trace window the 60560 Chrome_IOThread inversion seat converts whole
-	// onto the chain tier (19.358 fully pre-edge of its direct census edge at
-	// 34579.592121 — the R4-mirror promotion direction) and takes a published
-	// seat; the 12-seat cap then displaces the RenderThread-59891 running
-	// chain seat (0.858) off the PUBLISHED board. The displaced account must
+	// trace window the 60560 Chrome_IOThread inversion seat converted whole
+	// onto the chain tier (19.358 before its direct census edge at
+	// 34579.592121). RE-BASED (HMC377 E2, owner ruling 2026-11-18): old → new
+	// = whole on-chain seat 19.358 → refused, home lane, account intact
+	// (19.358 ready, effective 12.173), refusal record inside 0.056 +
+	// outside 19.302 (Σ 19.358 exact): its one wakeup ended a 0.448ms wait of
+	// the target and only 0.056ms of its ready time lies inside it (raw
+	// oracle). The indivisible inversion seat is never split; 0.056ms is
+	// below the disclosure floor (1% of the 144.557ms window), so no
+	// side-channel row. The 12-seat cap still displaces the RenderThread-59891
+	// running chain seat (0.858) off the PUBLISHED board (the target's own IO
+	// seats take the freed place). The displaced account must
 	// survive losslessly in the pre-truncation pool with the truncation
 	// disclosed — the honest-cap mechanism (账在池), same typed release arm as
 	// §29.77 件⑤.
@@ -745,20 +726,30 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	var chromeInversion *RootCauseRankItem
 	renderRunningPublished := false
-	for i := range rankTrace.Items {
-		item := &rankTrace.Items[i]
-		if item.Thread.PID == 60560 && item.Type == "priority_inversion_runnable_wait" &&
-			item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
-			chromeInversion = item
+	for _, items := range [][]RootCauseRankItem{rankTrace.Items, rankTrace.preTruncationItems} {
+		for i := range items {
+			item := &items[i]
+			if item.Thread.PID == 60560 && item.Type == "priority_inversion_runnable_wait" && chromeInversion == nil {
+				chromeInversion = item
+			}
 		}
-		if item.Thread.PID == 59891 && item.Type == "running" {
+	}
+	for i := range rankTrace.Items {
+		if rankTrace.Items[i].Thread.PID == 59891 && rankTrace.Items[i].Type == "running" {
 			renderRunningPublished = true
 		}
 	}
 	if chromeInversion == nil || math.Abs(chromeInversion.RunnableMs-19.358) > 0.002 ||
-		chromeInversion.ChainRelevance != "on_chain" ||
-		math.Abs(chromeInversion.HostWakeupEdgeAnchorTs-34579.592121) > 0.000001 {
-		t.Fatalf("tieba trace 60560 edge-anchored inversion seat drifted: %+v", chromeInversion)
+		rootCauseItemIsOnChain(*chromeInversion) || chromeInversion.OnChainBasis != "" || chromeInversion.HostWakeupEdgeAnchorTs != 0 ||
+		math.Abs(chromeInversion.GatedCompositeEdgePreShareMs-0.056) > 0.002 ||
+		math.Abs(chromeInversion.GatedCompositeEdgePostShareMs-19.302) > 0.002 ||
+		math.Abs(chromeInversion.GatedCompositeEdgePreShareMs+chromeInversion.GatedCompositeEdgePostShareMs-chromeInversion.RunnableMs) > 0.0000005 {
+		t.Fatalf("tieba trace 60560 inversion seat must stay whole on its home lane with its inside/outside record: %+v", chromeInversion)
+	}
+	for _, d := range rankTrace.GatedCompositeEdgeShareDisclosures {
+		if d.Thread.PID == 60560 {
+			t.Fatalf("tieba trace 60560's 0.056ms inside share sits below the disclosure floor: %+v", d)
+		}
 	}
 	if renderRunningPublished {
 		t.Fatalf("tieba trace cap arithmetic drifted: RenderThread-59891 running expected displaced off the published board")

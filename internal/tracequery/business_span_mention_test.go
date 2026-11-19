@@ -46,6 +46,14 @@ func spanvisChain() ChainResult {
 			Wakee: target,
 			Count: 2, LastTs: 10.050,
 		}},
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): the universe states
+		// the wait of the target that binder_host's 10.050 edge ended — it
+		// began at the window start. Every pinned value is unchanged: the old
+		// "entirely before the edge" side was exactly that wait.
+		directDependencyWindowsBuilt: true,
+		directDependencyWindows: map[int][]targetWaitDependencyWindow{
+			200: {{startTs: 10.0, endTs: 10.050, wakeupTs: 10.050}},
+		},
 	}
 }
 
@@ -114,6 +122,13 @@ func TestBusinessSpanMentionHostEdgeBoundary(t *testing.T) {
 	if fam.Name != "hostSpan" || fam.Count != 1 || microsBSM(fam.TotalMs) != microsBSM(1.2) ||
 		microsBSM(fam.MaxSingleMs) != microsBSM(1.2) || fam.StartLine != 10 || fam.EndLine != 20 {
 		t.Fatalf("crossing/post-edge members must not join the family account (整段边前纪律): %+v", fam)
+	}
+	// Twin (HMC377 E2): the same census pair whose wakeups closed no wait of
+	// the target mentions nothing on the host basis.
+	noWait := spanvisChain()
+	noWait.directDependencyWindows = map[int][]targetWaitDependencyWindow{}
+	if res := computeBusinessSpanMentions(spanvisQuery(), noWait, wakeupChainThreadSet(noWait), spanvisStats(inventory, nil)); res != nil && len(res.Families) != 0 {
+		t.Fatalf("a host whose wakeups ended no wait of the target must not be mentioned: %+v", res.Families)
 	}
 }
 

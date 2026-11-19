@@ -251,13 +251,21 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"fragmented_running": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"trace_span":         {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// ADJUDICATION NOTE (CROWNSEM-1, 2026-09-02, colleague_merge_audit §40.28
-	// ① — restoring §29.88.1 R3 / §29.88.2 R4): every semantic span family
-	// below prices its host_wakeup_edge_pre_span PRE-EDGE share and its
-	// semantic_chain_interval_relation exact intersection as on-chain
-	// effective attribution — the one credential rule shared with the host's
-	// state seats. Any future basis→zero mapping for these families is a
-	// lane change under §7.2.1 and MUST cite a user ruling by number (the
-	// B829/B830 zeroing shipped without one and was reversed).
+	// ① — restoring §29.88.1 R3 / §29.88.2 R4; bounded by the HMC377 E2
+	// product-owner ruling of 2026-11-18, batch 377, approval text "同意继续"
+	// given after being told it re-prices three accepted witness values to
+	// zero, e.g. tieba threads 61839 / 59566): every semantic span family
+	// below prices, on the host_wakeup_edge_pre_span basis, exactly the part
+	// of the host's span that lies inside a wait of the analysis target which
+	// the host's own recorded wakeup ended ("before the edge" = inside the
+	// edge-closed window [wait start, wakeup]; the former [window start,
+	// latest edge] reading of R3-IMPL §29.97 / ONCHAIN-3c §29.139 is
+	// superseded), and its semantic_chain_interval_relation exact
+	// intersection, as on-chain effective attribution — the one credential
+	// rule shared with the host's state seats. Any future basis→zero mapping
+	// or change of that window for these families is a lane change under
+	// §7.2.1 and MUST cite a user ruling by number (the B829/B830 zeroing
+	// shipped without one and was reversed).
 	"jit_compile":        {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"class_verification": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"shader_compile":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},

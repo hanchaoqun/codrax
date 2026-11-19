@@ -188,8 +188,17 @@ func TestEvalcaseDHMP3MDistributionNewCombo(t *testing.T) {
 		// its exact scheduling sub-seat, carrying the same typed disposition
 		// as the underlying occurrence instead of disappearing at rank mint.
 		p3mDispositionEdgeTerminatedWindow: 5,
-		p3mDispositionSegmentJoin:          2,
-		"":                                 7,
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new
+		// = segment_join 2 → 1 and off-wire 7 → 8. Both departed rows were
+		// segment-join host-edge seats: com.baidu.tieba-59566 io_wait 0.635ms
+		// (its one wakeup found 60560 not waiting — raw oracle: 1 edge, no
+		// wait ended) and ThreadPoolForeg-60555 D 0.171ms (its wakeups ended
+		// 0.058ms of waits holding none of its D time — raw 0.000).
+		// Compositor-61238 runnable_wait (segment-join) and hilogd.pst-474
+		// low_frequency (off-wire) take the freed seats. Every remaining row
+		// keeps its disposition.
+		p3mDispositionSegmentJoin: 1,
+		"":                        8,
 	}
 	for disp, n := range want {
 		if census[disp] != n {

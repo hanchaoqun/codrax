@@ -69,7 +69,11 @@ func TestHostEdgeFamilySupportInventoryIsTheBisectedShare(t *testing.T) {
 			t.Fatalf("◇ clone summary still speaks the retired caliber %q: %s", bad, rem.Summary)
 		}
 	}
-	if !containsFold(rem.Summary, "edge=credential, pre-edge=effective, post-edge=released") {
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): old substring
+	// "edge=credential, pre-edge=effective, post-edge=released" → the bounded
+	// rule in reader words (same meaning: the clone states that it is the
+	// unpriced part and why).
+	if !containsFold(rem.Summary, "outside every wait of the analysed thread that this thread's own wakeup ended") {
 		t.Fatalf("◇ clone summary must speak the single credential rule: %s", rem.Summary)
 	}
 }

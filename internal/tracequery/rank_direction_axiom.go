@@ -181,8 +181,9 @@ func rootCauseItemDirectionPopulationEligible(item *RootCauseRankItem) bool {
 		RootCauseOnChainBasisHostWakeupEdge,
 		RootCauseOnChainBasisHostWakeupEdgeState:
 		// the closed basis set — legacy overlap ("") included; the ONCHAIN-3c
-		// state seats enter with their pre-edge-clipped inventories (support
-		// union == published value by construction of the bisection).
+		// state seats enter with their inside-the-closed-waits inventories
+		// (support union == published value by construction of the
+		// partition, HMC377 E2).
 	default:
 		return false // unknown basis never enters (fail-open exclusion)
 	}

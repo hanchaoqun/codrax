@@ -425,18 +425,30 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 
 	// tieba trace board — the 返工 P2 real-trace carve tooth: the build-lane
 	// count is pinned VERBATIM at its post-carve value (the cap-displaced
-	// self seat published with its chain ordinal leaves the count; mutant F
-	// reads 53 with on_chain=3 = red), and the carved seat surfaces as the
-	// 冷读 P3-2 self-side note on the enrich lane.
+	// self seat published with its chain ordinal leaves the count; a mutant
+	// that stops carving reads one more on-chain row = red), and the carved
+	// seat surfaces as the 冷读 P3-2 self-side note on the enrich lane.
 	traceBoard := BuildRootCauseRank(tieba, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(traceBoard, []string{
 		// EVOLUTION RECORD (CROWNSEM-1, §40.28 ①): 52→53 / on_chain 4→5 — the
 		// host VerifyClass pre-edge span is a PRICED on-chain seat again (R3/R4).
-		"; 53 valued candidate row(s) did not enter the published board (on_chain=5/adjacent=3/background=45)",
-		"largest on_chain priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
-		"链上最大 priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
-		"另 3 行自身侧道已发布",
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+		// "(on_chain=5/adjacent=3/background=45)" → "(on_chain=3/adjacent=3/
+		// background=47)"; largest unpublished on-chain row CookieMonsterCl-59843
+		// 0.689 → ThreadPoolForeg-60555 0.452; self side lane "另 3 行" → "另 1 行".
+		// The host-edge seats of T7@ZeusThreadPo-61839 (VerifyClass 0.285, IO
+		// 3.750, ready 3.126) and the whole Chrome_IOThread-60560 inversion seat
+		// left the chain tier — none of their time lies inside a wait of 59566
+		// that their thread's wakeup ended (raw oracle: 0.000 / 0.000 / 0.056 of
+		// 19.358) — so the freed seats go to true chain rows: CookieMonsterCl-59843
+		// 0.689 and two of the target's own seats are now published. The count
+		// stays 53 and keeps its carve tooth (a non-carving mutant reads 54/
+		// on_chain=4).
+		"; 53 valued candidate row(s) did not enter the published board (on_chain=3/adjacent=3/background=47)",
+		"largest on_chain priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
+		"链上最大 priority_inversion_candidate ThreadPoolForeg-60555 0.452ms",
+		"另 1 行自身侧道已发布",
 	})
 
 	donghu := requireRealTrace("../../eval/fixtures/real_traces/donghu.ftrace")
@@ -453,8 +465,17 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	// lane with no repeated lane word.
 	board2955 := BuildRootCauseRank(donghu, Query{PID: 2955, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+	// cap-dead leaders sysmgr-reclaim0-9 81.616 + oeminfo_nvme_se-672 76.800 →
+	// oeminfo_nvme_se-672 76.800 + JankManager-9655 21.923. gpu-token-id4-2931's
+	// inversion seat no longer converts onto the chain tier (only 0.228 of its
+	// 0.241ms lies inside the waits its wakeups ended; the indivisible seat is
+	// never split), so its competing slot goes to the largest background row,
+	// sysmgr-reclaim0-9 81.616, which is now published. Kept meaning: the
+	// headline lane names its top-2 casualties on both language faces with
+	// no repeated lane word.
 	assertBoard(board2955, []string{
-		"largest page_cache_churn sysmgr-reclaim0-9 81.616ms (background), second largest page_cache_churn oeminfo_nvme_se-672 76.800ms",
-		"最大 page_cache_churn sysmgr-reclaim0-9 81.616ms(背景)、次大 page_cache_churn oeminfo_nvme_se-672 76.800ms",
+		"largest page_cache_churn oeminfo_nvme_se-672 76.800ms (background), second largest runnable_wait JankManager-9655 21.923ms",
+		"最大 page_cache_churn oeminfo_nvme_se-672 76.800ms(背景)、次大 runnable_wait JankManager-9655 21.923ms",
 	})
 }

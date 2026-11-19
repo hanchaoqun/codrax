@@ -41,8 +41,11 @@ func TestChainMemberResidualStateSeatTakesDirectEdgeCredential(t *testing.T) {
 		math.Abs(seat.EffectiveImpactMs-0.2) > 1e-9 {
 		t.Fatalf("residual seat must take the DIRECT census edge credential whole: %+v", seat)
 	}
-	if !strings.Contains(seat.Summary, "fully pre-edge") || !strings.Contains(seat.Summary, "via=direct") {
-		t.Fatalf("residual seat wears the R4 family sentence with via=direct: %s", seat.Summary)
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18): "fully pre-edge" +
+	// "via=direct" → the one wait clause, which names the host's own (direct)
+	// wakeup of the target by construction.
+	if !strings.Contains(seat.Summary, "lies entirely inside the analysed thread's wait(s) that this thread's own wakeup ended") {
+		t.Fatalf("residual seat must name the waits its own wakeup ended: %s", seat.Summary)
 	}
 }
 
@@ -75,11 +78,14 @@ func TestChainMemberResidualDirectBoundaryIgnoresChainHopEdge(t *testing.T) {
 		math.Abs(post.HostWakeupEdgeAnchorTs-6.0045) > 1e-9 {
 		t.Fatalf("the post-edge share rides the ◇ clone released at the direct edge: %+v", post)
 	}
-	// Wording: the residual lane's sentences name the DIRECT edge, never
-	// "the host's latest typed wakeup edge" (its chain-hop edge is later).
+	// Wording: the residual lane's sentences name the waits the host's OWN
+	// wakeup of the target ended, never the host's latest edge of any kind
+	// (its chain-hop edge is later). RE-BASED (HMC377 E2, owner ruling
+	// 2026-11-18): old "DIRECT wakeup edge" rewrite → the one wait clause,
+	// which is direct by construction and discloses the 6.0045 wakeup.
 	for _, summary := range []string{pre.Summary, post.Summary} {
-		if !strings.Contains(summary, "DIRECT wakeup edge") || strings.Contains(summary, "typed wakeup edge") {
-			t.Fatalf("residual-lane disclosure must speak the direct edge: %s", summary)
+		if !strings.Contains(summary, "wait(s) that this thread's own wakeup ended (1 wait(s), 4.500ms of waiting; last such wakeup at 6.004500)") || strings.Contains(summary, "6.004800") {
+			t.Fatalf("residual-lane disclosure must speak the direct wakeup: %s", summary)
 		}
 	}
 }

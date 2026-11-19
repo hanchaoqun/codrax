@@ -36,8 +36,8 @@ const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 
 // B829 minted this side lane for "relation-only" semantic work (effective=0).
 // CROWNSEM-1 (§40.28 ①, 2026-09-02) restored R3/R4 pricing, so a credentialed
-// host_wakeup_edge_pre_span seat now competes on the board by its pre-edge
-// share; the side lane remains for the residual effective==0 semantic forms
+// host_wakeup_edge_pre_span seat now competes on the board by its share
+// inside the target's waits its host's wakeup ended (HMC377 E2); the side lane remains for the residual effective==0 semantic forms
 // (rootCauseItemIsRelationOnlySemantic) so they never evict target-state/
 // data-gap disclosures from their older shared cap.
 const rootCauseRankRelationSemanticSideCap = 8

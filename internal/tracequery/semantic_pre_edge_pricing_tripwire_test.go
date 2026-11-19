@@ -4,24 +4,25 @@ package tracequery
 // 2026-09-02, ledger colleague_merge_audit_20260802.md §40.28 ①, restoring
 // §29.88.1 R3 / §29.88.2 R4).
 //
-// The one credential rule for EVERY state family: 边=凭证, 边前=有效, 边后=解除.
-// B829/B830 had carved semantic spans out of that rule (effective=0 while the
-// same host's runnable seat stayed priced by the same edge) — the tieba
-// sentinel showed both seats in one report under two rules. These pins make
-// the rule structural:
+// The one credential rule for EVERY state family, as bounded by HMC377 E2
+// (owner ruling 2026-11-18): a thread's wakeup of the target is the
+// credential, and it prices the thread's own time inside the waits of the
+// target that wakeup ended. B829/B830 had carved semantic spans out of the
+// rule (effective=0 while the same host's runnable seat stayed priced by the
+// same edge). These pins make the rule structural:
 //
 //   1. sentinel double-seat consistency — the host runnable seat and the
-//      host VerifyClass span seat, same edge, same window, must BOTH price
-//      their pre-edge share;
+//      host VerifyClass span seat, same edge, same window, follow the same
+//      verdict (both refuse on the tieba sentinel since E2);
 //   2. census tripwire — every published rank item whose on-chain basis is a
-//      host-edge or interval-relation credential and whose pre-edge/
+//      host-edge or interval-relation credential and whose inside/
 //      intersection projection is positive MUST publish a positive effective
-//      (a future basis→zero mapping needs a registry-cited ruling, §7.2.1).
+//      (a future basis→zero mapping needs a registry-cited ruling, §7.2.1);
+//   3. structural bound (target_wait_dependency_test.go) — every priced
+//      host-edge segment lies inside a wait of the target that host ended.
 
 import (
 	"context"
-	"math"
-	"strings"
 	"testing"
 )
 
@@ -42,105 +43,64 @@ func crownsemSentinelRanks(t *testing.T) []RootCauseRankResult {
 	}
 }
 
-func crownsemHostStateSeat(item RootCauseRankItem) bool {
-	return item.Thread.PID == 61839 && !rootCauseItemIsSemanticSpanWork(item) &&
-		(item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState || strings.Contains(item.Summary, "fully pre-edge"))
-}
-
+// TestCrownsemSentinelHostStateAndSemanticSeatsShareOneCredentialRule — one
+// credential rule for the state seat and the span seat of one host.
+// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续", given after being
+// told it re-prices this witness to zero). Old: in the wide sentinel window
+// both 61839 seats were present and priced (runnable > 0, VerifyClass 0.285)
+// before the 34579.496810 edge. New: both are absent, by the same rule — that
+// edge ended the target's 0.057ms sleep [34579.496753, 34579.496810] and
+// neither the verification (34579.495841..496126) nor the ready time
+// (34579.496347..496442) lies inside it. The meaning "state seat and span
+// seat of one host follow ONE rule" is kept: they are judged by the same
+// windows and both refuse.
 func TestCrownsemSentinelHostStateAndSemanticSeatsShareOneCredentialRule(t *testing.T) {
 	// 复核收编 (batch-one adversarial review, 2026-09-02): the two seats are
-	// judged PER WINDOW — mixing the wide window's state seat with the narrow
-	// window's span seat would let the pin pass on two different rules.
-	ranks := crownsemSentinelRanks(t)
-	wide := ranks[0]
-	var stateSeat, spanSeat *RootCauseRankItem
-	for i := range wide.Items {
-		item := &wide.Items[i]
-		if item.Thread.PID != 61839 {
-			continue
+	// judged PER WINDOW.
+	for wi, rank := range crownsemSentinelRanks(t) {
+		for _, item := range append(append([]RootCauseRankItem(nil), rank.Items...), rank.preTruncationItems...) {
+			if item.Thread.PID != 61839 {
+				continue
+			}
+			if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge || item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState ||
+				item.HostWakeupEdgeAnchorTs != 0 {
+				t.Fatalf("window %d: no 61839 seat may take the wakeup credential — its wakeup closed a wait that holds none of its time: %+v", wi, item)
+			}
 		}
-		if crownsemHostStateSeat(*item) && stateSeat == nil {
-			stateSeat = item
-		}
-		if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge && strings.Contains(item.SpanName, "VerifyClass") && spanSeat == nil {
-			spanSeat = item
-		}
-	}
-	if stateSeat == nil || spanSeat == nil {
-		t.Fatalf("the wide sentinel window must expose both host seats (state=%v span=%v)", stateSeat != nil, spanSeat != nil)
-	}
-	if stateSeat.EffectiveImpactMs <= 0 {
-		t.Fatalf("host state seat must price its pre-edge share: %+v", stateSeat)
-	}
-	assertCrownsemSpanSeatPriced(t, spanSeat)
-}
-
-// assertCrownsemSpanSeatPriced — the VerifyClass span (34579.495841..496126,
-// 0.285ms) lies entirely before the 34579.496810 edge: its whole extent is the
-// pre-edge share, priced on-chain, competing on the board, wearing the R4
-// credential sentence plus the mechanism disclosure (披露≠清零).
-func assertCrownsemSpanSeatPriced(t *testing.T, spanSeat *RootCauseRankItem) {
-	t.Helper()
-	if spanSeat.EffectiveImpactMs <= 0 || math.Abs(spanSeat.EffectiveImpactMs-0.285) > 0.002 {
-		t.Fatalf("host semantic span seat must price its pre-edge share (R3/R4), got effective=%.3f: %s", spanSeat.EffectiveImpactMs, spanSeat.Summary)
-	}
-	if spanSeat.Rank <= 0 || spanSeat.Tier == RootCauseTierContextOnly {
-		t.Fatalf("a priced pre-edge semantic seat competes on the board like the state seat: rank=%d tier=%s", spanSeat.Rank, spanSeat.Tier)
-	}
-	if !strings.Contains(spanSeat.Summary, "pre-edge=effective") || strings.Contains(spanSeat.Summary, "effective_impact=0.000") {
-		t.Fatalf("summary must speak the R4 credential rule, not the retired relation-only caliber: %s", spanSeat.Summary)
-	}
-	if !strings.Contains(spanSeat.Summary, "mechanism unproven") {
-		t.Fatalf("the mechanism-unproven disclosure must remain on the row: %s", spanSeat.Summary)
 	}
 }
 
 // TestStateresNarrowWindowChainMemberHostResidualRunnableSeatPriced — the
-// V-STATE-1 knowledge pin flipped into its positive form (STATERES-1, user
-// ruling §40.30 plan A "RSPA 优先、R3 补残", 2026-09-02). In the narrow window
-// the host 61839 is a CHAIN MEMBER (depth-1 node on branch 2, chain window
-// 34579.496753..34579.496810 — the ledger's earlier "depth≥2" wording was a
-// misread of the topology); its runnable segment 34579.496347..496442
-// (0.095ms) lies outside that window and before the host's direct census
-// edge toward the target at 34579.496810, so RSPA had nothing to price and
-// the segment used to sit on ◇ 「邻近·无直接唤醒边」 while the VerifyClass
-// span two rows up wore the credential of the very same edge. Now both seats
-// of one host / one edge / one window follow ONE credential rule.
+// STATERES-1 residual lane (user ruling §40.30 plan A "RSPA 优先、R3 补残",
+// 2026-09-02) in the narrow sentinel window, where 61839 is a chain member
+// (depth-1 node on branch 2, chain window 34579.496753..34579.496810).
+// RE-BASED (HMC377 E2, owner ruling 2026-11-18): old → new = span 0.285 +
+// residual ready 0.095 priced at the direct edge 34579.496810 → neither
+// priced. The ready segment [34579.496347 (line 5597), 34579.496442 (line
+// 5614)] ends 0.311ms before the only wait its wakeup closed begins
+// (34579.496753, line 5635); the residual lane can price only waits the
+// expansion did not walk, and this wait IS the walked chain window. Kept
+// meaning: the residual lane and the span lane read one rule; the residual
+// lane still converts when the host's segment lies inside an un-walked wait
+// (TestChainMemberResidualStateSeatTakesDirectEdgeCredential).
 func TestStateresNarrowWindowChainMemberHostResidualRunnableSeatPriced(t *testing.T) {
 	narrow := crownsemSentinelRanks(t)[1]
-	var spanSeat, runnableSeat *RootCauseRankItem
+	var runnableSeat *RootCauseRankItem
 	for i := range narrow.Items {
 		item := &narrow.Items[i]
 		if item.Thread.PID != 61839 {
 			continue
 		}
-		if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge && strings.Contains(item.SpanName, "VerifyClass") && spanSeat == nil {
-			spanSeat = item
+		if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge || item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
+			t.Fatalf("no 61839 seat may be priced by its wakeup of the target: %+v", item)
 		}
-		// The host's own pre-edge runnable segment (34579.496347..496442).
 		if !rootCauseItemIsSemanticSpanWork(*item) && item.Type == "runnable_wait" &&
 			item.StartTs > 34579.4963 && item.StartTs < 34579.4964 && runnableSeat == nil {
 			runnableSeat = item
 		}
 	}
-	if spanSeat == nil || runnableSeat == nil {
-		t.Fatalf("narrow sentinel window must expose the host span seat and its runnable seat (span=%v runnable=%v)", spanSeat != nil, runnableSeat != nil)
-	}
-	assertCrownsemSpanSeatPriced(t, spanSeat)
-	if !rootCauseItemIsOnChain(*runnableSeat) || runnableSeat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState {
-		t.Fatalf("STATERES-1: the chain-member host's residual pre-edge runnable seat must take the host-edge state credential: %+v", runnableSeat)
-	}
-	if math.Abs(runnableSeat.EffectiveImpactMs-0.095) > 0.002 || runnableSeat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect ||
-		math.Abs(runnableSeat.HostWakeupEdgeAnchorTs-34579.496810) > 1e-5 {
-		t.Fatalf("residual seat must price its whole pre-edge share by the DIRECT census edge (via=direct, edge 34579.496810): eff=%.3f via=%q ts=%.6f",
-			runnableSeat.EffectiveImpactMs, runnableSeat.HostWakeupEdgeAnchorVia, runnableSeat.HostWakeupEdgeAnchorTs)
-	}
-	if !strings.Contains(runnableSeat.Summary, "fully pre-edge") || !strings.Contains(runnableSeat.Summary, "via=direct") {
-		t.Fatalf("residual seat must wear the R4 family disclosure with via=direct: %s", runnableSeat.Summary)
-	}
-	// The two seats of one host / one edge / one window now agree on the edge.
-	if math.Abs(runnableSeat.HostWakeupEdgeAnchorTs-spanSeat.HostWakeupEdgeAnchorTs) > 1e-6 {
-		t.Fatalf("state seat and span seat must cite the same credential edge: %.6f vs %.6f", runnableSeat.HostWakeupEdgeAnchorTs, spanSeat.HostWakeupEdgeAnchorTs)
+	if runnableSeat != nil && (rootCauseItemIsOnChain(*runnableSeat) || runnableSeat.HostWakeupEdgeAnchorTs != 0) {
+		t.Fatalf("the ready time before the wait began keeps its home lane: %+v", runnableSeat)
 	}
 }
 

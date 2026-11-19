@@ -7,14 +7,18 @@ package tracequery
 // in-repo):
 //
 //	正臂  tieba 59566 window 34579.490..34579.500 — the 61839→59566 裸边 at
-//	      34579.496810 (line 5639) is IN window and the VerifyClass span
-//	      (34579.495841..34579.496126, 0.285ms) lies entirely before it →
-//	      the span seats ON-CHAIN at 0.285ms on the typed host-edge basis.
+//	      34579.496810 (line 5639) is IN window; it ended the target's
+//	      0.057ms sleep [34579.496753 (line 5635), 34579.496810], and the
+//	      VerifyClass span (34579.495841..34579.496126, 0.285ms) finished
+//	      before that wait began → since HMC377 E2 (owner ruling 2026-11-18)
+//	      the credential is admitted but prices nothing (it seated ON-CHAIN at
+//	      0.285ms under the former [window start, latest edge] reading).
 //	负臂  tieba 59566 window 34579.466..34579.4965 — every 61839→59566 edge
 //	      is OUT of window (…465879 before the window head-adjacent region,
-//	      496810 past the window end) → the span must NOT seat on-chain.
+//	      496810 past the window end) → no credential, no seat.
 //	翻道  moving ONLY the window end 34579.4965 → 34579.4969 (+0.4ms) admits
-//	      the 496810 edge and flips the lane (边界敏感双向).
+//	      the 496810 edge (the credential flips), and the wait it closed still
+//	      holds none of the span (no seat either way since HMC377 E2).
 //	诱错  donghu 17267 window 13762.890..13762.900 — span2 (jit on 17284)
 //	      straddles SOMEONE ELSE's edge (binder:496_9→17267 at 13762.895420)
 //	      while its host 17284 holds no edge → no on-chain semantic seat
@@ -23,15 +27,16 @@ package tracequery
 //	      seat (rank#2, 2.388, self basis) stays byte-identical (§29.61.1
 //	      carve; §29.88.8 ③).
 //
-// Synthetic pins: bisection (跨边按边界二分 — pre-edge ⛓ seat + post-edge ◇
-// remainder clone partitioning the span exactly) and the multi-hop chain-edge
+// Synthetic pins: partition (the share inside the waits the host's wakeup
+// ended ⛓ + the outside share ◇ remainder clone, partitioning the span
+// exactly — HMC377 E2) and the multi-hop chain-edge
 // credential (60595 depth-2 判例形; no natural in-repo witness for either —
 // 如实注, same discipline as the RSPA io_burst synthetic arm).
 
 import (
 	"context"
+	"fmt"
 	"math"
-	"strings"
 	"testing"
 )
 
@@ -57,76 +62,87 @@ func r3SemanticRows(rank RootCauseRankResult) (onChain, offChain []RootCauseRank
 	return onChain, offChain
 }
 
+// r3TiebaSentinelHostWindows returns the dependency windows the chain of the
+// sentinel query hands to host 61839 (the credential function verbatim).
+func r3TiebaSentinelHostWindows(t *testing.T, idx *Index, q Query) (semanticHostEdgeAnchor, bool) {
+	t.Helper()
+	chain := BuildWakeupChain(idx, q)
+	return hostSemanticSpanEdgeAnchor(&chain, ThreadRef{Comm: "T7@ZeusThreadPo", PID: 61839})
+}
+
+// TestR3TiebaSentinelPositiveArm — RE-BASED (HMC377 E2, owner ruling
+// 2026-11-18 "同意继续", given after being told it re-prices this witness to
+// zero). Old: the 0.285ms VerifyClass span of 61839 (raw lines 5552..5572,
+// 34579.495841..34579.496126) was an on-chain seat on the host-edge basis,
+// effective 0.285, anchored at the 34579.496810 bare edge (line 5639).
+// New: that edge ended the target's 0.057ms sleep [34579.496753 (line 5635),
+// 34579.496810] — the only wait of 59566 that 61839's wakeup ended in this
+// window — and the verification finished 0.627ms before that wait began, so
+// none of it is time the target spent waiting for 61839: no on-chain
+// semantic row. The pin keeps its meaning (the bare edge is still the
+// admitted credential, µs-exact; what it prices is the wait it closed).
 func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), r3TiebaTrace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rank := BuildRootCauseRank(idx, r3RankQuery(59566, 34579.490, 34579.500))
+	q := r3RankQuery(59566, 34579.490, 34579.500)
+	rank := BuildRootCauseRank(idx, q)
 	onChain, _ := r3SemanticRows(rank)
-	if len(onChain) != 1 {
-		t.Fatalf("正臂 must seat exactly ONE on-chain semantic row: %+v", rank.Items)
+	for _, seat := range onChain {
+		if seat.Thread.PID == 61839 || seat.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
+			t.Fatalf("the 61839 verification ended before the wait its wakeup closed: no on-chain seat: %+v", seat)
+		}
 	}
-	seat := onChain[0]
-	if seat.Thread.PID != 61839 || seat.Type != "class_verification" {
-		t.Fatalf("正臂 seat identity drifted: %+v", seat)
+	anchor, ok := r3TiebaSentinelHostWindows(t, idx, q)
+	if !ok || !anchor.direct || math.Abs(anchor.boundaryTs-34579.496810) > 0.0000005 {
+		t.Fatalf("the 34579.496810 bare edge must stay the admitted credential: %+v ok=%v", anchor, ok)
 	}
-	if seat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
-		t.Fatalf("正臂 seat must ride the typed host-edge basis: %+v", seat)
+	if len(anchor.windows) != 1 || math.Abs(anchor.windows[0].startTs-34579.496753) > 0.0000005 ||
+		math.Abs(anchor.windows[0].endTs-34579.496810) > 0.0000005 {
+		t.Fatalf("61839's wakeup closed exactly the 0.057ms sleep [34579.496753, 34579.496810]: %+v", anchor.windows)
 	}
-	if seat.Causality != "on_wakeup_chain" || seat.ChainRelevance != "on_chain" {
-		t.Fatalf("正臂 seat must speak the honest edge token on the chain channel: %+v", seat)
-	}
-	// CROWNSEM-1 (§40.28 ①, restoring R3): the whole 0.285ms span lies before
-	// the edge — its pre-edge share IS the priced on-chain effective.
-	if math.Abs(seat.EffectiveImpactMs-0.285) > 0.002 || math.Abs(seat.ProjectedImpactMs-0.285) > 0.002 ||
-		math.Abs(seat.CumulativeImpactMs-0.285) > 0.002 || seat.Rank <= 0 || seat.Tier == RootCauseTierContextOnly {
-		t.Fatalf("正臂 must price its 0.285ms pre-edge share on-chain: %+v", seat)
-	}
-	// The anchor boundary is the raw 裸边 line 5639 timestamp, µs-exact.
-	if math.Abs(seat.HostWakeupEdgeAnchorTs-34579.496810) > 0.0000005 {
-		t.Fatalf("正臂 anchor boundary must be the 34579.496810 edge: %+v", seat)
-	}
-	if seat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
-		t.Fatalf("正臂 credential inventory must be the direct census edge: %+v", seat)
-	}
-	// Fully pre-edge: no bipartition pair, no ◇ remainder clone.
-	if seat.ChainAnchorFullMs != 0 || seat.ChainAnchorRemainderSeat {
-		t.Fatalf("正臂 fully pre-edge seat must carry no bipartition pair: %+v", seat)
-	}
-	// No fabricated overlap; the R4-family credential sentence rides Summary.
-	if seat.OverlapMs != 0 {
-		t.Fatalf("正臂 seat must not fabricate a chain-window overlap: %+v", seat)
-	}
-	if !strings.Contains(seat.Summary, "pre-edge=effective") ||
-		!strings.Contains(seat.Summary, "mechanism unproven") {
-		t.Fatalf("正臂 seat summary must speak the R4 credential rule and keep the mechanism disclosure: %q", seat.Summary)
+	split := splitFoldIntervalsByDependencyWindows([]foldInterval{{start: 34579.495841, end: 34579.496126}}, anchor.windows)
+	if split.preMs != 0 || math.Abs(split.postMs-0.285) > 0.0005 {
+		t.Fatalf("the verification lies wholly outside that wait: inside %.3f outside %.3f", split.preMs, split.postMs)
 	}
 }
 
+// TestR3TiebaSentinelNegativeArmAndBoundaryFlip — RE-BASED (HMC377 E2, owner
+// ruling 2026-11-18). Old: the negative window 34579.466..34579.4965 seated
+// nothing, and moving only its end +0.4ms (admitting the 34579.496810 edge)
+// flipped the 61839 span on-chain at 0.285. New: both windows seat nothing;
+// the flip window admits the edge (credential present) but the wait it ended
+// [34579.496753, 34579.496810] holds none of the span. Kept meaning: the
+// boundary decides the CREDENTIAL (absent ↔ present); the price is decided by
+// the wait the credential closed (the inside/outside geometry is pinned on
+// the synthetic universe and at the public entry,
+// TestHMC377SemanticWorkIsOnChainOnlyInsideTheWaitTheWakeupEnded).
 func TestR3TiebaSentinelNegativeArmAndBoundaryFlip(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), r3TiebaTrace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 负臂: every 61839→59566 edge sits outside 34579.466..34579.4965 —
-	// the span must NOT seat on-chain (◇/▒ per the legacy lane, unchanged).
-	rank := BuildRootCauseRank(idx, r3RankQuery(59566, 34579.466, 34579.4965))
+	negative := r3RankQuery(59566, 34579.466, 34579.4965)
+	rank := BuildRootCauseRank(idx, negative)
 	onChain, _ := r3SemanticRows(rank)
 	if len(onChain) != 0 {
 		t.Fatalf("负臂 must seat ZERO on-chain semantic rows: %+v", onChain)
 	}
-	// 翻道 (边界敏感 pin, 双向): end +0.4ms admits the 496810 edge — the
-	// same span flips onto the chain tier; the 正臂 window ending 34579.500
-	// above is the other direction of the same boundary sensitivity.
-	flipped := BuildRootCauseRank(idx, r3RankQuery(59566, 34579.466, 34579.4969))
-	onChainFlipped, _ := r3SemanticRows(flipped)
-	if len(onChainFlipped) != 1 || onChainFlipped[0].Thread.PID != 61839 ||
-		onChainFlipped[0].OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
-		t.Fatalf("翻道 window (+0.4ms end) must seat the 61839 span on-chain: %+v", onChainFlipped)
+	if _, ok := r3TiebaSentinelHostWindows(t, idx, negative); ok {
+		t.Fatalf("负臂: no 61839→59566 edge lies in the window, so no credential")
 	}
-	if math.Abs(onChainFlipped[0].EffectiveImpactMs-0.285) > 0.002 || math.Abs(onChainFlipped[0].ProjectedImpactMs-0.285) > 0.002 {
-		t.Fatalf("翻道 must price the 0.285ms pre-edge share: %+v", onChainFlipped[0])
+	flip := r3RankQuery(59566, 34579.466, 34579.4969)
+	flipped := BuildRootCauseRank(idx, flip)
+	onChainFlipped, _ := r3SemanticRows(flipped)
+	for _, seat := range onChainFlipped {
+		if seat.Thread.PID == 61839 {
+			t.Fatalf("翻道: the admitted edge closed a wait that holds none of the span: %+v", seat)
+		}
+	}
+	anchor, ok := r3TiebaSentinelHostWindows(t, idx, flip)
+	if !ok || math.Abs(anchor.boundaryTs-34579.496810) > 0.0000005 || len(anchor.windows) != 1 {
+		t.Fatalf("翻道 (+0.4ms end) must admit the 34579.496810 credential with its one closed wait: %+v ok=%v", anchor, ok)
 	}
 }
 
@@ -210,6 +226,20 @@ func r3SyntheticChain() ChainResult {
 		WakeupEdgeCensus: []WakeupEdgeCensusPair{
 			{Waker: host, Wakee: target, Count: 1, FirstTs: 6.006, LastTs: 6.006},
 			{Waker: relay, Wakee: target, Count: 1, FirstTs: 6.0045, LastTs: 6.0045},
+		},
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): the
+		// universe now states the typed waits of the target that the two
+		// census edges ended — hostw's 6.006 edge ended a wait that began at the
+		// window start, relay's 6.0045 edge ended the target node's own wait.
+		// Every hand-computed value of the pins built on this universe keeps
+		// its number (old → new: identical), because "before the edge" here
+		// was always "inside the wait that edge ended". The fail-closed twin
+		// (pair declared, no wait stated ⇒ nothing priced, row byte-identical)
+		// is TestHMC377HostEdgeWithoutClosedWaitPricesNothing.
+		directDependencyWindowsBuilt: true,
+		directDependencyWindows: map[int][]targetWaitDependencyWindow{
+			300: {{startTs: 6.000, endTs: 6.006, wakeupTs: 6.006}},
+			200: {{startTs: 6.000, endTs: 6.0045, wakeupTs: 6.0045}},
 		},
 	}
 }
@@ -355,22 +385,41 @@ func TestR3FamilyGrainEdgeAnchorFold(t *testing.T) {
 	}
 }
 
+// TestR3BisectionSplitArithmetic — the exact partition arithmetic of the
+// host-edge lanes. RE-BASED (HMC377 E2, owner ruling 2026-11-18): the old
+// primitive bisected at the latest edge (boundary 7 ⇒ pre [5,7] / post
+// [7,9]); the bound partitions against the waits the host's wakeup ended.
+// With the wait [4,7] ended at 7 the first three shapes keep their old
+// values exactly (the wait covers everything the old pre-edge side covered
+// here); the fourth shape is the one the old reading got wrong: time before
+// the wait began is outside, not inside.
 func TestR3BisectionSplitArithmetic(t *testing.T) {
-	// Straddling interval: [5, 9] against boundary 7 → pre [5,7] + post [7,9].
-	preS, preE, postS, postE := semanticEdgeAnchorSplit(5, 9, 7)
-	if preS != 5 || preE != 7 || postS != 7 || postE != 9 {
-		t.Fatalf("straddle split drifted: %v %v %v %v", preS, preE, postS, postE)
+	windows := []targetWaitDependencyWindow{{startTs: 4, endTs: 7, wakeupTs: 7}}
+	piece := func(ivs []foldInterval) [][2]float64 {
+		out := make([][2]float64, 0, len(ivs))
+		for _, iv := range ivs {
+			out = append(out, [2]float64{iv.start, iv.end})
+		}
+		return out
 	}
-	// Fully pre-edge: no post share.
-	preS, preE, postS, postE = semanticEdgeAnchorSplit(5, 6, 7)
-	if preS != 5 || preE != 6 || postS != 0 || postE != 0 {
-		t.Fatalf("pre-edge split drifted: %v %v %v %v", preS, preE, postS, postE)
+	check := func(name string, in foldInterval, wantIn, wantOut [][2]float64) {
+		t.Helper()
+		split := splitFoldIntervalsByDependencyWindows([]foldInterval{in}, windows)
+		if fmt.Sprint(piece(split.pre)) != fmt.Sprint(wantIn) || fmt.Sprint(piece(split.post)) != fmt.Sprint(wantOut) {
+			t.Fatalf("%s split drifted: inside %v outside %v", name, piece(split.pre), piece(split.post))
+		}
+		if math.Abs(split.preMs+split.postMs-(in.end-in.start)*1000) > 1e-9 {
+			t.Fatalf("%s split does not conserve the interval: %v + %v", name, split.preMs, split.postMs)
+		}
 	}
-	// Fully post-edge (边后=解除): no pre share.
-	preS, preE, postS, postE = semanticEdgeAnchorSplit(8, 9, 7)
-	if preS != 0 || preE != 0 || postS != 8 || postE != 9 {
-		t.Fatalf("post-edge split drifted: %v %v %v %v", preS, preE, postS, postE)
-	}
+	// Straddling the wakeup: [5, 9] → inside [5,7] + outside [7,9].
+	check("straddle", foldInterval{start: 5, end: 9}, [][2]float64{{5, 7}}, [][2]float64{{7, 9}})
+	// Entirely inside the wait: no outside share.
+	check("inside", foldInterval{start: 5, end: 6}, [][2]float64{{5, 6}}, [][2]float64{})
+	// Entirely after the wakeup: no inside share.
+	check("after", foldInterval{start: 8, end: 9}, [][2]float64{}, [][2]float64{{8, 9}})
+	// Reaching over both ends of the wait: two outside pieces.
+	check("both sides", foldInterval{start: 3, end: 9}, [][2]float64{{4, 7}}, [][2]float64{{3, 4}, {7, 9}})
 }
 
 // TestR3BisectedSpanMintsSeatPlusRemainder — the 跨边按边界二分 pin at the
@@ -452,6 +501,14 @@ func TestB829HostEdgeDoesNotInventSemanticCompletionCausality(t *testing.T) {
 			Window: TimeWindow{StartTs: 5.000000, EndTs: 5.005000}, Dominant: StateSSleep}},
 		WakeupEdgeCensus: []WakeupEdgeCensusPair{{Waker: host, Wakee: target, Count: 1,
 			FirstTs: 5.005000, LastTs: 5.005000}},
+		// RE-BASED (HMC377 E2, owner ruling 2026-11-18): the universe states
+		// the wait the census edge ended — the target node's own sleep
+		// [5.000, 5.005] closed by the worker at 5.005. Values unchanged
+		// (4.600 / 0.400): the old pre-edge side was exactly that wait.
+		directDependencyWindowsBuilt: true,
+		directDependencyWindows: map[int][]targetWaitDependencyWindow{
+			200: {{startTs: 5.000000, endTs: 5.005000, wakeupTs: 5.005000}},
+		},
 	}
 	span := TraceSpanSummary{
 		Thread: host, Name: "VerifyClass com.example.AfterWake", Kind: "sync",
@@ -486,6 +543,21 @@ func TestB829HostEdgeDoesNotInventSemanticCompletionCausality(t *testing.T) {
 	}
 	if items[1].Rank != 0 {
 		t.Fatalf("◇ remainder must not hold an ordinal: %+v", items[1])
+	}
+	// Twin (fail-closed side): the same pair with no stated wait — the carrier
+	// is built but holds nothing for the worker — prices nothing; the span
+	// keeps the plain non-chain lane of a host without any credential.
+	noWait := chain
+	noWait.directDependencyWindows = map[int][]targetWaitDependencyWindow{}
+	bare, ok := rootCauseItemFromSemanticTraceSpan(
+		Query{PID: target.PID, TimeStart: 5.000000, TimeEnd: 5.010000}, noWait, span, true)
+	noCredential := chain
+	noCredential.WakeupEdgeCensus = nil
+	plain, plainOK := rootCauseItemFromSemanticTraceSpan(
+		Query{PID: target.PID, TimeStart: 5.000000, TimeEnd: 5.010000}, noCredential, span, true)
+	if !ok || !plainOK || rootCauseItemIsOnChain(bare) || bare.OnChainBasis != "" || bare.HostWakeupEdgeAnchorTs != 0 ||
+		bare.Summary != plain.Summary || bare.ProjectedImpactMs != plain.ProjectedImpactMs {
+		t.Fatalf("a wakeup that closed no wait must price nothing (row identical to a credential-less host): %+v vs %+v", bare, plain)
 	}
 }
 

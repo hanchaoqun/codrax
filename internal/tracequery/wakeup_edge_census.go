@@ -328,6 +328,10 @@ func attachWakeupEdgeCensus(idx *Index, cache *chainQueryCache, q Query, res *Ch
 	if caveat != "" {
 		res.Caveats = append(res.Caveats, caveat)
 	}
+	// HMC377 E2: the target-wait dependency windows ride the same finished
+	// population and the same two call sites (the census is the host-edge
+	// credential; the windows are the only place it prices anything).
+	attachTargetWaitDependencyWindows(cache, q, res)
 }
 
 // WakeupEdgeCensusExitSplitLabel renders the typed exit split for banner/log

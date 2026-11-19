@@ -16,9 +16,10 @@ package tracequery
 //     (ChainResult.WakeupEdgeCensus, WAKE-CENSUS-D 2A — window-total raw
 //     sched_wakeup/sched_waking counting; target-wakee pairs are pair-cap
 //     IMMUNE, so a direct credential can never fall to census overflow).
-//     SCAN-3 positive sentinel: tieba 61839→59566 裸边 34579.496810 行5639 —
-//     an edge the chain expansion never consumed (it woke an already-runnable
-//     target), invisible to the chain-window intersection lane.
+//     SCAN-3 sentinel: tieba 61839→59566 裸边 34579.496810 行5639 — an edge
+//     the chain expansion never consumed (it ended a 0.057 ms sleep that is
+//     not among the expanded branches), invisible to the chain-window
+//     intersection lane.
 //   - multi-hop: the host's own edge in ChainResult.Edges (凭证沿链传递 — a
 //     chain edge's wakee is a chain node whose path reaches the target by
 //     construction; the 60595 depth-2 判例形). The credential is always the
@@ -26,14 +27,18 @@ package tracequery
 //     nothing (donghu 17267 decoy — span2 crosses binder:496_9→17267 while
 //     its host 17284 holds no edge → no seat).
 //
-// Boundary semantics: an instant t is 边前 iff SOME credential edge has
-// ts ≥ t, so the anchored share of an interval is its part at or before the
-// LATEST in-window credential edge (最晚相关边 — per instant the operative
-// edge is the nearest one AFTER it, and the union of those per-edge
-// pre-windows is exactly [windowStart, maxEdgeTs]).
-// An edge BEFORE the whole span grants nothing (边后=解除): the SCAN-3
-// negative sentinel window ends 0.9ms before the 496810 edge and the six
-// earlier 61839→59566 edges (…465879) all precede the span — no credential.
+// Pricing (HMC377 E2, owner ruling 2026-11-18 — supersedes the R3-IMPL
+// [window start, latest edge] reading of §29.97): the credential admits the
+// host; it prices only the part of the host's span inventory that lies
+// inside a wait of the analysis target closed by the host's OWN recorded
+// wakeup (the host's dependency windows, target_wait_dependency.go). A
+// wakeup that found the target not waiting closes no wait and prices nothing
+// (the SCAN-3 61839 bare edge woke the target out of a 0.057 ms sleep that
+// began after its 0.285 ms class verification ended: no share); a chain-hop
+// edge opens no dependency window either (its window is the chain node
+// window, which the overlap lane already prices). The rest of the span is
+// supporting context on the adjacent remainder clone; inside + outside ==
+// the span's in-window projection exactly.
 //
 // Carve-outs (typed, structural):
 //   - the analysis TARGET's own spans never take this lane (SELF-SEM
@@ -57,6 +62,14 @@ type semanticHostEdgeAnchor struct {
 	// direct / viaChainHop — which typed inventories supplied credentials.
 	direct      bool
 	viaChainHop bool
+	// windows (HMC377 E2, owner ruling 2026-11-18) — the host's dependency
+	// windows: the analysis target's own waits that this host's recorded
+	// wakeup ended (target_wait_dependency.go). The edge is the credential;
+	// these windows are the only place it prices anything. Empty when every
+	// wakeup of the host found the target not waiting, when the host holds
+	// only a chain-hop edge (its chain node window is priced by the overlap /
+	// RSPA lanes), or when the carrier is absent.
+	windows []targetWaitDependencyWindow
 }
 
 // via returns the closed-set disclosure token (HostWakeupEdgeAnchorVia*).
@@ -84,6 +97,9 @@ func hostSemanticSpanEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHos
 	}
 	anchor := hostDirectCensusEdgeCredential(chain, host, inWindow)
 	hostChainHopEdgeCredential(chain, host, inWindow, &anchor)
+	if anchor.direct {
+		anchor.windows = hostDirectDependencyWindows(chain, host)
+	}
 	return anchor, anchor.boundaryTs > 0
 }
 
@@ -101,6 +117,9 @@ func hostDirectCensusEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHos
 		return semanticHostEdgeAnchor{}, false
 	}
 	anchor := hostDirectCensusEdgeCredential(chain, host, inWindow)
+	if anchor.direct {
+		anchor.windows = hostDirectDependencyWindows(chain, host)
+	}
 	return anchor, anchor.boundaryTs > 0
 }
 
@@ -176,40 +195,33 @@ func hostChainHopEdgeCredential(chain *ChainResult, host ThreadRef, inWindow fun
 	}
 }
 
-// semanticEdgeAnchorSplit bisects one (already window-clipped) interval at
-// the credential boundary (跨边按边界二分): the pre-edge share
-// [start, min(end, boundary)] stays on the chain seat, the post-edge share
-// [max(start, boundary), end] rides the ◇ remainder. Either share may be
-// empty (zero-width); the two shares are disjoint and sum back to the
-// interval exactly (the ONLY additive relation form — RSPA 同源二分 shared
-// semantics).
-func semanticEdgeAnchorSplit(start, end, boundary float64) (preStart, preEnd, postStart, postEnd float64) {
-	if end <= start || boundary <= 0 {
-		return 0, 0, 0, 0
-	}
-	if start < boundary {
-		preStart, preEnd = start, minFloat(end, boundary)
-	}
-	if end > boundary {
-		postStart, postEnd = maxFloat(start, boundary), end
-	}
-	return preStart, preEnd, postStart, postEnd
-}
-
 // semanticEdgeAnchorRemainderSeat clones the ◇ remainder seat from an
-// edge-anchored semantic seat (跨边二分的边后半席). It reuses the RSPA
+// edge-anchored semantic seat (the part outside the host's dependency
+// windows — HMC377 E2). It reuses the RSPA
 // remainder typed trio (ChainAnchoredMs/ChainAnchorFullMs/
 // ChainAnchorRemainderSeat) so every downstream face — the 行2 同源二分
 // sentence, the ◇ side-lane capacity, the same-fact absorb key fork and the
 // twin-visibility sweep — consumes it through the existing plumbing. The
-// remainder value is the post-boundary in-window extent; the seat pair
-// partitions the span's full in-window projection exactly.
+// remainder value is the Σ of the outside inventory (its extent when the
+// outside is one piece); the seat pair partitions the span's full in-window
+// projection exactly.
 func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem, bool) {
 	remStart, remEnd := seat.hostEdgeRemainderStartTs, seat.hostEdgeRemainderEndTs
 	if remEnd <= remStart {
 		return RootCauseRankItem{}, false
 	}
 	remMs := (remEnd - remStart) * 1000
+	if len(seat.hostEdgeRemainderIntervals) > 0 {
+		// HMC377 E2: the remainder may lie on both sides of the priced share
+		// (before the wait began and after the wakeup) and between members;
+		// its value is the inventory Σ, never the hull.
+		remMs = 0
+		for _, iv := range seat.hostEdgeRemainderIntervals {
+			if iv.end > iv.start {
+				remMs += (iv.end - iv.start) * 1000
+			}
+		}
+	}
 	if remMs <= 0 {
 		return RootCauseRankItem{}, false
 	}
@@ -219,11 +231,13 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.OnChainBasis = ""
 	rem.StartTs, rem.EndTs = remStart, remEnd
 	rem.ActualStartTs, rem.ActualEndTs = remStart, remEnd
-	// CROWNSEM-1 (§40.28 ①, restoring R3/R4): this clone is the post-edge half
-	// of a host-edge semantic account — 边后=解除: the share after the credential
-	// edge is released (effective 0); the pre-edge half stays priced on the ⛓
-	// seat it partners with. The semantic completion mechanism is a disclosure
-	// on both halves, never a pricing verdict.
+	// CROWNSEM-1 (§40.28 ①, restoring R3/R4) as bounded by HMC377 E2 (owner
+	// ruling 2026-11-18): this clone is the part of a host-edge semantic
+	// account OUTSIDE every wait of the analysis target that the host's own
+	// wakeup ended (effective 0 — the target was not waiting for the host
+	// there); the inside part stays priced on the ⛓ seat it partners with.
+	// The semantic completion mechanism is a disclosure on both halves, never
+	// a pricing verdict.
 	rem.EffectiveImpactMs = 0
 	rem.ProjectedImpactMs = remMs
 	rem.CumulativeImpactMs = remMs
@@ -235,12 +249,13 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.ChainAnchoredMs = seat.ChainAnchoredMs
 	rem.ChainAnchorFullMs = seat.ChainAnchorFullMs
 	rem.hostEdgeRemainderStartTs, rem.hostEdgeRemainderEndTs = 0, 0
-	// The clone's direction support is the post-edge inventory (family lane);
-	// the single-span lane leaves it nil and its StartTs..EndTs IS the segment.
+	// The clone's direction support is the outside inventory when it has more
+	// than one piece (family lane, or a span reaching both sides of a wait);
+	// otherwise it stays nil and its StartTs..EndTs IS the segment.
 	rem.semanticMemberIntervals = append([]foldInterval(nil), seat.hostEdgeRemainderIntervals...)
 	rem.hostEdgeRemainderIntervals = nil
 	rem.Score = rootCauseRankScoreBasisMs(rem) * rem.Confidence * rootCauseItemScoreWeight(rem)
-	rem.Summary = fmt.Sprintf("%s span %q post-edge remainder %.3fms window=%.6f..%.6f — the share AFTER the host's latest in-window wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; the %.3fms pre-edge share priced on the chain seat and this released remainder partition the span's in-window projection %.3fms exactly; effective_impact=0.000ms)",
+	rem.Summary = fmt.Sprintf("%s span %q remainder %.3fms window=%.6f..%.6f — the part outside every wait of the analysed thread that this thread's own wakeup ended (the analysed thread was not waiting for this thread there; supporting context, not a cause); the %.3fms inside those waits priced on the chain seat and this remainder partition the span's in-window projection %.3fms exactly; whether finishing this work triggered the wakeup is unproven (disclosure only); effective_impact=0.000ms",
 		firstNonEmpty(rem.SemanticClass, rem.Type), rem.SpanName, remMs, remStart, remEnd, rem.ChainAnchoredMs, rem.ChainAnchorFullMs)
 	return rem, true
 }

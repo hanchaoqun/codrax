@@ -84,11 +84,16 @@ func TestEvalcaseDHMA1aTwoRulerRunnableConservation(t *testing.T) {
 	// direct census edge toward 59843 at 34579.576675, so it now takes the
 	// host-edge state credential and ranks #12 — the 0.399 wall seat moves
 	// to #13; subjects, values and both subtotals are unchanged.
+	// RE-BASED (HMC377 E2, owner ruling 2026-11-18 "同意继续"): old → new =
+	// wall seat ranks 4 / 13 → 4 / 12. The 0.635ms residual seat is no longer
+	// priced (none of it lies inside a wait of 59843 that 59566's wakeups
+	// ended — raw oracle 0.000), so the 0.399 wall seat takes #12 back;
+	// subjects, values and both subtotals stay unchanged.
 	if len(tr.WallSeats) != 2 || len(tr.EdgeSeats) != 1 {
 		t.Fatalf("DHM-A1a: ruler membership drifted: wall=%d edge=%d", len(tr.WallSeats), len(tr.EdgeSeats))
 	}
 	if tr.WallSeats[0].Rank != 4 || !near(tr.WallSeats[0].EffMs, 8.307, 0.001) ||
-		tr.WallSeats[1].Rank != 13 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
+		tr.WallSeats[1].Rank != 12 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
 		t.Fatalf("DHM-A1a: wall seats drifted: %+v", tr.WallSeats)
 	}
 	if tr.EdgeSeats[0].Rank != 7 || !near(tr.EdgeSeats[0].EffMs, 4.067, 0.001) {

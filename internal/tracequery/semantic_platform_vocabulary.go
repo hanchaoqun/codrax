@@ -402,10 +402,13 @@ func semanticSpanMintedByPlatformVocabulary(name string) bool {
 // window of its thread (interval lane) are unaffected.
 //
 // This bar applies to vocabulary rows only; names classified by a built-in
-// arm keep the host-edge lane unchanged. It is tied to the open
-// dependency-credit bound of the host-edge lane (the lane does not yet bound
-// how much of a host's time before its wakeup edge is credited as a
-// dependency of the target) and is to be revisited together with that bound.
+// arm keep the host-edge lane unchanged. Revisited with the dependency-credit
+// bound (HMC377 E2, owner ruling 2026-11-18), which now prices a host only
+// inside the target's waits its own wakeup ended: the bar stays, because a
+// wait recorded on the host inside such a window is the host's own nested
+// wait — the next hop of the dependency, which the bound does not credit to
+// the host unless the chain expansion walked it (the walked hop is priced by
+// the interval lane above).
 func semanticSpanAdmitsHostEdgeLane(name string) bool {
 	if !semanticSpanMintedByPlatformVocabulary(name) {
 		return true

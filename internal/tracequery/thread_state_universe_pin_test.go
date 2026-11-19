@@ -403,8 +403,14 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// ONCHAIN-3c (2026-07-19): the bare-census-edge D/IO seat admission fork —
 	// only D-family dominants are D/IO state seats; every other dominant on a
 	// d_state_or_io_wait/io_wait-typed row is a shape this pass must not
-	// touch (default = skip, fail closed).
-	"rank_state_edge_anchor.go:anchorBareCensusEdgeStateSeats#1": "d_sleep,io_wait|default",
+	// touch (default = skip, fail closed). HMC377 E2: the per-seat conversion
+	// moved into its own function (same fork, same members).
+	"rank_state_edge_anchor.go:anchorStateSeatInsideDependencyWindows#1": "d_sleep,io_wait|default",
+	// HMC377 E2 (owner ruling 2026-11-18): the target's typed waits that can
+	// be ended by another thread's wakeup — S sleep, D and IO wait. Running /
+	// ready / stopped / dead / unknown intervals close no wait (default = no
+	// dependency window).
+	"target_wait_dependency.go:attachTargetWaitDependencyWindows#1": "s_sleep,d_sleep,io_wait|default",
 }
 
 func TestThreadStateSwitchConsumerCoverage(t *testing.T) {
@@ -749,14 +755,15 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// ONCHAIN-3c (2026-07-19): the bare-census-edge runnable-seat admission
 	// and the R4-mirror inversion arm each read the runnable dominant-state
 	// discriminator once (the D/IO arm forks on the dominant-state switch
-	// pinned in the switch golden).
-	"rank_state_edge_anchor.go:anchorBareCensusEdgeStateSeats": "runnable#2",
-	"query.go:rootCauseItemIsRunnableCaliber":                  "runnable#2",
-	"query.go:rootCauseItemIsRunningCaliber":                   "running#2",
-	"query.go:schedulerHeadCoverageForWindow":                  "dead,unknown#2",
-	"query.go:stateDrilldownNeedsRecursiveChainForSource":      "runnable#1",
-	"query.go:stateDrilldownNeedsWakeupChainForSource":         "s_sleep#1",
-	"query.go:stateDrilldownRecommendedViewsForSource":         "s_sleep#1",
+	// pinned in the switch golden). HMC377 E2: moved with the per-seat
+	// conversion into its own function.
+	"rank_state_edge_anchor.go:anchorStateSeatInsideDependencyWindows": "runnable#2",
+	"query.go:rootCauseItemIsRunnableCaliber":                          "runnable#2",
+	"query.go:rootCauseItemIsRunningCaliber":                           "running#2",
+	"query.go:schedulerHeadCoverageForWindow":                          "dead,unknown#2",
+	"query.go:stateDrilldownNeedsRecursiveChainForSource":              "runnable#1",
+	"query.go:stateDrilldownNeedsWakeupChainForSource":                 "s_sleep#1",
+	"query.go:stateDrilldownRecommendedViewsForSource":                 "s_sleep#1",
 	// Priority-point authority separately filters relation-qualified RUNNING
 	// and RUNNABLE slices before feeding their existing impact formulas. These
 	// six comparisons are typed state dispatch, not heuristic admission.

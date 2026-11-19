@@ -421,8 +421,9 @@ func p3mMeasureSeat(item *RootCauseRankItem, ctx *p3MeasureContext) {
 	var baseUs, invalidUs, witnessedUs int64
 	switch item.OnChainBasis {
 	case RootCauseOnChainBasisHostWakeupEdge, RootCauseOnChainBasisHostWakeupEdgeState:
-		// The host-edge credential clipped the inventory to the pre-edge
-		// share at the mint — the support IS the seat's anchor time.
+		// The host-edge credential clipped the inventory to the share inside
+		// the target's waits its host's wakeup ended at the mint (HMC377 E2)
+		// — the support IS the seat's anchor time.
 		// 复核收编 (P2-2, 2026-07-20): the family-① judge prefers the seat's
 		// OWN typed edge address — a chain-member host carries
 		// HostWakeupEdgeAnchorTs, and the pid's per-window impact flags can
