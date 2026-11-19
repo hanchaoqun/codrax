@@ -194,6 +194,17 @@ func buildWakeupEdgeCensus(idx *Index, cache *chainQueryCache, q Query, res *Cha
 					// population thread's identity so the pair stays nameable.
 					key.wakeeComm, key.wakeePID = wakee.Comm, wakee.PID
 				}
+				// HMC377: a positive TID is the thread; the name is display
+				// metadata that changes when the thread renames itself, so
+				// it never splits one physical waker->wakee pair into two
+				// rows. The pair keeps the first row's names; publication
+				// gives the thread its one display name.
+				if key.wakerPID > 0 {
+					key.wakerComm = ""
+				}
+				if key.wakeePID > 0 {
+					key.wakeeComm = ""
+				}
 				pair, ok := fold[key]
 				if !ok {
 					// The wakee identity is the raw row's own (comm,pid) with
@@ -201,7 +212,7 @@ func buildWakeupEdgeCensus(idx *Index, cache *chainQueryCache, q Query, res *Cha
 					// sched_wakeup row carries no wakee tgid, while the chain
 					// population resolved it (identity fidelity kept from the
 					// pre-2A edge-fold face).
-					wakeeRef := ThreadRef{Comm: key.wakeeComm, PID: key.wakeePID, TGID: wakee.TGID}
+					wakeeRef := ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, wakee.Comm), PID: key.wakeePID, TGID: wakee.TGID}
 					pair = &WakeupEdgeCensusPair{
 						Waker:   ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID},
 						Wakee:   wakeeRef,

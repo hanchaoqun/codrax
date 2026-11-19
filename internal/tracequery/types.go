@@ -1053,6 +1053,21 @@ type Index struct {
 	// ledger whose ordinals refer to a different slice.
 	perfIdentityOnce                    sync.Once
 	perfIdentity                        *perfIdentityLedger
+	// threadDisplayOnce/threadDisplay memoize the immutable capture-level
+	// thread display ledger (thread_display_identity.go): one display name
+	// per unified physical thread. A windowed index derived from a cached
+	// complete index inherits that index's ledger (threadDisplayInherited),
+	// so different windows of one capture publish the same name.
+	threadDisplayOnce      sync.Once
+	threadDisplay          *threadDisplayLedger
+	threadDisplayInherited *threadDisplayLedger
+	// threadCreationReuses records, from the streamed lifecycle audit of a
+	// windowed parse (which sees the whole prefix or its checkpoint), every
+	// creation record that reused an already-seen TID, whether or not the
+	// reuse is relevant to the window. It lets a window tell a thread's first
+	// creation from a reuse of its number. Bounded; Capped fails closed.
+	threadCreationReuses       map[threadCreationLine]bool
+	threadCreationReusesCapped bool
 	schedulerOrderFailuresCapped        bool
 	schedulerRowIntegrityFailuresCapped bool
 	// schedulerRowIntegrityOverflowSources retains the exact physical source
@@ -1328,6 +1343,10 @@ type Result struct {
 	// Additive only — nil when no generator row matched.
 	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
 	EvidencePack         []EvidenceFact        `json:"evidence_pack,omitempty"`
+	// ThreadIdentities lists, once per thread, every physical thread this
+	// result references whose recorded names differ: the display name all
+	// typed thread fields carry and every other recorded name with its rows.
+	ThreadIdentities []ThreadDisplayIdentity `json:"thread_identities,omitempty"`
 	// ViewCancellation (SUPP-CANCEL, 2026-07-14) is the typed in-view
 	// cooperative-cancellation record: non-nil only when the run's context
 	// fired at a sampling point inside this view. Faces present on this

@@ -1015,18 +1015,26 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, c
 	}
 	var components []runtimeTraceProjAttributionComponent
 	if node.GatedRunnableMS > 0 {
-		// Producer contract (tracequery GatedRunnableMs: "runnable time
-		// counted in full"): the component's 原始 IS its 计入 — the 全额
-		// caliber claim holds by typed definition, never via the row's
-		// whole-window RunnableMS (which may cover more than this segment).
+		// Producer contract (tracequery GatedRunnableMs): runnable time that
+		// qualifies is counted in full. 原始 is a MEASURED value: the row's
+		// own runnable account (same row scope; the counted share is a subset
+		// of it by construction). When the row measured more ready time than
+		// qualified, the sub-row names the measured total, the counted share
+		// and why the rest is not counted, so a counted value never wears the
+		// measured word (HMC377: 35.466 counted of 45.378 measured).
 		raw := node.GatedRunnableMS
 		full := "全额"
 		if !zh {
 			full = "in full"
 		}
+		short := full
+		if measured, uncounted, ok := runtimeTraceProjInversionMeasuredRunnable(node); ok {
+			raw = measured
+			full = runtimeTraceProjInversionUncountedCaliber(node, uncounted, zh)
+		}
 		components = append(components, runtimeTraceProjAttributionComponent{
 			Word: "runnable", RawMS: raw, InMS: node.GatedRunnableMS,
-			CaliberShort: full, CaliberFull: full,
+			CaliberShort: short, CaliberFull: full,
 			Marks: []runtimeTraceProjMark{runtimeTraceProjMarkCaliberFull},
 		})
 	}
@@ -1051,6 +1059,12 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, c
 		if raw <= 0 && (strings.TrimSpace(strings.ToLower(node.StateKind)) == "running" ||
 			runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running") {
 			raw = runtimeTraceProjNodeDisplayImpact(node)
+		}
+		if raw <= 0 {
+			// The deficit is converted from the running time whose lower
+			// priority is proven; that measured value is published on the
+			// row (proven-lower minus the counted runnable share).
+			raw = runtimeTraceProjInversionMeasuredQualifiedRunning(node)
 		}
 		// GATED-CAL 件1② (§29.104.16.1 M3-b, 2026-07-16). EVOLUTION RECORD: an
 		// unknowable running 原始 used to fail the WHOLE "=" form (return
@@ -1105,6 +1119,63 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, c
 		return nil, 0, false // identity would not balance at print precision
 	}
 	return components, total, true
+}
+
+// runtimeTraceProjInversionMeasuredRunnable returns the row's measured
+// runnable account and the part of it the counted component does not include,
+// when the row publishes more measured ready time than it counts. A merged or
+// folded display node carries no single row scope and keeps the counted-only
+// form.
+func runtimeTraceProjInversionMeasuredRunnable(node types.TraceCausalProjectionNode) (measured, uncounted float64, ok bool) {
+	if node.MergedCount > 1 || node.MergedWireFold || node.RunnableMS <= 0 || node.GatedRunnableMS <= 0 {
+		return 0, 0, false
+	}
+	if math.Round(node.RunnableMS*1000) <= math.Round(node.GatedRunnableMS*1000) {
+		return 0, 0, false
+	}
+	return node.RunnableMS, node.RunnableMS - node.GatedRunnableMS, true
+}
+
+// runtimeTraceProjInversionMeasuredQualifiedRunning is the measured running
+// time inside the proven lower-priority share (proven-lower minus the counted
+// runnable share), or 0 when the row does not publish it or it cannot carry
+// the counted deficit.
+func runtimeTraceProjInversionMeasuredQualifiedRunning(node types.TraceCausalProjectionNode) float64 {
+	if node.MergedCount > 1 || node.MergedWireFold || node.PriorityRelationProvenLowerMS <= 0 {
+		return 0
+	}
+	running := node.PriorityRelationProvenLowerMS - node.GatedRunnableMS
+	if math.Round(running*1000) <= 0 || math.Round(running*1000) < math.Round(node.GatedRunningDeficitMS*1000) {
+		return 0
+	}
+	if node.RunningMS > 0 && math.Round(running*1000) > math.Round(node.RunningMS*1000) {
+		return 0
+	}
+	return running
+}
+
+// runtimeTraceProjInversionUncountedCaliber is the runnable sub-row caliber
+// when measured ready time exceeds the counted share: which share counts, and
+// why the rest does not, per the row's typed kind.
+func runtimeTraceProjInversionUncountedCaliber(node types.TraceCausalProjectionNode, uncounted float64, zh bool) string {
+	amount := runtimeTraceProjFmtMS(uncounted)
+	switch strings.TrimSpace(node.TypeToken) {
+	case "priority_inversion_runnable_wait":
+		if zh {
+			return "全额计入与更低优先级线程同核运行重叠的部分;其余" + amount + "同核没有更低优先级线程在运行,不计入"
+		}
+		return "in full for the share overlapping a lower-priority thread running on the same CPU; the other " + amount + " had no lower-priority thread running there and is not counted"
+	case "priority_inversion_candidate":
+		if zh {
+			return "全额计入已证明优先级低于其下游等待线程的部分;其余" + amount + "未证明优先级更低,不计入"
+		}
+		return "in full for the share whose priority is proven lower than its downstream waiting thread; the other " + amount + " has no proven lower priority and is not counted"
+	default:
+		if zh {
+			return "全额计入满足条件的部分;其余" + amount + "不计入"
+		}
+		return "in full for the qualifying share; the other " + amount + " is not counted"
+	}
 }
 
 // runtimeTraceProjInversionComponentsOK exposes only the pure builder verdict

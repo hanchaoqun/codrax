@@ -55,6 +55,15 @@ func resolveThreadSelection(idx *Index, q Query) threadResolution {
 		if threadSelectorMatchesName(sel, target.Comm) {
 			return resolution
 		}
+		// A renamed thread is one thread: any name the capture recorded for
+		// this TID (its creation-time or interim name) selects it too.
+		if record := ensureThreadDisplayLedger(idx).record(target.PID); record != nil {
+			for _, name := range record.names() {
+				if threadSelectorMatchesName(sel, name.Comm) {
+					return resolution
+				}
+			}
+		}
 		resolution.NameMismatch = true
 		exact, partial := collectThreadResolutionCandidates(idx, q, sel, true)
 		candidates := partial

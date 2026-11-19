@@ -13382,9 +13382,11 @@ func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, 
 			continue
 		}
 		// The starved subject may also appear in the occupancy ranking; its
-		// own running time is not "who kept it off the CPU" — exclude by
-		// exact PID+Comm identity.
-		if top.Thread.PID == starved.Thread.PID && top.Thread.Comm == starved.Thread.Comm {
+		// own running time is not "who kept it off the CPU" — exclude it by
+		// its thread number (a renamed thread is still itself; the name is
+		// display metadata). Name equality is the identity only when the
+		// trace format published no positive thread number.
+		if tracequery.SameThread(top.Thread, starved.Thread) {
 			continue
 		}
 		occupiers++

@@ -1011,7 +1011,7 @@ func Run(idx *Index, q Query) Result {
 		if (stateAccountTimeStartBounded && stateAccountTimeEndBounded || artifactWideTargetStats || returnedTimelineAccount) &&
 			q.TimeEnd > q.TimeStart {
 			if faceCanceled("target_window_states") {
-				return runCancelFinalize(&res, cancel)
+				return publishThreadDisplayIdentity(idx, q, runCancelFinalize(&res, cancel))
 			}
 			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
 			window := queryResultTimeWindow(q)
@@ -1032,7 +1032,7 @@ func Run(idx *Index, q Query) Result {
 			// every refinement; the raw selector's PID=0/comm is only an input
 			// hint and may be stale after a thread rename.
 			if faceCanceled("target_window_states") {
-				return runCancelFinalize(&res, cancel)
+				return publishThreadDisplayIdentity(idx, q, runCancelFinalize(&res, cancel))
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
 			stampTargetWindowRunningWorkScope(res.TargetWindowStates, idx, q)
@@ -1048,7 +1048,7 @@ func Run(idx *Index, q Query) Result {
 			}
 		}
 	}
-	return sealFilteredPerfPopulation(runCancelFinalize(&res, cancel), q)
+	return publishThreadDisplayIdentity(idx, q, sealFilteredPerfPopulation(runCancelFinalize(&res, cancel), q))
 }
 
 // eventSearchScopeAccounting returns the physical timestamp envelope of the
@@ -2320,7 +2320,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				copy := ev
 				wake = &copy
 				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
-				res.Caveats = append(res.Caveats, fmt.Sprintf("thread_generation_boundary=true; sched_wakeup_new reset tid=%d at line=%d", ev.WakeePID, ev.Line))
+				res.Caveats = append(res.Caveats, threadCreationCaveat(idx, ev))
 				return
 			}
 			// An observed headless wake establishes runnable only from its

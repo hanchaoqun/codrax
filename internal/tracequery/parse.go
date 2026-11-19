@@ -921,6 +921,9 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		// a window derived from a complete parent keeps the full-file basis
 		// (maps shared read-only).
 		fullFreq: full.fullFreq,
+		// One physical thread keeps one display name across every window of
+		// the capture: the window inherits the complete index's ledger.
+		threadDisplayInherited: ensureThreadDisplayLedger(full),
 	}
 	mergeTraceDBTextCounts(out, full)
 	firstLine, lastLine := 0, 0
@@ -1928,6 +1931,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				if evOK {
 					if incarnationAuditSeedBoundary == 0 || ev.Ts >= incarnationAuditSeedBoundary {
 						for _, conflict := range incarnationAudit.observeAll(ev, 0) {
+							recordThreadCreationReuse(idx, conflict)
 							if incarnationBoundaryInsideQuery(&conflict, auditQ) {
 								if len(idx.threadIncarnationFailures) < threadIncarnationFailureCap {
 									idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, conflict)

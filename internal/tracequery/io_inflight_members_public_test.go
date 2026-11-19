@@ -199,9 +199,32 @@ func TestIOInFlightMembersPublicGenericStorage(t *testing.T) {
 	if g.Layer != "scsi" || g.EndpointFamily != "scsi_dispatch_cmd" || len(g.Members) != 2 {
 		t.Fatalf("generic success endpoint path not used: %+v", g)
 	}
+	// Each endpoint keeps its own row's thread number, process and line. The
+	// two rows name TID 40 differently; it is one thread, so both endpoints
+	// carry its one display name (the last recorded one) and the result
+	// discloses both recorded names with their own rows.
 	for i, m := range g.Members {
-		if m.IssueLocalLine != 2*i+1 || m.CompleteLocalLine != 2*i+2 || m.IssueThread.Comm != "storage-worker" || m.CompleteThread.Comm != "storage-done" || m.IssueThread.PID != 40 || m.CompleteThread.PID != 40 || m.IssueThread.TGID != 90 {
+		if m.IssueLocalLine != 2*i+1 || m.CompleteLocalLine != 2*i+2 || m.IssueThread.Comm != "storage-done" || m.CompleteThread.Comm != "storage-done" || m.IssueThread.PID != 40 || m.CompleteThread.PID != 40 || m.IssueThread.TGID != 90 || m.CompleteThread.TGID != 90 {
 			t.Fatalf("generic pair owner/physical identity was reconstructed incorrectly: %+v", m)
 		}
+	}
+}
+
+func TestIOInFlightMembersPublicGenericStorageDisclosesBothRecordedNames(t *testing.T) {
+	var body strings.Builder
+	for i := 0; i < 2; i++ {
+		fmt.Fprintf(&body, "storage-worker-40 (90) [003] .... %.9f: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096\n", 1.001+float64(i)*.004)
+		fmt.Fprintf(&body, "storage-done-40 (90) [003] .... %.9f: scsi_dispatch_cmd_done: dev=12,80 op=read bytes=4096\n", 1.003+float64(i)*.004)
+	}
+	idx := buildTraceIndex(t, "inflight.systrace", body.String())
+	result := Run(idx, Query{View: "window_stats", TimeStart: 1, TimeEnd: 1.01})
+	if len(result.ThreadIdentities) != 1 {
+		t.Fatalf("one renamed thread must be disclosed once: %+v", result.ThreadIdentities)
+	}
+	identity := result.ThreadIdentities[0]
+	if identity.TID != 40 || identity.TGID != 90 || identity.DisplayComm != "storage-done" || len(identity.Names) != 2 ||
+		identity.Names[0].Comm != "storage-worker" || identity.Names[0].FirstLine != 1 || identity.Names[0].LastLine != 3 ||
+		identity.Names[1].Comm != "storage-done" || identity.Names[1].FirstLine != 2 || identity.Names[1].LastLine != 4 {
+		t.Fatalf("recorded names and their own rows were not disclosed: %+v", identity)
 	}
 }
