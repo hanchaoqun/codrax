@@ -3210,6 +3210,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 	}
 
+	// HMC377 D1-R1/R4: the accepted-answer follow-up can be latched on the
+	// last allowed iteration, or a force-stop can end the loop, before any
+	// request decision ran. The receipt is written once at the decision points
+	// above; this records the one remaining not-sent path (a no-op when a
+	// receipt exists or no follow-up was offered).
+	if recorder, ok := b.eval.(acceptedFollowUpRecorder); ok {
+		recorder.recordFollowUpDelivery(ctx, false, types.AnswerFollowUpNotSentLoopStopped, 0)
+	}
+
 	// Parse final output. This phase is local CPU work, not an LLM
 	// request, but it can be non-trivial on large evidence pools. Keep
 	// the same watchdog shape as prompt preflight so stalls are

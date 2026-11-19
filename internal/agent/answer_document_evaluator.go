@@ -212,6 +212,10 @@ type answerDocumentEvaluator struct {
 	// round per dispatch. The latch is dispatch-scoped (reset in
 	// BuildInitialInstruction) and never touches hard-reject accounting.
 	postEmitAdvisoryDelivered bool
+	// followUpPublishedOperations (HMC377 D1-R5): the patch operations the
+	// follow-up request's schema projection actually applied; nil when the
+	// whole surface was published (no projection, or the projection refused).
+	followUpPublishedOperations []string
 	// postEmitAdvisoryKinds are the rows that latch delivered, in table order
 	// (same reset). They plan the follow-up request: its patch operations and
 	// its delivery receipt (HMC §377 D1).
@@ -426,6 +430,7 @@ func (e *answerDocumentEvaluator) rejectHintBudget() int {
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.postEmitAdvisoryDelivered = false
+	e.followUpPublishedOperations = nil
 	e.postEmitAdvisoryKinds = nil
 	e.followUpReceiptRecorded = false
 	resolve := e.pendingPromptBudget
@@ -15954,6 +15959,7 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 			operations := []string(nil)
 			if advisoryPatch {
 				operations = postEmitAdvisoryPatchOperations(e.postEmitAdvisoryKinds)
+				e.followUpPublishedOperations = nil
 			}
 			for _, s := range schemas {
 				if s.Name == "emit_answer_document" {
@@ -15965,6 +15971,7 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 						logging.Debug("[finalizer/answer_document] post-emit follow-up surface: operations=%v patch_schema_bytes=%d follow_up_schema_bytes=%d",
 							operations, len(s.Description)+len(s.Parameters), len(tool.AnswerDocumentPatchFollowUpDescription)+len(params))
 						s.Description, s.Parameters = tool.AnswerDocumentPatchFollowUpDescription, params
+						e.followUpPublishedOperations = append([]string(nil), operations...)
 					}
 				}
 				out = append(out, s)

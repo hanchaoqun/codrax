@@ -234,7 +234,7 @@ func (e *answerDocumentEvaluator) recordFollowUpDelivery(ctx *types.AgentContext
 	e.followUpReceiptRecorded = true
 	receipt := &types.AnswerFollowUpDelivery{
 		RootCauseSelectionOffered: postEmitAdvisoryOffersRootCauseSelection(e.postEmitAdvisoryKinds),
-		Operations:                postEmitAdvisoryPatchOperations(e.postEmitAdvisoryKinds),
+		Operations:                append([]string(nil), e.followUpPublishedOperations...),
 		Sent:                      sent,
 		RequestBytes:              requestBytes,
 	}
@@ -247,6 +247,16 @@ func (e *answerDocumentEvaluator) recordFollowUpDelivery(ctx *types.AgentContext
 	ctx.Mutable.SetAnswerFollowUpDelivery(receipt)
 	raw, _ := json.Marshal(receipt)
 	logging.Debug("[diag finalizer] phase=post_emit_follow_up lanes=%v receipt=%s", e.postEmitAdvisoryKinds, raw)
+}
+
+// postEmitAdvisoryLaneClassOf returns the table class of one lane kind.
+func postEmitAdvisoryLaneClassOf(kind postEmitAdvisoryLaneKind) postEmitAdvisoryLaneClass {
+	for _, lane := range postEmitAdvisoryLanes {
+		if lane.kind == kind {
+			return lane.class
+		}
+	}
+	return postEmitAdvisoryPreciseRepair
 }
 
 // postEmitAdvisoryOffersRootCauseSelection reports whether the delivered
@@ -273,6 +283,12 @@ func postEmitAdvisoryLangIsZH(lang string) bool {
 // replace/local edits over add/remove where possible.
 func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneKind, lang string) string {
 	zh := postEmitAdvisoryLangIsZH(lang)
+	// HMC377 D1-R2: the cross-item sentence names replace/add/remove
+	// operations, so it rides only when the follow-up publishes the whole
+	// patch surface (a delivered row needs it). On a narrow surface (ordering
+	// + root-cause selection) those operations are not offered, and the hint
+	// never names an operation the projected schema leaves out.
+	wholeSurface := postEmitAdvisoryPatchOperations(kinds) == nil
 	hasOrder, hasSelection := false, false
 	for _, kind := range kinds {
 		if kind == postEmitAdvisoryRequestedDimensionOrder {
@@ -282,6 +298,19 @@ func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneK
 			hasSelection = true
 		}
 	}
+	// HMC377 D1-R3: the optional-follow-up preamble speaks for every item, so
+	// it rides only when every delivered item is advisory; a precise-repair
+	// item (a requested dimension, ordering or observation selector) keeps
+	// the "cover all items in one patch" preamble, and the root-cause item
+	// still states its own optionality in its body.
+	if hasSelection {
+		for _, kind := range kinds {
+			if postEmitAdvisoryLaneClassOf(kind) != postEmitAdvisoryAdvisory {
+				hasSelection = false
+				break
+			}
+		}
+	}
 	var b strings.Builder
 	if zh {
 		if hasSelection {
@@ -289,7 +318,7 @@ func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneK
 		} else {
 			b.WriteString("你的 `emit_answer_document` 已经落地。下面列出的每一项都只是答案展示面的修订：请只调用一次 `emit_answer_document_patch`，在同一个 patch 里覆盖全部修订项；不要重新搜索或编造没有证据的内容；保留已有结论和引用；不要写工具外散文。\n")
 		}
-		if hasOrder && len(sections) > 1 {
+		if hasOrder && len(sections) > 1 && wholeSurface {
 			b.WriteString("其中排序项使用 `model_block_order`，它不能与 `add_blocks` / `remove_block_ids` 同用：其余修订项能用 `replace_blocks` 或 `block_field_edits_v1` 完成的，优先这样做，让排序能随同一个 patch 提交；只有确需新增或删除块时才使用增删操作，并在本次 patch 中省略 `model_block_order`。\n")
 		}
 		for i, section := range sections {
@@ -302,7 +331,7 @@ func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneK
 	} else {
 		b.WriteString("Your `emit_answer_document` call landed. Every item below is a surface-only revision: submit ONE `emit_answer_document_patch` that covers all of the items together; do not re-open searches or invent unsupported content; preserve existing conclusions and citations; do not write prose outside the tool call.\n")
 	}
-	if hasOrder && len(sections) > 1 {
+	if hasOrder && len(sections) > 1 && wholeSurface {
 		b.WriteString("The ordering item uses `model_block_order`, which cannot be combined with `add_blocks` / `remove_block_ids`: prefer `replace_blocks` or `block_field_edits_v1` for the other items so the ordering can ride the same patch; only when a block truly must be added or removed, use those operations and omit `model_block_order` from this patch.\n")
 	}
 	for i, section := range sections {

@@ -20,6 +20,10 @@ const (
 	// AnswerFollowUpNotSentContextPressure: the planned request reached the
 	// hard context-pressure ratio of the window.
 	AnswerFollowUpNotSentContextPressure AnswerFollowUpNotSentCause = "context_pressure"
+	// AnswerFollowUpNotSentLoopStopped (HMC377 D1-R1/R4): the follow-up was
+	// offered on the dispatch's last allowed iteration, or a force-stop ended
+	// the loop, so no request decision was ever reached.
+	AnswerFollowUpNotSentLoopStopped AnswerFollowUpNotSentCause = "loop_stopped"
 )
 
 // AnswerFollowUpDelivery is one dispatch's follow-up decision. Byte values are
@@ -28,8 +32,10 @@ type AnswerFollowUpDelivery struct {
 	// RootCauseSelectionOffered: the follow-up offered the optional root-cause
 	// selection for the separate JSON report.
 	RootCauseSelectionOffered bool `json:"root_cause_selection_offered"`
-	// Operations are the patch operations the follow-up published; empty means
-	// the whole compatibility patch surface.
+	// Operations are the patch operations the follow-up request actually
+	// published (HMC377 D1-R5: what the schema projection applied, never the
+	// declared union when the projection refused); empty means the whole
+	// compatibility patch surface.
 	Operations      []string                   `json:"operations,omitempty"`
 	Sent            bool                       `json:"sent"`
 	NotSentCause    AnswerFollowUpNotSentCause `json:"not_sent_cause,omitempty"`

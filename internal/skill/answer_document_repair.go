@@ -59,9 +59,14 @@ func (c *Config) AnswerDocumentFollowUpTeaching() *Config {
 	if out == nil {
 		return nil
 	}
-	out.Goal = "Your structured answer is accepted. Optionally add to it in at most one scoped tool call; it stays as accepted unless the tool validates the merged document."
+	// EVOLUTION RECORD (HMC377 D1-R3): the representation said "Optionally
+	// add" / "Every item is optional" for every lane, while a requested
+	// dimension or ordering item in the same request says to cover all items
+	// in one patch. Which items are optional is stated by each item in the
+	// latest message (one source); this representation no longer decides it.
+	out.Goal = "Your structured answer is accepted. Handle the follow-up items in at most one scoped tool call; it stays as accepted unless the tool validates the merged document."
 	out.Workflow = []string{
-		"Read the follow-up items in the latest message and the projected patch tool schema. The current schema is the sole authority for field names, types, enum values, and available operations. Every item is optional. Do not reopen evidence or start a new answer.",
+		"Read the follow-up items in the latest message and the projected patch tool schema; each item says whether it is optional. The current schema is the sole authority for field names, types, enum values, and available operations. Do not reopen evidence or start a new answer.",
 		types.AnswerDocumentPatchOperationTeaching,
 		"Keep every block you do not revise exactly as accepted. A replace_blocks entry is a complete replacement of that block; copy its unchanged fields and change only what an item names. Do not attach raw JSON as a string or write a parallel answer in prose.",
 		answerDocumentPatchGraphTeaching,
