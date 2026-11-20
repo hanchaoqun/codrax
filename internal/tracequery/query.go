@@ -17090,7 +17090,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	for _, td := range runnableMembers {
 		onChain := threadInSet(chainThreads, td.Thread)
-		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), rootCauseWindowRunnableSeatConfidence, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
 		item.MeasurementSources = threadDurationMeasurementSources(td)
 		item.CumulativeImpactMs = td.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
@@ -17294,7 +17294,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// portion and the ◇ adjacent remainder seat (fail-open on every missing
 	// or non-identical basis). After the family fold (one decomposition per
 	// surviving seat), before the recon/sort.
-	items = reanchorOnChainStateSeats(chain, stats, items)
+	items = reanchorOnChainStateSeatsCarried(chain, stats, items, &res.unwalkedDecisions)
 	// ONCHAIN-3c (2026-07-19): bare-census-edge hosts' runnable / D-IO state
 	// seats take the R3 host-edge credential arm — pre-edge share ⛓, post-edge
 	// share ◇ remainder twin (every no-credential / no-inventory form keeps
@@ -17738,11 +17738,11 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		}
 		typ := "d_state_or_io_wait"
 		dominant := string(StateDSleep)
-		confidence := 0.82
+		confidence := rootCauseWindowDIOSeatConfidence
 		if dStateMs == 0 && ioWaitMs > 0 {
 			typ = "io_wait"
 			dominant = string(StateIOWait)
-			confidence = 0.84
+			confidence = rootCauseWindowIOSeatConfidence
 		} else if ioWaitMs > dStateMs {
 			dominant = string(StateIOWait)
 		}
@@ -18121,7 +18121,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// additions (scheduler_latency / low_frequency satellites of migrated
 	// threads take the same per-thread decision; already-migrated rows carry
 	// the typed remainder marker and pass through untouched).
-	rank.Items = reanchorOnChainStateSeats(chain, stats, rank.Items)
+	// HMC377 fix round 4: the build pass's unwalked-share decisions are
+	// adopted, never decided again from the rows that survived the build cap.
+	rank.Items = reanchorOnChainStateSeatsCarried(chain, stats, rank.Items, &rank.unwalkedDecisions)
 	// ONCHAIN-3c: idempotent over the enrich additions (converted seats carry
 	// the state basis token / the remainder marker; the enrich lane mints no
 	// new formal window state seats, so this is structurally a no-op pass —
@@ -19325,6 +19327,18 @@ func rankCausalThreadSet(rank RootCauseRankResult) map[int]bool {
 	}
 	return out
 }
+
+// rootCauseWindowRunnableSeatConfidence / rootCauseWindowDIOSeatConfidence /
+// rootCauseWindowIOSeatConfidence are the mint confidences of the formal
+// window_stats state seats (runnable_wait; d_state_or_io_wait; io_wait). One
+// source for every mint of the kind: the build lane's census seats and the
+// unwalked-share ledger's own seat when it is minted from the census account
+// (rank_chain_anchor_unwalked_wait.go, HMC377 fix round 4).
+const (
+	rootCauseWindowRunnableSeatConfidence = 0.76
+	rootCauseWindowDIOSeatConfidence      = 0.82
+	rootCauseWindowIOSeatConfidence       = 0.84
+)
 
 func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence float64, lineStart, lineEnd int, source, summary string) RootCauseRankItem {
 	// RN-16 (§7.9): every rank row passes the causal-token registry guard —

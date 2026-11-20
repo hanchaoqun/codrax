@@ -278,6 +278,15 @@ func bareCensusEdgeStateSeatEligible(item *RootCauseRankItem, chainThreads map[i
 	if !threadInSet(chainThreads, item.Thread) {
 		return stateEdgeLaneBareCensusHost
 	}
+	if item.rspaUnwalkedShareOwned {
+		// HMC377 fix round 4: the unwalked-share ledger gave this thread's
+		// time inside the waits its own wakeup ended (outside the walked
+		// chain windows — the only time the residual lane prices for a chain
+		// member) to a seat: the thread's own unwalked seat or its case-B
+		// clipped window seat. A row that kept those instants is never priced
+		// a second time here.
+		return stateEdgeLaneRefused
+	}
 	if chainMemberResidualStateSeatEligible(item, chainWindows[item.Thread.PID]) {
 		return stateEdgeLaneChainMemberResidual
 	}

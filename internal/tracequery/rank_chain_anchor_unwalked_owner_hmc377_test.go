@@ -95,6 +95,16 @@ func TestHMC377SatelliteUnwalkedShareIsPricedByTheSeatItNames(t *testing.T) {
 type hmc377OwnerUniverse struct {
 	name  string
 	build func() (ChainResult, WindowStats, []RootCauseRankItem)
+	// readyInsideMs / dioInsideMs: thread 200's raw ready / D-IO inventory
+	// inside its walked ∪ unwalked windows — the bound of its on-chain priced
+	// time per family. fullMs: its formal ready account whose published parts
+	// must add back to it (0 skips that check).
+	readyInsideMs, dioInsideMs, fullMs float64
+	// keep / additions (HMC377 fix round 4, cross-pass universes): the board
+	// runs both rank passes the way a rank build does — keep is the build
+	// cap, additions are the rows the enrich pass adds.
+	keep      func(RootCauseRankItem) bool
+	additions func() []RootCauseRankItem
 }
 
 func hmc377OwnerUniverses() []hmc377OwnerUniverse {
@@ -117,95 +127,213 @@ func hmc377OwnerUniverses() []hmc377OwnerUniverse {
 		seat.GatedRunnableMs = 5.0
 		return seat
 	}
+	affinityWithConstraint := func() RootCauseRankItem {
+		aff := hmc377OwnerAffinity(12)
+		aff.CPUConstraintKind = "sched_switch_next_info"
+		aff.CPUConstraintAllowedCPUs = []int{7}
+		aff.FixDirection = "scheduling_supply"
+		return aff
+	}
+	chainOnly := func(it RootCauseRankItem) bool { return strings.HasPrefix(it.Source, "wakeup_chain") }
 	return []hmc377OwnerUniverse{
-		{"case A: every arm", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "case A: every arm", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(nil)
 			return chain, stats, []RootCauseRankItem{hmc377UnwalkedChainSeat(), hmc377UnwalkedWindowSeat(s),
 				hmc377OwnerSatellite("scheduler_latency", s[:2], 9), hmc377OwnerSatellite("low_frequency", s[1:], 7),
 				hmc377OwnerSatellite("low_frequency", nil, 12), hmc377OwnerChurnTwin(12), hmc377OwnerAffinity(12)}
 		}},
-		{"case A: inversion window account", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "case A: inversion window account", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(nil)
 			return chain, stats, []RootCauseRankItem{inversionChain(), inversionWindow(s), hmc377OwnerSatellite("scheduler_latency", s, 12), hmc377OwnerChurnTwin(12)}
 		}},
-		{"case A without a formal seat", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "case A without a formal seat", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(nil)
 			return chain, stats, []RootCauseRankItem{hmc377UnwalkedChainSeat(), hmc377OwnerSatellite("scheduler_latency", s[1:2], 4),
 				hmc377OwnerSatellite("scheduler_latency", s, 12), hmc377OwnerChurnTwin(12), hmc377OwnerAffinity(12)}
 		}},
-		{"case A': diverging chain seat", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "case A': diverging chain seat", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(func(c *ChainResult, _ *WindowStats) { c.CausalImpacts[0].RunnableMs = 4.5 })
 			seat := hmc377UnwalkedChainSeat()
 			seat.RunnableMs, seat.ImpactMs, seat.CumulativeImpactMs, seat.EffectiveImpactMs = 4.5, 4.5, 4.5, 4.5
 			return chain, stats, []RootCauseRankItem{seat, hmc377UnwalkedWindowSeat(s), hmc377OwnerSatellite("scheduler_latency", s, 12), hmc377OwnerChurnTwin(12)}
 		}},
-		{"case B: no chain seat", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "case B: no chain seat", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(func(c *ChainResult, _ *WindowStats) { c.CausalImpacts = nil })
 			return chain, stats, []RootCauseRankItem{hmc377UnwalkedWindowSeat(s), hmc377OwnerSatellite("scheduler_latency", s[:2], 9),
 				hmc377OwnerSatellite("scheduler_latency", s, 12), hmc377OwnerChurnTwin(12), hmc377OwnerAffinity(12)}
 		}},
-		{"several chain seats: inversion demotion", func() (ChainResult, WindowStats, []RootCauseRankItem) {
+		{name: "several chain seats: inversion demotion", readyInsideMs: 9, fullMs: 12, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
 			chain, stats, s := base(nil)
 			a, b := hmc377UnwalkedChainSeat(), hmc377UnwalkedChainSeat()
 			a.RunnableMs, a.ImpactMs, a.CumulativeImpactMs, a.EffectiveImpactMs, a.EndTs = 2, 2, 2, 2, 1.012
 			b.RunnableMs, b.ImpactMs, b.CumulativeImpactMs, b.EffectiveImpactMs, b.StartTs = 3, 3, 3, 3, 1.012
 			return chain, stats, []RootCauseRankItem{a, b, inversionWindow(s), hmc377OwnerSatellite("scheduler_latency", s, 12)}
 		}},
+		// HMC377 fix round 4 — zero-walked owners: a formal seat whose own
+		// walked share is zero gives the planner's ruling to the owner (round
+		// 3's arm kept it and the residual lane priced it a second time).
+		{name: "case A: zero-walked ready seat of a second census group", readyInsideMs: 9, fullMs: 12, build: hmc377R4TwoGroupUniverse},
+		{name: "case A': zero-walked D/IO seat beside a diverging chain seat", dioInsideMs: 5, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+			return hmc377R4DIOUniverse(1.5)
+		}},
+		{name: "case A: zero-walked D/IO seat beside an identity chain seat", dioInsideMs: 5, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+			return hmc377R4DIOUniverse(2)
+		}},
+		{name: "case B: zero-walked D/IO seat holds its share as one object", dioInsideMs: 5, build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+			chain, stats, items := hmc377R4DIOUniverse(0)
+			chain.CausalImpacts[0].DStateMs = 2.0
+			return chain, stats, items
+		}},
+		// HMC377 fix round 4 — cross-pass truncation: the build cap kills the
+		// own seat, the three-way remainder and the formal seat (only the
+		// chain seat survives) and the enrich pass adds the thread's
+		// CPU-constraint row and a satellite; or the own seat survives.
+		{name: "cross-pass: the build cap kills the own seat, its remainder and the formal seat", readyInsideMs: 9,
+			build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+				chain, stats, s := base(nil)
+				return chain, stats, []RootCauseRankItem{hmc377UnwalkedChainSeat(), hmc377UnwalkedWindowSeat(s)}
+			}, keep: chainOnly,
+			additions: func() []RootCauseRankItem {
+				_, _, s := base(nil)
+				return []RootCauseRankItem{affinityWithConstraint(), hmc377OwnerSatellite("scheduler_latency", s, 12)}
+			}},
+		{name: "cross-pass: the own seat survives the build cap", readyInsideMs: 9,
+			build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+				chain, stats, s := base(nil)
+				return chain, stats, []RootCauseRankItem{hmc377UnwalkedChainSeat(), hmc377UnwalkedWindowSeat(s)}
+			}, keep: func(it RootCauseRankItem) bool { return chainOnly(it) || it.ChainAnchorUnwalkedSeat },
+			additions: func() []RootCauseRankItem {
+				_, _, s := base(nil)
+				return []RootCauseRankItem{affinityWithConstraint(), hmc377OwnerSatellite("scheduler_latency", s[1:], 7)}
+			}},
+		// HMC377 fix round 4 — partial satellites: two unwalked waits; a
+		// satellite whose inventory holds only one of them carries its own
+		// part (4 of the thread's 6 ms) and says so.
+		{name: "partial satellite: its inventory holds one of two unwalked waits", readyInsideMs: 11, fullMs: 14,
+			build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+				chain, stats, s := hmc377R4TwoUnwalkedChain()
+				window := hmc377UnwalkedWindowSeat(s)
+				window.RunnableMs, window.ImpactMs, window.CumulativeImpactMs, window.EffectiveImpactMs, window.EndTs = 14, 14, 14, 14, 1.084
+				return chain, stats, []RootCauseRankItem{hmc377UnwalkedChainSeat(), window,
+					hmc377OwnerSatellite("scheduler_latency", []foldInterval{s[0], s[1], s[2]}, 12),
+					hmc377OwnerSatellite("low_frequency", []foldInterval{s[3]}, 2)}
+			}},
 	}
 }
 
-// Property (HMC377 fix round 3): per thread, over every arm, the on-chain
-// priced ready time never exceeds the raw inventory inside the walked ∪
-// unwalked windows (9 ms), every typed split adds up to its full account, and
-// every part a typed split names is held by a seat on the board that
-// publishes exactly that part.
+// hmc377OwnerValue is a row's published value in its family's caliber.
+func hmc377OwnerValue(it RootCauseRankItem) float64 {
+	switch {
+	case strings.TrimSpace(it.Type) == "priority_inversion_candidate":
+		return it.GatedRunnableMs
+	case it.DominantState == string(StateRunnable):
+		return it.RunnableMs
+	case it.DominantState == string(StateDSleep) || it.DominantState == string(StateIOWait):
+		return it.DStateMs + it.IOWaitMs
+	}
+	return 0
+}
+
+// Property (HMC377 fix rounds 3 and 4): per thread and state family, over
+// every arm and across both rank passes, the on-chain priced time never
+// exceeds the raw inventory inside the walked ∪ unwalked windows; the share
+// has at most one owner per board (counting the pre-truncation pool of both
+// passes); every typed split adds up to its full account; every unwalked part
+// a typed split names is held by the one owner seat of its thread and family,
+// found by identity, which publishes that part — or, when the row's account
+// holds only part of the thread's share, more than it, and the row's sentence
+// says which part it covers.
 func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
-	const insideMs, fullMs = 9.0, 12.0
 	for _, u := range hmc377OwnerUniverses() {
 		t.Run(u.name, func(t *testing.T) {
 			chain, stats, items := u.build()
-			board := hmc377UnwalkedBoard(chain, stats, items)
-			var dump strings.Builder
-			onChain, owners := 0.0, 0
+			var board, pool []RootCauseRankItem
+			ownSeats := map[bool]int{}
+			countOwn := func(rows []RootCauseRankItem, sign int) {
+				for _, it := range rows {
+					if it.Thread.PID == 200 && it.ChainAnchorUnwalkedSeat {
+						ownSeats[rspaUnwalkedFamilyRow(it, true)] += sign
+					}
+				}
+			}
+			if u.keep == nil {
+				board = hmc377UnwalkedBoard(chain, stats, items)
+				pool = board
+				countOwn(board, 1)
+			} else {
+				var pass1, input2 []RootCauseRankItem
+				pass1, input2, board = hmc377R4RankPasses(chain, stats, items, u.keep, u.additions())
+				pool = append(append([]RootCauseRankItem(nil), pass1...), board...)
+				// Seats minted by either pass: the build pass's, plus the
+				// enrich pass's own mints (its output minus its input).
+				countOwn(pass1, 1)
+				countOwn(board, 1)
+				countOwn(input2, -1)
+			}
+			rspaPatchSummariesForTwinVisibility(board)
+			dump := hmc377R4Dump(board)
+			ready, dio := 0.0, 0.0
+			owners := map[bool]int{}
 			for _, it := range board {
-				if it.Thread.PID != 200 {
+				if it.Thread.PID != 200 || !rootCauseItemIsOnChain(it) {
 					continue
 				}
-				fmt.Fprintf(&dump, "  %s src=%s rel=%s basis=%s run=%.3f gated=%.3f anchored=%.3f unwalked=%.3f outside=%.3f full=%.3f rem=%t own=%t\n",
-					it.Type, it.Source, it.ChainRelevance, it.OnChainBasis, it.RunnableMs, it.GatedRunnableMs, it.ChainAnchoredMs,
-					it.ChainAnchorUnwalkedMs, it.ChainAnchorOutsideMs, it.ChainAnchorFullMs, it.ChainAnchorRemainderSeat, it.ChainAnchorUnwalkedSeat)
-				if !rootCauseItemIsOnChain(it) {
+				if rspaUnwalkedFamilyRow(it, true) {
+					dio += hmc377OwnerValue(it)
+				} else {
+					ready += hmc377OwnerValue(it)
+				}
+				if it.ChainAnchorUnwalkedSeat || it.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
+					owners[rspaUnwalkedFamilyRow(it, true)]++
+				}
+			}
+			if ready > u.readyInsideMs+rspaAnchorIdentityTolMs {
+				t.Fatalf("on-chain priced ready time %.3f ms exceeds the %.3f ms inside the walked and unwalked windows:\n%s", ready, u.readyInsideMs, dump)
+			}
+			if dio > u.dioInsideMs+rspaAnchorIdentityTolMs {
+				t.Fatalf("on-chain priced D/IO time %.3f ms exceeds the %.3f ms inside the walked and unwalked windows:\n%s", dio, u.dioInsideMs, dump)
+			}
+			for family, n := range owners {
+				if n > 1 {
+					t.Fatalf("%d on-chain seats price the unwalked share (dio=%t):\n%s", n, family, dump)
+				}
+			}
+			for family, n := range ownSeats {
+				if n > 1 {
+					t.Fatalf("%d own seats minted for one share across the rank passes (dio=%t):\n%s", n, family, dump)
+				}
+			}
+			// A "(owned by the chain seat)" claim hands its anchored share to
+			// the on-chain seats that hold the walked share (the chain seats
+			// and the clipped window seats of the family, never the unwalked
+			// share's own or residual seat): they publish at least that much
+			// (round 3's case B handed the zero-walked io_wait seat's 3 ms to
+			// clipped seats that did not hold it — the residual lane did).
+			for _, it := range board {
+				if it.Thread.PID != 200 || !it.ChainAnchorRemainderSeat || !strings.Contains(it.Summary, rspaSummaryOwnedByChainSeat) {
 					continue
 				}
-				switch {
-				case strings.TrimSpace(it.Type) == "priority_inversion_candidate":
-					onChain += it.GatedRunnableMs
-				case it.DominantState == string(StateRunnable):
-					onChain += it.RunnableMs
+				held := 0.0
+				for _, o := range board {
+					if o.Thread.PID == 200 && rootCauseItemIsOnChain(o) && !o.ChainAnchorRemainderSeat && !o.ChainAnchorUnwalkedSeat &&
+						o.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState && rspaUnwalkedFamilyRow(o, true) == rspaUnwalkedFamilyRow(it, true) {
+						held += hmc377OwnerValue(o)
+					}
 				}
-				if it.ChainAnchorUnwalkedSeat {
-					owners++
+				if it.ChainAnchoredMs > held+rspaAnchorIdentityTolMs {
+					t.Fatalf("a remainder hands %.3f ms to the chain seat(s), which hold %.3f ms: %q\n%s", it.ChainAnchoredMs, held, it.Summary, dump)
 				}
-			}
-			if onChain > insideMs+rspaAnchorIdentityTolMs {
-				t.Fatalf("on-chain priced ready time %.3f ms exceeds the 9 ms inside the walked and unwalked windows:\n%s", onChain, dump.String())
-			}
-			if owners > 1 {
-				t.Fatalf("%d seats own the unwalked share:\n%s", owners, dump.String())
 			}
 			for _, it := range board {
 				if it.Thread.PID != 200 || it.ChainAnchorFullMs <= 0 {
 					continue
 				}
-				value := it.RunnableMs
-				if strings.TrimSpace(it.Type) == "priority_inversion_candidate" {
-					value = it.GatedRunnableMs
-				}
+				value := hmc377OwnerValue(it)
 				switch {
 				case it.ChainAnchorUnwalkedMs > 0:
 					outside := it.ChainAnchorOutsideMs
 					if !hmc377UwNear(it.ChainAnchoredMs+it.ChainAnchorUnwalkedMs+outside, it.ChainAnchorFullMs) {
-						t.Fatalf("three-way parts do not add up to the full account: %+v\n%s", it, dump.String())
+						t.Fatalf("three-way parts do not add up to the full account: %+v\n%s", it, dump)
 					}
 					if it.ChainAnchorRemainderSeat && !hmc377UwNear(value, outside) {
 						t.Fatalf("a three-way remainder publishes its outside part: %+v", it)
@@ -213,14 +341,30 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 					if !it.ChainAnchorRemainderSeat && !hmc377UwNear(value, it.ChainAnchoredMs) {
 						t.Fatalf("a three-way chain seat publishes its walked part: %+v", it)
 					}
-					unwalkedHeld := false
-					for _, o := range board {
-						if o.Thread.PID == 200 && o.ChainAnchorUnwalkedSeat && rootCauseItemIsOnChain(o) && hmc377UwNear(o.RunnableMs, it.ChainAnchorUnwalkedMs) {
-							unwalkedHeld = true
+					var owner *RootCauseRankItem
+					for i := range pool {
+						o := pool[i]
+						if o.Thread.PID == 200 && o.ChainAnchorUnwalkedSeat && rootCauseItemIsOnChain(o) &&
+							rspaUnwalkedFamilyRow(o, true) == rspaUnwalkedFamilyRow(it, true) {
+							owner = &pool[i]
 						}
 					}
-					if !unwalkedHeld {
-						t.Fatalf("the unwalked part %.3f ms names no seat that holds it:\n%s", it.ChainAnchorUnwalkedMs, dump.String())
+					if owner == nil {
+						t.Fatalf("the unwalked part %.3f ms names no seat that holds it:\n%s", it.ChainAnchorUnwalkedMs, dump)
+					}
+					ownerMs := hmc377OwnerValue(*owner)
+					partial := fmt.Sprintf("this row's %.3fms is part of the %.3fms that seat holds for this thread", it.ChainAnchorUnwalkedMs, ownerMs)
+					switch {
+					case hmc377UwNear(ownerMs, it.ChainAnchorUnwalkedMs):
+						if strings.Contains(it.Summary, "is part of the") {
+							t.Fatalf("a row holding the seat's whole share makes no partial claim: %q", it.Summary)
+						}
+					case ownerMs > it.ChainAnchorUnwalkedMs && it.Summary != "":
+						if !strings.Contains(it.Summary, partial) {
+							t.Fatalf("a row holding part of the seat's %.3f ms says which part it covers (%q): %q", ownerMs, partial, it.Summary)
+						}
+					case ownerMs < it.ChainAnchorUnwalkedMs:
+						t.Fatalf("the row names %.3f ms inside the unwalked waits, more than the owner seat holds (%.3f):\n%s", it.ChainAnchorUnwalkedMs, ownerMs, dump)
 					}
 				case it.ChainAnchorRemainderSeat:
 					if !hmc377UwNear(it.ChainAnchoredMs+value, it.ChainAnchorFullMs) {
@@ -231,6 +375,9 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 			// Σ of the formal account's published parts = the full account
 			// (a diverging chain seat publishes its own account and is never
 			// added — the double-account form says so).
+			if u.fullMs <= 0 {
+				return
+			}
 			parts := 0.0
 			formalSplit, divergent := false, false
 			for _, it := range board {
@@ -242,18 +389,14 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 				case it.ChainAnchorUnwalkedSeat && rootCauseItemIsOnChain(it):
 					parts += it.RunnableMs
 				case strings.HasPrefix(it.Source, "wakeup_chain") && rootCauseItemIsOnChain(it):
-					if strings.TrimSpace(it.Type) == "priority_inversion_candidate" {
-						parts += it.GatedRunnableMs
-					} else {
-						parts += it.RunnableMs
-					}
+					parts += hmc377OwnerValue(it)
 				case it.Source == "window_stats" && it.Type == "runnable_wait" && (it.ChainAnchorFullMs > 0 || it.rspaUnwalkedHeldMs > 0):
 					parts += it.RunnableMs
 					formalSplit = true
 				}
 			}
-			if formalSplit && !divergent && !hmc377UwNear(parts, fullMs) {
-				t.Fatalf("published parts Σ %.3f ms != the 12 ms full account:\n%s", parts, dump.String())
+			if formalSplit && !divergent && !hmc377UwNear(parts, u.fullMs) {
+				t.Fatalf("published parts Σ %.3f ms != the %.3f ms full account:\n%s", parts, u.fullMs, dump)
 			}
 		})
 	}

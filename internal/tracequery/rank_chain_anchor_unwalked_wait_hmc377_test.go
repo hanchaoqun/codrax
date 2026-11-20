@@ -240,9 +240,10 @@ func TestHMC377ChainMemberBlockedTimeInsideTheUnwalkedWaitIsPriced(t *testing.T)
 }
 
 // A satellite's time inside the unwalked waits leaves its remainder only to
-// the one seat the ledger mints for the thread (HMC377 fix round 3: with no
-// formal window seat in the pass the satellite lends its presentation
-// identity, never its value — the seat carries the ledger's census share).
+// the one seat the ledger mints for the thread (HMC377 fix round 3; round 4:
+// with no formal window seat in the pass the seat is minted from the census
+// account itself — never a copy of the satellite or any other kind of row —
+// and carries the ledger's census share).
 func TestHMC377SatelliteRemainderExcludesTheUnwalkedWaitShare(t *testing.T) {
 	chain, stats, segments := hmc377UnwalkedChain()
 	satellite := RootCauseRankItem{Type: "scheduler_latency", Thread: ThreadRef{Comm: "dep", PID: 200},

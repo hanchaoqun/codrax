@@ -747,7 +747,18 @@ func rspaReanchorOwnedType(typ string) bool {
 	}
 }
 
+// reanchorOnChainStateSeats is one stand-alone re-anchoring pass (its
+// unwalked-share decisions are not carried anywhere). A rank build runs two
+// passes over one board and carries the first pass's decisions into the
+// second through reanchorOnChainStateSeatsCarried.
 func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []RootCauseRankItem) []RootCauseRankItem {
+	return reanchorOnChainStateSeatsCarried(chain, stats, items, &rspaUnwalkedDecisions{})
+}
+
+// reanchorOnChainStateSeatsCarried is the re-anchoring pass of a rank build:
+// carried holds the unwalked-share decisions of the board's earlier pass
+// (adopted) and receives this pass's (HMC377 fix round 4).
+func reanchorOnChainStateSeatsCarried(chain ChainResult, stats WindowStats, items []RootCauseRankItem, carried *rspaUnwalkedDecisions) []RootCauseRankItem {
 	if len(items) == 0 || stats.chainAnchorsByPID == nil {
 		return items
 	}
@@ -867,8 +878,11 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 	// thread's own unwalked seats are minted here and only here; every arm
 	// below reads the ledger for its representation check and its sentence,
 	// and subtracts the unwalked share only when its owner exists.
+	// HMC377 fix round 4: a formal window seat applies the planner's ruling
+	// for its row (formalRowScope) — the arms never re-decide; a share the
+	// board's earlier pass decided is adopted from carried.
 	ledger := buildRSPAUnwalkedLedger(&chain, stats, runnableDecisions, dioDecisions)
-	appended := rspaPlanUnwalkedOwners(chain, ledger, items, chainSeats, runnableDecisions, dioDecisions, decomposableRunnableWindowSeat)
+	appended := rspaPlanUnwalkedOwners(chain, stats, ledger, items, chainSeats, runnableDecisions, dioDecisions, decomposableRunnableWindowSeat, carried)
 	for i := range items {
 		item := &items[i]
 		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily ||
@@ -950,7 +964,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// beside a chain seat, or this clipped seat itself without one).
 			const family = "runnable (scheduling-pressure candidate)"
 			part := ledger.part(item.Thread.PID, false)
-			scope := part.rowScope(item.runnableIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
+			scope := part.formalRowScope(i, item.runnableIntervals, full, anchored)
 			presence := chainSeats[item.Thread.PID]
 			// RNB-1 B-3: case A requires the chain seat to provably HOLD the
 			// anchored account — presence ∧ µs identity (decision) ∧ published
@@ -1055,7 +1069,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// census account and its arm prices the share.
 			const family = "runnable (scheduling-pressure candidate)"
 			part := ledger.part(item.Thread.PID, false)
-			scope := part.rowScope(item.runnableIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
+			scope := part.formalRowScope(i, item.runnableIntervals, full, anchored)
 			if owners := chainRunnableSeatIndex[item.Thread.PID]; anchored > rspaAnchorIdentityTolMs &&
 				(len(owners) == 1 || (len(owners) == 0 && !decomposableRunnableWindowSeat[item.Thread.PID])) {
 				twin := stateEdgePlainRunnableCopy(*item)
@@ -1235,7 +1249,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 					item.ChainCredentialLaneDemoted = true
 					item.Causality = "adjacent_to_wakeup_chain"
 					item.ChainRelevance = "adjacent"
-					item.Summary += rspaLaneDemotionSummaryThreeWay(anchored, scope.owned, full, part.clause(),
+					item.Summary += rspaLaneDemotionSummaryThreeWay(anchored, scope.owned, full, part.clause(), scope.ownSeatClaim(),
 						"this satellite's own interval inventory cannot prove that the chain seats hold its walked share")
 				}
 				continue
@@ -1291,7 +1305,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// time inside the waits the chain did not walk, per channel.
 			const family = "D/IO blocking"
 			part := ledger.part(item.Thread.PID, true)
-			scope := part.rowScope(item.dioSegmentIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
+			scope := part.formalRowScope(i, item.dioSegmentIntervals, full, anchored)
 			ownedD, ownedIO, channelsOK := part.rowOwnedChannels(scope, item.dioSegmentIntervalsD, item.dioSegmentIntervalsIO)
 			if !channelsOK {
 				// The channel inventories do not reproduce the owned share:

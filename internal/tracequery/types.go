@@ -3978,6 +3978,13 @@ type RootCauseRankResult struct {
 	// Compactions — a direct membership assertion instead of the former noisy
 	// "compacted ∧ anchored<1ms" magnitude release.
 	preTruncationItems []RootCauseRankItem
+	// unwalkedDecisions (HMC377 fix round 4). Unexported, never serialized:
+	// the unwalked-share ledger's ownership decisions of the build lane's
+	// re-anchoring pass, carried into the enrich lane's pass, which adopts
+	// them (rank_chain_anchor_unwalked_wait.go). The build cap may kill every
+	// row a decision shaped — the own seat, its remainder, the formal seats —
+	// so the enrich pass never infers a decision from the rows that survived.
+	unwalkedDecisions rspaUnwalkedDecisions
 	// censusDemotedLabels / runnableFallbackLabels (DISPFIX-1 件1, §29.213
 	// 排期件5, 2026-07-23). Unexported, never serialized: the demoted seat-name
 	// SETS the build lane published on its census / runnable-ledger-fallback
@@ -4718,9 +4725,18 @@ type RootCauseRankItem struct {
 	// rspaUnwalkedHeldMs (unexported, HMC377 fix round 3, never serialized):
 	// on a case-B split (no chain-lane seat) the clipped window seat holds the
 	// thread's walked AND unwalked share as one object; both halves remember
-	// the unwalked part here so a later pass (the scheduler enrich pass) reads
-	// the owner from the board instead of minting a second one.
+	// the unwalked part here (the residual lane never re-judges them). The
+	// scheduler enrich pass takes the ownership decision itself from
+	// RootCauseRankResult.unwalkedDecisions (HMC377 fix round 4), never from
+	// the rows that survived the build cap.
 	rspaUnwalkedHeldMs float64
+	// rspaUnwalkedShareOwned (unexported, HMC377 fix round 4, never
+	// serialized): the unwalked-share ledger gave this row's (thread, state
+	// family) share inside the waits the thread's own wakeup ended that the
+	// chain did not walk to a seat (the thread's own unwalked seat or its
+	// case-B clipped window seat). The STATERES-1 residual lane refuses such a
+	// row: those instants are priced already.
+	rspaUnwalkedShareOwned bool
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

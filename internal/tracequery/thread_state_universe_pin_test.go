@@ -747,7 +747,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// RSPA (§29.61.10, 2026-07-14): the re-anchoring pass gates the
 	// scheduler_latency/low_frequency satellite arm on the runnable dominant
 	// state (one comparison; the formal-seat arms fork on the type token).
-	"rank_chain_anchor_rspa.go:reanchorOnChainStateSeats": "runnable#1",
+	// HMC377 fix round 4 (2026-11-19): the pass body moved unchanged into
+	// reanchorOnChainStateSeatsCarried (the rank build carries the
+	// unwalked-share decisions between its two passes); the stand-alone
+	// reanchorOnChainStateSeats wrapper compares no state.
+	"rank_chain_anchor_rspa.go:reanchorOnChainStateSeatsCarried": "runnable#1",
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the chain-lane runnable-seat
 	// interval collector keys on the SAME runnable dominant-state
 	// discriminator as rspaChainSeatPresenceByPID (reviewed: a satellite's
