@@ -42,7 +42,7 @@ const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 // data-gap disclosures from their older shared cap.
 const rootCauseRankRelationSemanticSideCap = 8
 
-// rootCauseRankSelfSideCap bounds the ELIM-SELF-FIX 件2 selfSide sub-lane
+// The ELIM-SELF-FIX 件2 selfSide sub-lane (formerly bounded by rootCauseRankSelfSideCap)
 // (§29.93.1 Form-2 + §29.93.3 全族收编, 2026-07-15): in a degenerate window
 // (no cross-thread chain) the sort is channel-blind and the candidate cap
 // can kill EVERY one of the target's own on-chain seats while background
@@ -58,7 +58,23 @@ const rootCauseRankRelationSemanticSideCap = 8
 // state families + semantic), so a full-family overflow at cap 4 silently
 // dropped the 5th/6th seat. 6 = four state families + semantic + 1 headroom
 // (a family may hold two seats, e.g. the D-state/io_wait pair).
-const rootCauseRankSelfSideCap = 6
+//
+// EVOLUTION RECORD (HMC377 fix round 3, item 5): the cap is RETIRED. Its
+// size rested on the premise that a self family holds at most two seats, but
+// the D/IO family mints one seat per proven wait-object cause plus the
+// unproven remainder (§29.50.5 proof partition), so one family can hold many
+// seats. On Douyin reboot5 [140.911304,141.835458) TID 11105 the analysed
+// thread had 15 D seats; a raw-correct new chain seat (udk-irq-7-76 3.913ms)
+// took one more candidate slot, seven self seats were displaced, the lane
+// kept six and the 0.073ms D seat vanished silently — the merged family line
+// then read 「7次 24.400ms」 for an account of 8 occurrences / 24.473ms. The
+// promise the lane exists for (§29.93.3 ②: every valued self seat present
+// in the pre-truncation pool keeps a visible form; TestRankSelfSideLaneSix-
+// SeatFullFamilyOverflow calls a silently dropped seat a violation) is a
+// per-seat promise, so the lane now holds every cap-displaced valued on-chain
+// self seat. It stays bounded by construction: its population is the
+// analysed thread's own minted seats (one per state family and proof
+// partition, plus its semantic families), never other threads' rows.
 
 func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)
@@ -479,11 +495,12 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 		for _, item := range capDead {
 			if item.SubjectIsAnalysisTarget && rootCauseItemIsOnChain(item) &&
 				rootCauseEffectiveImpactMs(item) > 0 {
+				// HMC377 fix round 3 (item 5): every displaced valued self
+				// seat is published (the per-seat zero-silent-disappearance
+				// promise; see the retired cap's EVOLUTION RECORD).
 				sideTotal++
-				if len(selfSide) < rootCauseRankSelfSideCap {
-					selfSide = append(selfSide, item)
-					continue
-				}
+				selfSide = append(selfSide, item)
+				continue
 			}
 			silent = append(silent, item)
 		}
@@ -535,7 +552,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 		demotedLimit := min(rootCauseRankDemotedSideCap, len(demotedSide))
 		side = append(side, demotedSide[:demotedLimit]...)
 	}
-	// selfSide is already bounded at collection time (sorted-order prefix).
+	// selfSide holds every displaced valued self seat (sorted order).
 	side = append(side, selfSide...)
 	sideEmitted = len(side)
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)
