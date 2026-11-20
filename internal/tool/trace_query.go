@@ -9689,6 +9689,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
 		rankRows = append(rankRows, publishedItems...)
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
+		// HMC377 fix round 5: the board position of every seat that resolves
+		// a share claim (the record identity below keys on the same position).
+		shareHolderPositions := traceQueryShareHolderPositions(rankRows)
 		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() &&
 				!traceQueryRootCauseRankRowCapExempt(item) {
@@ -9760,6 +9763,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				notes = append(notes, fmt.Sprintf("%s=%.3f", sentinelKey, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotesForPublished(item)...)
+			notes = append(notes, traceQueryShareClaimsNotes(item, shareHolderPositions)...)
 			notes = append(notes, traceQueryTypedRootCauseIOPressureRichNotes(item)...)
 			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
 			// attribution — the trace-published tgid plus the resolved owning
@@ -11681,6 +11685,45 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 		{types.TraceNoteKeyIOValueCaliber, types.NormalizeTraceIOValueCaliber(item.IOValueCaliber)},
 	})
+}
+
+// traceQueryShareHolderPositions maps every share-holder key the engine
+// assigned to the holder's 1-based position among the emitted rank rows (the
+// position the rank record identity carries).
+func traceQueryShareHolderPositions(rows []tracequery.RootCauseRankItem) map[string]int {
+	var out map[string]int
+	for i, row := range rows {
+		if key := strings.TrimSpace(row.ShareHolderKey); key != "" {
+			if out == nil {
+				out = map[string]int{}
+			}
+			if _, seen := out[key]; !seen {
+				out[key] = i + 1
+			}
+		}
+	}
+	return out
+}
+
+// traceQueryShareClaimsNotes carries the engine-resolved share claims of one
+// rank row (HMC377 fix round 5): typed holder references by board position —
+// a holder the engine resolved but the emission cannot place rides without a
+// position (it reads as compacted, never as a guessed seat).
+func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map[string]int) []string {
+	if len(item.ShareClaims) == 0 {
+		return nil
+	}
+	claims := make([]types.TraceShareClaimNote, 0, len(item.ShareClaims))
+	for _, c := range item.ShareClaims {
+		note := types.TraceShareClaimNote{Part: string(c.Part), Role: string(c.Role), ShareMS: c.ShareMs, Resolved: c.Resolved, Exact: c.Exact, Represented: c.Represented}
+		for _, key := range c.HolderKeys {
+			if pos, ok := positions[key]; ok {
+				note.HolderPositions = append(note.HolderPositions, pos)
+			}
+		}
+		claims = append(claims, note)
+	}
+	return traceQueryTypedKVNotes([][2]string{{types.TraceNoteKeyShareClaims, types.EncodeTraceShareClaimsNote(claims)}})
 }
 
 func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankItem) []string {

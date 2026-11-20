@@ -131,6 +131,11 @@ func TestRNB2ClippedPickValueGateBindsToo(t *testing.T) {
 func TestRNB2HealthyCaseAPairStillMints(t *testing.T) {
 	remainder := rnb2RemainderRow(1.759, 31.191, 29.432)
 	seat := rnb2ChainViewRow("E2", 1.759)
+	// HMC377 fix round 5: the engine-resolved claim names the seat that holds
+	// exactly the anchored share (the renderer reads nothing else).
+	seat.Node.EvidenceID = "rnb2-chain-seat"
+	remainder.Node.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 1.759, true, "rnb2-chain-seat")}
 	model := runtimeTraceProjTreeModel{
 		TreeRows: []runtimeTraceProjTreeRow{seat},
 		Adjacent: []runtimeTraceProjTreeRow{remainder},

@@ -660,6 +660,8 @@ var traceNoteKeyGoldenRows = []string{
 	"self_two_ruler_wall_subtotal|causal_rank|hard_consumer",
 	"semantic_class|span|hard_consumer",
 	"seqno|dma_fence|display_only",
+	// HMC377 fix round 5: the resolved share-claim holder references.
+	"share_claims|state|hard_consumer",
 	"signal|io|display_only",
 	"significant|causal_rank|soft_consumer",
 	"sleep|state|hard_consumer",

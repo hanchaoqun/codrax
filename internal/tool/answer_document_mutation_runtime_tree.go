@@ -512,37 +512,46 @@ type runtimeTraceProjTreeRow struct {
 	AccountRelSameSourceAnchoredSide bool
 	// ChainAnchorTwinInvisible (RNB-1 D1 修复轮, §29.88 复核, 2026-07-14): the
 	// 行2 bipartition disclosure names the OTHER half of the split (「(⛓链上
-	// 席)」/「(◇余段席)」/divergent 「链席另列自账」). When the twin did not
-	// survive to any rendered surface (capacity truncation / bucket fold) the
-	// claim would dangle — the visibility sweep (runtimeTraceProjStamp-
-	// ChainAnchorTwinVisibility, same row universe as the smr1 pairing pass)
-	// stamps this bit and the sentence downgrades to the honest 未上榜/见明细
+	// 席)」/「(◇余段席)」/divergent 「链席另列自账」). When that half is not on
+	// any rendered surface the sentence downgrades to the honest 未上榜/见明细
 	// form. Stamped only on rows carrying the decomposition pair.
 	ChainAnchorTwinInvisible bool
 	// ChainAnchorUnwalkedRef / ChainAnchorUnwalkedInvisible (HMC377 fix round
 	// 3): the [E#] of the rendered seat holding a three-way split's unwalked
-	// part, or the typed verdict that no rendered surface carries it — the
-	// 同源三分 sentences name the seat or say it is not on this board.
-	// Stamped by the same visibility sweep as the twin.
+	// part, or the verdict that it is not on this board — the 同源三分
+	// sentences name the seat or say it is not on this board.
 	// ChainAnchorUnwalkedSeatMS (HMC377 fix round 4): that seat's published
-	// value — the thread's whole share inside its unwalked waits. The seat is
-	// found by typed identity (same thread and state family, the
-	// Node.ChainAnchorUnwalkedSeat owner marker), never by value: a row whose
-	// inventory holds only part of the thread's share (a satellite, one of
-	// several census-group seats) carries its own part in
-	// Node.ChainAnchorUnwalkedMS, and its sentences then say which part it
-	// covers instead of claiming the three seats restore its account.
+	// value — the thread's whole share inside its unwalked waits; a row whose
+	// inventory holds only part of it (a satellite, one of several census-group
+	// seats) carries its own part in Node.ChainAnchorUnwalkedMS, and its
+	// sentences then say which part it covers.
 	ChainAnchorUnwalkedRef       string
 	ChainAnchorUnwalkedInvisible bool
 	ChainAnchorUnwalkedSeatMS    float64
+	// HMC377 fix round 5: all of the above are read from the row's typed
+	// share claims (runtimeTraceProjStampShareClaimRefs) — the holder's [E#]
+	// and published value when the engine resolved the claim and the holder
+	// renders here (ChainAnchorUnwalkedExact: that one seat publishes exactly
+	// this part), Invisible when it is compacted off this board, and
+	// *Unreferenced when the node carries no typed reference at all (the
+	// sentence then names no holder and claims no absence). The same split
+	// for the twin (ChainAnchorTwinUnreferenced) and the represented sentence
+	// (RepresentedState / RepresentedRefs).
+	ChainAnchorTwinUnreferenced     bool
+	ChainAnchorUnwalkedExact        bool
+	ChainAnchorUnwalkedUnreferenced bool
+	RepresentedState                int
+	RepresentedRefs                 []string
 	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
 	// fix round 3): the pair sentence's third part (the unwalked seat) when
 	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
 	// from the ◇ side's typed parts. AccountRelSameSourceUnwalkedSeatMS
 	// (round 4): that seat's published value (0 when it is not on the board).
-	AccountRelSameSourceUnwalkedMS     float64
-	AccountRelSameSourceUnwalkedRef    string
-	AccountRelSameSourceUnwalkedSeatMS float64
+	AccountRelSameSourceUnwalkedMS           float64
+	AccountRelSameSourceUnwalkedRef          string
+	AccountRelSameSourceUnwalkedSeatMS       float64
+	AccountRelSameSourceUnwalkedExact        bool
+	AccountRelSameSourceUnwalkedUnreferenced bool
 	// AccountRelMirror* (件1 修复轮, 2026-07-14; donghu E12(+3) witness): the
 	// full-window MIRROR row relation — an UNDECOMPOSED same-thread same-state
 	// row (another lane's face, e.g. critical_blocking) whose display value
@@ -6953,7 +6962,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		threeWay := row.Node.ChainAnchorUnwalkedMS > 0
 		unwalked, outside := row.Node.ChainAnchorUnwalkedMS, row.Node.ChainAnchorOutsideMS
 		unwalkedWord, unwalkedWordEN := runtimeTraceProjUnwalkedPartWords(row.ChainAnchorUnwalkedRef, row.ChainAnchorUnwalkedInvisible,
-			row.ChainAnchorUnwalkedSeatMS, unwalked)
+			row.ChainAnchorUnwalkedUnreferenced, row.ChainAnchorUnwalkedExact, row.ChainAnchorUnwalkedSeatMS)
 		var text string
 		switch {
 		case row.Node.ChainAnchorRemainderSeat && row.Node.ChainAnchorOwnershipDivergent:
@@ -6973,7 +6982,11 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// RNB-1 D1 修复轮: the 「链席另列自账」 pointer downgrades when
 			// the chain seat is on no rendered surface (dangling backstop).
 			chainSeatWord, chainSeatWordEN := "链席另列自账", "the chain seat keeps its own separate account"
-			if row.ChainAnchorTwinInvisible {
+			switch {
+			case row.ChainAnchorTwinUnreferenced:
+				chainSeatWord = "链席自账见明细"
+				chainSeatWordEN = "the chain seat's own account: see the detail index"
+			case row.ChainAnchorTwinInvisible:
 				chainSeatWord = "链席未上本榜(见明细)"
 				chainSeatWordEN = "the chain seat is not on this board (see the detail index)"
 			}
@@ -7031,6 +7044,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				// 「席不可见」, this handles 「值为零」).
 				anchoredWord = "(无锚定段)"
 				anchoredWordEN = "(no anchored share exists)"
+			case row.ChainAnchorTwinUnreferenced:
+				anchoredWord = "(锚定席见明细)"
+				anchoredWordEN = "(anchored seat: see the detail index)"
 			case row.ChainAnchorTwinInvisible:
 				anchoredWord = "(锚定席未上本榜,见明细)"
 				anchoredWordEN = "(anchored seat not on this board; see the detail index)"
@@ -7065,7 +7081,11 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
 			}
 			remainderWord, remainderWordEN := "(◇余段席)", "(◇ remainder seat)"
-			if row.ChainAnchorTwinInvisible {
+			switch {
+			case row.ChainAnchorTwinUnreferenced:
+				remainderWord = "(◇余段席见明细)"
+				remainderWordEN = "(◇ remainder seat: see the detail index)"
+			case row.ChainAnchorTwinInvisible:
 				remainderWord = "(余段席溢出未上榜,见明细)"
 				remainderWordEN = "(remainder seat overflowed off this board; see the detail index)"
 			}
@@ -7184,19 +7204,32 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 	// chain-seat demotion disclosure — the honest sibling of the R4 sentence
 	// above (this seat HAS credential; the reason is seat representation).
-	// The chain-seat pointer reuses the typed cross-channel ref when the
-	// stamp pass resolved one (the [E#] the reader can jump to); a ref-less
-	// render keeps the generic 本线程链上席 noun instead of guessing an E#.
-	if row.Node.ChainAnchorRepresentedByChainSeat {
-		row.marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
-		seatWordZH, seatWordEN := "本线程链上席", "this thread's chain-lane seat"
-		if ref := strings.TrimSpace(row.CrossChannelChainRef); ref != "" {
-			seatWordZH = "链席[" + ref + "]"
-			seatWordEN = "the chain seat [" + ref + "]"
-		}
-		text := "锚定份由" + seatWordZH + "代表(整席不入链上榜):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
-		if !zh {
-			text = "anchored share represented by " + seatWordEN + " (whole seat off the on-chain board): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
+	// HMC377 fix round 5: the holder is the one the row's typed share claims
+	// name (RepresentedState / RepresentedRefs, stamped from the engine's
+	// resolution) — its [E#] when it renders here; a holder compacted off this
+	// board turns the sentence into its disclosure form (the row keeps its own
+	// value and claims no representation); a node without a typed reference
+	// names no holder and claims nothing about the chain tier.
+	if row.Node.ChainAnchorRepresentedByChainSeat || row.RepresentedState != runtimeTraceProjShareRefNone {
+		var text string
+		switch row.RepresentedState {
+		case runtimeTraceProjShareRefRendered:
+			row.marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
+			ref := strings.Join(row.RepresentedRefs, ",")
+			text = "锚定份由链席[" + ref + "]代表(整席不入链上榜):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
+			if !zh {
+				text = "anchored share represented by the chain seat [" + ref + "] (whole seat off the on-chain board): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
+			}
+		case runtimeTraceProjShareRefCompacted:
+			text = "本席账目全额锚定于 typed 唤醒依赖窗内(有凭证),持有这段时间的本线程席未上本榜(见明细):本席以自身数值记 ◇ 邻近"
+			if !zh {
+				text = "this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential), and the seat of this thread holding that time is not on this board (see the detail index) — this seat keeps its own value on the ◇ adjacent channel"
+			}
+		default:
+			text = "锚定份由本线程另一席持有(见明细):本席账目全额锚定于 typed 唤醒依赖窗内(有凭证),本席为诊断投影记 ◇ 邻近,数值不变"
+			if !zh {
+				text = "anchored share held by another seat of this thread (see the detail index): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) — this diagnostic projection rides the ◇ adjacent channel, values unchanged"
+			}
 		}
 		out = append(out, text)
 	}
@@ -21381,27 +21414,22 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	return runtimeTraceProjTag{Text: text}, true
 }
 
-// runtimeTraceProjUnwalkedPartIsWhole reports that the wakeup-anchored seat is
-// on this board and publishes exactly the account's unwalked part (HMC377 fix
-// round 4: both values are engine values; equality is a µs comparison, never
-// arithmetic).
-func runtimeTraceProjUnwalkedPartIsWhole(ref string, seatMS, partMS float64) bool {
-	return strings.TrimSpace(ref) != "" && runtimeTraceProjSMR1ValuesEqual(seatMS, partMS)
-}
-
 // runtimeTraceProjUnwalkedPartWords is the 同源三分 sentence's word for the
-// unwalked part: the seat's role word when that seat publishes exactly this
-// part, the not-on-this-board word when no rendered surface carries it, and
-// — when the seat holds the thread's whole share and this account only part
-// of it — the part's owner named with the value it holds (HMC377 fix round
-// 4; round 3 matched the seat by value and called a partial account's seat
-// "not on this board").
-func runtimeTraceProjUnwalkedPartWords(ref string, invisible bool, seatMS, partMS float64) (string, string) {
+// unwalked part, read from the row's typed share claim (HMC377 fix round 5):
+// the seat's role word when the one seat the claim names renders here and
+// publishes exactly this part (exact), that seat named with the value it
+// holds when this account holds only part of the thread's share, the
+// not-on-this-board word when the claim did not resolve or its holder renders
+// on no surface here, and a see-detail word on a node without a typed
+// reference (no holder named, no absence claimed).
+func runtimeTraceProjUnwalkedPartWords(ref string, invisible, unreferenced, exact bool, seatMS float64) (string, string) {
 	ref = strings.TrimSpace(ref)
 	switch {
+	case unreferenced:
+		return "(唤醒锚定席见明细)", "(wakeup-anchored seat: see the detail index)"
 	case invisible || ref == "":
 		return "(唤醒锚定席未上本榜,见明细)", "(wakeup-anchored seat not on this board; see the detail index)"
-	case runtimeTraceProjUnwalkedPartIsWhole(ref, seatMS, partMS):
+	case exact:
 		return "(⛓唤醒锚定席)", "(⛓ wakeup-anchored seat)"
 	default:
 		return fmt.Sprintf("(本行这份;唤醒锚定席[%s]持本线程全部%.3fms)", ref, seatMS),
@@ -21417,7 +21445,10 @@ func runtimeTraceProjThreeWayPairText(row runtimeTraceProjTreeRow, zh bool) stri
 	ref := strings.TrimSpace(row.AccountRelSameSourceUnwalkedRef)
 	full, part, seatMS := row.AccountRelSameSourceFullMS, row.AccountRelSameSourceUnwalkedMS, row.AccountRelSameSourceUnwalkedSeatMS
 	third, thirdEN := "唤醒锚定席=["+ref+"]", "wakeup-anchored seat = ["+ref+"]"
-	if ref == "" {
+	switch {
+	case row.AccountRelSameSourceUnwalkedUnreferenced:
+		third, thirdEN = "唤醒锚定席见明细", "the wakeup-anchored seat: see the detail index"
+	case ref == "":
 		third, thirdEN = "唤醒锚定席未上本榜(见明细)", "the wakeup-anchored seat is not on this board (see the detail index)"
 	}
 	roles := fmt.Sprintf("◇席=[%s],%s,⛓席=本行", row.AccountRelRef, third)
@@ -21429,7 +21460,7 @@ func runtimeTraceProjThreeWayPairText(row runtimeTraceProjTreeRow, zh bool) stri
 		account, accountEN = "本行账", "this row's account"
 	}
 	switch {
-	case runtimeTraceProjUnwalkedPartIsWhole(ref, seatMS, part):
+	case ref != "" && row.AccountRelSameSourceUnwalkedExact:
 		if zh {
 			return fmt.Sprintf("同源三分对席:%s;三席合计还原全窗账 %.3fms(规则见图例)", roles, full)
 		}

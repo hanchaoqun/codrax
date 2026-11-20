@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -28,7 +29,13 @@ func hmc377PartialSatellite() types.TraceCausalProjectionNode {
 		ImpactMS: 176.946, CumulativeImpactMS: 176.946,
 		ChainAnchoredMS: 29.904, ChainAnchorFullMS: 206.856, ChainAnchorUnwalkedMS: 0.006, ChainAnchorOutsideMS: 176.946,
 		ChainAnchorRemainderSeat: true,
-		Rank:                     2, Confidence: 0.78, LineStart: 10, LineEnd: 40,
+		// HMC377 fix round 5: the engine-resolved typed claims — the seat
+		// holding the unwalked part publishes more than this row's part
+		// (not exact).
+		ShareClaims: []types.TraceCausalProjectionShareClaim{
+			hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 29.904, true, "hbr-chain"),
+			hmc377Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 0.006, false, "hbr-own")},
+		Rank: 2, Confidence: 0.78, LineStart: 10, LineEnd: 40,
 	}
 }
 
@@ -147,6 +154,15 @@ func TestHMC377DeliveredProjectionPartialSatelliteNamesItsSeat(t *testing.T) {
 	sat.Object, sat.TypeToken = "scheduler_latency", "scheduler_latency"
 	sat.ChainAnchorUnwalkedMS = remainder.ChainAnchorUnwalkedMS / 2
 	sat.ChainAnchorFullMS = sat.ChainAnchoredMS + sat.ChainAnchorUnwalkedMS + sat.ChainAnchorOutsideMS
+	// HMC377 fix round 5: the forged satellite's typed claims are forged with
+	// it — the engine claims this row's own part, which the seat (holding the
+	// thread's whole share) does not publish exactly.
+	sat.ShareClaims = append([]types.TraceCausalProjectionShareClaim(nil), remainder.ShareClaims...)
+	for i := range sat.ShareClaims {
+		if sat.ShareClaims[i].Part == string(tracequery.RootCauseShareClaimUnwalked) {
+			sat.ShareClaims[i].ShareMS, sat.ShareClaims[i].Exact = sat.ChainAnchorUnwalkedMS, false
+		}
+	}
 	p.AdjacentCauses = append(p.AdjacentCauses, sat)
 	for _, zh := range []bool{true, false} {
 		model := buildRuntimeTraceProjTreeModel(p, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)

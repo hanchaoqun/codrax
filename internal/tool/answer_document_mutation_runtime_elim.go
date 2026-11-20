@@ -152,7 +152,10 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 	// closure-identity structure pin gains the lane, and the value face, the
 	// engine ordinals, the tree-face seat and its mutual-pointer sentences
 	// stay untouched.
-	if row.Node.ChainAnchorRepresentedByChainSeat {
+	// HMC377 fix round 5: only while the seat the row's typed claims name
+	// renders on this board — a row whose holder is compacted off it (or that
+	// carries no typed reference) keeps its own value in the population.
+	if runtimeTraceProjElimRepresentedOnBoard(row) {
 		return false
 	}
 	// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): a member-subset demoted
@@ -185,7 +188,7 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 // or subset markers (engine clone of a chain aggregate seat), so the three
 // exclusion footnotes can never double-count one row.
 func runtimeTraceProjElimGatedConstituentExcluded(row runtimeTraceProjTreeRow) bool {
-	if !row.Node.GatedShareConstituentSeat || row.Node.ChainAnchorRepresentedByChainSeat ||
+	if !row.Node.GatedShareConstituentSeat || runtimeTraceProjElimRepresentedOnBoard(row) ||
 		strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
 		return false
 	}
@@ -199,7 +202,7 @@ func runtimeTraceProjElimGatedConstituentExcluded(row runtimeTraceProjTreeRow) b
 // bodies, so the footnote and the exclusions can never fork).
 func runtimeTraceProjElimMemberSubsetExcluded(row runtimeTraceProjTreeRow) bool {
 	if strings.TrimSpace(row.SemanticMemberSubsetOf) == "" ||
-		row.Node.ChainAnchorRepresentedByChainSeat {
+		runtimeTraceProjElimRepresentedOnBoard(row) {
 		return false
 	}
 	return runtimeTraceProjElimEligibleSansRepresented(row) || runtimeTraceProjElimSemanticCensusRow(row)
@@ -209,7 +212,14 @@ func runtimeTraceProjElimMemberSubsetExcluded(row runtimeTraceProjTreeRow) bool 
 // keeps off the ◎ population — the disclosure footnote's census predicate
 // (same gate body, so the footnote and the exclusion can never fork).
 func runtimeTraceProjElimRepresentedExcluded(row runtimeTraceProjTreeRow) bool {
-	return row.Node.ChainAnchorRepresentedByChainSeat && runtimeTraceProjElimEligibleSansRepresented(row)
+	return runtimeTraceProjElimRepresentedOnBoard(row) && runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimRepresentedOnBoard — HMC377 fix round 5: a represented
+// satellite leaves the ◎ population only while the holder its typed claims
+// name renders on this board.
+func runtimeTraceProjElimRepresentedOnBoard(row runtimeTraceProjTreeRow) bool {
+	return row.Node.ChainAnchorRepresentedByChainSeat && row.RepresentedState == runtimeTraceProjShareRefRendered
 }
 
 // runtimeTraceProjElimSemanticCensusRow is the SEATLESS semantic census

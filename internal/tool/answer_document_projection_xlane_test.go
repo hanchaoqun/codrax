@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -44,7 +45,11 @@ func xlaneRepresentedSatelliteProjection() types.TraceCausalProjection {
 			StateKind: "runnable", ChainRelevance: "adjacent",
 			ImpactMS: 23.471, CumulativeImpactMS: 23.471, EffectiveImpactMS: 23.471,
 			ChainAnchorRepresentedByChainSeat: true,
-			Rank:                              1, Confidence: 0.7, LineStart: 30, LineEnd: 40,
+			// HMC377 fix round 5: the represented sentence's engine-resolved
+			// typed claim names the chain seat holding the satellite's time.
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377RepresentedClaim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 23.471, "xlane-chain-seat")},
+			Rank: 1, Confidence: 0.7, LineStart: 30, LineEnd: 40,
 		}},
 	}
 }
@@ -80,8 +85,10 @@ func TestXLANERepresentedSatelliteRendersDisclosure(t *testing.T) {
 	}
 }
 
-// 件1 pointer form: when the cross-channel stamp resolved the chain seat's
-// [E#], the sentence names it inline (锚定份由链席[E#]代表 — 互指正席).
+// 件1 pointer form: the sentence names the [E#] of the seat its typed claim
+// resolved to (锚定份由链席[E#]代表 — 互指正席). RE-BASED (HMC377 fix round
+// 5): the holder is the claim's, never the thread's largest on-chain seat
+// (CrossChannelChainRef, a generic same-thread pointer).
 func TestXLANERepresentedSatelliteSentenceCarriesChainSeatPointer(t *testing.T) {
 	projection := xlaneRepresentedSatelliteProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
@@ -96,12 +103,15 @@ func TestXLANERepresentedSatelliteSentenceCarriesChainSeatPointer(t *testing.T) 
 		found = true
 		notes := runtimeTraceProjSameSegMirrorTagTexts(row, true)
 		joined := strings.Join(notes, "\n")
-		if ref := strings.TrimSpace(row.CrossChannelChainRef); ref != "" {
-			if !strings.Contains(joined, "锚定份由链席["+ref+"]代表") {
-				t.Fatalf("件1 互指: the sentence must name the stamped chain-seat ref %q:\n%s", ref, joined)
+		var chainTag string
+		for _, seat := range model.TreeRows {
+			if seat.Node.EvidenceID == "xlane-chain-seat" {
+				chainTag = strings.TrimSpace(seat.EvidenceTag)
 			}
-		} else if !strings.Contains(joined, "锚定份由本线程链上席代表") {
-			t.Fatalf("件1 互指: without a stamped ref the sentence keeps the generic noun:\n%s", joined)
+		}
+		if chainTag == "" || strings.Join(row.RepresentedRefs, ",") != chainTag ||
+			!strings.Contains(joined, "锚定份由链席["+chainTag+"]代表") {
+			t.Fatalf("件1 互指: the sentence must name the claim's holder %q (refs %v):\n%s", chainTag, row.RepresentedRefs, joined)
 		}
 	}
 	if !found {
@@ -110,9 +120,10 @@ func TestXLANERepresentedSatelliteSentenceCarriesChainSeatPointer(t *testing.T) 
 }
 
 // 修复轮 P3-① (对抗复核, 2026-07-16): the ref-less noun-fallback branch pin —
-// a represented row rendered without a stamped cross-channel ref (chain seat
-// off-board / tag-less) speaks the generic 本线程链上席 noun and never guesses
-// an E#.
+// a represented row rendered without a typed holder reference speaks a
+// generic noun and never guesses an E#. RE-BASED (HMC377 fix round 5): it
+// also claims nothing about the chain tier (no holder is known here), and a
+// row whose holder is compacted off this board says so.
 func TestXLANERepresentedSentenceNounFallbackWithoutRef(t *testing.T) {
 	row := runtimeTraceProjTreeRow{Node: types.TraceCausalProjectionNode{
 		Subject: "shadowhook-task-64305", Object: "scheduler_latency",
@@ -120,15 +131,20 @@ func TestXLANERepresentedSentenceNounFallbackWithoutRef(t *testing.T) {
 		ChainAnchorRepresentedByChainSeat: true,
 	}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n")
-	if !strings.Contains(notes, "锚定份由本线程链上席代表(整席不入链上榜)") {
-		t.Fatalf("P3-①: the ref-less render must speak the generic noun:\n%s", notes)
+	if !strings.Contains(notes, "锚定份由本线程另一席持有(见明细)") || strings.Contains(notes, "同段物理时间已由链上席全额代表") {
+		t.Fatalf("P3-①: the ref-less render must speak the generic noun and no chain-tier claim:\n%s", notes)
 	}
 	if strings.Contains(notes, "锚定份由链席[") {
-		t.Fatalf("P3-①: no E# may be guessed without a stamped ref:\n%s", notes)
+		t.Fatalf("P3-①: no E# may be guessed without a typed reference:\n%s", notes)
 	}
 	notesEN := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, false), "\n")
-	if !strings.Contains(notesEN, "anchored share represented by this thread's chain-lane seat (whole seat off the on-chain board)") {
+	if !strings.Contains(notesEN, "anchored share held by another seat of this thread (see the detail index)") ||
+		strings.Contains(notesEN, "already fully represented on the chain tier") {
 		t.Fatalf("P3-①: en mirror of the noun fallback missing:\n%s", notesEN)
+	}
+	row.RepresentedState = runtimeTraceProjShareRefCompacted
+	if notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n"); !strings.Contains(notes, "持有这段时间的本线程席未上本榜(见明细)") {
+		t.Fatalf("P3-①: a compacted holder is said to be off this board:\n%s", notes)
 	}
 }
 

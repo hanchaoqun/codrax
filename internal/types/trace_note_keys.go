@@ -893,6 +893,15 @@ const (
 	// 「锚定份由链席代表(整席降道)」 word family, never 无链上凭证. Wording/
 	// channel input only.
 	TraceNoteKeyChainAnchorRepresentedByChainSeat = "chain_anchor_represented_by_chain_seat"
+	// TraceNoteKeyShareClaims (HMC377 fix round 5): the typed holder
+	// references of every claim a rank row's sentences make that a share of
+	// its account is held by another seat of the same board — part, holder
+	// role, share, the engine's resolution against the published board and
+	// the holder rows' board positions (EncodeTraceShareClaimsNote /
+	// ParseTraceShareClaimsNote, one codec). The renderer names a holder only
+	// through these references (seat [E#], or compacted — see the detail
+	// index); it never searches the board for one. Wording input only.
+	TraceNoteKeyShareClaims = "share_claims"
 	// TraceNoteKeyGatedShareClaimed / TraceNoteKeyGatedShareFull /
 	// TraceNoteKeyGatedShareConstituentSeat / TraceNoteKeyGatedShareClaimSeats
 	// / TraceNoteKeyGatedShareOverlap (LEVELMERGE-1 件2 方案 P 区间分账, user
@@ -1961,6 +1970,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 fix round 5: the resolved share-claim holder references.
+	{TraceNoteKeyShareClaims, "state", TraceNoteCarrierHardConsumer},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family — A/B decomposition floats, the constituent-row marker, the
 	// claim-seat [E#] pointer roster and the fail-open overlap disclosure.

@@ -198,7 +198,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorRemainderSeat":      {Status: "displayed", Ref: "RSPA ◇ 余段席词面门(调度压力候选/余段词族)"},
 	"ChainAnchorUnwalkedMS":         {Status: "displayed", Ref: "HMC377 fix3 行2 同源三分 唤醒锚定份 + 同源三分对席句"},
 	"ChainAnchorOutsideMS":          {Status: "displayed", Ref: "HMC377 fix3 行2 同源三分 其余份(typed,禁显示算术)"},
-	"ChainAnchorUnwalkedSeat":       {Status: "displayed", Ref: "HMC377 fix3 同源三分 唤醒锚定席 [E#] 指认 + 可见性词面"},
+	"ChainAnchorUnwalkedSeat":       {Status: "projection_gate", Ref: "HMC377 fix5: the unwalked seat's role marker rides the projection merges only; the renderer names every holder through ShareClaims, never this marker"},
 	"ChainAnchorOwnershipDivergent": {Status: "displayed", Ref: "RNB-1 §29.88 R2 行2 账目关系(锚定权属失合) 句门 + smr1 配对臂禁入"},
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
@@ -217,6 +217,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainCredentialCensus": {Status: "displayed", Ref: "CHAINGUARD-1 ◎ chip 引擎同源映射(runtime_elim)+census=none 板/冕第二席门(runtime_tree valid seat)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
+	"ShareClaims":                       {Status: "displayed", Ref: "HMC377 fix5 share-claim holder references: 行2 同源二分/三分 holder words, pair class (0), represented sentence, ◎ represented exclusion"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
 	"GatedShareClaimedMS":           {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
 	"GatedShareFullMS":              {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
@@ -649,8 +650,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainCredentialCensus": {Status: "note_consumed", Ref: "chain_credential_census → Node.ChainCredentialCensus(CHAINGUARD-1 chip 引擎同源映射 + census=none 第二席门)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat marker.
 	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
-	"ShareClaims":                       {Status: "engine_gate", Ref: "HMC377 fix5 typed share claims resolved once against the published board (resolveRankShareClaims); the engine writes each claim span's held or disclosure form"},
-	"ShareHolderKey":                    {Status: "engine_gate", Ref: "HMC377 fix5 the key of a seat that resolves a share claim (resolveRankShareClaims)"},
+	"ShareClaims":                       {Status: "note_consumed", Ref: "share_claims → Node.ShareClaims(HMC377 fix5 resolved holder references)"},
+	"ShareHolderKey":                    {Status: "note_consumed", Ref: "share_claims holder positions (traceQueryShareHolderPositions → the holder record ids on Node.ShareClaims)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
 	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},

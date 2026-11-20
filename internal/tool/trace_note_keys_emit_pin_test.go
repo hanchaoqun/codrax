@@ -918,7 +918,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
 				DominantState: string(tracequery.StateRunnable), RunnableMs: 23.471,
 				ChainAnchorRepresentedByChainSeat: true,
-				Summary:                           "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
+				// HMC377 fix round 5: the represented sentence's typed claim —
+				// exercises the share_claims contract key.
+				ShareClaims: []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored,
+					Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 23.471, Resolved: true, Represented: true}},
+				Summary: "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
 			}, {
 				// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the residual
 				// (B) aggregate seat after the gated-share split — exercises

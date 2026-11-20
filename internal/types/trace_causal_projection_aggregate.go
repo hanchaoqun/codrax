@@ -616,6 +616,9 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		// disclosure.
 		survivor.ChainAnchorUnwalkedMS = loser.ChainAnchorUnwalkedMS
 		survivor.ChainAnchorOutsideMS = loser.ChainAnchorOutsideMS
+		// HMC377 fix round 5: the claims the disclosure's sentences make
+		// travel with it.
+		survivor.ShareClaims = loser.ShareClaims
 	}
 	survivor.ChainAnchorUnwalkedSeat = survivor.ChainAnchorUnwalkedSeat || loser.ChainAnchorUnwalkedSeat
 	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split family

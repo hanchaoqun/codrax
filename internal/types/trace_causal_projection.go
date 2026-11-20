@@ -871,6 +871,12 @@ type TraceCausalProjectionNode struct {
 	// so the 无链上凭证 sentence is forbidden on it). Wording/channel input
 	// only.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// ShareClaims (HMC377 fix round 5; compiled from the share_claims note,
+	// never serialized): every claim this row makes that a share of its
+	// account is held by another seat, as the engine resolved it against the
+	// published board, with the holder records' ids on that board. Display
+	// names a holder only through these references.
+	ShareClaims []TraceCausalProjectionShareClaim `json:"-"`
 	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
 	// the (pid,runnable) chain aggregate seat's interval-accounting split
 	// against the same thread's priority-inversion seat(s) — the A share
@@ -4318,6 +4324,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainCredentialCensus = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialCensus))
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
+	// HMC377 fix round 5: the resolved share-claim holder references.
+	node.ShareClaims = ParseTraceShareClaimsNote(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyShareClaims), record.ID)
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.
 	node.GatedShareClaimedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareClaimed)
 	node.GatedShareFullMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareFull)

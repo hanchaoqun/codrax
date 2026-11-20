@@ -74,6 +74,10 @@ func r3HostEdgeAnchoredProjection() types.TraceCausalProjection {
 			HostWakeupEdgeAnchorVia: "chain_hop",
 			ImpactMS:                1.0, CumulativeImpactMS: 1.0, EffectiveImpactMS: 0,
 			ChainAnchoredMS: 1.0, ChainAnchorFullMS: 3.0,
+			// HMC377 fix round 5: the engine-resolved typed claim naming the
+			// ◇ remainder clone.
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimRemainder, tracequery.RootCauseShareHolderRemainderSeat, 2.0, false, "r3-straddle-remainder")},
 			Rank: 0, Tier: "context_only", Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
 		}},
 		AdjacentCauses: []types.TraceCausalProjectionNode{{
@@ -85,6 +89,8 @@ func r3HostEdgeAnchoredProjection() types.TraceCausalProjection {
 			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain",
 			ImpactMS: 2.0, CumulativeImpactMS: 2.0, EffectiveImpactMS: 0,
 			ChainAnchoredMS: 1.0, ChainAnchorFullMS: 3.0, ChainAnchorRemainderSeat: true,
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderResidualSeat, 1.0, false, "r3-straddle-seat")},
 			Rank: 0, Tier: "context_only", Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
 		}},
 	}
@@ -280,6 +286,10 @@ func o3cStateEdgeProjection() types.TraceCausalProjection {
 			HostWakeupEdgeAnchorVia: "direct",
 			ImpactMS:                0.370, CumulativeImpactMS: 0.370, EffectiveImpactMS: 0.370,
 			ChainAnchoredMS: 0.370, ChainAnchorFullMS: 0.445,
+			// HMC377 fix round 5: the engine-resolved typed claim naming the
+			// ◇ remainder clone.
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimRemainder, tracequery.RootCauseShareHolderRemainderSeat, 0.075, true, "o3c-state-rem")},
 			Rank: 2, Tier: "secondary", Confidence: 0.76, LineStart: 5600, LineEnd: 5620,
 		}},
 		AdjacentCauses: []types.TraceCausalProjectionNode{{
@@ -292,6 +302,8 @@ func o3cStateEdgeProjection() types.TraceCausalProjection {
 			HostWakeupEdgeAnchorVia: "direct",
 			ImpactMS:                0.075, CumulativeImpactMS: 0.075, EffectiveImpactMS: 0.075,
 			ChainAnchoredMS: 0.370, ChainAnchorFullMS: 0.445, ChainAnchorRemainderSeat: true,
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderResidualSeat, 0.370, true, "o3c-state-seat")},
 			Rank: 1, Confidence: 0.76, LineStart: 5600, LineEnd: 5620,
 		}},
 	}

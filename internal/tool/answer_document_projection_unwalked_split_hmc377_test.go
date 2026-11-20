@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -12,7 +13,16 @@ import (
 // 29.904 walked (the ⛓ inversion chain seat) + 0.012 unwalked (its own
 // wakeup-anchored seat) + 176.946 outside (the ◇ remainder)). Every value the
 // rows print is a typed engine part; no row computes a part as full − another.
+// HMC377 fix round 5: every row carries the typed claims the engine resolved
+// against its board — a seat the board does not carry leaves its claims
+// unresolved (no holder records).
 func hmc377ThreeWayProjection(withOwnSeat, withChainSeat bool) types.TraceCausalProjection {
+	holderIf := func(on bool, id string) []string {
+		if on {
+			return []string{id}
+		}
+		return nil
+	}
 	p := types.TraceCausalProjection{
 		WakeupPath:    []string{"Executor$Worker-10894", "app-10566"},
 		WindowStartTs: 162.372184,
@@ -25,6 +35,9 @@ func hmc377ThreeWayProjection(withOwnSeat, withChainSeat bool) types.TraceCausal
 			StateKind: "runnable", ChainRelevance: "on_chain", ChainDepth: 1,
 			ImpactMS: 29.904, CumulativeImpactMS: 29.983, EffectiveImpactMS: 29.904, GatedRunnableMS: 29.904,
 			ChainAnchoredMS: 29.904, ChainAnchorFullMS: 206.862, ChainAnchorUnwalkedMS: 0.012, ChainAnchorOutsideMS: 176.946,
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimRemainder, tracequery.RootCauseShareHolderRemainderSeat, 176.946, true, "hbr-remainder"),
+				hmc377Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 0.012, withOwnSeat, holderIf(withOwnSeat, "hbr-own")...)},
 			Rank: 1, Tier: "primary", Confidence: 0.9, LineStart: 10, LineEnd: 20,
 		})
 	}
@@ -46,7 +59,10 @@ func hmc377ThreeWayProjection(withOwnSeat, withChainSeat bool) types.TraceCausal
 		ImpactMS: 176.946, CumulativeImpactMS: 176.946,
 		ChainAnchoredMS: 29.904, ChainAnchorFullMS: 206.862, ChainAnchorUnwalkedMS: 0.012, ChainAnchorOutsideMS: 176.946,
 		ChainAnchorRemainderSeat: true,
-		Rank:                     1, Confidence: 0.8, LineStart: 10, LineEnd: 40,
+		ShareClaims: []types.TraceCausalProjectionShareClaim{
+			hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 29.904, withChainSeat, holderIf(withChainSeat, "hbr-chain")...),
+			hmc377Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 0.012, withOwnSeat, holderIf(withOwnSeat, "hbr-own")...)},
+		Rank: 1, Confidence: 0.8, LineStart: 10, LineEnd: 40,
 	})
 	return p
 }

@@ -33,6 +33,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -80,6 +81,10 @@ func rspaSameSourceSplitProjection() types.TraceCausalProjection {
 			StateKind: "d_sleep", ChainRelevance: "on_chain", ChainDepth: 1,
 			ImpactMS: 3.598, CumulativeImpactMS: 3.598, EffectiveImpactMS: 3.598,
 			ChainAnchoredMS: 3.598, ChainAnchorFullMS: 36.757,
+			// HMC377 fix round 5: the engine-resolved typed claim naming its
+			// ◇ remainder twin (the renderer reads nothing else).
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimRemainder, tracequery.RootCauseShareHolderRemainderSeat, 33.159, true, "rspa-dio-remainder")},
 			Rank: 1, Tier: "primary", Confidence: 0.8, LineStart: 10, LineEnd: 20,
 		}, {
 			// M-IO closure witness: the completion thread's io_latency row
@@ -99,6 +104,8 @@ func rspaSameSourceSplitProjection() types.TraceCausalProjection {
 			StateKind: "d_sleep", ChainRelevance: "adjacent",
 			ImpactMS: 33.159, CumulativeImpactMS: 33.159,
 			ChainAnchoredMS: 3.598, ChainAnchorFullMS: 36.757, ChainAnchorRemainderSeat: true,
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderClippedSeat, 3.598, true, "rspa-dio-anchored")},
 			Rank: 1, Confidence: 0.8, LineStart: 10, LineEnd: 20,
 		}, {
 			// ◇ runnable remainder (JankManager census-full witness) — its
@@ -109,6 +116,10 @@ func rspaSameSourceSplitProjection() types.TraceCausalProjection {
 			StateKind: "runnable", ChainRelevance: "adjacent",
 			ImpactMS: 29.432, CumulativeImpactMS: 29.432,
 			ChainAnchoredMS: 1.759, ChainAnchorFullMS: 31.191, ChainAnchorRemainderSeat: true,
+			// HMC377 fix round 5: the engine resolved its holder, which is
+			// off this render (compaction form).
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 1.759, true, "rspa-runnable-chain-seat")},
 			Rank: 2, Confidence: 0.8, LineStart: 80, LineEnd: 90,
 		}},
 	}
@@ -229,15 +240,19 @@ func TestRSPARelationSentenceCarriesFullAccountAndRefs(t *testing.T) {
 // remainder pairs to the thread's chain-lane seat of the same state family.
 func TestRSPARemainderPairsToChainLaneSeatWhenNoClippedRow(t *testing.T) {
 	remainder := runtimeTraceProjTreeRow{
-		Node: types.TraceCausalProjectionNode{
+		Node: types.TraceCausalProjectionNode{EvidenceID: "jank-rem",
 			Subject: "JankManager-4321", TypeToken: "runnable_wait", StateKind: "runnable",
 			ChainRelevance: "adjacent", ImpactMS: 29.432, CumulativeImpactMS: 29.432,
 			ChainAnchoredMS: 1.759, ChainAnchorFullMS: 31.191, ChainAnchorRemainderSeat: true,
+			// HMC377 fix round 5: the engine-resolved claim names the chain
+			// seat that holds exactly the anchored share.
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 1.759, true, "jank-chain")},
 		},
 		Kind: runtimeTraceProjTreeRowAdjacent, HasData: true, EvidenceTag: "E9",
 	}
 	chainSeat := runtimeTraceProjTreeRow{
-		Node: types.TraceCausalProjectionNode{
+		Node: types.TraceCausalProjectionNode{EvidenceID: "jank-chain",
 			Subject: "JankManager-4321", TypeToken: "runnable_wait", StateKind: "runnable",
 			ChainRelevance: "on_chain", ImpactMS: 1.759, CumulativeImpactMS: 1.759, Rank: 3,
 		},
@@ -321,6 +336,8 @@ func rspaRNBDivergentDemotedProjection() types.TraceCausalProjection {
 			ImpactMS: 0.017, CumulativeImpactMS: 0.017,
 			ChainAnchoredMS: 2.266, ChainAnchorFullMS: 2.283, ChainAnchorRemainderSeat: true,
 			ChainAnchorOwnershipDivergent: true, ChainAnchorChainLaneMS: 2.181, ChainAnchorCensusMS: 2.266,
+			ShareClaims: []types.TraceCausalProjectionShareClaim{
+				hmc377Claim(tracequery.RootCauseShareClaimChainAccount, tracequery.RootCauseShareHolderChainSeat, 2.181, true, "rnb-chain-seat")},
 			Rank: 1, Confidence: 0.8, LineStart: 30, LineEnd: 40,
 		}, {
 			// R4 whole-seat lane demotion (values untouched).

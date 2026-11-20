@@ -742,19 +742,17 @@ func runtimeTraceProjSMR1AccountCaliber(row *runtimeTraceProjTreeRow, zh bool) s
 // that verdict would be FALSE — anchored + remainder == full exactly).
 func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh bool) {
 	all := runtimeTraceProjSMR1AllRows(model)
-	// RNB-1 D1 修复轮 (§29.88 复核, 2026-07-14): stamp bipartition twin
-	// visibility over the SAME rendered-row universe the pairing arms read —
-	// the 行2 disclosure downgrades its cross-seat claim when the named twin
-	// is on no rendered surface (dangling-pointer backstop).
-	runtimeTraceProjStampChainAnchorTwinVisibility(all)
+	// HMC377 fix round 5: every holder word reads the engine-resolved share
+	// claim of its row over the SAME rendered-row universe the pairing arms
+	// read — the holder's [E#] when it renders here, the compaction form
+	// otherwise, a see-detail form on a node without a typed reference.
+	anchoredRefs := runtimeTraceProjStampShareClaimRefs(all)
 
-	// Pair class (0): ◇ remainder half ↔ ⛓ counterpart. Typed pair rule: same
-	// subject thread + same state family; the counterpart is the row with
-	// ChainAnchorFullMS>0 && !ChainAnchorRemainderSeat (the case-B clipped
-	// window seat) OR, when no such row renders, the thread's chain-lane seat
-	// of the same state family (case A — the anchored half already lives on
-	// the on_chain seat). ≥2 clipped counterparts fail open (禁猜); ⌗
-	// caliber-side rows never join (两把尺).
+	// Pair class (0): ◇ remainder half ↔ ⛓ counterpart. HMC377 fix round 5:
+	// the counterpart is the ONE seat the remainder's anchored-share claim
+	// names, when the engine resolved it, it renders here and it publishes
+	// exactly that share (the claim's typed Exact verdict) — never a search
+	// of the board by family, window or value.
 	for _, rem := range all {
 		rn := rem.Node
 		if !rem.HasData || !rn.ChainAnchorRemainderSeat || rn.ChainAnchorFullMS <= 0 {
@@ -784,75 +782,15 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		if !runtimeTraceProjSMR1WallClockRow(rn) {
 			continue
 		}
-		family, _, familyOK := runtimeTraceProjRSPAOwnedStateAccount(rn)
-		if !familyOK {
+		if _, _, familyOK := runtimeTraceProjRSPAOwnedStateAccount(rn); !familyOK {
 			continue
 		}
-		var clipped, chainSeat *runtimeTraceProjTreeRow
-		clippedAmbiguous, chainSeatAmbiguous := false, false
-		for _, other := range all {
-			on := other.Node
-			// HMC377 fix round 3: the thread's own unwalked seat holds the
-			// three-way split's third part — never the walked counterpart.
-			if other == rem || !other.HasData || on.ChainAnchorRemainderSeat || on.ChainAnchorUnwalkedSeat {
-				continue
-			}
-			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) !=
-				runtimeTraceCausalProjectionCanonicalNode(rn.Subject) {
-				continue
-			}
-			otherFamily, otherOwnedMS, otherAccountOK := runtimeTraceProjRSPAOwnedStateAccount(on)
-			if !otherAccountOK || otherFamily != family || !runtimeTraceProjSMR1WallClockRow(on) {
-				continue
-			}
-			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
-				continue
-			}
-			if on.ChainAnchorFullMS > 0 {
-				if clipped != nil {
-					clippedAmbiguous = true
-					break
-				}
-				clipped = other
-			} else if strings.TrimSpace(on.ChainRelevance) == "on_chain" && otherOwnedMS > 0 {
-				// Case-A fallback — RNB-2 件1(ii)/(iii) (§29.88 W3 病②,
-				// 2026-07-15). EVOLUTION RECORD: this arm used to accept ANY
-				// positive on-chain same-family row and take the LARGEST when
-				// several rendered — a noisy pick driving the hard-fact
-				// 「凭证锚定段合计/合计还原」 sentence (精确信号红线违例;
-				// customer E9 5.368 was named holder of a 0.000 anchored
-				// share). Candidacy is now VALUE-VERIFIED: the named seat must
-				// HOLD the anchored share, so its published display µs-equals
-				// ChainAnchoredMS (the engine's own case-A invariant — the
-				// anchored portion already lives on the chain seat); ≥2
-				// verified candidates fail open (禁猜 — the largest-seat
-				// tiebreak is retired on this arm).
-				if !runtimeTraceProjSMR1ValuesEqual(otherOwnedMS, rn.ChainAnchoredMS) {
-					continue
-				}
-				if chainSeat != nil {
-					chainSeatAmbiguous = true
-					break
-				}
-				chainSeat = other
-			}
-		}
-		if clippedAmbiguous || chainSeatAmbiguous {
+		ref := anchoredRefs[rem]
+		if ref.state != runtimeTraceProjShareRefRendered || !ref.exact || len(ref.rows) != 1 {
 			continue
 		}
-		pick := clipped
-		if pick == nil {
-			pick = chainSeat
-		}
-		if pick == nil || strings.TrimSpace(pick.EvidenceTag) == "" {
-			continue
-		}
-		// RNB-2 件1(ii): the value gate binds the CLIPPED pick too — the ⛓ half
-		// the sentence names must publish exactly the anchored share (µs); a
-		// different-bipartition clipped row of the same (thread, family) must
-		// never be spoken of as this remainder's counterpart (fail open).
-		_, pickOwnedMS, pickAccountOK := runtimeTraceProjRSPAOwnedStateAccount(pick.Node)
-		if !pickAccountOK || !runtimeTraceProjSMR1ValuesEqual(pickOwnedMS, rn.ChainAnchoredMS) {
+		pick := ref.rows[0]
+		if pick == rem || !pick.HasData || strings.TrimSpace(pick.EvidenceTag) == "" || !runtimeTraceProjSMR1WallClockRow(pick.Node) {
 			continue
 		}
 		rem.AccountRelRef = strings.TrimSpace(pick.EvidenceTag)
@@ -860,11 +798,13 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		rem.AccountRelSameSourceAnchoredSide = false
 		// HMC377 fix round 3: a three-way split's pair names its third seat
 		// on both sides (the typed unwalked part and the seat holding it, as
-		// stamped by the visibility sweep).
+		// its typed claim names it).
 		if rn.ChainAnchorUnwalkedMS > 0 {
 			rem.AccountRelSameSourceUnwalkedMS = rn.ChainAnchorUnwalkedMS
 			rem.AccountRelSameSourceUnwalkedRef = rem.ChainAnchorUnwalkedRef
 			rem.AccountRelSameSourceUnwalkedSeatMS = rem.ChainAnchorUnwalkedSeatMS
+			rem.AccountRelSameSourceUnwalkedExact = rem.ChainAnchorUnwalkedExact
+			rem.AccountRelSameSourceUnwalkedUnreferenced = rem.ChainAnchorUnwalkedUnreferenced
 		}
 		if pick.AccountRelRef == "" {
 			pick.AccountRelRef = strings.TrimSpace(rem.EvidenceTag)
@@ -873,6 +813,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			pick.AccountRelSameSourceUnwalkedMS = rem.AccountRelSameSourceUnwalkedMS
 			pick.AccountRelSameSourceUnwalkedRef = rem.AccountRelSameSourceUnwalkedRef
 			pick.AccountRelSameSourceUnwalkedSeatMS = rem.AccountRelSameSourceUnwalkedSeatMS
+			pick.AccountRelSameSourceUnwalkedExact = rem.AccountRelSameSourceUnwalkedExact
+			pick.AccountRelSameSourceUnwalkedUnreferenced = rem.AccountRelSameSourceUnwalkedUnreferenced
 		}
 	}
 
@@ -1465,91 +1407,135 @@ func runtimeTraceProjStampOverflowSeriesMirrors(model *runtimeTraceProjTreeModel
 	}
 }
 
-// runtimeTraceProjStampChainAnchorTwinVisibility — RNB-1 D1 修复轮 (§29.88
-// 复核, 2026-07-14): for every rendered row carrying the bipartition
-// decomposition pair, check whether the OTHER half of the split is on any
-// rendered surface. Twin criteria mirror the pair-class-(0) matching (same
-// canonical subject + state family + compatible windows): a ◇ remainder's
-// twin is the ⛓ clipped half OR the thread's on-chain chain-lane seat of the
-// same family (case A); a ⛓ clipped half's twin is the ◇ remainder. A
-// divergent remainder's twin is the chain-lane seat it discloses. Rows whose
-// twin is absent get ChainAnchorTwinInvisible so the 行2 sentence downgrades
-// (它只降级措辞,不改任何值/通道 — visibility wording only).
-func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeRow) {
+// runtimeTraceProjShareRef is one part of a row's account as its typed share
+// claims name the holder (HMC377 fix round 5).
+type runtimeTraceProjShareRef struct {
+	state  int
+	rows   []*runtimeTraceProjTreeRow
+	tags   []string
+	exact  bool
+	seatMS float64
+}
+
+const (
+	// runtimeTraceProjShareRefNone — the node carries no typed reference for
+	// this part (a node compiled without the engine's resolved claims): the
+	// sentence names no holder and claims no absence.
+	runtimeTraceProjShareRefNone = iota
+	// runtimeTraceProjShareRefRendered — the engine resolved the claim and
+	// every holder record renders on a surface of this board.
+	runtimeTraceProjShareRefRendered
+	// runtimeTraceProjShareRefCompacted — the claim did not resolve against
+	// the published board, or a holder record renders on no surface here.
+	runtimeTraceProjShareRefCompacted
+)
+
+// runtimeTraceProjShareRefIndex maps every rendered record id (a merged row
+// answers for each record merged into it) to its row.
+func runtimeTraceProjShareRefIndex(all []*runtimeTraceProjTreeRow) map[string]*runtimeTraceProjTreeRow {
+	index := map[string]*runtimeTraceProjTreeRow{}
 	for _, row := range all {
-		rn := row.Node
-		if !row.HasData || rn.ChainAnchorFullMS <= 0 {
+		if !row.HasData {
 			continue
 		}
-		family := runtimeTraceProjSMR1StateFamily(rn)
-		if token := firstNonEmptyAnswerString(rn.TypeToken, rn.Object); runtimeTracePriorityInversionCandidateType(token) && rn.GatedRunnableMS > 0 {
-			family = string(tracequery.CausalLaneSchedulingDemand)
-		}
-		subject := runtimeTraceCausalProjectionCanonicalNode(rn.Subject)
-		visible := false
-		// HMC377 fix round 3: the seat holding a three-way split's unwalked
-		// part never counts as the walked twin (a surviving unwalked seat
-		// must not keep 「(⛓链上席)」 alive for a chain seat that is off the
-		// board).
-		// HMC377 fix round 4: that seat is found by typed identity — same
-		// thread, same state family, the owner marker
-		// (Node.ChainAnchorUnwalkedSeat; one per thread and family on a
-		// board) — never by value: the seat publishes the thread's whole
-		// share while a row whose inventory holds only part of it carries its
-		// own part (round 3 matched by exact value and told such a row the
-		// seat was not on this board). Two marked seats for one (thread,
-		// family) name neither (never guessed).
-		unwalkedRef, unwalkedSeatMS, unwalkedFound, unwalkedAmbiguous := "", 0.0, false, false
-		for _, other := range all {
-			if other == row || !other.HasData {
-				continue
-			}
-			on := other.Node
-			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) != subject {
-				continue
-			}
-			if on.ChainAnchorUnwalkedSeat {
-				if rn.ChainAnchorUnwalkedMS > 0 && runtimeTraceProjSMR1StateFamily(on) == family &&
-					runtimeTraceProjSMR1WindowsCompatible(on, rn) {
-					if unwalkedFound {
-						unwalkedAmbiguous = true
-					}
-					unwalkedRef, unwalkedSeatMS, unwalkedFound = strings.TrimSpace(other.EvidenceTag), runtimeTraceProjNodeDisplayImpact(on), true
+		for _, id := range append([]string{row.Node.EvidenceID}, row.Node.MergedEvidenceIDs...) {
+			if id = strings.TrimSpace(id); id != "" {
+				if _, seen := index[id]; !seen {
+					index[id] = row
 				}
-				continue
 			}
-			otherFamily := runtimeTraceProjSMR1StateFamily(on)
-			otherOwnedMS := runtimeTraceProjNodeDisplayImpact(on)
-			if token := firstNonEmptyAnswerString(on.TypeToken, on.Object); runtimeTracePriorityInversionCandidateType(token) && on.GatedRunnableMS > 0 {
-				otherFamily = string(tracequery.CausalLaneSchedulingDemand)
-				otherOwnedMS = on.GatedRunnableMS
-			}
-			if otherFamily != family {
-				continue
-			}
-			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
-				continue
-			}
-			if rn.ChainAnchorRemainderSeat {
-				if (on.ChainAnchorFullMS > 0 && !on.ChainAnchorRemainderSeat) ||
-					(strings.TrimSpace(on.ChainRelevance) == "on_chain" && otherOwnedMS > 0) {
-					visible = true
-				}
-			} else if on.ChainAnchorRemainderSeat {
-				visible = true
-			}
-			if visible && rn.ChainAnchorUnwalkedMS <= 0 {
-				break
-			}
-		}
-		row.ChainAnchorTwinInvisible = !visible
-		if rn.ChainAnchorUnwalkedMS > 0 {
-			if unwalkedAmbiguous || unwalkedRef == "" {
-				unwalkedRef, unwalkedSeatMS, unwalkedFound = "", 0, false
-			}
-			row.ChainAnchorUnwalkedRef = unwalkedRef
-			row.ChainAnchorUnwalkedSeatMS = unwalkedSeatMS
-			row.ChainAnchorUnwalkedInvisible = !unwalkedFound
 		}
 	}
+	return index
+}
+
+// runtimeTraceProjResolveShareRef reads the claims of the given parts (or the
+// represented-sentence claims when represented) — never a board search.
+func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index map[string]*runtimeTraceProjTreeRow, self *runtimeTraceProjTreeRow, represented bool, parts ...string) runtimeTraceProjShareRef {
+	var claims []types.TraceCausalProjectionShareClaim
+	for _, c := range node.ShareClaims {
+		if represented {
+			if c.Represented {
+				claims = append(claims, c)
+			}
+			continue
+		}
+		if c.Represented {
+			continue
+		}
+		for _, part := range parts {
+			if c.Part == part {
+				claims = append(claims, c)
+			}
+		}
+	}
+	if len(claims) == 0 {
+		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
+	}
+	out := runtimeTraceProjShareRef{state: runtimeTraceProjShareRefRendered}
+	seen := map[*runtimeTraceProjTreeRow]bool{}
+	for _, c := range claims {
+		if !c.Resolved || len(c.HolderEvidenceIDs) == 0 {
+			return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
+		}
+		for _, id := range c.HolderEvidenceIDs {
+			row := index[strings.TrimSpace(id)]
+			if row == nil || row == self || strings.TrimSpace(row.EvidenceTag) == "" {
+				return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
+			}
+			if !seen[row] {
+				seen[row] = true
+				out.rows = append(out.rows, row)
+				out.tags = append(out.tags, strings.TrimSpace(row.EvidenceTag))
+				out.seatMS += runtimeTraceProjNodeDisplayImpact(row.Node)
+			}
+		}
+	}
+	out.exact = len(claims) == 1 && claims[0].Exact && len(out.rows) == 1
+	return out
+}
+
+// runtimeTraceProjStampShareClaimRefs — HMC377 fix round 5 (replaces the RNB-1
+// D1 twin-visibility sweep and the round-3/4 unwalked-seat marker lookup):
+// every holder word of a row reads the row's engine-resolved share claims —
+// the remainder's anchored-share holder (or, on case A', the chain seat's own
+// account), the ⛓ seat's ◇ remainder, the unwalked part's holder, the
+// represented sentence's holders. Returns the anchored-share references of the
+// remainder rows (the pair class (0) counterpart).
+func runtimeTraceProjStampShareClaimRefs(all []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef {
+	index := runtimeTraceProjShareRefIndex(all)
+	anchored := map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef{}
+	for _, row := range all {
+		rn := row.Node
+		if !row.HasData {
+			continue
+		}
+		if rn.ChainAnchorFullMS > 0 {
+			var twin runtimeTraceProjShareRef
+			switch {
+			case rn.ChainAnchorRemainderSeat && rn.ChainAnchorOwnershipDivergent:
+				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimChainAccount))
+			case rn.ChainAnchorRemainderSeat:
+				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimAnchored))
+				anchored[row] = twin
+			default:
+				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimRemainder))
+			}
+			row.ChainAnchorTwinInvisible = twin.state == runtimeTraceProjShareRefCompacted
+			row.ChainAnchorTwinUnreferenced = twin.state == runtimeTraceProjShareRefNone
+			if rn.ChainAnchorUnwalkedMS > 0 {
+				unwalked := runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimUnwalked))
+				row.ChainAnchorUnwalkedRef = strings.Join(unwalked.tags, ",")
+				row.ChainAnchorUnwalkedSeatMS = unwalked.seatMS
+				row.ChainAnchorUnwalkedExact = unwalked.exact
+				row.ChainAnchorUnwalkedInvisible = unwalked.state == runtimeTraceProjShareRefCompacted
+				row.ChainAnchorUnwalkedUnreferenced = unwalked.state == runtimeTraceProjShareRefNone
+			}
+		}
+		if represented := runtimeTraceProjResolveShareRef(rn, index, row, true); represented.state != runtimeTraceProjShareRefNone || rn.ChainAnchorRepresentedByChainSeat {
+			row.RepresentedState = represented.state
+			row.RepresentedRefs = represented.tags
+		}
+	}
+	return anchored
 }
