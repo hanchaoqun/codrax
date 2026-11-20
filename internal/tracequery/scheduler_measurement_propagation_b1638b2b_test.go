@@ -313,8 +313,8 @@ func TestB1638B2BAnchoredCloneAndCausalConstructorsPreserveSourceOwnership(t *te
 	seat := rcmRankItem("runnable_wait", ThreadRef{Comm: "churny", PID: 300}, 10, 5.02, 5.03, 4, 5)
 	seat.MeasurementSources = sources
 	seat.ChainRelevance = "on_chain"
-	clone := rspaCloneAsRemainderSeat(seat, 3, 10, 7, 0, 0, "original remainder")
-	rspaClipSeatToAnchored(&seat, 3, 10, 3, 0, 0, "original anchored")
+	clone := rspaCloneAsRemainderSeat(seat, 3, 10, 7, 0, 0, rspaPlainSentence("original remainder"))
+	rspaClipSeatToAnchored(&seat, 3, 10, 3, 0, 0, rspaPlainSentence("original anchored"))
 	if clone.RunnableMs != 7 || seat.RunnableMs != 3 || !clone.ChainAnchorRemainderSeat || seat.ChainAnchorRemainderSeat {
 		t.Fatal("existing anchored/remainder values or roles changed")
 	}

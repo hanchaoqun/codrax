@@ -16935,6 +16935,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 				// onto the ◇ remainder lane (RSPA remainder trio — existing
 				// plumbing).
 				if rem, ok := semanticEdgeAnchorRemainderSeat(item); ok {
+					semanticEdgeAnchorSeatClaims(&items[len(items)-1], rem)
 					items = append(items, rem)
 				}
 				markSemanticSpanConsumed(semanticConsumed, stats.TraceSpans, fam.Members[0])
@@ -16947,6 +16948,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			// R3-IMPL / HMC377 E2: same partition clone at family grain (the
 			// remainder is the family's member union outside those waits).
 			if rem, ok := semanticEdgeAnchorRemainderSeat(item); ok {
+				semanticEdgeAnchorSeatClaims(&items[len(items)-1], rem)
 				items = append(items, rem)
 			}
 			for _, member := range fam.Members {
@@ -17339,12 +17341,12 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// the typed population-conservation release arm (see the field comment).
 	res.preTruncationItems = items
 	items, capDead, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
-	// RNB-1 D1 修复轮 (2026-07-14): the bipartition sentences' co-publication
-	// claims are re-verified against the PUBLISHED board (truncation may have
-	// killed the claimed twin — dangling pointers are downgraded honestly).
-	rspaPatchSummariesForTwinVisibility(items)
-	// LEVELMERGE-1 件2: same published-twin re-verification for the gated
-	// split sentences (the claiming inversion seat may die at the cap).
+	// HMC377 fix round 5: the share claims of the bipartition / three-way /
+	// represented sentences are NOT resolved here — this board is not the
+	// published one (the enrich pass re-truncates it); they resolve once, at
+	// the end of enrichRootCauseRankWithScheduler.
+	// LEVELMERGE-1 件2: published-twin re-verification for the gated split
+	// sentences (the claiming inversion seat may die at the cap).
 	patchGatedShareSummariesForClaimVisibility(items)
 	if candidateTotal > candidateEmitted {
 		last := items[candidateEmitted-1]
@@ -18156,9 +18158,6 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	var capDead []RootCauseRankItem
 	var capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted int
 	rank.Items, capDead, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
-	// RNB-1 D1 修复轮: same published-twin re-verification after the enrich
-	// truncation (idempotent — patched anchors are gone).
-	rspaPatchSummariesForTwinVisibility(rank.Items)
 	// LEVELMERGE-1 件2: same claim-visibility re-verification after the
 	// enrich truncation (idempotent — verbatim anchors).
 	patchGatedShareSummariesForClaimVisibility(rank.Items)
@@ -18217,6 +18216,12 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// board (the build-tail record is overwritten wholesale — one value
 	// source; ranks are final here via assignRootCauseRanksAndTiers above).
 	rank.SelfRunnableTwoRuler = harvestSelfRunnableTwoRulerAccounting(rank.Items)
+	// HMC377 fix round 5: the one resolution pass of every share claim — the
+	// published board is final here (both rank passes, both truncations, the
+	// ordinal/tier assignment and its census demotions are behind it). The
+	// absorbed rows ride as lossless detail and resolve against the same
+	// board.
+	resolveRankShareClaims(rank.Items, rank.AbsorbedItems)
 	return rank
 }
 

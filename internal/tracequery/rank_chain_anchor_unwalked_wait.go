@@ -704,6 +704,7 @@ func rspaUnwalkedSeatFromCensus(part *rspaUnwalkedPart, window TimeWindow) RootC
 // member roster (its members are the pieces).
 func rspaMintUnwalkedSeat(from RootCauseRankItem, part *rspaUnwalkedPart) RootCauseRankItem {
 	seat := cloneRootCauseMeasurementSources(from)
+	rspaClearClaims(&seat)
 	if !part.dio {
 		seat = stateEdgePlainRunnableCopy(seat)
 		seat.Type = "runnable_wait"
@@ -737,7 +738,7 @@ func rspaMintUnwalkedSeat(from RootCauseRankItem, part *rspaUnwalkedPart) RootCa
 	if part.dio {
 		family = "D/IO blocking"
 	}
-	summary := rspaUnwalkedWaitSeatSummary(part.thread, family, part)
+	summary := rspaPlainSentence(rspaUnwalkedWaitSeatSummary(part.thread, family, part))
 	if !part.dio {
 		convertStateSeatToEdgeAnchored(&seat, part.anchor, part.unwalkedMs, part.unwalkedMs, 0, 0, part.pieces, nil, nil,
 			part.split.stateEdgeSegmentSplit, summary)
@@ -746,25 +747,134 @@ func rspaMintUnwalkedSeat(from RootCauseRankItem, part *rspaUnwalkedPart) RootCa
 			part.split.stateEdgeSegmentSplit, summary)
 	}
 	seat.ChainAnchorUnwalkedSeat = true
+	// HMC377 fix round 5: the seat holds the thread's unwalked share (its
+	// pieces) in the unwalked-seat role, not the residual-lane role the edge
+	// conversion records.
+	seat.rspaHeld = nil
+	rspaHold(&seat, RootCauseShareHolderUnwalkedSeat, part.dio, rspaFoldUnion(part.pieces, part.piecesD, part.piecesIO), part.unwalkedMs)
 	return seat
 }
 
-// rspaSummaryUnwalkedOwnSeat is the verbatim claim every sentence makes when
-// a share is held by the thread's own unwalked seat; the twin-visibility pass
-// downgrades it when that seat is not on the published board.
+// rspaSummaryUnwalkedOwnSeat is the held form of the claim every sentence
+// makes when a share is held by the thread's own on-chain seat inside the
+// unwalked waits (its own unwalked seat, or its residual-lane seat), and
+// rspaSummaryUnwalkedOwnSeatUnpublished its compaction disclosure (HMC377
+// fix round 5: a typed claim span, resolved by resolveRankShareClaims).
 const rspaSummaryUnwalkedOwnSeat = "(priced as this thread's own on-chain seat)"
 const rspaSummaryUnwalkedOwnSeatUnpublished = "(priced as this thread's own on-chain seat, which is not on the published board; see the compaction disclosure)"
 
-// ownSeatClaim is what a three-way sentence says about the seat holding the
-// row's unwalked part: the verbatim claim, and — when the row holds only part
-// of the thread's share — the part this row covers and what that seat holds
-// for the whole thread (the row's three parts add up to the row's account;
-// the seat's value is the thread's share, never this row's part).
-func (s rspaRowScope) ownSeatClaim() string {
-	if s.seatMs > 0 {
-		return fmt.Sprintf("%s — this row's %.3fms is part of the %.3fms that seat holds for this thread", rspaSummaryUnwalkedOwnSeat, s.owned, s.seatMs)
+// rspaSummaryUnwalkedClippedSeat — the same claim when the thread's case-B
+// clipped window seat holds the share (one object with the walked share).
+const rspaSummaryUnwalkedClippedSeat = "(held by this thread's clipped on-chain window seat)"
+const rspaSummaryUnwalkedClippedSeatUnpublished = "(held by this thread's clipped on-chain window seat, which is not on the published board; see the compaction disclosure)"
+
+// ownSeatPhrases is what a three-way sentence says about the seat holding
+// the row's unwalked part — held form and compaction disclosure: the claim,
+// and — when the row holds only part of the thread's share — the part this
+// row covers and what that seat holds for the whole thread (the row's three
+// parts add up to the row's account; the seat's value is the thread's share,
+// never this row's part).
+func (s rspaRowScope) ownSeatPhrases() (string, string) {
+	held, compact := rspaSummaryUnwalkedOwnSeat, rspaSummaryUnwalkedOwnSeatUnpublished
+	if s.ownedOwner == rspaUnwalkedOwnerWalkedSeat {
+		held, compact = rspaSummaryUnwalkedClippedSeat, rspaSummaryUnwalkedClippedSeatUnpublished
 	}
-	return rspaSummaryUnwalkedOwnSeat
+	if s.seatMs > 0 {
+		held = fmt.Sprintf("%s — this row's %.3fms is part of the %.3fms that seat holds for this thread", held, s.owned, s.seatMs)
+	}
+	return held, compact
+}
+
+// unwalkedRole is the holder role of the row's owned unwalked share.
+func (s rspaRowScope) unwalkedRole() RootCauseShareHolderRole {
+	switch s.ownedOwner {
+	case rspaUnwalkedOwnerResidualSeat:
+		return RootCauseShareHolderResidualSeat
+	case rspaUnwalkedOwnerWalkedSeat:
+		return RootCauseShareHolderClippedSeat
+	default:
+		return RootCauseShareHolderUnwalkedSeat
+	}
+}
+
+// ownedSupport is the support of the owner holding the row's owned share
+// (nil when the row hands nothing over).
+func (p *rspaUnwalkedPart) ownedSupport(s rspaRowScope) []foldInterval {
+	if p == nil || !p.owns() || s.owned <= rspaAnchorIdentityTolMs {
+		return nil
+	}
+	return p.ownerSupport
+}
+
+// rspaRowClaims are the typed claims one row's sentence makes (HMC377 fix
+// round 5): its anchored share's holder, its owned unwalked share's holder,
+// its remainder twin, and — on case A' — the chain seat's own account.
+type rspaRowClaims struct {
+	anchored, unwalked, remainder, chainAccount RootCauseShareClaim
+}
+
+// rspaRowClaimsOf types one row's claims: the anchored share held by
+// anchoredRole (value anchoredMs over anchoredWindows), the owned unwalked
+// share held by the owner the scope names, and — when chainLaneMs > 0 — the
+// chain seat's own (diverging) account.
+func rspaRowClaimsOf(pid int, dio bool, anchoredRole RootCauseShareHolderRole, anchoredMs float64, anchoredWindows []foldInterval,
+	scope rspaRowScope, ownedWindows []foldInterval, chainLaneMs float64) rspaRowClaims {
+	var c rspaRowClaims
+	if anchoredMs > rspaAnchorIdentityTolMs {
+		c.anchored = rspaClaim(RootCauseShareClaimAnchored, anchoredRole, pid, dio, anchoredMs, anchoredWindows)
+	}
+	if scope.threeWay() {
+		c.unwalked = rspaClaim(RootCauseShareClaimUnwalked, scope.unwalkedRole(), pid, dio, scope.owned, ownedWindows)
+	}
+	if chainLaneMs > rspaAnchorIdentityTolMs {
+		c.chainAccount = rspaClaim(RootCauseShareClaimChainAccount, RootCauseShareHolderChainSeat, pid, dio, chainLaneMs, nil)
+	}
+	return c
+}
+
+// rspaCensusWalkedInstants is a thread's census instants of one family inside
+// its walked chain windows (nil when a census group carries no inventory —
+// the claims then carry values only).
+func rspaCensusWalkedInstants(stats WindowStats, pid int, dio bool) []foldInterval {
+	walked, _ := rspaCensusInstants(stats, pid, dio)
+	return walked
+}
+
+// rspaCensusInstants is a thread's census instants of one family inside and
+// outside its walked chain windows (both nil when a census group carries no
+// inventory).
+func rspaCensusInstants(stats WindowStats, pid int, dio bool) (walked, outsideWalked []foldInterval) {
+	var inventory []foldInterval
+	ok := true
+	collect := func(census map[string]ThreadDuration, dioInventory bool) {
+		for _, td := range census {
+			if td.Thread.PID != pid || td.DurationMs <= 0 {
+				continue
+			}
+			intervals := td.runnableIntervals
+			if dioInventory {
+				if td.dioIntervalsOverflow {
+					ok = false
+				}
+				intervals = td.dioIntervals
+			}
+			if len(intervals) == 0 {
+				ok = false
+			}
+			inventory = append(inventory, intervals...)
+		}
+	}
+	if dio {
+		collect(stats.dstateCensus, true)
+		collect(stats.iowaitCensus, true)
+	} else {
+		collect(stats.runnableCensus, false)
+	}
+	if !ok || len(inventory) == 0 {
+		return nil, nil
+	}
+	merged, walkedFold := rspaFoldCopy(inventory), rspaWindowsFold(stats.chainAnchorsByPID[pid])
+	return rspaFoldIntersect(merged, walkedFold), foldIntervalSubtract(merged, walkedFold)
 }
 
 // rspaUnwalkedWaitSeatSummary — the unwalked seat's engine-side account.
@@ -783,38 +893,50 @@ func rspaAccountThreeWay(full, walked float64, walkedOwner string, unwalked floa
 // rspaRemainderSummaryThreeWay — a remainder whose account lies partly inside
 // the walked chain windows (held by the chain seat) and partly inside the
 // unwalked waits (held by the thread's own seat).
-func rspaRemainderSummaryThreeWay(thread ThreadRef, family string, remainder, walked, unwalked, full float64, clause, claim string) string {
-	owner := rspaSummaryOwnedByChainSeat
-	if walked <= 0 {
-		owner = rspaSummaryNoAnchoredShare
+func rspaRemainderSummaryThreeWay(thread ThreadRef, family string, remainder, walked, unwalked, full float64, clause string, scope rspaRowScope, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	owner := rspaSummaryNoAnchoredShare
+	if walked > 0 {
+		owner = s.span(rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, claims.anchored)
 	}
-	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows — outside the dependency windows the chain walked for this thread and outside %s; the analysed thread was not waiting for this thread there (no chain credential for these segments); %s",
+	held, compact := scope.ownSeatPhrases()
+	claim := s.span(held, compact, claims.unwalked)
+	s.text = fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows — outside the dependency windows the chain walked for this thread and outside %s; the analysed thread was not waiting for this thread there (no chain credential for these segments); %s",
 		threadLabel(thread), family, remainder, clause, rspaAccountThreeWay(full, walked, owner, unwalked, "those unwalked waits", claim))
+	return s
 }
 
 // rspaRemainderSummaryDivergentThreeWay — the case-A' double-account form of
 // a three-way remainder: the census split stays exact, the chain seat keeps
 // its own (diverging) account and is never added.
-func rspaRemainderSummaryDivergentThreeWay(thread ThreadRef, family string, remainder, walked, unwalked, full, chainLaneMs, censusMs float64, clause, claim string) string {
+func rspaRemainderSummaryDivergentThreeWay(thread ThreadRef, family string, remainder, walked, unwalked, full, chainLaneMs, censusMs float64, clause string, scope rspaRowScope, claims rspaRowClaims) rspaSentence {
 	delta := chainLaneMs - censusMs
 	if delta < 0 {
 		delta = -delta
 	}
-	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows — outside the dependency windows the chain walked for this thread and outside %s (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside the walked dependency windows + %.3fms inside those unwalked waits %s + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: the chain seat publishes its own account %.3fms while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
-		threadLabel(thread), family, remainder, clause, full, walked, unwalked, claim, chainLaneMs, censusMs, delta)
+	var s rspaSentence
+	held, compact := scope.ownSeatPhrases()
+	claim := s.span(held, compact, claims.unwalked)
+	accountHeld, accountCompact := rspaChainAccountPhrases(chainLaneMs)
+	account := s.span(accountHeld, accountCompact, claims.chainAccount)
+	s.text = fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows — outside the dependency windows the chain walked for this thread and outside %s (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside the walked dependency windows + %.3fms inside those unwalked waits %s + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: %s while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
+		threadLabel(thread), family, remainder, clause, full, walked, unwalked, claim, account, censusMs, delta)
+	return s
 }
 
 // rspaRemainderSummaryWalkedOnly — a remainder of a thread with unwalked
 // waits whose share no seat owns here: the sentence says what is true — the
 // row's time lies outside the WALKED chain windows — and names the unpriced
 // share inside the other waits when it is known (-1: not separable).
-func rspaRemainderSummaryWalkedOnly(thread ThreadRef, family string, remainder, anchored, full, inside float64, clause string) string {
-	owner := rspaSummaryOwnedByChainSeat
-	if anchored <= 0 {
-		owner = rspaSummaryNoAnchoredShare
+func rspaRemainderSummaryWalkedOnly(thread ThreadRef, family string, remainder, anchored, full, inside float64, clause string, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	owner := rspaSummaryNoAnchoredShare
+	if anchored > 0 {
+		owner = s.span(rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, claims.anchored)
 	}
-	return fmt.Sprintf("%s %s remainder %.3fms outside the dependency windows the chain walked for this thread (no chain credential on this row for these segments); %s; full-window account %.3fms = %.3fms anchored inside the walked dependency windows %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
+	s.text = fmt.Sprintf("%s %s remainder %.3fms outside the dependency windows the chain walked for this thread (no chain credential on this row for these segments); %s; full-window account %.3fms = %.3fms anchored inside the walked dependency windows %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
 		threadLabel(thread), family, remainder, rspaUnpricedDetail(inside, clause), full, anchored, owner)
+	return s
 }
 
 // rspaLaneDemotionSummaryThreeWay — the R4 whole-row demotion sentence for a
@@ -824,20 +946,39 @@ func rspaLaneDemotionSummaryThreeWay(walked, unwalked, full float64, clause, cla
 		walked, full, unwalked, clause, claim, detail)
 }
 
+// rspaLaneDemotionSentenceThreeWay is rspaLaneDemotionSummaryThreeWay with
+// the claim naming the seat that holds the unwalked share.
+func rspaLaneDemotionSentenceThreeWay(walked, unwalked, full float64, clause string, scope rspaRowScope, unwalkedClaim RootCauseShareClaim, detail string) rspaSentence {
+	var s rspaSentence
+	held, compact := scope.ownSeatPhrases()
+	claim := s.span(held, compact, unwalkedClaim)
+	s.text = rspaLaneDemotionSummaryThreeWay(walked, unwalked, full, clause, claim, detail)
+	return s
+}
+
 // rspaRepresentedDemotionSummaryThreeWay — the XLANE-1 represented form when
 // the satellite's account is held by the chain seat (walked) and the thread's
 // own unwalked seat.
-func rspaRepresentedDemotionSummaryThreeWay(walked, unwalked, full float64, clause, claim string) string {
-	return fmt.Sprintf("; anchored share represented by the chain seats: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows — %.3fms inside the walked chain windows, which a same-pool chain-lane runnable seat physically covers, and %.3fms inside %s %s — this diagnostic projection rides the adjacent lane whole with every published value unchanged (a second full chain seat would double-represent one physical account)",
-		walked+unwalked, full, walked, unwalked, clause, claim)
+func rspaRepresentedDemotionSummaryThreeWay(walked, unwalked, full float64, clause string, scope rspaRowScope, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	claim, _ := scope.ownSeatPhrases()
+	s.text = s.representedSpan(fmt.Sprintf("; anchored share represented by the chain seats: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows — %.3fms inside the walked chain windows, which a same-pool chain-lane runnable seat physically covers, and %.3fms inside %s %s — this diagnostic projection rides the adjacent lane whole with every published value unchanged (a second full chain seat would double-represent one physical account)",
+		walked+unwalked, full, walked, unwalked, clause, claim), rspaRepresentedCompact(walked+unwalked, full), claims.anchored, claims.unwalked)
+	return s
 }
 
 // rspaInversionRepresentedSummaryUnwalked — the R-377-4 detail sentence when
 // part of the ready account lies inside unwalked waits the thread's wakeup
 // ended and its own seat holds it.
-func rspaInversionRepresentedSummaryUnwalked(walked, inside, outside, full float64, clause, claim string) string {
-	return fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, which that chain seat already publishes, %.3fms lies inside %s %s, and %.3fms lies outside every dependency window of this thread (published as the thread's adjacent ready-time remainder) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
-		walked, full, inside, clause, claim, outside)
+func rspaInversionRepresentedSummaryUnwalked(walked, inside, outside, full float64, clause string, scope rspaRowScope, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	published := s.span(rspaInversionChainSeatPublishes, rspaInversionChainSeatCompacted, claims.anchored)
+	held, compact := scope.ownSeatPhrases()
+	claim := s.span(held, compact, claims.unwalked)
+	remainder := s.span(rspaInversionRemainderPublished, rspaInversionRemainderCompacted, claims.remainder)
+	s.text = fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, %.3fms lies inside %s %s, and %.3fms lies outside every dependency window of this thread (%s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
+		walked, full, published, inside, clause, claim, outside, remainder)
+	return s
 }
 
 // rspaStampThreeWay writes the typed three-way split on a record.
@@ -965,92 +1106,103 @@ func (p *rspaUnwalkedPart) rowOwnedChannels(s rspaRowScope, d, io []foldInterval
 
 // remainderSummary — the remainder sentence of one row (anchored is the
 // share the row hands to its walked owner: walked, or walked + unwalked on a
-// case-B one object).
-func (p *rspaUnwalkedPart) remainderSummary(s rspaRowScope, thread ThreadRef, family string, remainder, anchored, full float64) string {
+// case-B one object) and the typed claims it makes.
+func (p *rspaUnwalkedPart) remainderSummary(s rspaRowScope, thread ThreadRef, family string, remainder, anchored, full float64, claims rspaRowClaims) rspaSentence {
 	switch {
 	case p == nil:
-		return rspaRemainderSummary(thread, family, remainder, anchored, full)
+		return rspaRemainderSentence(thread, family, remainder, anchored, full, claims.anchored)
 	case s.threeWay():
-		return rspaRemainderSummaryThreeWay(thread, family, remainder, anchored, s.owned, full, p.clause(), s.ownSeatClaim())
+		return rspaRemainderSummaryThreeWay(thread, family, remainder, anchored, s.owned, full, p.clause(), s, claims)
 	case s.walkedOnly:
-		return rspaRemainderSummaryWalkedOnly(thread, family, remainder, anchored, full, s.unpriced, p.clause())
+		return rspaRemainderSummaryWalkedOnly(thread, family, remainder, anchored, full, s.unpriced, p.clause(), claims)
 	default:
-		return rspaRemainderSummary(thread, family, remainder, anchored, full)
+		return rspaRemainderSentence(thread, family, remainder, anchored, full, claims.anchored)
 	}
 }
 
 // divergentSummary — the case-A' double-account form of remainderSummary.
-func (p *rspaUnwalkedPart) divergentSummary(s rspaRowScope, thread ThreadRef, family string, remainder, anchored, full, chainLaneMs, censusMs float64) string {
+func (p *rspaUnwalkedPart) divergentSummary(s rspaRowScope, thread ThreadRef, family string, remainder, anchored, full, chainLaneMs, censusMs float64, claims rspaRowClaims) rspaSentence {
 	switch {
 	case p == nil:
-		return rspaRemainderSummaryDivergent(thread, family, remainder, anchored, full, chainLaneMs, censusMs)
+		return rspaRemainderSentenceDivergent(thread, family, remainder, anchored, full, chainLaneMs, censusMs, claims.chainAccount)
 	case s.threeWay():
-		return rspaRemainderSummaryDivergentThreeWay(thread, family, remainder, anchored, s.owned, full, chainLaneMs, censusMs, p.clause(), s.ownSeatClaim())
+		return rspaRemainderSummaryDivergentThreeWay(thread, family, remainder, anchored, s.owned, full, chainLaneMs, censusMs, p.clause(), s, claims)
 	case s.walkedOnly:
-		return rspaRemainderSummaryDivergentWalkedOnly(thread, family, remainder, anchored, full, chainLaneMs, censusMs, s.unpriced, p.clause())
+		return rspaRemainderSummaryDivergentWalkedOnly(thread, family, remainder, anchored, full, chainLaneMs, censusMs, s.unpriced, p.clause(), claims)
 	default:
-		return rspaRemainderSummaryDivergent(thread, family, remainder, anchored, full, chainLaneMs, censusMs)
+		return rspaRemainderSentenceDivergent(thread, family, remainder, anchored, full, chainLaneMs, censusMs, claims.chainAccount)
 	}
 }
 
 // anchoredSummary — the case-B clipped seat's sentence; it names what its
-// anchored share covers when it holds unwalked waits too.
-func (p *rspaUnwalkedPart) anchoredSummary(s rspaRowScope, thread ThreadRef, family string, inside, full, walked float64) string {
+// anchored share covers when it holds unwalked waits too, and claims its ◇
+// remainder twin (twin).
+func (p *rspaUnwalkedPart) anchoredSummary(s rspaRowScope, thread ThreadRef, family string, inside, full, walked float64, twin RootCauseShareClaim) rspaSentence {
 	if !p.oneObject(s) {
-		return rspaAnchoredSummary(thread, family, inside, full)
+		return rspaAnchoredSentence(thread, family, inside, full, twin)
 	}
-	return fmt.Sprintf("%s %s %.3fms anchored inside its typed wakeup-dependency windows (%.3fms inside the dependency windows the chain walked for this thread + %.3fms inside %s; one seat holds both) (chain credential); full-window account %.3fms = this anchored portion + %.3fms remainder outside the dependency windows %s — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, inside, walked, s.owned, p.clause(), full, full-inside, rspaSummaryRemainderTwinPublished)
+	var out rspaSentence
+	twinPhrase := out.span(rspaSummaryRemainderTwinPublished, rspaSummaryRemainderTwinUnpublished, twin)
+	out.text = fmt.Sprintf("%s %s %.3fms anchored inside its typed wakeup-dependency windows (%.3fms inside the dependency windows the chain walked for this thread + %.3fms inside %s; one seat holds both) (chain credential); full-window account %.3fms = this anchored portion + %.3fms remainder outside the dependency windows %s — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, inside, walked, s.owned, p.clause(), full, full-inside, twinPhrase)
+	return out
 }
 
 // inversionRepresentedSummary — the R-377-4 detail sentence of the
 // indivisible inversion row (case A / A').
-func (p *rspaUnwalkedPart) inversionRepresentedSummary(s rspaRowScope, walked, outside, full float64) string {
+func (p *rspaUnwalkedPart) inversionRepresentedSummary(s rspaRowScope, walked, outside, full float64, claims rspaRowClaims) rspaSentence {
 	switch {
 	case p != nil && s.threeWay():
-		return rspaInversionRepresentedSummaryUnwalked(walked, s.owned, outside, full, p.clause(), s.ownSeatClaim())
+		return rspaInversionRepresentedSummaryUnwalked(walked, s.owned, outside, full, p.clause(), s, claims)
 	case p != nil && s.walkedOnly:
-		return rspaInversionRepresentedSummaryWalkedOnly(walked, full, s.unpriced, p.clause())
+		return rspaInversionRepresentedSummaryWalkedOnly(walked, full, s.unpriced, p.clause(), claims)
 	default:
-		return rspaInversionRepresentedSummary(walked, full)
+		return rspaInversionRepresentedSummary(walked, full, claims.anchored, claims.remainder)
 	}
 }
 
 // laneDemotionSummary — the R4 whole-row demotion sentence on the pid-level
-// ledger account (walked = the census walked share).
-func (p *rspaUnwalkedPart) laneDemotionSummary(walked, full float64, detail string) string {
+// ledger account (walked = the census walked share). The share inside the
+// unwalked waits is claimed for its owner over the owner's whole support.
+func (p *rspaUnwalkedPart) laneDemotionSummary(walked, full float64, detail string) rspaSentence {
 	switch {
 	case p == nil:
-		return rspaLaneDemotionSummary(walked, full, detail)
+		return rspaPlainSentence(rspaLaneDemotionSummary(walked, full, detail))
 	case p.owns() && p.owner == rspaUnwalkedOwnerWalkedSeat:
-		return rspaLaneDemotionSummary(walked+p.unwalkedMs, full, detail)
+		return rspaPlainSentence(rspaLaneDemotionSummary(walked+p.unwalkedMs, full, detail))
 	case p.owns():
-		return rspaLaneDemotionSummaryThreeWay(walked, p.unwalkedMs, full, p.clause(), rspaSummaryUnwalkedOwnSeat, detail)
+		scope := rspaRowScope{owned: p.unwalkedMs, ownedOwner: p.owner}
+		claim := rspaClaim(RootCauseShareClaimUnwalked, scope.unwalkedRole(), p.thread.PID, p.dio, p.unwalkedMs,
+			rspaFoldIntersect(rspaFoldCopy(p.ownerSupport), rspaFoldUnion(p.pieces, p.piecesD, p.piecesIO)))
+		return rspaLaneDemotionSentenceThreeWay(walked, p.unwalkedMs, full, p.clause(), scope, claim, detail)
 	case p.proven && p.unwalkedMs <= rspaAnchorIdentityTolMs:
-		return rspaLaneDemotionSummary(walked, full, detail)
+		return rspaPlainSentence(rspaLaneDemotionSummary(walked, full, detail))
 	case p.proven:
-		return rspaLaneDemotionSummaryWalkedOnly(walked, full, p.unwalkedMs, p.clause(), detail)
+		return rspaPlainSentence(rspaLaneDemotionSummaryWalkedOnly(walked, full, p.unwalkedMs, p.clause(), detail))
 	default:
-		return rspaLaneDemotionSummaryWalkedOnly(walked, full, -1, p.clause(), detail)
+		return rspaPlainSentence(rspaLaneDemotionSummaryWalkedOnly(walked, full, -1, p.clause(), detail))
 	}
 }
 
 // representedSummary — the XLANE-1 represented sentence of a satellite.
-func (p *rspaUnwalkedPart) representedSummary(s rspaRowScope, walked, full float64) string {
+func (p *rspaUnwalkedPart) representedSummary(s rspaRowScope, walked, full float64, claims rspaRowClaims) rspaSentence {
 	switch {
 	case p != nil && s.threeWay():
-		return rspaRepresentedDemotionSummaryThreeWay(walked, s.owned, full, p.clause(), s.ownSeatClaim())
+		return rspaRepresentedDemotionSummaryThreeWay(walked, s.owned, full, p.clause(), s, claims)
 	case p != nil && p.oneObject(s):
-		return rspaRepresentedDemotionSummaryOneObject(walked, s.owned, full, p.clause())
+		return rspaRepresentedDemotionSummaryOneObject(walked, s.owned, full, p.clause(), claims)
 	default:
-		return rspaRepresentedDemotionSummary(walked, full)
+		return rspaRepresentedDemotionSummary(walked, full, claims.anchored)
 	}
 }
 
 // rspaRewritePIDLevelTwin re-anchors a pid-level row that carries no
 // inventory of its own (the state-churn twins) on the ledger's pid account.
+// The claims name the thread's census instants (nil when a census group
+// carries no inventory — values only).
 func rspaRewritePIDLevelTwin(item *RootCauseRankItem, part *rspaUnwalkedPart, decision rspaFamilyDecision,
-	chainSeat bool, chainSeatMs, full float64, family string, dio bool) {
+	chainSeat bool, chainSeatMs, full float64, family string, dio bool, stats WindowStats) {
+	walkedInstants, outsideInstants := rspaCensusInstants(stats, item.Thread.PID, dio)
 	anchored := decision.anchoredMs
 	if anchored > full {
 		anchored = full
@@ -1082,32 +1234,61 @@ func rspaRewritePIDLevelTwin(item *RootCauseRankItem, part *rspaUnwalkedPart, de
 		remainderRunnable, remainderD, remainderIO = 0, item.DStateMs*share, item.IOWaitMs*share
 	}
 	handed := anchored // the share handed to the walked owner(s)
+	// HMC377 fix round 5: the pid-level claims — the walked share's holder
+	// (the chain seat, or the clipped seats of a case-B one object), the
+	// owner of the unwalked share.
+	var ownedWindows []foldInterval
+	if part != nil && scope.owned > rspaAnchorIdentityTolMs {
+		ownedWindows = rspaFoldIntersect(rspaFoldCopy(part.ownerSupport), rspaFoldUnion(part.pieces, part.piecesD, part.piecesIO))
+	}
+	anchoredRole, anchoredWindows := RootCauseShareHolderChainSeat, walkedInstants
+	if !chainSeat {
+		anchoredRole = RootCauseShareHolderClippedSeat
+	}
+	restInstants := outsideInstants
+	if outsideInstants != nil && ownedWindows != nil {
+		restInstants = foldIntervalSubtract(outsideInstants, ownedWindows)
+	}
+	claimScope := scope
 	if part.oneObject(scope) {
 		handed = inside
+		anchoredRole = RootCauseShareHolderClippedSeat
+		if walkedInstants != nil || anchored <= rspaAnchorIdentityTolMs {
+			anchoredWindows = rspaFoldUnion(walkedInstants, ownedWindows)
+		}
+		claimScope = rspaRowScope{}
 	}
 	if chainSeat && !(decision.identityHolds && rspaWithinTol(chainSeatMs, decision.anchoredMs)) {
+		claims := rspaRowClaimsOf(item.Thread.PID, dio, RootCauseShareHolderChainSeat, 0, nil, scope, ownedWindows, chainSeatMs)
 		rspaRewriteSeatToRemainder(item, handed, full, remainderRunnable, remainderD, remainderIO,
-			part.divergentSummary(scope, item.Thread, family, remainder, handed, full, chainSeatMs, decision.anchoredMs))
+			part.divergentSummary(scope, item.Thread, family, remainder, handed, full, chainSeatMs, decision.anchoredMs, claims))
+		rspaHold(item, RootCauseShareHolderRemainderSeat, dio, restInstants, remainder)
 		scope.stamp(item, anchored, remainder, full)
 		item.ChainAnchorOwnershipDivergent = true
 		item.ChainAnchorChainLaneMs = chainSeatMs
 		item.ChainAnchorCensusMs = decision.anchoredMs
 		return
 	}
+	claims := rspaRowClaimsOf(item.Thread.PID, dio, anchoredRole, handed, anchoredWindows, claimScope, ownedWindows, 0)
 	rspaRewriteSeatToRemainder(item, handed, full, remainderRunnable, remainderD, remainderIO,
-		part.remainderSummary(scope, item.Thread, family, remainder, handed, full))
+		part.remainderSummary(scope, item.Thread, family, remainder, handed, full, claims))
+	rspaHold(item, RootCauseShareHolderRemainderSeat, dio, restInstants, remainder)
 	scope.stamp(item, anchored, remainder, full)
 }
 
 // rspaRemainderSummaryDivergentWalkedOnly — case A' for a remainder that keeps
 // time inside the unwalked waits.
-func rspaRemainderSummaryDivergentWalkedOnly(thread ThreadRef, family string, remainder, anchored, full, chainLaneMs, censusMs, inside float64, clause string) string {
+func rspaRemainderSummaryDivergentWalkedOnly(thread ThreadRef, family string, remainder, anchored, full, chainLaneMs, censusMs, inside float64, clause string, claims rspaRowClaims) rspaSentence {
 	delta := chainLaneMs - censusMs
 	if delta < 0 {
 		delta = -delta
 	}
-	return fmt.Sprintf("%s %s remainder %.3fms outside the dependency windows the chain walked for this thread (no chain credential on this row for these segments); %s; full-window account %.3fms = %.3fms anchored inside the walked dependency windows + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: the chain seat publishes its own account %.3fms while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
-		threadLabel(thread), family, remainder, rspaUnpricedDetail(inside, clause), full, anchored, chainLaneMs, censusMs, delta)
+	var s rspaSentence
+	held, compact := rspaChainAccountPhrases(chainLaneMs)
+	account := s.span(held, compact, claims.chainAccount)
+	s.text = fmt.Sprintf("%s %s remainder %.3fms outside the dependency windows the chain walked for this thread (no chain credential on this row for these segments); %s; full-window account %.3fms = %.3fms anchored inside the walked dependency windows + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: %s while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
+		threadLabel(thread), family, remainder, rspaUnpricedDetail(inside, clause), full, anchored, account, censusMs, delta)
+	return s
 }
 
 // rspaUnpricedDetail names the time a row keeps inside the unwalked waits.
@@ -1120,9 +1301,13 @@ func rspaUnpricedDetail(inside float64, clause string) string {
 
 // rspaInversionRepresentedSummaryWalkedOnly — the R-377-4 detail sentence
 // when the ready account keeps time inside the unwalked waits.
-func rspaInversionRepresentedSummaryWalkedOnly(walked, full, inside float64, clause string) string {
-	return fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, which that chain seat already publishes, and %.3fms lies outside them (published as the thread's adjacent ready-time remainder; %s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
-		walked, full, full-walked, rspaUnpricedDetail(inside, clause))
+func rspaInversionRepresentedSummaryWalkedOnly(walked, full, inside float64, clause string, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	published := s.span(rspaInversionChainSeatPublishes, rspaInversionChainSeatCompacted, claims.anchored)
+	remainder := s.span(rspaInversionRemainderPublished, rspaInversionRemainderCompacted, claims.remainder)
+	s.text = fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, and %.3fms lies outside them (%s; %s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
+		walked, full, published, full-walked, remainder, rspaUnpricedDetail(inside, clause))
+	return s
 }
 
 // rspaLaneDemotionSummaryWalkedOnly — the R4 demotion sentence of a thread
@@ -1134,7 +1319,9 @@ func rspaLaneDemotionSummaryWalkedOnly(walked, full, inside float64, clause, det
 
 // rspaRepresentedDemotionSummaryOneObject — the XLANE-1 represented form when
 // the thread's clipped window seat holds walked + unwalked as one object.
-func rspaRepresentedDemotionSummaryOneObject(walked, unwalked, full float64, clause string) string {
-	return fmt.Sprintf("; anchored share represented by the thread's clipped on-chain window seat: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows — %.3fms inside the walked chain windows and %.3fms inside %s, all held by that one seat — this diagnostic projection rides the adjacent lane whole with every published value unchanged (a second full chain seat would double-represent one physical account)",
-		walked+unwalked, full, walked, unwalked, clause)
+func rspaRepresentedDemotionSummaryOneObject(walked, unwalked, full float64, clause string, claims rspaRowClaims) rspaSentence {
+	var s rspaSentence
+	s.text = s.representedSpan(fmt.Sprintf("; anchored share represented by the thread's clipped on-chain window seat: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows — %.3fms inside the walked chain windows and %.3fms inside %s, all held by that one seat — this diagnostic projection rides the adjacent lane whole with every published value unchanged (a second full chain seat would double-represent one physical account)",
+		walked+unwalked, full, walked, unwalked, clause), rspaRepresentedCompact(walked+unwalked, full), claims.anchored)
+	return s
 }

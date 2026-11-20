@@ -392,9 +392,6 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// — same family split as the presence map (runnable vs D/IO); running and
 	// s_sleep dominants never mint bipartition halves, so the default arms
 	// are structural no-ops.
-	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#1": "runnable,d_sleep,io_wait|default",
-	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#2": "runnable,d_sleep,io_wait|default",
-	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#3": "runnable,d_sleep,io_wait|default",
 	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): the census exit-state
 	// classifier — sleep vs D-family exits get their typed split columns;
 	// every other member (running/runnable/stopped/dead/unknown) folds into
@@ -405,6 +402,7 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// d_state_or_io_wait/io_wait-typed row is a shape this pass must not
 	// touch (default = skip, fail closed). HMC377 E2: the per-seat conversion
 	// moved into its own function (same fork, same members).
+	"rank_share_claims.go:rspaChainSeatFamily#1":                         "runnable,d_sleep,io_wait|default",
 	"rank_state_edge_anchor.go:anchorStateSeatInsideDependencyWindows#1": "d_sleep,io_wait|default",
 	// HMC377 E2 (owner ruling 2026-11-18): the target's typed waits that can
 	// be ended by another thread's wakeup — S sleep, D and IO wait. Running /

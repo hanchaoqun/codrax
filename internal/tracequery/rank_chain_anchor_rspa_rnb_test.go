@@ -629,21 +629,35 @@ func TestRSPARNBDemotedSideLaneSurvivesTruncation(t *testing.T) {
 	}
 }
 
-// TestRSPARNBSummaryTwinVisibilityPatch — D1 修复轮 层3 engine half: the
-// engine EN co-publication claims re-verify against the PUBLISHED board — a
-// truncation-killed twin downgrades "(owned by the chain seat)" /
-// "(published as a separate adjacent seat)" to the honest unpublished form;
-// co-published pairs keep their bytes.
+// TestRSPARNBSummaryTwinVisibilityPatch — D1 修复轮 层3 engine half, RE-BASED
+// (HMC377 fix round 5): the engine EN co-publication claims are typed claims
+// resolved against the PUBLISHED board — a truncation-killed twin turns
+// "(owned by the chain seat)" / "(published as a separate adjacent seat)"
+// into the honest compaction form; co-published pairs keep their bytes. A
+// seat of ANOTHER thread holding the same family never stands in.
 func TestRSPARNBSummaryTwinVisibilityPatch(t *testing.T) {
-	remainder := RootCauseRankItem{Type: "runnable_wait", Thread: ThreadRef{PID: 200},
-		ChainRelevance: "adjacent", DominantState: string(StateRunnable),
-		RunnableMs: 20.0, ChainAnchoredMs: 7.0, ChainAnchorFullMs: 27.0, ChainAnchorRemainderSeat: true,
-		Summary: rspaRemainderSummary(ThreadRef{Comm: "w", PID: 200}, "runnable (scheduling-pressure candidate)", 20.0, 7.0, 27.0)}
-	clipped := RootCauseRankItem{Type: "runnable_wait", Thread: ThreadRef{PID: 300},
-		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", DominantState: string(StateRunnable),
-		RunnableMs: 7.0, ChainAnchoredMs: 7.0, ChainAnchorFullMs: 27.0,
-		Summary: rspaAnchoredSummary(ThreadRef{Comm: "x", PID: 300}, "runnable", 7.0, 27.0)}
-	items := []RootCauseRankItem{remainder, clipped}
+	w := ThreadRef{Comm: "w", PID: 200}
+	walked := []foldInterval{{start: 1.000, end: 1.007}}
+	rest := []foldInterval{{start: 1.010, end: 1.030}}
+	remainderOf := func(pid int) RootCauseRankItem {
+		item := RootCauseRankItem{Type: "runnable_wait", Thread: ThreadRef{Comm: "w", PID: pid},
+			ChainRelevance: "adjacent", DominantState: string(StateRunnable),
+			RunnableMs: 20.0, ChainAnchoredMs: 7.0, ChainAnchorFullMs: 27.0, ChainAnchorRemainderSeat: true}
+		rspaSetSentence(&item, rspaRemainderSentence(item.Thread, "runnable (scheduling-pressure candidate)", 20.0, 7.0, 27.0,
+			rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderClippedSeat, pid, false, 7.0, walked)))
+		rspaHold(&item, RootCauseShareHolderRemainderSeat, false, rest, 20.0)
+		return item
+	}
+	clippedOf := func(pid int) RootCauseRankItem {
+		item := RootCauseRankItem{Type: "runnable_wait", Thread: ThreadRef{Comm: "x", PID: pid},
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", DominantState: string(StateRunnable),
+			RunnableMs: 7.0, ChainAnchoredMs: 7.0, ChainAnchorFullMs: 27.0}
+		rspaSetSentence(&item, rspaAnchoredSentence(item.Thread, "runnable", 7.0, 27.0,
+			rspaClaim(RootCauseShareClaimRemainder, RootCauseShareHolderRemainderSeat, pid, false, 20.0, rest)))
+		rspaHold(&item, RootCauseShareHolderClippedSeat, false, walked, 7.0)
+		return item
+	}
+	items := []RootCauseRankItem{remainderOf(200), clippedOf(300)}
 	rspaPatchSummariesForTwinVisibility(items)
 	if !strings.Contains(items[0].Summary, rspaSummaryOwnedByChainSeatUnpublished) {
 		t.Fatalf("twin-less remainder must downgrade the ownership claim: %q", items[0].Summary)
@@ -652,15 +666,15 @@ func TestRSPARNBSummaryTwinVisibilityPatch(t *testing.T) {
 		t.Fatalf("twin-less clipped seat must downgrade the co-publication claim: %q", items[1].Summary)
 	}
 	// Co-published pair: both keep their claims byte-identically.
-	pairRem := remainder
-	pairRem.Summary = rspaRemainderSummary(ThreadRef{Comm: "w", PID: 200}, "runnable (scheduling-pressure candidate)", 20.0, 7.0, 27.0)
-	pairClip := clipped
-	pairClip.Thread = ThreadRef{PID: 200}
-	pairClip.Summary = rspaAnchoredSummary(ThreadRef{Comm: "w", PID: 200}, "runnable", 7.0, 27.0)
-	pair := []RootCauseRankItem{pairRem, pairClip}
+	pair := []RootCauseRankItem{remainderOf(200), clippedOf(200)}
+	pair[1].Thread = w
 	rspaPatchSummariesForTwinVisibility(pair)
 	if !strings.Contains(pair[0].Summary, rspaSummaryOwnedByChainSeat) ||
 		!strings.Contains(pair[1].Summary, rspaSummaryRemainderTwinPublished) {
 		t.Fatalf("co-published pair must keep the claims: %q / %q", pair[0].Summary, pair[1].Summary)
+	}
+	if !pair[0].ShareClaims[0].Resolved || !pair[0].ShareClaims[0].Exact || len(pair[0].ShareClaims[0].HolderKeys) != 1 ||
+		pair[0].ShareClaims[0].HolderKeys[0] != pair[1].ShareHolderKey {
+		t.Fatalf("the resolved claim must name its holder: %+v / key %q", pair[0].ShareClaims, pair[1].ShareHolderKey)
 	}
 }

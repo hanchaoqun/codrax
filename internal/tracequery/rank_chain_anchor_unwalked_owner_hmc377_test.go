@@ -218,6 +218,29 @@ func hmc377OwnerUniverses() []hmc377OwnerUniverse {
 					hmc377OwnerSatellite("scheduler_latency", []foldInterval{s[0], s[1], s[2]}, 12),
 					hmc377OwnerSatellite("low_frequency", []foldInterval{s[3]}, 2)}
 			}},
+		// HMC377 fix round 5 — review round 4's boards where a holder died at
+		// a cap while the claim's family kept another seat (or the ledger's
+		// planned support): every claim must resolve to a seat on the
+		// published board, or speak its disclosure form.
+		{name: "cross-pass: the case-B clipped seat dies at the build cap under an enrich satellite", readyInsideMs: 9,
+			build: func() (ChainResult, WindowStats, []RootCauseRankItem) {
+				chain, stats, s := base(func(c *ChainResult, _ *WindowStats) { c.CausalImpacts = nil })
+				return chain, stats, []RootCauseRankItem{hmc377UnwalkedWindowSeat(s)}
+			}, keep: func(it RootCauseRankItem) bool { return it.ChainAnchorRemainderSeat },
+			additions: func() []RootCauseRankItem {
+				_, _, s := base(nil)
+				return []RootCauseRankItem{hmc377OwnerSatellite("scheduler_latency", s[:2], 9), hmc377OwnerChurnTwin(12)}
+			}},
+		{name: "cross-pass: a D/IO partition holder dies at the build cap", dioInsideMs: 5,
+			build:     func() (ChainResult, WindowStats, []RootCauseRankItem) { return hmc377R4DIOUniverse(0) },
+			keep:      func(it RootCauseRankItem) bool { return !(it.Type == "io_wait" && rootCauseItemIsOnChain(it)) },
+			additions: func() []RootCauseRankItem { return nil }},
+		{name: "cross-pass: the residual-lane seat owns the share of an enrich satellite", readyInsideMs: 4,
+			build: hmc377R5ResidualOwnerUniverse, keep: func(RootCauseRankItem) bool { return true },
+			additions: func() []RootCauseRankItem {
+				_, _, s := base(nil)
+				return []RootCauseRankItem{hmc377OwnerSatellite("scheduler_latency", s[1:], 7)}
+			}},
 	}
 }
 
@@ -247,7 +270,7 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 	for _, u := range hmc377OwnerUniverses() {
 		t.Run(u.name, func(t *testing.T) {
 			chain, stats, items := u.build()
-			var board, pool []RootCauseRankItem
+			var board []RootCauseRankItem
 			ownSeats := map[bool]int{}
 			countOwn := func(rows []RootCauseRankItem, sign int) {
 				for _, it := range rows {
@@ -258,12 +281,10 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 			}
 			if u.keep == nil {
 				board = hmc377UnwalkedBoard(chain, stats, items)
-				pool = board
 				countOwn(board, 1)
 			} else {
 				var pass1, input2 []RootCauseRankItem
 				pass1, input2, board = hmc377R4RankPasses(chain, stats, items, u.keep, u.additions())
-				pool = append(append([]RootCauseRankItem(nil), pass1...), board...)
 				// Seats minted by either pass: the build pass's, plus the
 				// enrich pass's own mints (its output minus its input).
 				countOwn(pass1, 1)
@@ -272,6 +293,9 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 			}
 			rspaPatchSummariesForTwinVisibility(board)
 			dump := hmc377R4Dump(board)
+			// HMC377 fix round 5: every published claim resolves to an
+			// on-board holder of that exact share, or is in disclosure form.
+			hmc377R5ClaimCheck(t, board, dump)
 			ready, dio := 0.0, 0.0
 			owners := map[bool]int{}
 			for _, it := range board {
@@ -341,13 +365,31 @@ func TestHMC377UnwalkedShareOwnedOnceAcrossEveryArm(t *testing.T) {
 					if !it.ChainAnchorRemainderSeat && !hmc377UwNear(value, it.ChainAnchoredMs) {
 						t.Fatalf("a three-way chain seat publishes its walked part: %+v", it)
 					}
+					// HMC377 fix round 5: the seat holding the unwalked part is
+					// the one the row's typed claim resolved to on the board
+					// (the own seat or the residual-lane seat), never a marker
+					// search; a claim whose holder is off the board speaks its
+					// disclosure form (checked by hmc377R5ClaimCheck) and names
+					// no value.
 					var owner *RootCauseRankItem
-					for i := range pool {
-						o := pool[i]
-						if o.Thread.PID == 200 && o.ChainAnchorUnwalkedSeat && rootCauseItemIsOnChain(o) &&
-							rspaUnwalkedFamilyRow(o, true) == rspaUnwalkedFamilyRow(it, true) {
-							owner = &pool[i]
+					unresolved := false
+					for _, c := range it.ShareClaims {
+						if c.Part != RootCauseShareClaimUnwalked {
+							continue
 						}
+						if !c.Resolved {
+							unresolved = true
+						}
+						for i := range board {
+							for _, key := range c.HolderKeys {
+								if board[i].ShareHolderKey == key {
+									owner = &board[i]
+								}
+							}
+						}
+					}
+					if unresolved {
+						continue
 					}
 					if owner == nil {
 						t.Fatalf("the unwalked part %.3f ms names no seat that holds it:\n%s", it.ChainAnchorUnwalkedMs, dump)

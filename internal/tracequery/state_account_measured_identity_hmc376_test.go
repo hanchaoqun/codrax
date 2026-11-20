@@ -189,14 +189,14 @@ func TestMeasuredStateInventoryIsClearedWhereStateTotalsAreRewritten(t *testing.
 
 	converted := measuredIdentitySeat(StateRunnable, 5, 5, window, intervals)
 	convertStateSeatToEdgeAnchored(&converted, semanticHostEdgeAnchor{boundaryTs: 11.0015, direct: true},
-		1, 1, 0, 0, pre, nil, nil, stateEdgeSegmentSplit{preMs: 1, postMs: 4, pre: pre, post: post}, "pre-edge account")
+		1, 1, 0, 0, pre, nil, nil, stateEdgeSegmentSplit{preMs: 1, postMs: 4, pre: pre, post: post}, rspaPlainSentence("pre-edge account"))
 	if converted.measuredStateIntervals != nil {
 		t.Error("the pre-edge seat kept the full-account inventory")
 	}
 
 	clone := mintStateEdgeRemainderClone(measuredIdentitySeat(StateRunnable, 5, 5, window, intervals),
 		semanticHostEdgeAnchor{boundaryTs: 11.0015, direct: true}, 1, 5, 4, 0, 0, post, nil, nil,
-		stateEdgeSegmentSplit{preMs: 1, postMs: 4, pre: pre, post: post}, "post-edge account")
+		stateEdgeSegmentSplit{preMs: 1, postMs: 4, pre: pre, post: post}, rspaPlainSentence("post-edge account"))
 	if clone.measuredStateIntervals != nil {
 		t.Error("the post-edge twin kept the full-account inventory")
 	}

@@ -1696,6 +1696,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	merged.runnableCPU = runnableCPU
 	merged.runnableCPUKnown = runnableCPUKnown
 	merged.runnableIntervals = runnableIntervals
+	// HMC377 fix round 5: a merged seat holds what every member held (the
+	// claims the representative's sentence makes ride with that sentence).
+	merged.rspaHeld = nil
+	for _, member := range members {
+		merged.rspaHeld = append(merged.rspaHeld, member.rspaHeld...)
+	}
 	if len(members) != 1 {
 		// A family value is not its representative's measured state account.
 		merged.measuredStateIntervals = nil

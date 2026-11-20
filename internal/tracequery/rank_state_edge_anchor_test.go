@@ -169,7 +169,9 @@ func TestBareCensusEdgeStateSeatRunnableBisect(t *testing.T) {
 	if !strings.Contains(seat.Summary, clause) || !strings.Contains(seat.Summary, rspaSummaryRemainderTwinPublished) {
 		t.Fatalf("⛓ sentence must name the waits it is priced inside + the twin anchor: %q", seat.Summary)
 	}
-	if !strings.Contains(rem.Summary, "outside the analysed thread's wait(s) that this thread's own wakeup ended") || !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat) {
+	// RE-BASED (HMC377 fix round 5): the ◇ sentence names its holder's role —
+	// the thread's own edge seat, not a walked chain seat.
+	if !strings.Contains(rem.Summary, "outside the analysed thread's wait(s) that this thread's own wakeup ended") || !strings.Contains(rem.Summary, rspaSummaryUnwalkedOwnSeat) {
 		t.Fatalf("◇ sentence must say it lies outside those waits + the ownership anchor: %q", rem.Summary)
 	}
 	// Score re-derives from the published value (§7.30 S1).
@@ -317,10 +319,12 @@ func TestBareCensusEdgeStateSeatInversionR4Mirror(t *testing.T) {
 		t.Fatalf("② the inside share carries the host-edge state basis: %+v", seat)
 	}
 	// The composite's published authority is untouched beyond its summary
-	// detail and the pairing key.
+	// detail, the pairing key and (HMC377 fix round 5) the typed claims that
+	// detail sentence makes.
 	stripped := home
 	stripped.Summary = before.Summary
 	stripped.inversionAccountRepresentedBy = ""
+	stripped.ShareClaims, stripped.rspaClaimSpans = before.ShareClaims, before.rspaClaimSpans
 	if !reflect.DeepEqual(stripped, before) || home.inversionAccountRepresentedBy == "" ||
 		home.inversionAccountRepresentedBy != seat.inversionAccountRepresents {
 		t.Fatalf("② beyond the pairing the composite must stay byte-identical:\n got=%+v\nwant=%+v", stripped, before)
@@ -451,8 +455,8 @@ func TestBareCensusEdgeStateSeatDirectionPopulation(t *testing.T) {
 }
 
 // TestBareCensusEdgeStateSeatTwinVisibility — the truncation-killed twin
-// downgrades through the EXISTING rspaPatchSummariesForTwinVisibility pass
-// (verbatim anchors shared by design).
+// downgrades through the share-claim resolution pass (HMC377 fix round 5:
+// each sentence's typed claim resolves against the published board).
 func TestBareCensusEdgeStateSeatTwinVisibility(t *testing.T) {
 	chain := r3SyntheticChain()
 	items := anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{o3cRunnableSeat()})
@@ -466,14 +470,14 @@ func TestBareCensusEdgeStateSeatTwinVisibility(t *testing.T) {
 	// ② ⛓ half truncated: the ◇ ownership claim downgrades.
 	onlyRem := []RootCauseRankItem{*rem}
 	rspaPatchSummariesForTwinVisibility(onlyRem)
-	if !strings.Contains(onlyRem[0].Summary, rspaSummaryOwnedByChainSeatUnpublished) {
+	if !strings.Contains(onlyRem[0].Summary, rspaSummaryUnwalkedOwnSeatUnpublished) {
 		t.Fatalf("② the ◇ sentence must downgrade honestly: %q", onlyRem[0].Summary)
 	}
 	// ③ both published: both sentences keep their claims byte-identically.
 	both := []RootCauseRankItem{*seat, *rem}
 	rspaPatchSummariesForTwinVisibility(both)
 	if !strings.Contains(both[0].Summary, rspaSummaryRemainderTwinPublished) ||
-		!strings.Contains(both[1].Summary, rspaSummaryOwnedByChainSeat) {
+		!strings.Contains(both[1].Summary, rspaSummaryUnwalkedOwnSeat) {
 		t.Fatalf("③ co-published twins must keep their claims")
 	}
 }

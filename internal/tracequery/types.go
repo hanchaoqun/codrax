@@ -4737,6 +4737,17 @@ type RootCauseRankItem struct {
 	// case-B clipped window seat). The STATERES-1 residual lane refuses such a
 	// row: those instants are priced already.
 	rspaUnwalkedShareOwned bool
+	// ShareClaims / ShareHolderKey (HMC377 fix round 5, never serialized —
+	// the tool carries them as typed record notes): every claim this row's
+	// sentences make that a share of its account is held by another seat,
+	// resolved once against the published board (resolveRankShareClaims),
+	// and the key a seat that resolves some claim is named by. rspaClaimSpans
+	// are the Summary spans those claims govern; rspaHeld what this seat holds
+	// (recorded where it is minted).
+	ShareClaims    []RootCauseShareClaim `json:"-"`
+	ShareHolderKey string                `json:"-"`
+	rspaClaimSpans []rspaClaimSpan
+	rspaHeld       []rspaHeldShare
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

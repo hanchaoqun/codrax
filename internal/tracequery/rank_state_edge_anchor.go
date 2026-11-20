@@ -123,12 +123,19 @@ func stateEdgeWaitClause(split dependencyWindowSplit) string {
 }
 
 // stateEdgeAnchoredSummary — the ⛓ seat's engine-side account for an
-// inventory partly inside the host's dependency windows. The twin-pointer
-// claim reuses the RSPA verbatim anchor so rspaPatchSummariesForTwinVisibility
-// downgrades it honestly when the ◇ clone dies at the cap.
+// inventory partly inside the host's dependency windows. Its pointer to the
+// ◇ clone is a typed claim (stateEdgeAnchoredSentence, HMC377 fix round 5)
+// resolved against the published board.
 func stateEdgeAnchoredSummary(thread ThreadRef, family string, inside, full, outside float64, split dependencyWindowSplit) string {
-	return fmt.Sprintf("%s %s %.3fms inside %s; full-window account %.3fms = this share + %.3fms outside those waits %s — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, inside, stateEdgeWaitClause(split), full, outside, rspaSummaryRemainderTwinPublished)
+	return stateEdgeAnchoredSentence(thread, family, inside, full, outside, split, RootCauseShareClaim{}).text
+}
+
+func stateEdgeAnchoredSentence(thread ThreadRef, family string, inside, full, outside float64, split dependencyWindowSplit, twin RootCauseShareClaim) rspaSentence {
+	var s rspaSentence
+	twinPhrase := s.span(rspaSummaryRemainderTwinPublished, rspaSummaryRemainderTwinUnpublished, twin)
+	s.text = fmt.Sprintf("%s %s %.3fms inside %s; full-window account %.3fms = this share + %.3fms outside those waits %s — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, inside, stateEdgeWaitClause(split), full, outside, twinPhrase)
+	return s
 }
 
 // stateEdgeFullyAnchoredSummary — the whole-account conversion form (every
@@ -161,16 +168,35 @@ func stateEdgePlainRunnableCopy(item RootCauseRankItem) RootCauseRankItem {
 	plain.PriorityRelationArtifactSources = nil
 	plain.inversionAccountRepresentedBy = ""
 	plain.inversionAccountRepresents = ""
+	rspaClearClaims(&plain)
 	return plain
 }
 
 // stateEdgeRemainderSummary — the ◇ clone's account: the host's time outside
-// every wait of the analysed thread that its wakeup ended. The ownership claim
-// reuses the RSPA verbatim anchor (the ⛓ twin IS a clipped ChainAnchorFullMs
-// seat, so the existing twin-visibility pass verifies it).
+// every wait of the analysed thread that its wakeup ended. Its ownership
+// claim names the ⛓ edge seat (stateEdgeRemainderSentence, a typed claim
+// resolved against the published board).
 func stateEdgeRemainderSummary(thread ThreadRef, family string, outside, full, inside float64, split dependencyWindowSplit) string {
-	return fmt.Sprintf("%s %s remainder %.3fms outside %s — the analysed thread was not waiting for this thread there (no chain credential for these segments); full-window account %.3fms = %.3fms inside those waits %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, outside, stateEdgeWaitClause(split), full, inside, rspaSummaryOwnedByChainSeat)
+	return stateEdgeRemainderSentence(thread, family, outside, full, inside, split, RootCauseShareClaim{}).text
+}
+
+func stateEdgeRemainderSentence(thread ThreadRef, family string, outside, full, inside float64, split dependencyWindowSplit, owner RootCauseShareClaim) rspaSentence {
+	// HMC377 fix round 5: the holder is the thread's own edge seat (the
+	// residual-lane role) — the sentence names that role, never "the chain
+	// seat" (a walked chain-lane seat holds none of these instants).
+	var s rspaSentence
+	ownerPhrase := s.span(rspaSummaryUnwalkedOwnSeat, rspaSummaryUnwalkedOwnSeatUnpublished, owner)
+	s.text = fmt.Sprintf("%s %s remainder %.3fms outside %s — the analysed thread was not waiting for this thread there (no chain credential for these segments); full-window account %.3fms = %.3fms inside those waits %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, outside, stateEdgeWaitClause(split), full, inside, ownerPhrase)
+	return s
+}
+
+// stateEdgeClaims are the two claims of one edge bisection: the ◇ clone's
+// share inside the waits is held by the ⛓ edge seat, and the ⛓ seat's rest
+// by the ◇ clone (HMC377 fix round 5).
+func stateEdgeClaims(pid int, dio bool, preMs float64, pre []foldInterval, postMs float64, post []foldInterval) (owner, twin RootCauseShareClaim) {
+	return rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderResidualSeat, pid, dio, preMs, pre),
+		rspaClaim(RootCauseShareClaimRemainder, RootCauseShareHolderRemainderSeat, pid, dio, postMs, post)
 }
 
 // bareCensusEdgeHostRunnableMintSet (ONCHAIN-3c mint-domain widening — 帽基
@@ -463,21 +489,33 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 			family := stateEdgeAnchorFamilyWord("runnable_wait")
 			seat := plain
 			seat.Rank, seat.BackgroundRank, seat.Tier = 0, 0, ""
+			ownerClaim, twinClaim := stateEdgeClaims(item.Thread.PID, false, split.preMs, split.pre, split.postMs, split.post)
+			anchoredSentence := stateEdgeAnchoredSentence(item.Thread, family, split.preMs, full, split.postMs, split, twinClaim)
+			anchoredSentence.text += stateEdgeInversionDetailClause(item.EffectiveImpactMs, item.RunnableMs)
 			convertStateSeatToEdgeAnchored(&seat, priced, split.preMs, split.preMs, 0, 0,
-				split.pre, nil, nil, split.stateEdgeSegmentSplit,
-				stateEdgeAnchoredSummary(item.Thread, family, split.preMs, full, split.postMs, split)+
-					stateEdgeInversionDetailClause(item.EffectiveImpactMs, item.RunnableMs))
+				split.pre, nil, nil, split.stateEdgeSegmentSplit, anchoredSentence)
 			seat.ChainAnchoredMs = split.preMs
 			seat.ChainAnchorFullMs = full
 			remainder := mintStateEdgeRemainderClone(clone, priced, split.preMs, full,
 				split.postMs, 0, 0, split.post, nil, nil, split.stateEdgeSegmentSplit,
-				stateEdgeRemainderSummary(item.Thread, family, split.postMs, full, split.preMs, split))
+				stateEdgeRemainderSentence(item.Thread, family, split.postMs, full, split.preMs, split, ownerClaim))
 			key := inversionAccountKey(*item)
 			seat.inversionAccountRepresents = key
 			item.inversionAccountRepresentedBy = key
-			item.Summary = appendRootCauseSummaryDetail(item.Summary,
-				fmt.Sprintf("its ready time inside %s (%.3fms of this %.3fms account) is priced as its own on-chain scheduling-delay seat and the rest as its adjacent remainder; this whole-account row keeps every value (the overlap measurement is never split) and rides as that seat's lossless detail",
-					stateEdgeWaitClause(split), split.preMs, item.RunnableMs))
+			// HMC377 fix round 5: the detail sentence names both seats — one
+			// typed claim each, resolved against the published board.
+			var detail rspaSentence
+			seatPhrase := detail.span("is priced as its own on-chain scheduling-delay seat",
+				"is priced as its own on-chain scheduling-delay seat, which is not on the published board (see the compaction disclosure),", ownerClaim)
+			restPhrase := detail.span("the rest as its adjacent remainder",
+				"the rest as its adjacent remainder, which is not on the published board (see the compaction disclosure)", twinClaim)
+			detail.text = fmt.Sprintf("its ready time inside %s (%.3fms of this %.3fms account) %s and %s; this whole-account row keeps every value (the overlap measurement is never split) and rides as that seat's lossless detail",
+				stateEdgeWaitClause(split), split.preMs, item.RunnableMs, seatPhrase, restPhrase)
+			item.Summary = strings.TrimSpace(item.Summary)
+			if item.Summary != "" {
+				detail.text = "; " + detail.text
+			}
+			rspaAppendSentence(item, detail)
 			return append(out, seat, remainder)
 		}
 		item.ChainRelevance = "on_chain"
@@ -485,6 +523,7 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
 		item.HostWakeupEdgeAnchorTs = priced.boundaryTs
 		item.HostWakeupEdgeAnchorVia = priced.via()
+		rspaHold(item, RootCauseShareHolderResidualSeat, false, item.runnableIntervals, item.RunnableMs)
 		item.Summary = appendRootCauseSummaryDetail(item.Summary,
 			fmt.Sprintf("the whole runnable account lies inside %s — every published value unchanged, the inversion seat is never split",
 				stateEdgeWaitClause(split)))
@@ -519,18 +558,19 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 			// intact (值通道重铸为全账,无二分 trio,无余席).
 			convertStateSeatToEdgeAnchored(item, priced, item.RunnableMs, item.RunnableMs, 0, 0,
 				item.runnableIntervals, nil, nil, split.stateEdgeSegmentSplit,
-				stateEdgeFullyAnchoredSummary(item.Thread, family, item.RunnableMs, split))
+				rspaPlainSentence(stateEdgeFullyAnchoredSummary(item.Thread, family, item.RunnableMs, split)))
 			return nil
 		}
 		clone := *item
+		ownerClaim, twinClaim := stateEdgeClaims(item.Thread.PID, false, split.preMs, split.pre, split.postMs, split.post)
 		convertStateSeatToEdgeAnchored(item, priced, split.preMs, split.preMs, 0, 0,
 			split.pre, nil, nil, split.stateEdgeSegmentSplit,
-			stateEdgeAnchoredSummary(item.Thread, family, split.preMs, full, split.postMs, split))
+			stateEdgeAnchoredSentence(item.Thread, family, split.preMs, full, split.postMs, split, twinClaim))
 		item.ChainAnchoredMs = split.preMs
 		item.ChainAnchorFullMs = full
 		return append(out, mintStateEdgeRemainderClone(clone, priced, split.preMs, full,
 			split.postMs, 0, 0, split.post, nil, nil, split.stateEdgeSegmentSplit,
-			stateEdgeRemainderSummary(item.Thread, family, split.postMs, full, split.preMs, split)))
+			stateEdgeRemainderSentence(item.Thread, family, split.postMs, full, split.preMs, split, ownerClaim)))
 	case "d_state_or_io_wait", "io_wait":
 		if item.Source != "window_stats" && item.Source != "window_stats.io_wait_top" {
 			return nil
@@ -566,18 +606,20 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 		if postMs <= rspaAnchorIdentityTolMs {
 			convertStateSeatToEdgeAnchored(item, priced, item.DStateMs+item.IOWaitMs, 0, item.DStateMs, item.IOWaitMs,
 				nil, item.dioSegmentIntervalsD, item.dioSegmentIntervalsIO, splitAll.stateEdgeSegmentSplit,
-				stateEdgeFullyAnchoredSummary(item.Thread, family, item.DStateMs+item.IOWaitMs, splitAll))
+				rspaPlainSentence(stateEdgeFullyAnchoredSummary(item.Thread, family, item.DStateMs+item.IOWaitMs, splitAll)))
 			return nil
 		}
 		clone := *item
+		ownerClaim, twinClaim := stateEdgeClaims(item.Thread.PID, true, preMs, rspaFoldUnion(splitD.pre, splitIO.pre),
+			postMs, rspaFoldUnion(splitD.post, splitIO.post))
 		convertStateSeatToEdgeAnchored(item, priced, preMs, 0, splitD.preMs, splitIO.preMs,
 			nil, splitD.pre, splitIO.pre, splitAll.stateEdgeSegmentSplit,
-			stateEdgeAnchoredSummary(item.Thread, family, preMs, full, postMs, splitAll))
+			stateEdgeAnchoredSentence(item.Thread, family, preMs, full, postMs, splitAll, twinClaim))
 		item.ChainAnchoredMs = preMs
 		item.ChainAnchorFullMs = full
 		return append(out, mintStateEdgeRemainderClone(clone, priced, preMs, full,
 			postMs, splitD.postMs, splitIO.postMs, nil, splitD.post, splitIO.post, splitAll.stateEdgeSegmentSplit,
-			stateEdgeRemainderSummary(item.Thread, family, postMs, full, preMs, splitAll)))
+			stateEdgeRemainderSentence(item.Thread, family, postMs, full, preMs, splitAll, ownerClaim)))
 	}
 	return out
 }
@@ -595,7 +637,7 @@ func anchorStateSeatInsideDependencyWindows(item *RootCauseRankItem, lane stateE
 // halves carry their own precise clipped inventories instead).
 func convertStateSeatToEdgeAnchored(item *RootCauseRankItem, anchor semanticHostEdgeAnchor,
 	totalMs, runnableMs, dMs, ioMs float64,
-	runnableSegs, dSegs, ioSegs []foldInterval, split stateEdgeSegmentSplit, summary string) {
+	runnableSegs, dSegs, ioSegs []foldInterval, split stateEdgeSegmentSplit, summary rspaSentence) {
 	item.ChainRelevance = "on_chain"
 	item.Causality = "on_wakeup_chain"
 	item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
@@ -640,7 +682,12 @@ func convertStateSeatToEdgeAnchored(item *RootCauseRankItem, anchor semanticHost
 	if split.preEnd > split.preStart {
 		item.StartTs, item.EndTs = split.preStart, split.preEnd
 	}
-	item.Summary = summary
+	rspaSetSentence(item, summary)
+	// HMC377 fix round 5: the edge seat holds its pre-edge account (the
+	// residual-lane role; the unwalked-seat mint re-records its own role).
+	item.rspaHeld = nil
+	rspaHold(item, RootCauseShareHolderResidualSeat, len(runnableSegs) == 0 && (len(dSegs) > 0 || len(ioSegs) > 0),
+		rspaFoldUnion(runnableSegs, dSegs, ioSegs), totalMs)
 }
 
 // mintStateEdgeRemainderClone mints the ◇ post-edge twin from the pre-rewrite
@@ -651,7 +698,8 @@ func convertStateSeatToEdgeAnchored(item *RootCauseRankItem, anchor semanticHost
 // precedent keeps the pair too).
 func mintStateEdgeRemainderClone(clone RootCauseRankItem, anchor semanticHostEdgeAnchor,
 	preMs, fullMs, postMs, dMs, ioMs float64,
-	runnableSegs, dSegs, ioSegs []foldInterval, split stateEdgeSegmentSplit, summary string) RootCauseRankItem {
+	runnableSegs, dSegs, ioSegs []foldInterval, split stateEdgeSegmentSplit, summary rspaSentence) RootCauseRankItem {
+	rspaClearClaims(&clone)
 	clone.Rank = 0
 	clone.BackgroundRank = 0
 	clone.Tier = ""
@@ -688,7 +736,9 @@ func mintStateEdgeRemainderClone(clone RootCauseRankItem, anchor semanticHostEdg
 	if split.postEnd > split.postStart {
 		clone.StartTs, clone.EndTs = split.postStart, split.postEnd
 	}
-	clone.Summary = summary
+	rspaSetSentence(&clone, summary)
+	rspaHold(&clone, RootCauseShareHolderRemainderSeat, len(runnableSegs) == 0 && (len(dSegs) > 0 || len(ioSegs) > 0),
+		rspaFoldUnion(runnableSegs, dSegs, ioSegs), postMs)
 	return clone
 }
 

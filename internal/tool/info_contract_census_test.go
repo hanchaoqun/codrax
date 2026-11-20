@@ -649,6 +649,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainCredentialCensus": {Status: "note_consumed", Ref: "chain_credential_census → Node.ChainCredentialCensus(CHAINGUARD-1 chip 引擎同源映射 + census=none 第二席门)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat marker.
 	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
+	"ShareClaims":                       {Status: "engine_gate", Ref: "HMC377 fix5 typed share claims resolved once against the published board (resolveRankShareClaims); the engine writes each claim span's held or disclosure form"},
+	"ShareHolderKey":                    {Status: "engine_gate", Ref: "HMC377 fix5 the key of a seat that resolves a share claim (resolveRankShareClaims)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
 	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},

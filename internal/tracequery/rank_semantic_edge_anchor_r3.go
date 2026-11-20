@@ -255,7 +255,18 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.semanticMemberIntervals = append([]foldInterval(nil), seat.hostEdgeRemainderIntervals...)
 	rem.hostEdgeRemainderIntervals = nil
 	rem.Score = rootCauseRankScoreBasisMs(rem) * rem.Confidence * rootCauseItemScoreWeight(rem)
-	rem.Summary = fmt.Sprintf("%s span %q remainder %.3fms window=%.6f..%.6f — the part outside every wait of the analysed thread that this thread's own wakeup ended (the analysed thread was not waiting for this thread there; supporting context, not a cause); the %.3fms inside those waits priced on the chain seat and this remainder partition the span's in-window projection %.3fms exactly; whether finishing this work triggered the wakeup is unproven (disclosure only); effective_impact=0.000ms",
-		firstNonEmpty(rem.SemanticClass, rem.Type), rem.SpanName, remMs, remStart, remEnd, rem.ChainAnchoredMs, rem.ChainAnchorFullMs)
+	// HMC377 fix round 5: the clone's pointer to the ⛓ seat holding the
+	// inside share is a typed claim resolved against the published board;
+	// the clone holds the outside share.
+	inside, outside := semanticEdgeAnchorInstants(seat)
+	rspaClearClaims(&rem)
+	rem.rspaHeld = []rspaHeldShare{{role: RootCauseShareHolderRemainderSeat, semantic: true, windows: outside, ms: remMs}}
+	owner := rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderResidualSeat, seat.Thread.PID, false, seat.ChainAnchoredMs, inside)
+	owner.semantic = true
+	var sentence rspaSentence
+	priced := sentence.span("priced on the chain seat", "priced on a chain seat that is not on the published board (see the compaction disclosure)", owner)
+	sentence.text = fmt.Sprintf("%s span %q remainder %.3fms window=%.6f..%.6f — the part outside every wait of the analysed thread that this thread's own wakeup ended (the analysed thread was not waiting for this thread there; supporting context, not a cause); the %.3fms inside those waits %s and this remainder partition the span's in-window projection %.3fms exactly; whether finishing this work triggered the wakeup is unproven (disclosure only); effective_impact=0.000ms",
+		firstNonEmpty(rem.SemanticClass, rem.Type), rem.SpanName, remMs, remStart, remEnd, rem.ChainAnchoredMs, priced, rem.ChainAnchorFullMs)
+	rspaSetSentence(&rem, sentence)
 	return rem, true
 }
