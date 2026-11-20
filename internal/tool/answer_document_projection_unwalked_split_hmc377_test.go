@@ -36,7 +36,7 @@ func hmc377ThreeWayProjection(withOwnSeat, withChainSeat bool) types.TraceCausal
 			ImpactMS: 0.012, CumulativeImpactMS: 0.012, EffectiveImpactMS: 0.012,
 			OnChainBasis: "host_wakeup_edge_pre_state", HostWakeupEdgeAnchorTS: 163.315, HostWakeupEdgeAnchorVia: "direct",
 			ChainAnchorUnwalkedSeat: true,
-			Rank: 2, Tier: "secondary", Confidence: 0.76, LineStart: 30, LineEnd: 31,
+			Rank:                    2, Tier: "secondary", Confidence: 0.76, LineStart: 30, LineEnd: 31,
 		})
 	}
 	p.AdjacentCauses = append(p.AdjacentCauses, types.TraceCausalProjectionNode{
@@ -46,7 +46,7 @@ func hmc377ThreeWayProjection(withOwnSeat, withChainSeat bool) types.TraceCausal
 		ImpactMS: 176.946, CumulativeImpactMS: 176.946,
 		ChainAnchoredMS: 29.904, ChainAnchorFullMS: 206.862, ChainAnchorUnwalkedMS: 0.012, ChainAnchorOutsideMS: 176.946,
 		ChainAnchorRemainderSeat: true,
-		Rank: 1, Confidence: 0.8, LineStart: 10, LineEnd: 40,
+		Rank:                     1, Confidence: 0.8, LineStart: 10, LineEnd: 40,
 	})
 	return p
 }

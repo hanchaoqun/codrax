@@ -21,4 +21,3 @@ func TestHMC377IdentityDisclosureKeepsChainThreadsAheadOfBackground(t *testing.T
 		t.Fatalf("fixture: the TID-ascending background population must fill the cap: %v", order)
 	}
 }
-

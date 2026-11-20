@@ -162,7 +162,7 @@ func TestHMC377SealedFollowUpReplay(t *testing.T) {
 			candidates := make([]types.TraceFindingCandidateV1, 0, len(s.roster))
 			for _, id := range s.roster {
 				candidates = append(candidates, types.TraceFindingCandidateV1{PrimaryEligible: true, Decision: types.TraceCauseDecision{CandidateID: id, SubjectName: "sealed",
-					Token:     types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+					Token:           types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
 					Magnitude:       &types.TypedMagnitude{Value: 1, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
 					CausalQualifier: types.TraceCausalQualifierProven, EvidenceRefs: []string{"E"}}})
 			}
