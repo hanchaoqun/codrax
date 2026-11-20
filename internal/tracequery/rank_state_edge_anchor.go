@@ -263,6 +263,7 @@ func bareCensusEdgeStateSeatEligible(item *RootCauseRankItem, chainThreads map[i
 	// partition (anchored share > 0, a ⛓ twin exists) is never re-judged.
 	rspaZeroWholeRemainder := item.ChainAnchorRemainderSeat && item.HostWakeupEdgeAnchorTs == 0 &&
 		item.ChainAnchoredMs <= rspaAnchorIdentityTolMs && item.ChainAnchorFullMs > 0 &&
+		item.ChainAnchorUnwalkedMs <= 0 && item.rspaUnwalkedHeldMs <= 0 &&
 		threadInSet(chainThreads, item.Thread)
 	if strings.TrimSpace(item.OnChainBasis) != "" || item.AbsorbedByRankFamily ||
 		item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||

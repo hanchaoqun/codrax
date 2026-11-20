@@ -519,6 +519,20 @@ type runtimeTraceProjTreeRow struct {
 	// stamps this bit and the sentence downgrades to the honest 未上榜/见明细
 	// form. Stamped only on rows carrying the decomposition pair.
 	ChainAnchorTwinInvisible bool
+	// ChainAnchorUnwalkedRef / ChainAnchorUnwalkedInvisible (HMC377 fix round
+	// 3): the [E#] of the rendered seat holding a three-way split's unwalked
+	// part (Node.ChainAnchorUnwalkedSeat, same thread and state family, value
+	// == Node.ChainAnchorUnwalkedMS), or the typed verdict that no rendered
+	// surface carries it — the 同源三分 sentences name the seat or say it is
+	// not on this board. Stamped by the same visibility sweep as the twin.
+	ChainAnchorUnwalkedRef       string
+	ChainAnchorUnwalkedInvisible bool
+	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
+	// fix round 3): the pair sentence's third part (the unwalked seat) when
+	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
+	// from the ◇ side's typed parts.
+	AccountRelSameSourceUnwalkedMS  float64
+	AccountRelSameSourceUnwalkedRef string
 	// AccountRelMirror* (件1 修复轮, 2026-07-14; donghu E12(+3) witness): the
 	// full-window MIRROR row relation — an UNDECOMPOSED same-thread same-state
 	// row (another lane's face, e.g. critical_blocking) whose display value
@@ -1257,6 +1271,14 @@ const (
 	// 账目关系 entry teaches 不可相加, while this pair is the ONLY additive
 	// seat relation — one legend entry cannot speak both).
 	runtimeTraceProjMarkChainAnchorRelation
+
+	// HMC377 fix round 3: the 行2 同源三分 disclosure and its pair sentence —
+	// a chain thread's full-window account in THREE typed parts (⛓ walked
+	// part on the chain seat + its own 唤醒锚定 seat inside the waits its own
+	// wakeup ended that the chain did not walk + the ◇ remainder), every
+	// value read from the engine's typed parts (Node.ChainAnchoredMS /
+	// ChainAnchorUnwalkedMS / ChainAnchorOutsideMS / ChainAnchorFullMS).
+	runtimeTraceProjMarkChainAnchorThreeWay
 
 	// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
 	// suffix 「·供给缺口主导」 — a supply-gap-dominant inversion seat's 行2
@@ -2292,6 +2314,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorRelation, runtimeTraceProjLegendGroupMark,
 			"- `合计还原全窗账` = 同线程同状态的 ⛓锚定席 与 ◇余段席 互指 [E#]:两席出自同一份全窗账、不相交,相加恰还原全窗值;此关系是唯一可相加的席位对,其余跨行墙钟仍不可相加。",
 			"- `restores the full-window account` = the ⛓ anchored seat and its ◇ remainder seat of one thread + state cross-reference [E#]: both halves come from ONE full-window account, are disjoint, and sum exactly back to it — the only additive seat pair; wall clock across any other rows stays non-additive."},
+		// HMC377 fix round 3: the three-way split entry — the third part is
+		// the thread's own seat inside the waits its wakeup ended that the
+		// chain did not walk.
+		{runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjLegendGroupMark,
+			"- `同源三分` = 一份全窗账拆成三份:⛓锚定席(链已走的依赖窗内,链上席持有)+唤醒锚定席(目标某次等待由本线程自己的唤醒结束、链未走的那几次等待内,本线程自己的链上席持有)+◇余段席(其余时间,目标此时并未在等待本线程,无链上凭证);三份不相交、每份只由一席持有,相加恰还原全窗值;某席未上本榜时行内注明。",
+			"- `same-source three-way split` = one whole-window account in three parts: the ⛓ anchored seat (inside the dependency windows the chain walked; held by the chain seat) + the wakeup-anchored seat (inside the analysed thread's waits that this thread's own wakeup ended and the chain did not walk; held by this thread's own on-chain seat) + the ◇ remainder seat (the rest; the analysed thread was not waiting for this thread then; no chain credential). The three parts are disjoint, each is held by exactly one seat, and they sum exactly back to the whole-window value; a seat that is not on this board is named as such inline."},
 		// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation entry
 		// — the same-source split's honest form when the chain seat does not
 		// hold the anchored share at the same value.
@@ -2804,7 +2832,7 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if hasAny(runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjMarkAccountRelation,
 		runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjMarkChainAnchorRelation,
-		runtimeTraceProjMarkSameSegMirror) {
+		runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjMarkSameSegMirror) {
 		if zh {
 			lines = append(lines, "- 同一线程的多项账目保留各自口径；定位包络相交不证明实际分量重叠，关系未证时不能直接相加。只有明确互斥或同源拆分闭合时才按行内说明合计。")
 		} else {
@@ -6906,6 +6934,18 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// "ms = " token is the EffectiveBreakdown 行3 probe's documented
 		// uniqueness invariant (revisit76LegendProbes) and must stay unique
 		// to that grammar line.
+		//
+		// HMC377 fix round 3: a three-way split (the engine minted
+		// ChainAnchorUnwalkedMS beside the trio) names all three typed parts —
+		// walked (the chain seat), the thread's own 唤醒锚定 seat, the outside
+		// remainder — read verbatim from the engine (no display arithmetic);
+		// the unwalked seat's word says when it is not on this board.
+		threeWay := row.Node.ChainAnchorUnwalkedMS > 0
+		unwalked, outside := row.Node.ChainAnchorUnwalkedMS, row.Node.ChainAnchorOutsideMS
+		unwalkedWord, unwalkedWordEN := "(⛓唤醒锚定席)", "(⛓ wakeup-anchored seat)"
+		if row.ChainAnchorUnwalkedInvisible {
+			unwalkedWord, unwalkedWordEN = "(唤醒锚定席未上本榜,见明细)", "(wakeup-anchored seat not on this board; see the detail index)"
+		}
 		var text string
 		switch {
 		case row.Node.ChainAnchorRemainderSeat && row.Node.ChainAnchorOwnershipDivergent:
@@ -6948,8 +6988,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
 					full, anchored, anchoredNounEN, rem, laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
 			}
+			if threeWay {
+				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
+				text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+唤醒锚定%.3fms%s+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
+					full, anchoredNoun, anchored, unwalked, unwalkedWord, outside, laneMS, censusNoun, censusMS, delta, chainSeatWord)
+				if !zh {
+					text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + %.3fms wakeup-anchored %s + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
+						full, anchored, anchoredNounEN, unwalked, unwalkedWordEN, outside, laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
+				}
+			}
 		case row.Node.ChainAnchorRemainderSeat:
-			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			if !threeWay {
+				row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			}
 			// RNB-1 D1 修复轮: the 「(⛓链上席)」 ownership word downgrades
 			// when no ⛓ counterpart rendered (dangling backstop; wording
 			// only — the ledger split stays exact).
@@ -6990,8 +7041,21 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			if !zh {
 				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + this remainder %.3fms (%s)", full, anchored, anchoredWordEN, rem, remainderWordEN)
 			}
+			if threeWay {
+				// The outside part lies outside every wait of the analysed
+				// thread this thread's wakeup ended — walked or not.
+				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
+				text = fmt.Sprintf("同源三分:全窗%.3fms=锚定%.3fms%s+唤醒锚定%.3fms%s+本行其余%.3fms(目标此时并未在等待本线程,无链上凭证)",
+					full, anchored, anchoredWord, unwalked, unwalkedWord, outside)
+				if !zh {
+					text = fmt.Sprintf("same-source three-way split: whole-window %.3fms=%.3fms anchored %s + %.3fms wakeup-anchored %s + this remainder %.3fms (the analysed thread was not waiting for this thread then; no chain credential)",
+						full, anchored, anchoredWordEN, unwalked, unwalkedWordEN, outside)
+				}
+			}
 		default:
-			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			if !threeWay {
+				row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			}
 			remainderWord, remainderWordEN := "(◇余段席)", "(◇ remainder seat)"
 			if row.ChainAnchorTwinInvisible {
 				remainderWord = "(余段席溢出未上榜,见明细)"
@@ -7000,6 +7064,13 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			text = fmt.Sprintf("同源二分:全窗%.3fms=本行锚定%.3fms+其余%.3fms%s", full, anchored, rem, remainderWord)
 			if !zh {
 				text = fmt.Sprintf("same-source split: full-window %.3fms=this row %.3fms anchored + remainder %.3fms %s", full, anchored, rem, remainderWordEN)
+			}
+			if threeWay {
+				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
+				text = fmt.Sprintf("同源三分:全窗%.3fms=本行锚定%.3fms+唤醒锚定%.3fms%s+其余%.3fms%s", full, anchored, unwalked, unwalkedWord, outside, remainderWord)
+				if !zh {
+					text = fmt.Sprintf("same-source three-way split: whole-window %.3fms=this row %.3fms anchored + %.3fms wakeup-anchored %s + remainder %.3fms %s", full, anchored, unwalked, unwalkedWordEN, outside, remainderWordEN)
+				}
 			}
 		}
 		out = append(out, text)
@@ -7403,6 +7474,31 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				if !zh {
 					text = fmt.Sprintf("same-source split pair: ⛓ seat = [%s], ◇ seat = this row; their sum restores the full-window account %.3fms (rule in the legend)",
 						row.AccountRelRef, row.AccountRelSameSourceFullMS)
+				}
+			}
+			if row.AccountRelSameSourceUnwalkedMS > 0 {
+				// HMC377 fix round 3: the three-way pair names its third seat
+				// (or says it is not on this board) — the three restore the
+				// full-window account, never two of them.
+				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
+				third, thirdEN := "唤醒锚定席未上本榜(见明细)", "the wakeup-anchored seat is not on this board (see the detail index)"
+				if ref := strings.TrimSpace(row.AccountRelSameSourceUnwalkedRef); ref != "" {
+					third, thirdEN = "唤醒锚定席=["+ref+"]", "wakeup-anchored seat = ["+ref+"]"
+				}
+				if row.AccountRelSameSourceAnchoredSide {
+					text = fmt.Sprintf("同源三分对席:◇席=[%s],%s,⛓席=本行;三席合计还原全窗账 %.3fms(规则见图例)",
+						row.AccountRelRef, third, row.AccountRelSameSourceFullMS)
+					if !zh {
+						text = fmt.Sprintf("same-source three-way split: ◇ seat = [%s], %s, ⛓ seat = this row; the three seats' sum restores the whole-window account %.3fms (rule in the legend)",
+							row.AccountRelRef, thirdEN, row.AccountRelSameSourceFullMS)
+					}
+				} else {
+					text = fmt.Sprintf("同源三分对席:⛓席=[%s],%s,◇席=本行;三席合计还原全窗账 %.3fms(规则见图例)",
+						row.AccountRelRef, third, row.AccountRelSameSourceFullMS)
+					if !zh {
+						text = fmt.Sprintf("same-source three-way split: ⛓ seat = [%s], %s, ◇ seat = this row; the three seats' sum restores the whole-window account %.3fms (rule in the legend)",
+							row.AccountRelRef, thirdEN, row.AccountRelSameSourceFullMS)
+					}
 				}
 			}
 			out = append(out, text)
@@ -21246,6 +21342,12 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	// spans several anchored slices).
 	if node.ChainAnchorFullMS > 0 && !node.ChainAnchorRemainderSeat {
 		fragmentZH, fragmentEN = "链上锚定合计", "the chain-anchored total is"
+		if node.ChainAnchorUnwalkedMS > 0 {
+			// HMC377 fix round 3: on a three-way split this row holds only
+			// the walked part; the thread's own wakeup-anchored seat holds
+			// the rest of its chain-anchored time (named on the 同源三分 line).
+			fragmentZH, fragmentEN = "本行锚定", "this row's walked anchored share is"
+		}
 	}
 	var text string
 	switch {
@@ -21255,6 +21357,12 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 		if !zh {
 			text = fmt.Sprintf("full-window %s total %.3fms; %s %.3fms (%.0f%%)",
 				class, full, fragmentEN, covered, covered/full*100)
+			if node.ChainAnchorUnwalkedMS > 0 && !node.ChainAnchorRemainderSeat {
+				// HMC377 fix round 3: the three-way word family says
+				// "whole-window" (the two-way family owns "full-window").
+				text = fmt.Sprintf("whole-window %s total %.3fms; %s %.3fms (%.0f%%)",
+					class, full, fragmentEN, covered, covered/full*100)
+			}
 		}
 	// §29.183 G8 复核补点: the full-window state window rides the same
 	// WindowPresent-gated supply-fold feed — a rebased [0,end] window keeps

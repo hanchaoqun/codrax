@@ -357,7 +357,9 @@ func answerRelationSameSourcePartitionAuthorities(projection TraceCausalProjecti
 	for _, node := range projection.RankedSeats {
 		full := answerRelationPublishedMS(node.ChainAnchorFullMS)
 		anchored := answerRelationPublishedMS(node.ChainAnchoredMS)
-		if full <= 0 || anchored <= 0 || anchored >= full ||
+		// HMC377 fix round 3: a three-way split (a third seat holds the
+		// unwalked part) is not this two-member relation — fail closed.
+		if full <= 0 || anchored <= 0 || anchored >= full || node.ChainAnchorUnwalkedMS > 0 || node.ChainAnchorUnwalkedSeat ||
 			node.ChainAnchorOwnershipDivergent || !node.EffectiveImpactPublished ||
 			node.LineStart <= 0 || node.LineEnd < node.LineStart ||
 			strings.TrimSpace(node.Subject) == "" || strings.TrimSpace(node.Object) == "" {

@@ -745,6 +745,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the relation sentence).
 		runtimeTraceProjMarkChainAnchorSplit:    {"同源二分:全窗", "full-window"},
 		runtimeTraceProjMarkChainAnchorRelation: {"合计还原全窗账", "restores"},
+		// HMC377 fix round 3: the three-way split's 行2 head and pair head
+		// share the stem (the en face says "whole-window" so the two-way
+		// "full-window" probe never fires on a three-way-only render).
+		runtimeTraceProjMarkChainAnchorThreeWay: {"同源三分", "three-way split"},
 		// RNB-1 (§29.88 R2/R4, 2026-07-14): the case-A' downgraded relation
 		// head and the whole-seat demotion disclosure head — both 行2 line
 		// openers, verbatim in the legend entries (bidirectional).
@@ -1882,6 +1886,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// relation sentence + their legend entries (fixture home:
 		// answer_document_projection_rspa_test.go).
 		{"rspa_same_source_split", rspaSameSourceSplitProjection()},
+		// HMC377 fix round 3: the three-way split — 行2 同源三分 on the ⛓ and
+		// ◇ rows, the 唤醒锚定 seat and the three-seat pair sentence + their
+		// legend entries (fixture home:
+		// answer_document_projection_unwalked_split_hmc377_test.go).
+		{"hmc377_unwalked_three_way_split", hmc377ThreeWayLegendProjection()},
 		// INV-SUPPLY 件①/件③ (§29.61.11/.11a, 2026-07-14): the supply-gap-
 		// dominant inversion seat — 行2/◎ compound word + the ◎ leverage note
 		// + their legend entries (fixture home:

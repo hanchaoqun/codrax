@@ -4396,6 +4396,29 @@ type RootCauseRankItem struct {
 	ChainAnchoredMs          float64 `json:"chain_anchored_ms,omitempty"`
 	ChainAnchorFullMs        float64 `json:"chain_anchor_full_ms,omitempty"`
 	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ChainAnchorUnwalkedMs / ChainAnchorOutsideMs / ChainAnchorUnwalkedSeat
+	// (HMC377 fix round 3): the typed three-way split of a chain thread's
+	// account when part of it lies inside waits of the analysed thread that
+	// the thread's own recorded wakeup ended but the chain expansion did not
+	// walk, and that part is held by the thread's OWN on-chain seat (one seat
+	// per thread and state family, minted once per board by the unwalked-share
+	// ledger, rank_chain_anchor_unwalked_wait.go):
+	//   ChainAnchoredMs       — the share inside the walked chain windows
+	//                           (held by the chain seat);
+	//   ChainAnchorUnwalkedMs — the share inside those unwalked waits (held
+	//                           by the unwalked seat);
+	//   ChainAnchorOutsideMs  — the share outside every such window (the ◇
+	//                           remainder's value);
+	//   ChainAnchorFullMs     = the three, exactly (engine identity over one
+	//                           segment set; never display arithmetic).
+	// Set on the ⛓ chain seat's stamp and the ◇ remainder / satellite rows of
+	// such a thread; ChainAnchorUnwalkedSeat marks the unwalked seat itself.
+	// Absent (0/0/false) whenever the thread has no such share or one seat
+	// holds walked and unwalked together (case B), so every two-way split
+	// keeps its bytes.
+	ChainAnchorUnwalkedMs   float64 `json:"chain_anchor_unwalked_ms,omitempty"`
+	ChainAnchorOutsideMs    float64 `json:"chain_anchor_outside_ms,omitempty"`
+	ChainAnchorUnwalkedSeat bool    `json:"chain_anchor_unwalked_seat,omitempty"`
 	// ChainAnchorOwnershipDivergent + ChainAnchorChainLaneMs /
 	// ChainAnchorCensusMs (RNB-1, §29.88 R2/R4 user rulings, 2026-07-14):
 	// the case-A OWNERSHIP qualification verdict, decoupled from the census
@@ -4692,6 +4715,12 @@ type RootCauseRankItem struct {
 	// reconciliation matches the exact key and nothing else.
 	inversionAccountRepresentedBy string
 	inversionAccountRepresents    string
+	// rspaUnwalkedHeldMs (unexported, HMC377 fix round 3, never serialized):
+	// on a case-B split (no chain-lane seat) the clipped window seat holds the
+	// thread's walked AND unwalked share as one object; both halves remember
+	// the unwalked part here so a later pass (the scheduler enrich pass) reads
+	// the owner from the board instead of minting a second one.
+	rspaUnwalkedHeldMs float64
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

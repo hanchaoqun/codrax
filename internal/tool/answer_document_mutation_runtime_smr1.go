@@ -792,7 +792,9 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		clippedAmbiguous, chainSeatAmbiguous := false, false
 		for _, other := range all {
 			on := other.Node
-			if other == rem || !other.HasData || on.ChainAnchorRemainderSeat {
+			// HMC377 fix round 3: the thread's own unwalked seat holds the
+			// three-way split's third part — never the walked counterpart.
+			if other == rem || !other.HasData || on.ChainAnchorRemainderSeat || on.ChainAnchorUnwalkedSeat {
 				continue
 			}
 			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) !=
@@ -856,10 +858,19 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		rem.AccountRelRef = strings.TrimSpace(pick.EvidenceTag)
 		rem.AccountRelSameSourceFullMS = rn.ChainAnchorFullMS
 		rem.AccountRelSameSourceAnchoredSide = false
+		// HMC377 fix round 3: a three-way split's pair names its third seat
+		// on both sides (the typed unwalked part and the seat holding it, as
+		// stamped by the visibility sweep).
+		if rn.ChainAnchorUnwalkedMS > 0 {
+			rem.AccountRelSameSourceUnwalkedMS = rn.ChainAnchorUnwalkedMS
+			rem.AccountRelSameSourceUnwalkedRef = rem.ChainAnchorUnwalkedRef
+		}
 		if pick.AccountRelRef == "" {
 			pick.AccountRelRef = strings.TrimSpace(rem.EvidenceTag)
 			pick.AccountRelSameSourceFullMS = rn.ChainAnchorFullMS
 			pick.AccountRelSameSourceAnchoredSide = true
+			pick.AccountRelSameSourceUnwalkedMS = rem.AccountRelSameSourceUnwalkedMS
+			pick.AccountRelSameSourceUnwalkedRef = rem.AccountRelSameSourceUnwalkedRef
 		}
 	}
 
@@ -1474,12 +1485,25 @@ func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeR
 		}
 		subject := runtimeTraceCausalProjectionCanonicalNode(rn.Subject)
 		visible := false
+		// HMC377 fix round 3: the seat holding a three-way split's unwalked
+		// part is found by its typed role and exact value — and it never
+		// counts as the walked twin (a surviving unwalked seat must not keep
+		// 「(⛓链上席)」 alive for a chain seat that is off the board).
+		unwalkedRef, unwalkedFound := "", false
 		for _, other := range all {
 			if other == row || !other.HasData {
 				continue
 			}
 			on := other.Node
 			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) != subject {
+				continue
+			}
+			if on.ChainAnchorUnwalkedSeat {
+				if rn.ChainAnchorUnwalkedMS > 0 && !unwalkedFound && runtimeTraceProjSMR1StateFamily(on) == family &&
+					runtimeTraceProjSMR1WindowsCompatible(on, rn) &&
+					runtimeTraceProjSMR1ValuesEqual(runtimeTraceProjNodeDisplayImpact(on), rn.ChainAnchorUnwalkedMS) {
+					unwalkedRef, unwalkedFound = strings.TrimSpace(other.EvidenceTag), true
+				}
 				continue
 			}
 			otherFamily := runtimeTraceProjSMR1StateFamily(on)
@@ -1498,13 +1522,18 @@ func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeR
 				if (on.ChainAnchorFullMS > 0 && !on.ChainAnchorRemainderSeat) ||
 					(strings.TrimSpace(on.ChainRelevance) == "on_chain" && otherOwnedMS > 0) {
 					visible = true
-					break
 				}
 			} else if on.ChainAnchorRemainderSeat {
 				visible = true
+			}
+			if visible && (rn.ChainAnchorUnwalkedMS <= 0 || unwalkedFound) {
 				break
 			}
 		}
 		row.ChainAnchorTwinInvisible = !visible
+		if rn.ChainAnchorUnwalkedMS > 0 {
+			row.ChainAnchorUnwalkedRef = unwalkedRef
+			row.ChainAnchorUnwalkedInvisible = !unwalkedFound
+		}
 	}
 }

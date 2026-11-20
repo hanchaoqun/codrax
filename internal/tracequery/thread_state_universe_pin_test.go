@@ -758,12 +758,13 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// rspaChainSeatPresenceByPID (reviewed: only a runnable-family chain seat
 	// can represent a thread's ready time inside its dependency windows).
 	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatIndexByPID": "runnable#1",
-	// HMC377 fix round 2 (F3, 2026-11-19): the representation witness of a
-	// satellite's unwalked-wait share reads the SAME runnable dominant-state
-	// discriminator over the thread's on-chain seats priced inside the
-	// analysed thread's waits its own wakeup ended (reviewed: only ready-time
-	// seats can represent a satellite's ready segments).
-	"rank_chain_anchor_unwalked_wait.go:rspaInsideWaitRunnableSeatWindowsByPID": "runnable#1",
+	// HMC377 fix round 3 (2026-11-19): the unwalked-share ledger's family
+	// predicate — the ready family (runnable) and the blocked family
+	// (d_sleep, io_wait) of a row's published value channels, the same
+	// partition rspaChainSeatPresenceByPID keys on (reviewed: one owner per
+	// thread and state family; it replaces the round-2 satellite witness
+	// rspaInsideWaitRunnableSeatWindowsByPID, retired with its snapshot).
+	"rank_chain_anchor_unwalked_wait.go:rspaUnwalkedFamilyRow": "runnable,d_sleep,io_wait#3",
 	// LEVELMERGE-1 件2 (2026-07-18): the gated-share split selects the
 	// NON-inversion runnable chain aggregate as the claimed-against seat on
 	// the same runnable dominant-state discriminator (one comparison; the

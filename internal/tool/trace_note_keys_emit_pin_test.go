@@ -845,6 +845,36 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainAnchorOwnershipDivergent: true, ChainAnchorChainLaneMs: 2.181, ChainAnchorCensusMs: 2.266,
 				Summary: "runnable remainder with anchored-ownership divergence (chain seat publishes its own account)",
 			}, {
+				// HMC377 fix round 3: a three-way remainder — exercises
+				// chain_anchor_unwalked / chain_anchor_outside (Honeybird reboot
+				// witness: 206.862 = 29.904 walked + 0.012 unwalked + 176.946).
+				Rank: 10, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "Executor$Worker", PID: 10894},
+				ImpactMs: 176.946, ProjectedImpactMs: 176.946, CumulativeImpactMs: 176.946,
+				EffectiveImpactMs: 176.946, Score: 0.1, Confidence: 0.8,
+				LineStart: 108, LineEnd: 109,
+				Source:    "window_stats",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 176.946,
+				ChainAnchoredMs: 29.904, ChainAnchorFullMs: 206.862, ChainAnchorRemainderSeat: true,
+				ChainAnchorUnwalkedMs: 0.012, ChainAnchorOutsideMs: 176.946,
+				Summary: "runnable remainder outside its wakeup-dependency windows (three-way split)",
+			}, {
+				// HMC377 fix round 3: the thread's own seat holding the
+				// unwalked part — exercises chain_anchor_unwalked_seat.
+				Rank: 11, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "Executor$Worker", PID: 10894},
+				ImpactMs: 0.012, ProjectedImpactMs: 0.012, CumulativeImpactMs: 0.012,
+				EffectiveImpactMs: 0.012, Score: 0.01, Confidence: 0.76,
+				LineStart: 110, LineEnd: 111,
+				Source:    "window_stats",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 0.012,
+				OnChainBasis: tracequery.RootCauseOnChainBasisHostWakeupEdgeState, HostWakeupEdgeAnchorTs: 163.315,
+				HostWakeupEdgeAnchorVia: tracequery.HostWakeupEdgeAnchorViaDirect,
+				ChainAnchorUnwalkedSeat: true,
+				Summary:                 "runnable inside the analysed thread's waits this thread's own wakeup ended that the chain did not walk",
+			}, {
 				// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat lane-demoted
 				// affinity satellite — exercises chain_credential_lane_demoted.
 				Rank: 9, Tier: "tertiary", Type: "cpu_affinity_or_cpuset",

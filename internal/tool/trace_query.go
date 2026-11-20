@@ -9032,6 +9032,9 @@ func traceQueryRelationAuthorityRankedSeats(rank *tracequery.RootCauseRankResult
 			StartTs:      item.StartTs, EndTs: item.EndTs,
 			ChainAnchoredMS: item.ChainAnchoredMs, ChainAnchorFullMS: item.ChainAnchorFullMs,
 			ChainAnchorRemainderSeat:      item.ChainAnchorRemainderSeat,
+			ChainAnchorUnwalkedMS:         item.ChainAnchorUnwalkedMs,
+			ChainAnchorOutsideMS:          item.ChainAnchorOutsideMs,
+			ChainAnchorUnwalkedSeat:       item.ChainAnchorUnwalkedSeat,
 			ChainAnchorOwnershipDivergent: item.ChainAnchorOwnershipDivergent,
 			QueryWindowStartTs:            rank.Window.StartTs, QueryWindowEndTs: rank.Window.EndTs,
 			RankQueryWindowStartTs: rank.Window.StartTs, RankQueryWindowEndTs: rank.Window.EndTs,
@@ -11530,6 +11533,21 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 			remainderSeat = "true"
 		}
 	}
+	// HMC377 fix round 3: the typed three-way split rides only when the
+	// engine minted it (ChainAnchorUnwalkedMs > 0 beside the trio); the
+	// outside part may legitimately be 0.000 and is forced onto the wire with
+	// it. The unwalked seat's role marker rides on that seat alone.
+	unwalked, outside, unwalkedSeat := "", "", ""
+	if item.ChainAnchorFullMs > 0 && item.ChainAnchorUnwalkedMs > 0 {
+		unwalked = traceQueryObservationMSValue(item.ChainAnchorUnwalkedMs)
+		outside = traceQueryObservationMSValue(item.ChainAnchorOutsideMs)
+		if outside == "" {
+			outside = "0.000"
+		}
+	}
+	if item.ChainAnchorUnwalkedSeat {
+		unwalkedSeat = "true"
+	}
 	// RNB-1 (§29.88 R2, 2026-07-14): the case-A' ownership-divergence trio —
 	// emitted only when the engine minted the divergence verdict; the chain-
 	// lane Σ may legitimately be 0.000 (present-but-zero account), so it is
@@ -11630,6 +11648,9 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyChainAnchored, anchored},
 		{types.TraceNoteKeyChainAnchorFull, anchorFull},
 		{types.TraceNoteKeyChainAnchorRemainderSeat, remainderSeat},
+		{types.TraceNoteKeyChainAnchorUnwalked, unwalked},
+		{types.TraceNoteKeyChainAnchorOutside, outside},
+		{types.TraceNoteKeyChainAnchorUnwalkedSeat, unwalkedSeat},
 		{types.TraceNoteKeyChainAnchorOwnershipDivergent, divergent},
 		{types.TraceNoteKeyChainAnchorChainLane, divergentChainLane},
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},

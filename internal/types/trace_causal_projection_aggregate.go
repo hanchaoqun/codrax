@@ -612,7 +612,12 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.ChainAnchorOwnershipDivergent = loser.ChainAnchorOwnershipDivergent
 		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
 		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
+		// HMC377 fix round 3: the typed three-way parts are part of the same
+		// disclosure.
+		survivor.ChainAnchorUnwalkedMS = loser.ChainAnchorUnwalkedMS
+		survivor.ChainAnchorOutsideMS = loser.ChainAnchorOutsideMS
 	}
+	survivor.ChainAnchorUnwalkedSeat = survivor.ChainAnchorUnwalkedSeat || loser.ChainAnchorUnwalkedSeat
 	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split family
 	// travels as ONE disclosure the same way (values + marker + pointer
 	// roster + fail-open overlap together; a survivor with its own split
@@ -1538,6 +1543,8 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 	switch {
 	case node.ChainAnchorRemainderSeat:
 		return "anchor_remainder"
+	case node.ChainAnchorUnwalkedSeat:
+		return "anchor_unwalked"
 	case node.ChainAnchorFullMS > 0:
 		return "anchor_clipped"
 	case node.ChainCredentialLaneDemoted:
@@ -2121,6 +2128,8 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 			aggregate.ChainAnchorOwnershipDivergent = false
 			aggregate.ChainAnchorChainLaneMS = 0
 			aggregate.ChainAnchorCensusMS = 0
+			aggregate.ChainAnchorUnwalkedMS = 0
+			aggregate.ChainAnchorOutsideMS = 0
 			aggregate.MergedChainAnchorMemberAccounts = true
 			break
 		}

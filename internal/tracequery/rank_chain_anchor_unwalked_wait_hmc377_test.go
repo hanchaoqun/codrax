@@ -113,9 +113,12 @@ func TestHMC377ChainMemberIsPricedInsideTheWaitsItsWakeupEndedThatTheChainDidNot
 		t.Fatalf("one adjacent remainder: %+v", rows.remainder)
 	}
 	rem := rows.remainder[0]
+	// HMC377 fix round 3: the three parts ride typed — 5 ms walked (the chain
+	// seat), 4 ms unwalked (its own seat), 3 ms outside (this remainder).
 	if !hmc377UwNear(rem.RunnableMs, 3) || !hmc377UwNear(rem.EffectiveImpactMs, 3) ||
-		!hmc377UwNear(rem.ChainAnchoredMs, 9) || !hmc377UwNear(rem.ChainAnchorFullMs, 12) {
-		t.Fatalf("the remainder is the 3 ms outside every wait the thread's wakeup ended (full 12 = 9 inside + 3): %+v", rem)
+		!hmc377UwNear(rem.ChainAnchoredMs, 5) || !hmc377UwNear(rem.ChainAnchorUnwalkedMs, 4) ||
+		!hmc377UwNear(rem.ChainAnchorOutsideMs, 3) || !hmc377UwNear(rem.ChainAnchorFullMs, 12) {
+		t.Fatalf("the remainder is the 3 ms outside every wait the thread's wakeup ended (full 12 = 5 walked + 4 unwalked + 3): %+v", rem)
 	}
 	if !strings.Contains(rem.Summary, "remainder 3.000ms outside") || strings.Contains(rem.Summary, "remainder 7.000ms") {
 		t.Fatalf("the remainder sentence must state only the time outside the dependency windows: %q", rem.Summary)
@@ -131,8 +134,8 @@ func TestHMC377ChainMemberIsPricedInsideTheWaitsItsWakeupEndedThatTheChainDidNot
 	if len(seat.runnableIntervals) != 1 || seat.runnableIntervals[0].start != 1.052 || seat.runnableIntervals[0].end != 1.056 {
 		t.Fatalf("the priced seat's support is exactly the inside segment: %+v", seat.runnableIntervals)
 	}
-	if !strings.Contains(seat.Summary, "did not walk") {
-		t.Fatalf("the priced seat says these waits were not walked by the chain: %q", seat.Summary)
+	if !strings.Contains(seat.Summary, "did not walk") || !seat.ChainAnchorUnwalkedSeat {
+		t.Fatalf("the priced seat says these waits were not walked by the chain and wears the typed role: %+v", seat)
 	}
 	if got := rows.chainSeat[0].RunnableMs + seat.RunnableMs + rem.RunnableMs; !hmc377UwNear(got, 12) {
 		t.Fatalf("every instant is counted once: %.3f != 12", got)
@@ -230,13 +233,16 @@ func TestHMC377ChainMemberBlockedTimeInsideTheUnwalkedWaitIsPriced(t *testing.T)
 		t.Fatalf("the 3 ms of D time inside the wait ended at 1.060 is priced on the chain: %+v", rows.insideWait)
 	}
 	if len(rows.remainder) != 1 || !hmc377UwNear(rows.remainder[0].DStateMs, 0) || !hmc377UwNear(rows.remainder[0].IOWaitMs, 1) ||
-		!hmc377UwNear(rows.remainder[0].ChainAnchoredMs, 5) || !hmc377UwNear(rows.remainder[0].ChainAnchorFullMs, 6) {
-		t.Fatalf("the remainder is the 1 ms of IO wait outside every dependency window: %+v", rows.remainder)
+		!hmc377UwNear(rows.remainder[0].ChainAnchoredMs, 2) || !hmc377UwNear(rows.remainder[0].ChainAnchorUnwalkedMs, 3) ||
+		!hmc377UwNear(rows.remainder[0].ChainAnchorOutsideMs, 1) || !hmc377UwNear(rows.remainder[0].ChainAnchorFullMs, 6) {
+		t.Fatalf("the remainder is the 1 ms of IO wait outside every dependency window (6 = 2 walked + 3 unwalked + 1): %+v", rows.remainder)
 	}
 }
 
-// A satellite never mints a seat; its time inside the unwalked waits leaves
-// its remainder (the thread's formal seat prices it).
+// A satellite's time inside the unwalked waits leaves its remainder only to
+// the one seat the ledger mints for the thread (HMC377 fix round 3: with no
+// formal window seat in the pass the satellite lends its presentation
+// identity, never its value — the seat carries the ledger's census share).
 func TestHMC377SatelliteRemainderExcludesTheUnwalkedWaitShare(t *testing.T) {
 	chain, stats, segments := hmc377UnwalkedChain()
 	satellite := RootCauseRankItem{Type: "scheduler_latency", Thread: ThreadRef{Comm: "dep", PID: 200},
@@ -255,9 +261,16 @@ func TestHMC377SatelliteRemainderExcludesTheUnwalkedWaitShare(t *testing.T) {
 			t.Fatalf("the unwalked share must not be called outside the dependency windows: %q", item.Summary)
 		}
 	}
+	owners := 0
 	for _, item := range items {
 		if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
-			t.Fatalf("a satellite never mints a seat of its own: %+v", item)
+			owners++
+			if !item.ChainAnchorUnwalkedSeat || !hmc377UwNear(item.RunnableMs, 4) || item.Type != "runnable_wait" || item.Source != "window_stats" {
+				t.Fatalf("the one owner of the unwalked share is a plain ready-time seat holding the ledger's 4 ms: %+v", item)
+			}
 		}
+	}
+	if owners != 1 {
+		t.Fatalf("exactly one seat owns the unwalked share: %d", owners)
 	}
 }

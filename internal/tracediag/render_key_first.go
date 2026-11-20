@@ -1138,6 +1138,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// ChainCredentialLaneDemoted); no skipped fields; hash re-pinned after
 	// review. No CriticalBlockingCandidate mirror — the marker mints only on
 	// rank satellite rows.
+	// HMC377 fix round 3 (one owner for the unwalked share) schema review
+	// (R2' 第 7 处): RootCauseRankItem gained ChainAnchorUnwalkedMs /
+	// ChainAnchorOutsideMs (float64, the typed three-way split's parts — the
+	// share inside the analysed thread's waits the thread's own wakeup ended
+	// that the chain did not walk, and the outside share) and
+	// ChainAnchorUnwalkedSeat (bool, the role marker of the thread's own seat
+	// holding that share). Key-first adjudication: per-row identity/wording
+	// disclosure inputs (scalar disclosure lane, same as
+	// ChainAnchorRemainderSeat); no skipped fields; reviewed witness
+	// TestHMC377UnwalkedSplitRankItemSchemaAddsOnlyReviewedOptionalFields.
 	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15) schema review (R2' 第 7
 	// 处): CriticalBlockingCandidate gained the payload-less blocking_span
 	// value-convergence carriage — BlockingValueBasis (string, closed set

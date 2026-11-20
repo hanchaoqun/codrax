@@ -783,6 +783,18 @@ type TraceCausalProjectionNode struct {
 	ChainAnchoredMS          float64 `json:"chain_anchored_ms,omitempty"`
 	ChainAnchorFullMS        float64 `json:"chain_anchor_full_ms,omitempty"`
 	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ChainAnchorUnwalkedMS / ChainAnchorOutsideMS / ChainAnchorUnwalkedSeat
+	// (HMC377 fix round 3): the typed three-way split — ChainAnchoredMS is
+	// then the walked part (held by the ⛓ chain seat), ChainAnchorUnwalkedMS
+	// the part inside the analysed thread's waits this thread's own wakeup
+	// ended that the chain did not walk (held by the thread's own unwalked
+	// seat, the row wearing ChainAnchorUnwalkedSeat), ChainAnchorOutsideMS
+	// the ◇ remainder part; ChainAnchorFullMS = the three (engine identity).
+	// The 行2 「同源三分」 sentence and its pair sentence render them
+	// verbatim; every two-way split keeps its bytes (fields absent).
+	ChainAnchorUnwalkedMS   float64 `json:"chain_anchor_unwalked_ms,omitempty"`
+	ChainAnchorOutsideMS    float64 `json:"chain_anchor_outside_ms,omitempty"`
+	ChainAnchorUnwalkedSeat bool    `json:"chain_anchor_unwalked_seat,omitempty"`
 	// ChainAnchorOwnershipDivergent + ChainAnchorChainLaneMS /
 	// ChainAnchorCensusMS (RNB-1, §29.88 R2, 2026-07-14): the case-A'
 	// ownership-divergence disclosure — the pid's chain seat is present but
@@ -4278,6 +4290,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchoredMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchored)
 	node.ChainAnchorFullMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorFull)
 	node.ChainAnchorRemainderSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRemainderSeat)) == "true"
+	// HMC377 fix round 3: the typed three-way split.
+	node.ChainAnchorUnwalkedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorUnwalked)
+	node.ChainAnchorOutsideMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorOutside)
+	node.ChainAnchorUnwalkedSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorUnwalkedSeat)) == "true"
 	// RNB-1 (§29.88 R2/R4): case-A' ownership-divergence trio + the R4
 	// whole-seat lane-demotion marker.
 	node.ChainAnchorOwnershipDivergent = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorOwnershipDivergent)) == "true"

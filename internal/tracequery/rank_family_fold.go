@@ -1326,6 +1326,11 @@ func rootCauseFamilyFoldAnchorFormKey(item RootCauseRankItem) string {
 	switch {
 	case item.ChainAnchorRemainderSeat:
 		return "anchor_remainder"
+	case item.ChainAnchorUnwalkedSeat:
+		// HMC377 fix round 3: the thread's own seat inside the waits the
+		// chain did not walk is its own account form (one per thread and
+		// family by construction — it never folds with another seat).
+		return "anchor_unwalked"
 	case item.ChainAnchorFullMs > 0:
 		return "anchor_clipped"
 	case item.ChainCredentialLaneDemoted:

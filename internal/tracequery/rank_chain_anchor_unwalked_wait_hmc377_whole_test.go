@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -68,12 +69,17 @@ type hmc377F3Want struct {
 	oneSeat                   bool    // no chain-lane seat: the window seat carries walked + unwalked
 }
 
+// hmc377F3Assert — HMC377 fix round 3: every part has exactly one owner and
+// the records carry the three parts typed (walked on the chain seat, unwalked
+// on the thread's own seat, outside on the remainder; case B: one clipped
+// seat holds walked + unwalked).
 func hmc377F3Assert(t *testing.T, rank RootCauseRankResult, chain ChainResult, wants []hmc377F3Want) {
 	t.Helper()
 	near := func(a, b float64) bool { return a-b <= 0.0015 && b-a <= 0.0015 }
 	pool := append(append([]RootCauseRankItem(nil), rank.Items...), rank.preTruncationItems...)
 	for _, w := range wants {
 		var remainder, inside, clipped *RootCauseRankItem
+		owners := map[string]bool{}
 		for i := range pool {
 			item := &pool[i]
 			if item.Thread.PID != w.pid || item.DominantState != string(StateRunnable) || !strings.HasPrefix(item.Source, "window_stats") {
@@ -82,29 +88,51 @@ func hmc377F3Assert(t *testing.T, rank RootCauseRankResult, chain ChainResult, w
 			switch {
 			case item.ChainAnchorRemainderSeat && item.Type == "runnable_wait":
 				remainder = item
-			case item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState && item.Type == "runnable_wait":
+			case item.ChainAnchorUnwalkedSeat && item.Type == "runnable_wait":
 				inside = item
+				owners[fmt.Sprintf("%.6f", item.RunnableMs)] = true
 			case item.ChainAnchorFullMs > 0 && item.Type == "runnable_wait" && rootCauseItemIsOnChain(*item):
 				clipped = item
 			}
 		}
 		full := w.walked + w.unwalked + w.outside
-		if remainder == nil || !near(remainder.RunnableMs, w.outside) || !near(remainder.ChainAnchoredMs, w.walked+w.unwalked) || !near(remainder.ChainAnchorFullMs, full) {
-			t.Fatalf("pid %d: the remainder must be the raw %.3fms outside every dependency window (anchored %.3f of %.3f): %+v", w.pid, w.outside, w.walked+w.unwalked, full, remainder)
+		if remainder == nil || !near(remainder.RunnableMs, w.outside) || !near(remainder.ChainAnchorFullMs, full) {
+			t.Fatalf("pid %d: the remainder must be the raw %.3fms outside every dependency window of %.3f: %+v", w.pid, w.outside, full, remainder)
 		}
 		if w.oneSeat {
-			if clipped == nil || !near(clipped.RunnableMs, w.walked+w.unwalked) || inside != nil {
-				t.Fatalf("pid %d: one on-chain seat carries walked + unwalked %.3fms: clipped=%+v inside=%+v", w.pid, w.walked+w.unwalked, clipped, inside)
+			if clipped == nil || !near(clipped.RunnableMs, w.walked+w.unwalked) || !near(clipped.rspaUnwalkedHeldMs, w.unwalked) ||
+				!near(remainder.ChainAnchoredMs, w.walked+w.unwalked) || inside != nil || remainder.ChainAnchorUnwalkedMs != 0 {
+				t.Fatalf("pid %d: one on-chain seat carries walked %.3f + unwalked %.3f: clipped=%+v inside=%+v", w.pid, w.walked, w.unwalked, clipped, inside)
 			}
-		} else if inside == nil || !near(inside.RunnableMs, w.unwalked) || inside.HostWakeupEdgeAnchorTs <= 0 ||
+			continue
+		}
+		if !near(remainder.ChainAnchoredMs, w.walked) || !near(remainder.ChainAnchorUnwalkedMs, w.unwalked) || !near(remainder.ChainAnchorOutsideMs, w.outside) {
+			t.Fatalf("pid %d: the remainder carries the three raw parts typed (%.3f walked + %.3f unwalked + %.3f outside): %+v", w.pid, w.walked, w.unwalked, w.outside, *remainder)
+		}
+		if inside == nil || len(owners) != 1 || !near(inside.RunnableMs, w.unwalked) || inside.HostWakeupEdgeAnchorTs <= 0 ||
 			(w.lastWakeup > 0 && !near(inside.HostWakeupEdgeAnchorTs, w.lastWakeup)) || !rootCauseItemIsOnChain(*inside) {
-			t.Fatalf("pid %d: the raw %.3fms inside the unwalked waits its wakeup ended is priced on the chain (ended %.6f): %+v", w.pid, w.unwalked, w.lastWakeup, inside)
+			t.Fatalf("pid %d: exactly one on-chain seat holds the raw %.3fms inside the unwalked waits its wakeup ended (ended %.6f): %+v", w.pid, w.unwalked, w.lastWakeup, inside)
 		}
 	}
-	// Structural, every chain member: a ready-time remainder never holds time
-	// inside the walked chain windows or inside a wait of the analysed thread
-	// that the thread's own wakeup ended.
+	// Structural, every chain member: a ready-time remainder either holds
+	// nothing inside the walked windows or a wait of the analysed thread that
+	// the thread's own wakeup ended, or says it keeps time inside those waits
+	// (outside the WALKED windows only) and carries no three-way parts; and
+	// the thread's on-chain ready time never exceeds its raw inventory inside
+	// those windows (every instant priced at most once).
 	walked := chainAnchorWindowsByPID(chain)
+	onChain := map[int]float64{}
+	for _, item := range rank.Items {
+		if !rootCauseItemIsOnChain(item) || item.Thread.PID == chain.Target.PID {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(item.Type) == "priority_inversion_candidate":
+			onChain[item.Thread.PID] += item.GatedRunnableMs
+		case item.DominantState == string(StateRunnable) && !rootCauseTypeIsSemanticSpanWork(item.Type) && strings.TrimSpace(item.OnChainBasis) != RootCauseOnChainBasisHostWakeupEdge:
+			onChain[item.Thread.PID] += item.RunnableMs
+		}
+	}
 	for _, item := range pool {
 		if !item.ChainAnchorRemainderSeat || item.Type != "runnable_wait" || item.HostWakeupEdgeAnchorTs != 0 || len(walked[item.Thread.PID]) == 0 {
 			continue
@@ -119,11 +147,16 @@ func hmc377F3Assert(t *testing.T, rank RootCauseRankResult, chain ChainResult, w
 		cut, _ = foldIntervalUnionWithDisjoint(cut)
 		merged, _ := foldIntervalUnionWithDisjoint(item.runnableIntervals)
 		outside, _ := foldIntervalsLengthMs(foldIntervalSubtract(merged, cut))
-		if total, _ := foldIntervalsLengthMs(merged); !near(total, item.ChainAnchorFullMs) {
+		total, _ := foldIntervalsLengthMs(merged)
+		if !near(total, item.ChainAnchorFullMs) {
 			continue // a seat whose inventory is not its account keeps the chain windows' partition (fail closed)
 		}
-		if !near(outside, item.RunnableMs) {
-			t.Fatalf("%s: remainder %.3fms but only %.3fms of its account lies outside its dependency windows", threadLabel(item.Thread), item.RunnableMs, outside)
+		if !near(outside, item.RunnableMs) &&
+			(item.ChainAnchorUnwalkedMs != 0 || !strings.Contains(item.Summary, "outside the dependency windows the chain walked for this thread")) {
+			t.Fatalf("%s: remainder %.3fms but only %.3fms of its account lies outside its dependency windows: %s", threadLabel(item.Thread), item.RunnableMs, outside, item.Summary)
+		}
+		if onChain[item.Thread.PID] > total-outside+0.0015 {
+			t.Fatalf("%s: %.3fms of on-chain ready time for %.3fms of raw ready time inside its dependency windows", threadLabel(item.Thread), onChain[item.Thread.PID], total-outside)
 		}
 	}
 }

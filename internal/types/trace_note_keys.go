@@ -772,6 +772,22 @@ const (
 	TraceNoteKeyChainAnchored            = "chain_anchored"
 	TraceNoteKeyChainAnchorFull          = "chain_anchor_full"
 	TraceNoteKeyChainAnchorRemainderSeat = "chain_anchor_remainder_seat"
+	// TraceNoteKeyChainAnchorUnwalked / TraceNoteKeyChainAnchorOutside /
+	// TraceNoteKeyChainAnchorUnwalkedSeat (HMC377 fix round 3): the typed
+	// three-way split of a chain thread's account when part of it lies inside
+	// waits of the analysed thread that the thread's own wakeup ended but the
+	// chain did not walk, held by the thread's own seat. chain_anchored is
+	// then the walked part (held by the chain seat), chain_anchor_unwalked the
+	// part held by the unwalked seat, chain_anchor_outside the remainder
+	// part; chain_anchor_full = the three (engine identity). unwalked_seat=
+	// "true" marks the unwalked seat itself. Consumed by the projection
+	// compile into TraceCausalProjectionNode.ChainAnchorUnwalkedMS/
+	// ChainAnchorOutsideMS/ChainAnchorUnwalkedSeat — the 行2 「同源三分」
+	// sentence and its pair sentence render these values verbatim (never
+	// display arithmetic). Absent whenever the split is two-way.
+	TraceNoteKeyChainAnchorUnwalked     = "chain_anchor_unwalked"
+	TraceNoteKeyChainAnchorOutside      = "chain_anchor_outside"
+	TraceNoteKeyChainAnchorUnwalkedSeat = "chain_anchor_unwalked_seat"
 	// TraceNoteKeyChainAnchorOwnershipDivergent + TraceNoteKeyChainAnchor-
 	// ChainLane / TraceNoteKeyChainAnchorCensus (RNB-1, §29.88 R2, 2026-07-14):
 	// the case-A' ownership-divergence disclosure. ownership_divergent="true"
@@ -1917,6 +1933,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchored, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorFull, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorRemainderSeat, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 fix round 3: the typed three-way split (unwalked / outside
+	// parts) and the unwalked seat's role marker.
+	{TraceNoteKeyChainAnchorUnwalked, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorOutside, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorUnwalkedSeat, "state", TraceNoteCarrierHardConsumer},
 	// RNB-1 (§29.88 R2/R4, 2026-07-14): case-A' double-account disclosure
 	// trio + the R4 whole-seat lane-demotion marker.
 	{TraceNoteKeyChainAnchorOwnershipDivergent, "state", TraceNoteCarrierHardConsumer},

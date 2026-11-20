@@ -254,11 +254,6 @@ type rspaFamilyDecision struct {
 	chainLaneMs      float64
 	chainLanePresent bool
 	identityHolds    bool
-	// unwalkedMs (HMC377 fix round 2, F3): the pid's census time inside the
-	// analysed thread's waits its own wakeup ended that the chain did not
-	// walk — inside its dependency windows, outside anchoredMs. Zero when
-	// unknown. Read only by the rows that carry no inventory of their own.
-	unwalkedMs float64
 }
 
 func rspaWithinTol(a, b float64) bool {
@@ -335,25 +330,6 @@ func buildRSPAFamilyDecisions(chain ChainResult, stats WindowStats) (runnable, d
 	}
 	runnable = decide(runnableCensus, func(s chainAnchoredStateSums) float64 { return s.runnableMs })
 	dio = decide(dioCensus, func(s chainAnchoredStateSums) float64 { return s.dioMs })
-	stampUnwalked := func(decisions map[int]rspaFamilyDecision, shares ...map[int]float64) {
-		for pid, decision := range decisions {
-			total := 0.0
-			for _, share := range shares {
-				if share[pid] < 0 {
-					total = 0
-					break
-				}
-				total += share[pid]
-			}
-			if total > rspaAnchorIdentityTolMs && decision.anchoredMs+total <= decision.fullMs+rspaAnchorIdentityTolMs {
-				decision.unwalkedMs = total
-				decisions[pid] = decision
-			}
-		}
-	}
-	stampUnwalked(runnable, rspaUnwalkedWaitCensusMsByPID(&chain, stats.runnableCensus, stats.chainAnchorsByPID, false))
-	stampUnwalked(dio, rspaUnwalkedWaitCensusMsByPID(&chain, stats.dstateCensus, stats.chainAnchorsByPID, true),
-		rspaUnwalkedWaitCensusMsByPID(&chain, stats.iowaitCensus, stats.chainAnchorsByPID, true))
 	return runnable, dio
 }
 
@@ -878,7 +854,6 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 	// satellite demotion (computed once per pass; the demotion never mutates
 	// the chain seats themselves, so the snapshot stays valid).
 	chainRunnableSeatWindows := rspaChainRunnableSeatWindowsByPID(items)
-	insideWaitSeatWindows := rspaInsideWaitRunnableSeatWindowsByPID(items)
 	decomposableRunnableWindowSeat := map[int]bool{}
 	for i := range items {
 		if items[i].Thread.PID > 0 && strings.TrimSpace(items[i].Type) == "runnable_wait" &&
@@ -886,12 +861,19 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			decomposableRunnableWindowSeat[items[i].Thread.PID] = true
 		}
 	}
-	var appended []RootCauseRankItem
+	// HMC377 fix round 3: the unwalked-share ledger — every migrating
+	// thread's census partitioned once into walked / unwalked / outside — and
+	// its one owner per (thread, family), decided before any arm runs. The
+	// thread's own unwalked seats are minted here and only here; every arm
+	// below reads the ledger for its representation check and its sentence,
+	// and subtracts the unwalked share only when its owner exists.
+	ledger := buildRSPAUnwalkedLedger(&chain, stats, runnableDecisions, dioDecisions)
+	appended := rspaPlanUnwalkedOwners(chain, ledger, items, chainSeats, runnableDecisions, dioDecisions, decomposableRunnableWindowSeat)
 	for i := range items {
 		item := &items[i]
 		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily ||
 			item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-			item.inversionAccountRepresentedBy != "" {
+			item.inversionAccountRepresentedBy != "" || item.ChainAnchorUnwalkedSeat {
 			continue
 		}
 		if item.Thread.PID <= 0 || !rootCauseItemIsOnChain(*item) {
@@ -933,6 +915,13 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			}
 			item.ChainAnchoredMs = item.GatedRunnableMs
 			item.ChainAnchorFullMs = decision.fullMs
+			// HMC377 fix round 3: the gated runnable share is the walked hop's
+			// ready time only — the thread's time inside the waits the chain
+			// did not walk is its own unwalked seat, never part of this
+			// inversion estimate; the stamp carries the three typed parts.
+			if part := ledger.part(item.Thread.PID, false); part.ownSeat() {
+				rspaStampThreeWay(item, item.GatedRunnableMs, part.unwalkedMs, part.outsideMs, decision.fullMs)
+			}
 		case "runnable_wait":
 			decision, ok := runnableDecisions[item.Thread.PID]
 			if !ok || !decision.migrate || item.Source != "window_stats" {
@@ -956,75 +945,63 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if full <= 0 || anchored > full+rspaAnchorIdentityTolMs {
 				continue
 			}
-			// HMC377 fix round 2 (F3): the thread's ready time inside the
-			// waits of the analysed thread its own wakeup ended but the chain
-			// did not walk is inside its dependency windows too. It joins the
-			// anchored share (the remainder is the time outside every
-			// dependency window); a chain seat holds only the walked share, so
-			// with one the unwalked part is priced as its own seat.
+			// HMC377 fix round 3: the ledger's owner holds the share of this
+			// seat inside the waits the chain did not walk (one seat of its own
+			// beside a chain seat, or this clipped seat itself without one).
 			const family = "runnable (scheduling-pressure candidate)"
-			var unwalked rspaUnwalkedWaitShare
-			hasUnwalked := false
-			if anchored > rspaAnchorIdentityTolMs {
-				unwalked, hasUnwalked = rspaUnwalkedWaitShareOf(&chain, item.Thread, stats.chainAnchorsByPID[item.Thread.PID], item.runnableIntervals, full, anchored)
-			}
-			inside := anchored
-			if hasUnwalked {
-				inside = anchored + unwalked.ms()
-			}
-			remainder := rspaClampNonNegative(full - inside)
+			part := ledger.part(item.Thread.PID, false)
+			scope := part.rowScope(item.runnableIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
 			presence := chainSeats[item.Thread.PID]
 			// RNB-1 B-3: case A requires the chain seat to provably HOLD the
 			// anchored account — presence ∧ µs identity (decision) ∧ published
 			// seat Σ ≈ census-anchored Σ. A present-but-diverging chain seat is
 			// case A' (double-account disclosure, no additive claim).
 			caseAOwned := presence.runnable && decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)
-			mintUnwalked := func() {
-				if !hasUnwalked {
-					return
-				}
-				appended = append(appended, rspaUnwalkedWaitSeat(*item, unwalked, unwalked.ms(), 0, 0, unwalked.split.pre, nil, nil,
-					rspaUnwalkedWaitSeatSummary(item.Thread, family, unwalked.ms(), anchored, remainder, full, unwalked.clause())))
-			}
 			switch {
 			case caseAOwned:
 				// Case A: the chain seat owns the anchored portion; this seat
 				// publishes the remainder (≈0 → absorbed by the recon arm).
-				summary := rspaRemainderSummary(item.Thread, family, remainder, anchored, full)
-				if hasUnwalked {
-					summary = rspaRemainderSummaryUnwalked(item.Thread, family, remainder, anchored, unwalked.ms(), full, unwalked.clause())
-				}
-				mintUnwalked()
-				rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0, summary)
+				remainder := rspaClampNonNegative(full - anchored - scope.owned)
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					part.remainderSummary(scope, item.Thread, family, remainder, anchored, full))
+				scope.stamp(item, anchored, remainder, full)
 			case presence.runnable:
 				// Case A' (RNB-1, §29.88 R2): the window seat still rides ◇ as
 				// the remainder (the census bipartition is exact regardless),
 				// the chain seat stays published as its own ⛓ representative,
 				// and the typed double-Σ disclosure replaces the additive claim.
-				summary := rspaRemainderSummaryDivergent(item.Thread, family, remainder, inside, full, presence.runnableMs, decision.anchoredMs)
-				if hasUnwalked {
-					summary += rspaUnwalkedWaitDivergenceClause(unwalked.ms(), unwalked.clause())
-				}
-				mintUnwalked()
-				rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0, summary)
+				remainder := rspaClampNonNegative(full - anchored - scope.owned)
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					part.divergentSummary(scope, item.Thread, family, remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+				scope.stamp(item, anchored, remainder, full)
 				item.ChainAnchorOwnershipDivergent = true
 				item.ChainAnchorChainLaneMs = presence.runnableMs
 				item.ChainAnchorCensusMs = decision.anchoredMs
-			case remainder <= rspaAnchorIdentityTolMs:
-				// Case B, fully anchored: the seat is entirely credentialed —
-				// keep the legacy on-chain publication byte-identically.
-			case inside <= rspaAnchorIdentityTolMs:
-				// Case B, zero credential: the whole account is remainder.
-				rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0,
-					rspaRemainderSummary(item.Thread, family, remainder, inside, full))
 			default:
-				// Case B split: this seat becomes the ⛓ anchored seat (walked
-				// and unwalked waits alike — one object); the remainder twin
-				// mints beside it on the ◇ lane.
-				appended = append(appended, rspaCloneAsRemainderSeat(*item, inside, full, remainder, 0, 0,
-					rspaRemainderSummary(item.Thread, family, remainder, inside, full)))
-				rspaClipSeatToAnchored(item, inside, full, inside, 0, 0,
-					rspaAnchoredSummary(item.Thread, "runnable", inside, full))
+				// Case B (no chain seat): this seat holds the walked share and,
+				// when the ledger says so, the unwalked share too — one object.
+				inside := anchored + scope.owned
+				remainder := rspaClampNonNegative(full - inside)
+				switch {
+				case remainder <= rspaAnchorIdentityTolMs:
+					// Case B, fully anchored: the seat is entirely credentialed —
+					// keep the legacy on-chain publication byte-identically.
+					item.rspaUnwalkedHeldMs = scope.owned
+				case inside <= rspaAnchorIdentityTolMs:
+					// Case B, zero credential: the whole account is remainder.
+					rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0,
+						part.remainderSummary(scope, item.Thread, family, remainder, inside, full))
+				default:
+					// Case B split: this seat becomes the ⛓ anchored seat; the
+					// remainder twin mints beside it on the ◇ lane.
+					twin := rspaCloneAsRemainderSeat(*item, inside, full, remainder, 0, 0,
+						part.remainderSummary(scope, item.Thread, family, remainder, inside, full))
+					twin.rspaUnwalkedHeldMs = scope.owned
+					appended = append(appended, twin)
+					rspaClipSeatToAnchored(item, inside, full, inside, 0, 0,
+						part.anchoredSummary(scope, item.Thread, "runnable", inside, full, anchored))
+					item.rspaUnwalkedHeldMs = scope.owned
+				}
 			}
 		case "priority_inversion_runnable_wait":
 			// RNB-1 R4 lane arm (§29.88 R4/§29.61.10c 逐边核): the inversion-
@@ -1070,72 +1047,57 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// or an un-retyped window runnable seat of the same pid that owns
 			// the same census account (case B would mint the anchored share
 			// twice), keep the former whole-seat demotion below.
-			// HMC377 fix round 2 (F3): the ready time inside the analysed
-			// thread's waits this thread's own wakeup ended but the chain did
-			// not walk is inside its dependency windows too; with chain seats
-			// (which hold only the walked share) it is priced as its own plain
-			// ready-time seat, without one it joins the clipped seat. A
-			// same-pid un-retyped window runnable seat owns the same census
-			// account and prices that share itself (one mint per account).
+			// HMC377 fix round 3: the ready time inside the waits the chain did
+			// not walk belongs to the ledger's owner — the thread's own plain
+			// ready-time seat beside a chain seat (never the inversion
+			// estimate of the walked hop), or the clipped plain seat without
+			// one. A same-pid un-retyped window runnable seat owns the same
+			// census account and its arm prices the share.
 			const family = "runnable (scheduling-pressure candidate)"
-			var unwalked rspaUnwalkedWaitShare
-			hasUnwalked := false
-			if anchored > rspaAnchorIdentityTolMs && !decomposableRunnableWindowSeat[item.Thread.PID] {
-				unwalked, hasUnwalked = rspaUnwalkedWaitShareOf(&chain, item.Thread, stats.chainAnchorsByPID[item.Thread.PID], item.runnableIntervals, full, anchored)
-			}
-			inside := anchored
-			if hasUnwalked {
-				inside = anchored + unwalked.ms()
-			}
-			mintUnwalked := func() {
-				if !hasUnwalked {
-					return
-				}
-				appended = append(appended, rspaUnwalkedWaitSeat(stateEdgePlainRunnableCopy(*item), unwalked, unwalked.ms(), 0, 0, unwalked.split.pre, nil, nil,
-					rspaUnwalkedWaitSeatSummary(item.Thread, family, unwalked.ms(), anchored, rspaClampNonNegative(full-inside), full, unwalked.clause())))
-			}
+			part := ledger.part(item.Thread.PID, false)
+			scope := part.rowScope(item.runnableIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
 			if owners := chainRunnableSeatIndex[item.Thread.PID]; anchored > rspaAnchorIdentityTolMs &&
 				(len(owners) == 1 || (len(owners) == 0 && !decomposableRunnableWindowSeat[item.Thread.PID])) {
-				remainder := rspaClampNonNegative(full - inside)
 				twin := stateEdgePlainRunnableCopy(*item)
 				twin.Rank, twin.BackgroundRank, twin.Tier = 0, 0, ""
 				presence := chainSeats[item.Thread.PID]
 				key := inversionAccountKey(*item)
-				represented := rspaInversionRepresentedSummary(anchored, full)
-				if hasUnwalked && len(owners) == 1 {
-					represented = rspaInversionRepresentedSummaryUnwalked(anchored, unwalked.ms(), full, unwalked.clause())
-				}
+				var represented string
 				switch {
 				case len(owners) == 1 && presence.runnable && decision.identityHolds &&
 					rspaWithinTol(presence.runnableMs, decision.anchoredMs):
-					summary := rspaRemainderSummary(item.Thread, family, remainder, anchored, full)
-					if hasUnwalked {
-						summary = rspaRemainderSummaryUnwalked(item.Thread, family, remainder, anchored, unwalked.ms(), full, unwalked.clause())
-					}
-					rspaRewriteSeatToRemainder(&twin, inside, full, remainder, 0, 0, summary)
-					mintUnwalked()
+					remainder := rspaClampNonNegative(full - anchored - scope.owned)
+					rspaRewriteSeatToRemainder(&twin, anchored, full, remainder, 0, 0,
+						part.remainderSummary(scope, item.Thread, family, remainder, anchored, full))
+					scope.stamp(&twin, anchored, remainder, full)
 					items[owners[0]].inversionAccountRepresents = key
+					represented = part.inversionRepresentedSummary(scope, anchored, remainder, full)
 				case len(owners) == 1:
-					summary := rspaRemainderSummaryDivergent(item.Thread, family, remainder, inside, full, presence.runnableMs, decision.anchoredMs)
-					if hasUnwalked {
-						summary += rspaUnwalkedWaitDivergenceClause(unwalked.ms(), unwalked.clause())
-					}
-					rspaRewriteSeatToRemainder(&twin, inside, full, remainder, 0, 0, summary)
+					remainder := rspaClampNonNegative(full - anchored - scope.owned)
+					rspaRewriteSeatToRemainder(&twin, anchored, full, remainder, 0, 0,
+						part.divergentSummary(scope, item.Thread, family, remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+					scope.stamp(&twin, anchored, remainder, full)
 					twin.ChainAnchorOwnershipDivergent = true
 					twin.ChainAnchorChainLaneMs = presence.runnableMs
 					twin.ChainAnchorCensusMs = decision.anchoredMs
-					mintUnwalked()
 					items[owners[0]].inversionAccountRepresents = key
+					represented = part.inversionRepresentedSummary(scope, anchored, remainder, full)
 				default:
+					// Case B: the clipped plain ready-time seat holds the walked
+					// share and the ledger's unwalked share as one object.
+					inside := anchored + scope.owned
+					remainder := rspaClampNonNegative(full - inside)
 					seat := stateEdgePlainRunnableCopy(*item)
 					seat.Rank, seat.BackgroundRank, seat.Tier = 0, 0, ""
 					rspaClipSeatToAnchored(&seat, inside, full, inside, 0, 0,
-						rspaAnchoredSummary(item.Thread, "runnable", inside, full)+
+						part.anchoredSummary(scope, item.Thread, "runnable", inside, full, anchored)+
 							stateEdgeInversionDetailClause(item.EffectiveImpactMs, item.RunnableMs))
 					seat.inversionAccountRepresents = key
+					seat.rspaUnwalkedHeldMs = scope.owned
 					appended = append(appended, seat)
 					rspaRewriteSeatToRemainder(&twin, inside, full, remainder, 0, 0,
-						rspaRemainderSummary(item.Thread, family, remainder, inside, full))
+						part.remainderSummary(scope, item.Thread, family, remainder, inside, full))
+					twin.rspaUnwalkedHeldMs = scope.owned
 					represented = rspaInversionRepresentedSummary(inside, full)
 				}
 				appended = append(appended, twin)
@@ -1145,14 +1107,10 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				item.Summary += represented
 				continue
 			}
-			// Several chain seats hold the walked share (no unique
-			// representative): the whole account rides ◇ untouched as before;
-			// the unwalked share no chain seat holds is still priced.
-			mintUnwalked()
 			item.ChainCredentialLaneDemoted = true
 			item.Causality = "adjacent_to_wakeup_chain"
 			item.ChainRelevance = "adjacent"
-			item.Summary += rspaLaneDemotionSummary(inside, full,
+			item.Summary += part.laneDemotionSummary(anchored, full,
 				"the priority-inversion overlap is a same-CPU displacement measurement that cannot be split along that boundary")
 		case "cpu_affinity_or_cpuset":
 			// RNB-1 R4 lane arm (§29.88 R4; INV-C B-2): the affinity satellite
@@ -1162,19 +1120,21 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// demotes the whole row to ◇ (values untouched; the formal window/
 			// chain seats own the bisected accounts). A fully-anchored pid
 			// (census remainder ≤ tol) keeps the chain lane byte-identically.
+			// HMC377 fix round 3: a share inside the waits the chain did not
+			// walk is never "anchored" here — its owner is another seat, so a
+			// row that would stand beside both seats on the chain lane rides
+			// ◇ whole like any other unanchored account.
 			decision, ok := runnableDecisions[item.Thread.PID]
 			if !ok || !decision.migrate || item.Source != "window_stats.cpu_constraints" {
 				continue
 			}
-			// HMC377 fix round 2 (F3): the pid's dependency windows include
-			// the unwalked waits its wakeup ended.
-			if item.RunnableMs <= 0 || decision.fullMs-decision.anchoredMs-decision.unwalkedMs <= rspaAnchorIdentityTolMs {
+			if item.RunnableMs <= 0 || decision.fullMs-decision.anchoredMs <= rspaAnchorIdentityTolMs {
 				continue
 			}
 			item.ChainCredentialLaneDemoted = true
 			item.Causality = "adjacent_to_wakeup_chain"
 			item.ChainRelevance = "adjacent"
-			item.Summary += rspaLaneDemotionSummary(decision.anchoredMs+decision.unwalkedMs, decision.fullMs,
+			item.Summary += ledger.part(item.Thread.PID, false).laneDemotionSummary(decision.anchoredMs, decision.fullMs,
 				"this affinity/cpuset satellite carries no interval inventory of its own")
 		case "scheduler_latency", "low_frequency":
 			// Satellite diagnostic rows of the runnable family: the anchored
@@ -1189,6 +1149,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if item.DominantState != string(StateRunnable) || item.RunnableMs <= 0 {
 				continue
 			}
+			part := ledger.part(item.Thread.PID, false)
 			anchored, rowIntervals, intervalOK := rspaRowIntervalAnchoredMs(stats.chainAnchorsByPID[item.Thread.PID], *item)
 			if !intervalOK {
 				// RNB-1 R4 fallback (§29.88.2/§29.88.8 case 4, 2026-07-14) —
@@ -1202,13 +1163,13 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				// rides the ◇ lane whole (values untouched — clipping on the
 				// pid pair would misstate this row's own account); a fully-
 				// anchored pid keeps the chain lane byte-identically.
-				if decision.fullMs-decision.anchoredMs-decision.unwalkedMs <= rspaAnchorIdentityTolMs {
+				if decision.fullMs-decision.anchoredMs <= rspaAnchorIdentityTolMs {
 					continue
 				}
 				item.ChainCredentialLaneDemoted = true
 				item.Causality = "adjacent_to_wakeup_chain"
 				item.ChainRelevance = "adjacent"
-				item.Summary += rspaLaneDemotionSummary(decision.anchoredMs+decision.unwalkedMs, decision.fullMs,
+				item.Summary += part.laneDemotionSummary(decision.anchoredMs, decision.fullMs,
 					"this satellite's own interval inventory cannot prove its anchored share")
 				continue
 			}
@@ -1216,16 +1177,12 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if anchored > full+rspaAnchorIdentityTolMs {
 				continue
 			}
-			// HMC377 fix round 2 (F3): this satellite's time inside the
-			// unwalked waits its wakeup ended is inside its dependency
-			// windows; the thread's formal seat prices it (a satellite never
-			// mints a second seat), so it leaves the remainder here.
-			unwalked, hasUnwalked := rspaUnwalkedWaitShareOf(&chain, item.Thread, stats.chainAnchorsByPID[item.Thread.PID], rowIntervals, full, anchored)
-			inside := anchored
-			if hasUnwalked {
-				inside = anchored + unwalked.ms()
-			}
-			remainder := rspaClampNonNegative(full - inside)
+			// HMC377 fix round 3: the satellite's time inside the waits the
+			// chain did not walk is held by the ledger's owner (a satellite
+			// never mints a seat); it leaves this row only when that owner
+			// exists, and the representation check reads the owner's support.
+			scope := part.rowScope(rowIntervals, full, anchored, true)
+			remainder := rspaClampNonNegative(full - anchored - scope.owned)
 			if remainder <= rspaAnchorIdentityTolMs {
 				// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15) — EVOLUTION
 				// RECORD: this fully-anchored path used to keep the WHOLE
@@ -1258,16 +1215,28 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				// an absent chain seat or an unprovable inventory
 				// (禁把锚定份丢出链, negative pins).
 				seatWindows := chainRunnableSeatWindows[item.Thread.PID]
-				if hasUnwalked {
-					// The unwalked share is represented by the thread's
-					// on-chain seats inside those waits.
-					seatWindows = mergeAnchorTimeWindows(append(append([]TimeWindow(nil), seatWindows...), insideWaitSeatWindows[item.Thread.PID]...))
+				if scope.owned > rspaAnchorIdentityTolMs {
+					// HMC377 fix round 3: the share inside the unwalked waits
+					// is represented by its owner (the ledger's support —
+					// minted in this same pass or an earlier one).
+					seatWindows = mergeAnchorTimeWindows(append(append([]TimeWindow(nil), seatWindows...), rspaFoldWindows(part.ownerSupport)...))
 				}
 				if len(seatWindows) > 0 && rspaWithinTol(rspaIntervalsOverlapMs(seatWindows, rowIntervals), full) {
 					item.ChainAnchorRepresentedByChainSeat = true
 					item.Causality = "adjacent_to_wakeup_chain"
 					item.ChainRelevance = "adjacent"
-					item.Summary += rspaRepresentedDemotionSummary(inside, full)
+					item.Summary += part.representedSummary(scope, anchored, full)
+					continue
+				}
+				if scope.owned > rspaAnchorIdentityTolMs {
+					// Part of this satellite's instants is held by the owner:
+					// standing on the chain lane beside it would price them
+					// twice, and the walked rest is not proven covered.
+					item.ChainCredentialLaneDemoted = true
+					item.Causality = "adjacent_to_wakeup_chain"
+					item.ChainRelevance = "adjacent"
+					item.Summary += rspaLaneDemotionSummaryThreeWay(anchored, scope.owned, full, part.clause(),
+						"this satellite's own interval inventory cannot prove that the chain seats hold its walked share")
 				}
 				continue
 			}
@@ -1276,21 +1245,23 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			// seat owns the anchored share, which case A' cannot claim.
 			if presence := chainSeats[item.Thread.PID]; presence.runnable &&
 				!(decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)) {
-				summary := rspaRemainderSummaryDivergent(item.Thread, "runnable (scheduling-pressure candidate)", remainder, inside, full, presence.runnableMs, decision.anchoredMs)
-				if hasUnwalked {
-					summary += rspaUnwalkedWaitDivergenceClause(unwalked.ms(), unwalked.clause())
-				}
-				rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0, summary)
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					part.divergentSummary(scope, item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+				scope.stamp(item, anchored, remainder, full)
 				item.ChainAnchorOwnershipDivergent = true
 				item.ChainAnchorChainLaneMs = presence.runnableMs
 				item.ChainAnchorCensusMs = decision.anchoredMs
 				continue
 			}
-			summary := rspaRemainderSummary(item.Thread, "runnable (scheduling-pressure candidate)", remainder, inside, full)
-			if hasUnwalked && anchored > rspaAnchorIdentityTolMs {
-				summary = rspaRemainderSummaryUnwalked(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, unwalked.ms(), full, unwalked.clause())
+			if part.oneObject(scope) {
+				// Case B: the clipped window seat holds walked + unwalked.
+				rspaRewriteSeatToRemainder(item, anchored+scope.owned, full, remainder, 0, 0,
+					part.remainderSummary(scope, item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored+scope.owned, full))
+				continue
 			}
-			rspaRewriteSeatToRemainder(item, inside, full, remainder, 0, 0, summary)
+			rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+				part.remainderSummary(scope, item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full))
+			scope.stamp(item, anchored, remainder, full)
 		case "fragmented_runnable_wait":
 			decision, ok := runnableDecisions[item.Thread.PID]
 			if !ok || !decision.migrate || item.Source != "window_stats.state_churn" {
@@ -1300,33 +1271,8 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if full <= 0 {
 				continue
 			}
-			// HMC377 fix round 2 (F3): the pid's unwalked-wait share is inside
-			// its dependency windows too.
-			anchored := decision.anchoredMs + decision.unwalkedMs
-			if anchored > full {
-				anchored = full
-			}
-			remainder := rspaClampNonNegative(full - anchored)
-			if remainder <= rspaAnchorIdentityTolMs && !chainSeats[item.Thread.PID].runnable {
-				continue
-			}
-			if presence := chainSeats[item.Thread.PID]; presence.runnable &&
-				!(decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)) {
-				summary := rspaRemainderSummaryDivergent(item.Thread, "fragmented runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs)
-				if decision.unwalkedMs > 0 {
-					summary += rspaUnwalkedWaitDivergenceClause(decision.unwalkedMs, rspaUnwalkedWaitsWord)
-				}
-				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0, summary)
-				item.ChainAnchorOwnershipDivergent = true
-				item.ChainAnchorChainLaneMs = presence.runnableMs
-				item.ChainAnchorCensusMs = decision.anchoredMs
-				continue
-			}
-			summary := rspaRemainderSummary(item.Thread, "fragmented runnable (scheduling-pressure candidate)", remainder, anchored, full)
-			if decision.unwalkedMs > 0 && decision.anchoredMs > rspaAnchorIdentityTolMs {
-				summary = rspaRemainderSummaryUnwalked(item.Thread, "fragmented runnable (scheduling-pressure candidate)", remainder, anchored-decision.unwalkedMs, decision.unwalkedMs, full, rspaUnwalkedWaitsWord)
-			}
-			rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0, summary)
+			rspaRewritePIDLevelTwin(item, ledger.part(item.Thread.PID, false), decision, chainSeats[item.Thread.PID].runnable,
+				chainSeats[item.Thread.PID].runnableMs, full, "fragmented runnable (scheduling-pressure candidate)", false)
 		case "d_state_or_io_wait", "io_wait":
 			decision, ok := dioDecisions[item.Thread.PID]
 			if !ok || !decision.migrate || !item.ledgerAnchorStamped {
@@ -1341,65 +1287,69 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			}
 			full := item.DStateMs + item.IOWaitMs
 			anchored := anchoredD + anchoredIO
-			// HMC377 fix round 2 (F3): the D / IO time inside the analysed
-			// thread's waits this thread's own wakeup ended but the chain did
-			// not walk joins the anchored share, per channel.
+			// HMC377 fix round 3: the ledger's owner holds this seat's D / IO
+			// time inside the waits the chain did not walk, per channel.
 			const family = "D/IO blocking"
-			unwalked, unwalkedD, unwalkedIO, hasUnwalked := rspaUnwalkedWaitShare{}, rspaUnwalkedWaitShare{}, rspaUnwalkedWaitShare{}, false
-			if anchored > rspaAnchorIdentityTolMs {
-				unwalked, unwalkedD, unwalkedIO, hasUnwalked = rspaUnwalkedDIOWaitShareOf(&chain, *item, stats.chainAnchorsByPID[item.Thread.PID], anchoredD, anchoredIO)
+			part := ledger.part(item.Thread.PID, true)
+			scope := part.rowScope(item.dioSegmentIntervals, full, anchored, anchored > rspaAnchorIdentityTolMs)
+			ownedD, ownedIO, channelsOK := part.rowOwnedChannels(scope, item.dioSegmentIntervalsD, item.dioSegmentIntervalsIO)
+			if !channelsOK {
+				// The channel inventories do not reproduce the owned share:
+				// the row keeps it (nothing is handed to an owner it cannot
+				// split per channel).
+				scope = rspaRowScope{walkedOnly: true, unpriced: -1}
 			}
-			insideD, insideIO := anchoredD+unwalkedD.ms(), anchoredIO+unwalkedIO.ms()
-			inside := insideD + insideIO
-			remainderD := rspaClampNonNegative(item.DStateMs - insideD)
-			remainderIO := rspaClampNonNegative(item.IOWaitMs - insideIO)
-			remainder := remainderD + remainderIO
 			presence := chainSeats[item.Thread.PID]
 			// RNB-1 B-3: same case-A ownership qualification as the runnable
 			// arm (presence ∧ decision identity ∧ published seat Σ ≈ anchored).
 			caseAOwned := presence.dio && decision.identityHolds && rspaWithinTol(presence.dioMs, decision.anchoredMs)
-			mintUnwalked := func() {
-				if !hasUnwalked {
-					return
-				}
-				appended = append(appended, rspaUnwalkedWaitSeat(*item, unwalked, 0, unwalkedD.ms(), unwalkedIO.ms(), nil, unwalkedD.split.pre, unwalkedIO.split.pre,
-					rspaUnwalkedWaitSeatSummary(item.Thread, family, unwalked.ms(), anchored, remainder, full, unwalked.clause())))
-			}
 			switch {
 			case caseAOwned:
-				summary := rspaRemainderSummary(item.Thread, family, remainder, anchored, full)
-				if hasUnwalked {
-					summary = rspaRemainderSummaryUnwalked(item.Thread, family, remainder, anchored, unwalked.ms(), full, unwalked.clause())
-				}
-				mintUnwalked()
-				rspaRewriteSeatToRemainder(item, inside, full, 0, remainderD, remainderIO, summary)
+				remainderD := rspaClampNonNegative(item.DStateMs - anchoredD - ownedD)
+				remainderIO := rspaClampNonNegative(item.IOWaitMs - anchoredIO - ownedIO)
+				remainder := remainderD + remainderIO
+				rspaRewriteSeatToRemainder(item, anchored, full, 0, remainderD, remainderIO,
+					part.remainderSummary(scope, item.Thread, family, remainder, anchored, full))
+				scope.stamp(item, anchored, remainder, full)
 			case presence.dio:
 				// Case A' (RNB-1): remainder migration + typed double-Σ
 				// disclosure; the chain seat keeps its own ⛓ account (the M-D
 				// mint suppression never fires on divergent pids).
-				summary := rspaRemainderSummaryDivergent(item.Thread, family, remainder, inside, full, presence.dioMs, decision.anchoredMs)
-				if hasUnwalked {
-					summary += rspaUnwalkedWaitDivergenceClause(unwalked.ms(), unwalked.clause())
-				}
-				mintUnwalked()
-				rspaRewriteSeatToRemainder(item, inside, full, 0, remainderD, remainderIO, summary)
+				remainderD := rspaClampNonNegative(item.DStateMs - anchoredD - ownedD)
+				remainderIO := rspaClampNonNegative(item.IOWaitMs - anchoredIO - ownedIO)
+				remainder := remainderD + remainderIO
+				rspaRewriteSeatToRemainder(item, anchored, full, 0, remainderD, remainderIO,
+					part.divergentSummary(scope, item.Thread, family, remainder, anchored, full, presence.dioMs, decision.anchoredMs))
+				scope.stamp(item, anchored, remainder, full)
 				item.ChainAnchorOwnershipDivergent = true
 				item.ChainAnchorChainLaneMs = presence.dioMs
 				item.ChainAnchorCensusMs = decision.anchoredMs
-			case remainder <= rspaAnchorIdentityTolMs:
-				// Case B, fully anchored: the seat keeps its full publication
-				// and (single-seat pids) inherits the suppressed chain row's
-				// typed context — it IS the pid's one D-IO seat now.
-				transferChainDIOContext(item)
-			case inside <= rspaAnchorIdentityTolMs:
-				rspaRewriteSeatToRemainder(item, inside, full, 0, remainderD, remainderIO,
-					rspaRemainderSummary(item.Thread, family, remainder, inside, full))
 			default:
-				appended = append(appended, rspaCloneAsRemainderSeat(*item, inside, full, 0, remainderD, remainderIO,
-					rspaRemainderSummary(item.Thread, family, remainder, inside, full)))
-				rspaClipSeatToAnchored(item, inside, full, 0, insideD, insideIO,
-					rspaAnchoredSummary(item.Thread, family, inside, full))
-				transferChainDIOContext(item)
+				insideD, insideIO := anchoredD+ownedD, anchoredIO+ownedIO
+				inside := insideD + insideIO
+				remainderD := rspaClampNonNegative(item.DStateMs - insideD)
+				remainderIO := rspaClampNonNegative(item.IOWaitMs - insideIO)
+				remainder := remainderD + remainderIO
+				switch {
+				case remainder <= rspaAnchorIdentityTolMs:
+					// Case B, fully anchored: the seat keeps its full publication
+					// and (single-seat pids) inherits the suppressed chain row's
+					// typed context — it IS the pid's one D-IO seat now.
+					item.rspaUnwalkedHeldMs = scope.owned
+					transferChainDIOContext(item)
+				case inside <= rspaAnchorIdentityTolMs:
+					rspaRewriteSeatToRemainder(item, inside, full, 0, remainderD, remainderIO,
+						part.remainderSummary(scope, item.Thread, family, remainder, inside, full))
+				default:
+					twin := rspaCloneAsRemainderSeat(*item, inside, full, 0, remainderD, remainderIO,
+						part.remainderSummary(scope, item.Thread, family, remainder, inside, full))
+					twin.rspaUnwalkedHeldMs = scope.owned
+					appended = append(appended, twin)
+					rspaClipSeatToAnchored(item, inside, full, 0, insideD, insideIO,
+						part.anchoredSummary(scope, item.Thread, family, inside, full, anchored))
+					item.rspaUnwalkedHeldMs = scope.owned
+					transferChainDIOContext(item)
+				}
 			}
 		case "fragmented_d_state_or_io_wait":
 			decision, ok := dioDecisions[item.Thread.PID]
@@ -1410,39 +1360,8 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if full <= 0 {
 				continue
 			}
-			// HMC377 fix round 2 (F3): the pid's unwalked-wait share is inside
-			// its dependency windows too.
-			anchored := decision.anchoredMs + decision.unwalkedMs
-			if anchored > full {
-				anchored = full
-			}
-			remainder := rspaClampNonNegative(full - anchored)
-			if remainder <= rspaAnchorIdentityTolMs && !chainSeats[item.Thread.PID].dio {
-				continue
-			}
-			// The churn twin has no per-lane anchored split; scale both lanes
-			// by the same remainder share so the family scalar stays exact.
-			share := 0.0
-			if full > 0 {
-				share = remainder / full
-			}
-			if presence := chainSeats[item.Thread.PID]; presence.dio &&
-				!(decision.identityHolds && rspaWithinTol(presence.dioMs, decision.anchoredMs)) {
-				summary := rspaRemainderSummaryDivergent(item.Thread, "fragmented D/IO blocking", remainder, anchored, full, presence.dioMs, decision.anchoredMs)
-				if decision.unwalkedMs > 0 {
-					summary += rspaUnwalkedWaitDivergenceClause(decision.unwalkedMs, rspaUnwalkedWaitsWord)
-				}
-				rspaRewriteSeatToRemainder(item, anchored, full, 0, item.DStateMs*share, item.IOWaitMs*share, summary)
-				item.ChainAnchorOwnershipDivergent = true
-				item.ChainAnchorChainLaneMs = presence.dioMs
-				item.ChainAnchorCensusMs = decision.anchoredMs
-				continue
-			}
-			summary := rspaRemainderSummary(item.Thread, "fragmented D/IO blocking", remainder, anchored, full)
-			if decision.unwalkedMs > 0 && decision.anchoredMs > rspaAnchorIdentityTolMs {
-				summary = rspaRemainderSummaryUnwalked(item.Thread, "fragmented D/IO blocking", remainder, anchored-decision.unwalkedMs, decision.unwalkedMs, full, rspaUnwalkedWaitsWord)
-			}
-			rspaRewriteSeatToRemainder(item, anchored, full, 0, item.DStateMs*share, item.IOWaitMs*share, summary)
+			rspaRewritePIDLevelTwin(item, ledger.part(item.Thread.PID, true), decision, chainSeats[item.Thread.PID].dio,
+				chainSeats[item.Thread.PID].dioMs, full, "fragmented D/IO blocking", true)
 		}
 	}
 	items = append(items, appended...)
@@ -1585,12 +1504,16 @@ func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
 			mark(clipped, items[i].Thread.PID, items[i].DominantState)
 		}
 	}
-	// HMC377 fix round 2 (F3): a remainder's anchored share may be held by
-	// the thread's on-chain seat priced inside the analysed thread's waits
-	// its own wakeup ended (the host-edge state basis) — an owner too.
+	// HMC377 fix round 3: the share inside the waits the chain did not walk
+	// has its own owner — the thread's on-chain seat priced inside those
+	// waits (the host-edge state basis). It is verified on its own claim
+	// below and never stands in for the walked share's owner (a remainder
+	// whose chain seat died must not keep "(owned by the chain seat)" because
+	// the unwalked seat survived).
+	unwalkedOwner := map[int]familyPresence{}
 	for i := range items {
 		if items[i].Thread.PID > 0 && items[i].OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState && rootCauseItemIsOnChain(items[i]) {
-			mark(clipped, items[i].Thread.PID, items[i].DominantState)
+			mark(unwalkedOwner, items[i].Thread.PID, items[i].DominantState)
 		}
 	}
 	chainSeats := rspaChainSeatPresenceByPID(items)
@@ -1608,6 +1531,19 @@ func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
 	}
 	for i := range items {
 		item := &items[i]
+		if item.Thread.PID > 0 && strings.Contains(item.Summary, rspaSummaryUnwalkedOwnSeat) {
+			// Every sentence that hands a share to the thread's own unwalked
+			// seat (remainders, satellites, inversion detail, lane demotions)
+			// names that seat; when it is not on the published board the
+			// sentence says so.
+			owned := unwalkedOwner[item.Thread.PID].runnable
+			if rspaUnwalkedFamilyRow(*item, true) {
+				owned = unwalkedOwner[item.Thread.PID].dio
+			}
+			if !owned {
+				item.Summary = strings.ReplaceAll(item.Summary, rspaSummaryUnwalkedOwnSeat, rspaSummaryUnwalkedOwnSeatUnpublished)
+			}
+		}
 		if item.Thread.PID <= 0 || item.ChainAnchorFullMs <= 0 {
 			continue
 		}

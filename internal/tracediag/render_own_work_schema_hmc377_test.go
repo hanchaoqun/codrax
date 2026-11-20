@@ -28,6 +28,9 @@ func rankItemSchemaBeforeOwnWorkPricing(t *testing.T, typ reflect.Type, schema s
 	if typ != reflect.TypeOf(tracequery.RootCauseRankItem{}) {
 		return schema
 	}
+	// HMC377 fix round 3: the later reviewed unwalked-split fields are
+	// stripped first.
+	schema = rankItemSchemaBeforeUnwalkedSplit(t, typ, schema)
 	counts := map[string]int{}
 	var previous []string
 	for _, field := range strings.Split(schema, ";") {
@@ -52,12 +55,17 @@ func rankItemSchemaBeforeOwnWorkPricing(t *testing.T, typ reflect.Type, schema s
 
 func TestHMC377OwnWorkPricingRankItemSchemaAddsOnlyReviewedOptionalFields(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.RootCauseRankItem{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, fullSchema := detailSchemaFingerprint(typ)
+	// HMC377 fix round 3: the own-work era witness reads the schema without
+	// the later reviewed unwalked-split fields.
+	schema := rankItemSchemaBeforeUnwalkedSplit(t, typ, fullSchema)
+	currentSum := sha256.Sum256([]byte(schema))
+	current := hex.EncodeToString(currentSum[:])
 	const currentFullRankItem = "556657b4e4e434e28222b902ee28c18a20349e97ec5c5124de246e13b0f1111b"
 	if current != currentFullRankItem {
 		t.Fatalf("RootCauseRankItem schema drift after the own-work review: got=%s want=%s\nschema=%s", current, currentFullRankItem, schema)
 	}
-	previous := rankItemSchemaBeforeOwnWorkPricing(t, typ, schema)
+	previous := rankItemSchemaBeforeOwnWorkPricing(t, typ, fullSchema)
 	sum := sha256.Sum256([]byte(previous))
 	// The complete RootCauseRankItem schema at d5ef1c6fe (the IO-value-caliber
 	// era pin of TestNonEventRootCauseSchemaAddsOnlyIOValueCaliber).
