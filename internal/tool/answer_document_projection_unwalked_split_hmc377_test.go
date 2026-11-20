@@ -108,16 +108,21 @@ func TestHMC377ThreeWaySplitNamesEveryPartWithItsSeat(t *testing.T) {
 }
 
 // The unwalked seat compacted off the board: every sentence that names it
-// says so, and the pair still restores the full account with three named
-// parts (two by E#, one disclosed).
+// says so, and the pair restores the full account with the three typed parts
+// it names (HMC377 fix round 4: an off-board seat's value cannot be checked
+// against the account's part, so the pair never claims the three SEATS add up
+// — the account may hold only part of the thread's share).
 func TestHMC377ThreeWaySplitSaysWhenTheWakeupAnchoredSeatIsOffTheBoard(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(hmc377ThreeWayProjection(false, true), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
+	if strings.Contains(fence, "三席合计还原") {
+		t.Fatalf("the off-board wakeup-anchored seat's value is unknown here — no three-seat sum claim:\n%s", fence)
+	}
 	for _, pin := range []string{
 		"同源三分:全窗206.862ms=本行锚定29.904ms+唤醒锚定0.012ms(唤醒锚定席未上本榜,见明细)+其余176.946ms(◇余段席)",
 		"同源三分:全窗206.862ms=锚定29.904ms(⛓链上席)+唤醒锚定0.012ms(唤醒锚定席未上本榜,见明细)+本行其余176.946ms",
-		"唤醒锚定席未上本榜(见明细),⛓席=本行;三席合计还原全窗账 206.862ms",
-		"唤醒锚定席未上本榜(见明细),◇席=本行;三席合计还原全窗账 206.862ms",
+		"唤醒锚定席未上本榜(见明细),⛓席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
+		"唤醒锚定席未上本榜(见明细),◇席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
 	} {
 		if !rspaFenceContains(fence, pin) {
 			t.Fatalf("missing %q:\n%s", pin, fence)

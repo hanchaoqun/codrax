@@ -521,18 +521,28 @@ type runtimeTraceProjTreeRow struct {
 	ChainAnchorTwinInvisible bool
 	// ChainAnchorUnwalkedRef / ChainAnchorUnwalkedInvisible (HMC377 fix round
 	// 3): the [E#] of the rendered seat holding a three-way split's unwalked
-	// part (Node.ChainAnchorUnwalkedSeat, same thread and state family, value
-	// == Node.ChainAnchorUnwalkedMS), or the typed verdict that no rendered
-	// surface carries it — the 同源三分 sentences name the seat or say it is
-	// not on this board. Stamped by the same visibility sweep as the twin.
+	// part, or the typed verdict that no rendered surface carries it — the
+	// 同源三分 sentences name the seat or say it is not on this board.
+	// Stamped by the same visibility sweep as the twin.
+	// ChainAnchorUnwalkedSeatMS (HMC377 fix round 4): that seat's published
+	// value — the thread's whole share inside its unwalked waits. The seat is
+	// found by typed identity (same thread and state family, the
+	// Node.ChainAnchorUnwalkedSeat owner marker), never by value: a row whose
+	// inventory holds only part of the thread's share (a satellite, one of
+	// several census-group seats) carries its own part in
+	// Node.ChainAnchorUnwalkedMS, and its sentences then say which part it
+	// covers instead of claiming the three seats restore its account.
 	ChainAnchorUnwalkedRef       string
 	ChainAnchorUnwalkedInvisible bool
+	ChainAnchorUnwalkedSeatMS    float64
 	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
 	// fix round 3): the pair sentence's third part (the unwalked seat) when
 	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
-	// from the ◇ side's typed parts.
-	AccountRelSameSourceUnwalkedMS  float64
-	AccountRelSameSourceUnwalkedRef string
+	// from the ◇ side's typed parts. AccountRelSameSourceUnwalkedSeatMS
+	// (round 4): that seat's published value (0 when it is not on the board).
+	AccountRelSameSourceUnwalkedMS     float64
+	AccountRelSameSourceUnwalkedRef    string
+	AccountRelSameSourceUnwalkedSeatMS float64
 	// AccountRelMirror* (件1 修复轮, 2026-07-14; donghu E12(+3) witness): the
 	// full-window MIRROR row relation — an UNDECOMPOSED same-thread same-state
 	// row (another lane's face, e.g. critical_blocking) whose display value
@@ -2312,14 +2322,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// — sits beside the generic 账目关系 entry but teaches the OPPOSITE
 		// additivity verdict, so it owns its own seat.
 		{runtimeTraceProjMarkChainAnchorRelation, runtimeTraceProjLegendGroupMark,
-			"- `合计还原全窗账` = 同线程同状态的 ⛓锚定席 与 ◇余段席 互指 [E#]:两席出自同一份全窗账、不相交,相加恰还原全窗值;此关系是唯一可相加的席位对,其余跨行墙钟仍不可相加。",
-			"- `restores the full-window account` = the ⛓ anchored seat and its ◇ remainder seat of one thread + state cross-reference [E#]: both halves come from ONE full-window account, are disjoint, and sum exactly back to it — the only additive seat pair; wall clock across any other rows stays non-additive."},
+			"- `合计还原全窗账` = 同线程同状态的 ⛓锚定席 与 ◇余段席 互指 [E#]:同源二分时两席出自同一份全窗账、不相交,相加恰还原全窗值;同源三分时还原全窗值的是三份——⛓锚定席、本线程唤醒锚定席所持的那份、◇余段席,⛓锚定席与 ◇余段席两席单独相加不还原;唯有这一组席位可相加,其余跨行墙钟仍不可相加。",
+			"- `restores the full-window account` = the ⛓ anchored seat and its ◇ remainder seat of one thread + state cross-reference [E#]: on a two-way split both halves come from ONE full-window account, are disjoint, and sum exactly back to it; on a three-way split the account is restored by three parts — the ⛓ anchored seat, the part held by the thread's own wakeup-anchored seat, and the ◇ remainder seat — and the ⛓ and ◇ seats alone do not sum back to it; only this seat group is additive; wall clock across any other rows stays non-additive."},
 		// HMC377 fix round 3: the three-way split entry — the third part is
 		// the thread's own seat inside the waits its wakeup ended that the
 		// chain did not walk.
 		{runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjLegendGroupMark,
-			"- `同源三分` = 一份全窗账拆成三份:⛓锚定席(链已走的依赖窗内,链上席持有)+唤醒锚定席(目标某次等待由本线程自己的唤醒结束、链未走的那几次等待内,本线程自己的链上席持有)+◇余段席(其余时间,目标此时并未在等待本线程,无链上凭证);三份不相交、每份只由一席持有,相加恰还原全窗值;某席未上本榜时行内注明。",
-			"- `same-source three-way split` = one whole-window account in three parts: the ⛓ anchored seat (inside the dependency windows the chain walked; held by the chain seat) + the wakeup-anchored seat (inside the analysed thread's waits that this thread's own wakeup ended and the chain did not walk; held by this thread's own on-chain seat) + the ◇ remainder seat (the rest; the analysed thread was not waiting for this thread then; no chain credential). The three parts are disjoint, each is held by exactly one seat, and they sum exactly back to the whole-window value; a seat that is not on this board is named as such inline."},
+			"- `同源三分` = 一份全窗账拆成三份:⛓锚定席(链已走的依赖窗内,链上席持有)+唤醒锚定席(目标某次等待由本线程自己的唤醒结束、链未走的那几次等待内,本线程自己的链上席持有)+◇余段席(其余时间,目标此时并未在等待本线程,无链上凭证);三份不相交、每份只由一席持有,相加恰还原全窗值;某席未上本榜时行内注明。唤醒锚定席持的是本线程在这些等待内的全部时间;某行的账只含这些时间的一部分时(卫星行、多个统计分组之一),行内写明本行这份的值并指向持有全部时间的唤醒锚定席及其值,此时还原本行全窗值的是本行三份,三席之和不还原。",
+			"- `same-source three-way split` = one whole-window account in three parts: the ⛓ anchored seat (inside the dependency windows the chain walked; held by the chain seat) + the wakeup-anchored seat (inside the analysed thread's waits that this thread's own wakeup ended and the chain did not walk; held by this thread's own on-chain seat) + the ◇ remainder seat (the rest; the analysed thread was not waiting for this thread then; no chain credential). The three parts are disjoint, each is held by exactly one seat, and they sum exactly back to the whole-window value; a seat that is not on this board is named as such inline. The wakeup-anchored seat holds all of the thread's time inside those waits; when a row's account holds only part of it (a satellite row, one of several census groups), the row states its own part and names the wakeup-anchored seat with the value it holds — the row's three parts then restore its whole-window value, and the three seats' sum does not."},
 		// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation entry
 		// — the same-source split's honest form when the chain seat does not
 		// hold the anchored share at the same value.
@@ -6942,10 +6952,8 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// the unwalked seat's word says when it is not on this board.
 		threeWay := row.Node.ChainAnchorUnwalkedMS > 0
 		unwalked, outside := row.Node.ChainAnchorUnwalkedMS, row.Node.ChainAnchorOutsideMS
-		unwalkedWord, unwalkedWordEN := "(⛓唤醒锚定席)", "(⛓ wakeup-anchored seat)"
-		if row.ChainAnchorUnwalkedInvisible {
-			unwalkedWord, unwalkedWordEN = "(唤醒锚定席未上本榜,见明细)", "(wakeup-anchored seat not on this board; see the detail index)"
-		}
+		unwalkedWord, unwalkedWordEN := runtimeTraceProjUnwalkedPartWords(row.ChainAnchorUnwalkedRef, row.ChainAnchorUnwalkedInvisible,
+			row.ChainAnchorUnwalkedSeatMS, unwalked)
 		var text string
 		switch {
 		case row.Node.ChainAnchorRemainderSeat && row.Node.ChainAnchorOwnershipDivergent:
@@ -7478,28 +7486,15 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 			if row.AccountRelSameSourceUnwalkedMS > 0 {
 				// HMC377 fix round 3: the three-way pair names its third seat
-				// (or says it is not on this board) — the three restore the
-				// full-window account, never two of them.
+				// (or says it is not on this board).
+				// HMC377 fix round 4: "the three seats' sum restores" only
+				// when the third seat is on this board and publishes exactly
+				// this account's part; a partial account (the seat holds the
+				// thread's whole share, the account only part of it) names
+				// the seat, its value and the account's part; an off-board
+				// seat cannot be verified, so the three typed parts restore.
 				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
-				third, thirdEN := "唤醒锚定席未上本榜(见明细)", "the wakeup-anchored seat is not on this board (see the detail index)"
-				if ref := strings.TrimSpace(row.AccountRelSameSourceUnwalkedRef); ref != "" {
-					third, thirdEN = "唤醒锚定席=["+ref+"]", "wakeup-anchored seat = ["+ref+"]"
-				}
-				if row.AccountRelSameSourceAnchoredSide {
-					text = fmt.Sprintf("同源三分对席:◇席=[%s],%s,⛓席=本行;三席合计还原全窗账 %.3fms(规则见图例)",
-						row.AccountRelRef, third, row.AccountRelSameSourceFullMS)
-					if !zh {
-						text = fmt.Sprintf("same-source three-way split: ◇ seat = [%s], %s, ⛓ seat = this row; the three seats' sum restores the whole-window account %.3fms (rule in the legend)",
-							row.AccountRelRef, thirdEN, row.AccountRelSameSourceFullMS)
-					}
-				} else {
-					text = fmt.Sprintf("同源三分对席:⛓席=[%s],%s,◇席=本行;三席合计还原全窗账 %.3fms(规则见图例)",
-						row.AccountRelRef, third, row.AccountRelSameSourceFullMS)
-					if !zh {
-						text = fmt.Sprintf("same-source three-way split: ⛓ seat = [%s], %s, ◇ seat = this row; the three seats' sum restores the whole-window account %.3fms (rule in the legend)",
-							row.AccountRelRef, thirdEN, row.AccountRelSameSourceFullMS)
-					}
-				}
+				text = runtimeTraceProjThreeWayPairText(row, zh)
 			}
 			out = append(out, text)
 		} else {
@@ -21384,4 +21379,72 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	// PTV4 T1: never elided/shaved — demotes intact to a subordinate line
 	// (T3 wrap keeps tokens like 14.597ms whole).
 	return runtimeTraceProjTag{Text: text}, true
+}
+
+// runtimeTraceProjUnwalkedPartIsWhole reports that the wakeup-anchored seat is
+// on this board and publishes exactly the account's unwalked part (HMC377 fix
+// round 4: both values are engine values; equality is a µs comparison, never
+// arithmetic).
+func runtimeTraceProjUnwalkedPartIsWhole(ref string, seatMS, partMS float64) bool {
+	return strings.TrimSpace(ref) != "" && runtimeTraceProjSMR1ValuesEqual(seatMS, partMS)
+}
+
+// runtimeTraceProjUnwalkedPartWords is the 同源三分 sentence's word for the
+// unwalked part: the seat's role word when that seat publishes exactly this
+// part, the not-on-this-board word when no rendered surface carries it, and
+// — when the seat holds the thread's whole share and this account only part
+// of it — the part's owner named with the value it holds (HMC377 fix round
+// 4; round 3 matched the seat by value and called a partial account's seat
+// "not on this board").
+func runtimeTraceProjUnwalkedPartWords(ref string, invisible bool, seatMS, partMS float64) (string, string) {
+	ref = strings.TrimSpace(ref)
+	switch {
+	case invisible || ref == "":
+		return "(唤醒锚定席未上本榜,见明细)", "(wakeup-anchored seat not on this board; see the detail index)"
+	case runtimeTraceProjUnwalkedPartIsWhole(ref, seatMS, partMS):
+		return "(⛓唤醒锚定席)", "(⛓ wakeup-anchored seat)"
+	default:
+		return fmt.Sprintf("(本行这份;唤醒锚定席[%s]持本线程全部%.3fms)", ref, seatMS),
+			fmt.Sprintf("(this row's part; the wakeup-anchored seat [%s] holds the thread's whole %.3fms)", ref, seatMS)
+	}
+}
+
+// runtimeTraceProjThreeWayPairText is the three-way pair sentence (HMC377 fix
+// rounds 3 and 4): the ⛓/◇ seat roles, the third seat, and what restores the
+// whole-window account — the three seats when the third one publishes
+// exactly this account's part, otherwise this account's three typed parts.
+func runtimeTraceProjThreeWayPairText(row runtimeTraceProjTreeRow, zh bool) string {
+	ref := strings.TrimSpace(row.AccountRelSameSourceUnwalkedRef)
+	full, part, seatMS := row.AccountRelSameSourceFullMS, row.AccountRelSameSourceUnwalkedMS, row.AccountRelSameSourceUnwalkedSeatMS
+	third, thirdEN := "唤醒锚定席=["+ref+"]", "wakeup-anchored seat = ["+ref+"]"
+	if ref == "" {
+		third, thirdEN = "唤醒锚定席未上本榜(见明细)", "the wakeup-anchored seat is not on this board (see the detail index)"
+	}
+	roles := fmt.Sprintf("◇席=[%s],%s,⛓席=本行", row.AccountRelRef, third)
+	rolesEN := fmt.Sprintf("◇ seat = [%s], %s, ⛓ seat = this row", row.AccountRelRef, thirdEN)
+	account, accountEN := "◇席账", "the ◇ seat's account"
+	if !row.AccountRelSameSourceAnchoredSide {
+		roles = fmt.Sprintf("⛓席=[%s],%s,◇席=本行", row.AccountRelRef, third)
+		rolesEN = fmt.Sprintf("⛓ seat = [%s], %s, ◇ seat = this row", row.AccountRelRef, thirdEN)
+		account, accountEN = "本行账", "this row's account"
+	}
+	switch {
+	case runtimeTraceProjUnwalkedPartIsWhole(ref, seatMS, part):
+		if zh {
+			return fmt.Sprintf("同源三分对席:%s;三席合计还原全窗账 %.3fms(规则见图例)", roles, full)
+		}
+		return fmt.Sprintf("same-source three-way split: %s; the three seats' sum restores the whole-window account %.3fms (rule in the legend)", rolesEN, full)
+	case ref == "":
+		if zh {
+			return fmt.Sprintf("同源三分对席:%s;锚定、唤醒锚定%.3fms、其余三份合计还原全窗账 %.3fms(规则见图例)", roles, part, full)
+		}
+		return fmt.Sprintf("same-source three-way split: %s; the three parts (anchored, %.3fms wakeup-anchored, the rest) restore the whole-window account %.3fms (rule in the legend)", rolesEN, part, full)
+	default:
+		if zh {
+			return fmt.Sprintf("同源三分对席:%s;唤醒锚定席持本线程全部%.3fms,%s只含其中%.3fms——%s三份合计还原全窗账 %.3fms,三席之和不还原(规则见图例)",
+				roles, seatMS, account, part, account, full)
+		}
+		return fmt.Sprintf("same-source three-way split: %s; the wakeup-anchored seat holds the thread's whole %.3fms and %s holds %.3fms of it — the three parts of %s restore the whole-window account %.3fms, the three seats' sum does not (rule in the legend)",
+			rolesEN, seatMS, accountEN, part, accountEN, full)
+	}
 }

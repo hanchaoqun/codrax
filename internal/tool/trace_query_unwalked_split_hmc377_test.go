@@ -299,11 +299,22 @@ func TestHMC377WholeOriginalDeliveredSplitsNameEveryPartOnce(t *testing.T) {
 					t.Errorf("the three-way split %q is missing:\n%s", pin, d.zh)
 				}
 			}
-			if n := strings.Count(zh, "三席合计还原全窗账"); n < 2 {
-				t.Errorf("both rows of the three-way pair restore the full account, found %d", n)
+			// HMC377 fix round 4: both rows of the three-way pair restore the
+			// full account — with the three seats when the wakeup-anchored
+			// seat is on this board and publishes the account's part, with
+			// the three typed parts when it is not on this board (its value
+			// cannot be checked against the part there).
+			pairs := regexp.MustCompile(`同源三分对席:[^;]*;[^(]*合计还原全窗账`).FindAllString(zh, -1)
+			if len(pairs) < 2 {
+				t.Errorf("both rows of the three-way pair restore the full account, found %d", len(pairs))
+			}
+			for _, pair := range pairs {
+				if strings.Contains(pair, "唤醒锚定席未上本榜") && strings.Contains(pair, "三席合计还原") {
+					t.Errorf("an off-board wakeup-anchored seat's value is unknown here — no three-seat sum claim: %s", pair)
+				}
 			}
 			en := hmc377Joined(d.en)
-			if n := strings.Count(en, "thethreeseats'sumrestoresthewhole-windowaccount"); n < 2 {
+			if n := strings.Count(en, "thethreeseats'sumrestoresthewhole-windowaccount") + strings.Count(en, "therest)restorethewhole-windowaccount"); n < 2 {
 				t.Errorf("en: both rows of the three-way pair restore the full account, found %d", n)
 			}
 			// Every pair sentence names E#s that are on the page.
