@@ -9,9 +9,16 @@ import (
 )
 
 // HMC377 F4 — the hop / classified order of the explicit-window causal
-// projection. Two rows that both carry a recorded chain depth keep the order
-// they had at d5ef1c6fe (shallower hop first, value inside one depth); every
-// row without a recorded depth takes the position its own typed fields give it
+// projection. Two rows that both carry a recorded chain depth keep the
+// d5ef1c6fe depth order (shallower hop first) and, inside one depth, the
+// d5ef1c6fe value order (cumulative, impact, confidence). Only rows that tie on
+// every value at one depth are ordered differently: d5ef1c6fe compared rank
+// only when both rows carried one and otherwise fell through to the coordinate
+// key; the tie key is now total (semantic record first, ranked rows by rank
+// ahead of unranked ones, then the coordinate key). In the classified order
+// two different roles of one role rank, which d5ef1c6fe left incomparable at
+// every depth and value, now take the hop order (E2-R3). Every row without a
+// recorded depth takes the position its own typed fields give it
 // (traceCausalProjectionChainOrderPosition: after every recorded depth, a
 // producer fold of hops in the first hop tier), so the relation is a strict
 // weak order and the order of two published rows never depends on any other
@@ -19,10 +26,11 @@ import (
 
 var hmc377F4Path = []string{"w3-30", "w2-20", "w1-10", "t-1"}
 
-// hmc377F4BaseHopLess / hmc377F4BaseNodeLess replicate the d5ef1c6fe
-// comparators verbatim (depth arm only when both rows carry a depth; rank arm
-// only when both rows carry a rank) — the reference the both-depth order must
-// match.
+// hmc377F4BaseHopLess / hmc377F4BaseNodeLess / hmc377F4BaseClassifiedLess
+// replicate the d5ef1c6fe comparators verbatim (depth arm only when both rows
+// carry a depth; rank arm only when both rows carry a rank; two different roles
+// of one role rank incomparable) — the reference whose depth and value order
+// the both-depth order must keep.
 func hmc377F4BaseNodeLess(a, b TraceCausalProjectionNode) bool {
 	if a.CumulativeImpactMS != b.CumulativeImpactMS {
 		return a.CumulativeImpactMS > b.CumulativeImpactMS
@@ -50,6 +58,52 @@ func hmc377F4BaseHopLess(a, b TraceCausalProjectionNode, pathIndex map[string]in
 		return a.ChainDepth < b.ChainDepth
 	}
 	return hmc377F4BaseNodeLess(a, b)
+}
+
+func hmc377F4BaseClassifiedLess(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {
+	if ar, br := traceCausalProjectionChainRelevanceRank(a.ChainRelevance), traceCausalProjectionChainRelevanceRank(b.ChainRelevance); ar != br {
+		return ar < br
+	}
+	if a.Role != b.Role {
+		return traceCausalProjectionRoleRank(a.Role) < traceCausalProjectionRoleRank(b.Role)
+	}
+	return hmc377F4BaseHopLess(a, b, pathIndex)
+}
+
+// hmc377F4ValueTieAtOneDepth: the two rows share the hop prefix (on-chain,
+// in-path, chain depth) and tie on every value key.
+func hmc377F4ValueTieAtOneDepth(a, b TraceCausalProjectionNode, pathIndex map[string]int) bool {
+	return traceCausalProjectionNodeOnChain(a) == traceCausalProjectionNodeOnChain(b) &&
+		traceCausalProjectionNodeInPath(a, pathIndex) == traceCausalProjectionNodeInPath(b, pathIndex) &&
+		a.ChainDepth == b.ChainDepth &&
+		a.CumulativeImpactMS == b.CumulativeImpactMS && a.ImpactMS == b.ImpactMS && a.Confidence == b.Confidence
+}
+
+// hmc377F4BothDepthPairDomain is every combination of the fields the hop and
+// classified comparators read, each row carrying a recorded chain depth.
+func hmc377F4BothDepthPairDomain() []TraceCausalProjectionNode {
+	var nodes []TraceCausalProjectionNode
+	for _, cum := range []float64{1, 2} {
+		for _, imp := range []float64{1, 2} {
+			for _, conf := range []float64{0.78, 0.82} {
+				for _, role := range []string{TraceCausalRolePrimaryRootCause, TraceCausalRoleCausalHop, TraceCausalRoleRootCauseContext, TraceCausalRoleSemanticSpan} {
+					for _, rank := range []int{0, 1, 2} {
+						for _, depth := range []int{1, 2} {
+							for _, id := range []string{"trace_query:x#root_cause_rank:1", "trace_query:x#wakeup_causal_impact:1"} {
+								for _, relevance := range []string{"on_chain", "adjacent"} {
+									for _, subject := range []string{"w1-10", "off-40"} {
+										nodes = append(nodes, TraceCausalProjectionNode{CumulativeImpactMS: cum, ImpactMS: imp, Confidence: conf,
+											Role: role, Rank: rank, ChainDepth: depth, EvidenceID: id, ChainRelevance: relevance, Subject: subject})
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return nodes
 }
 
 // hmc377F4Row draws one projection row. Small value / depth / rank alphabets
@@ -167,13 +221,60 @@ func TestHMC377F4ProjectionOrderIsAStrictWeakOrderOverRandomRows(t *testing.T) {
 	}
 }
 
-// Pin: on row sets where every row carries a recorded chain depth, the flat
-// order is exactly the d5ef1c6fe order (on- and off-path rows, ranked and
-// unranked boards). On mixed sets every pair of rows that both carry a depth
-// keeps the d5ef1c6fe pairwise order, which the d5ef1c6fe sort itself did not
-// guarantee once a row without a depth sat between them.
-func TestHMC377F4BothDepthOrderIsTheBaseOrder(t *testing.T) {
+// Pin: two rows that both carry a recorded chain depth keep the d5ef1c6fe
+// depth order and, inside one depth, its value order. Over every pair of a
+// domain of all the fields the comparators read:
+//
+//   - the hop order differs from d5ef1c6fe only on pairs that tie on every
+//     value at one depth (the new total tie key);
+//   - the classified order differs only on such value ties, and on pairs of
+//     two different roles of one role rank that d5ef1c6fe left incomparable
+//     (false both ways, at any depth and value), which now take the hop order
+//     (E2-R3);
+//   - no pair d5ef1c6fe ordered is reversed outside a value tie at one depth.
+//
+// Both difference classes must occur, so the pin cannot be read as "the
+// both-depth order is the d5ef1c6fe order". On boards where no value tie meets
+// a semantic record or a mix of ranked and unranked rows (every row a causal
+// hop; a board all ranked with distinct ranks, or all unranked) the flat order
+// is exactly the d5ef1c6fe order. On mixed sets every pair of rows that both
+// carry a depth keeps the d5ef1c6fe depth and value order, which the d5ef1c6fe
+// sort itself did not guarantee once a row without a depth sat between them.
+func TestHMC377F4BothDepthRowsKeepTheBaseDepthAndValueOrder(t *testing.T) {
 	pathIndex := traceCausalProjectionPathIndex(hmc377F4Path)
+	domain := hmc377F4BothDepthPairDomain()
+	hopTies, classifiedTies, classifiedSameRankRoles := 0, 0, 0
+	for _, a := range domain {
+		for _, b := range domain {
+			now, base := traceCausalProjectionHopLess(a, b, pathIndex), hmc377F4BaseHopLess(a, b, pathIndex)
+			if now != base {
+				if !hmc377F4ValueTieAtOneDepth(a, b, pathIndex) {
+					t.Fatalf("hop order differs from d5ef1c6fe outside a value tie at one depth: a=%+v b=%+v now=%t base=%t", a, b, now, base)
+				}
+				hopTies++
+			}
+			now, base = traceCausalProjectionClassifiedLess(a, b, pathIndex), hmc377F4BaseClassifiedLess(a, b, pathIndex)
+			if now == base {
+				continue
+			}
+			sameRelevance := traceCausalProjectionChainRelevanceRank(a.ChainRelevance) == traceCausalProjectionChainRelevanceRank(b.ChainRelevance)
+			sameRoleRank := traceCausalProjectionRoleRank(a.Role) == traceCausalProjectionRoleRank(b.Role)
+			switch {
+			case sameRelevance && sameRoleRank && a.Role != b.Role && !hmc377F4BaseClassifiedLess(b, a, pathIndex) && !base &&
+				now == traceCausalProjectionHopLess(a, b, pathIndex):
+				classifiedSameRankRoles++
+			case sameRelevance && sameRoleRank && hmc377F4ValueTieAtOneDepth(a, b, pathIndex):
+				classifiedTies++
+			default:
+				t.Fatalf("classified order differs from d5ef1c6fe outside a value tie at one depth and outside the same-rank roles it left incomparable: a=%+v b=%+v now=%t base=%t", a, b, now, base)
+			}
+		}
+	}
+	if hopTies == 0 || classifiedTies == 0 || classifiedSameRankRoles == 0 {
+		t.Fatalf("every difference class must occur on the domain (hop value ties %d, classified value ties %d, classified same-rank roles %d)",
+			hopTies, classifiedTies, classifiedSameRankRoles)
+	}
+
 	for seed := int64(1); seed <= 400; seed++ {
 		r := rand.New(rand.NewSource(seed))
 		ranked := seed%2 == 0
@@ -200,12 +301,14 @@ func TestHMC377F4BothDepthOrderIsTheBaseOrder(t *testing.T) {
 		sort.SliceStable(want, func(i, j int) bool { return hmc377F4BaseHopLess(want[i], want[j], pathIndex) })
 		all := func(TraceCausalProjectionNode) bool { return true }
 		if g, w := hmc377F4IDs(got, all), hmc377F4IDs(want, all); g != w {
-			t.Fatalf("seed %d: both-depth order differs from d5ef1c6fe:\n got %s\nwant %s", seed, g, w)
+			t.Fatalf("seed %d: on a board where no value tie meets a semantic record or mixed rank presence, the both-depth order differs from d5ef1c6fe:\n got %s\nwant %s", seed, g, w)
 		}
 	}
 
 	// Mixed set (Douyin reboot5 [140.911304, 141.835458) TID 11105 in-path
-	// hop shape): the analysed thread's own hops carry no depth.
+	// hop shape): the analysed thread's own hops carry no depth. No two rows
+	// tie on value, so every both-depth pair has a d5ef1c6fe depth or value
+	// order to keep.
 	path := []string{"d3-317", "d2-280", "d1-293", "t-105"}
 	pi := traceCausalProjectionPathIndex(path)
 	hopRow := func(id, subject string, depth int, ms float64) TraceCausalProjectionNode {
@@ -226,7 +329,7 @@ func TestHMC377F4BothDepthOrderIsTheBaseOrder(t *testing.T) {
 	for i := range now {
 		for j := i + 1; j < len(now); j++ {
 			if a, b := now[i], now[j]; a.ChainDepth > 0 && b.ChainDepth > 0 && hmc377F4BaseHopLess(b, a, pi) {
-				t.Fatalf("both-depth pair out of the d5ef1c6fe order: %s before %s", a.EvidenceID, b.EvidenceID)
+				t.Fatalf("both-depth pair out of the d5ef1c6fe depth and value order: %s before %s", a.EvidenceID, b.EvidenceID)
 			}
 		}
 	}
@@ -239,6 +342,91 @@ func TestHMC377F4BothDepthOrderIsTheBaseOrder(t *testing.T) {
 	}
 	if strings.Join(got, ",") != want {
 		t.Fatalf("mixed in-path order: got %s want %s", strings.Join(got, ","), want)
+	}
+}
+
+// Pin: rows that tie on every value at one depth take the total tie key —
+// semantic record first, then ranked rows by rank ahead of unranked ones, then
+// the coordinate key — in the hop order, and in the classified order inside
+// one role rank. The tie key never outranks a value or a depth, every input
+// order gives the same sorted order, and the pairs where d5ef1c6fe broke the
+// same ties another way (rank only when both rows carried one, else the
+// coordinate key; same-rank roles incomparable) are witnessed.
+func TestHMC377F4ValueTiesAtOneDepthTakeTheTotalTieKey(t *testing.T) {
+	pathIndex := traceCausalProjectionPathIndex(hmc377F4Path)
+	row := func(label, role, subject, kind string, ordinal, depth, rank int, ms float64) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{Role: role, Subject: subject, ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
+			ChainDepth: depth, Rank: rank, CumulativeImpactMS: ms, ImpactMS: ms, Confidence: 0.78,
+			EvidenceID: fmt.Sprintf("trace_query:x#%s:%d", kind, ordinal), Summary: label}
+	}
+	rows := []TraceCausalProjectionNode{
+		row("sem3", TraceCausalRoleSemanticSpan, "w2-20", "trace_semantic_span", 1, 2, 3, 5),
+		row("sem0", TraceCausalRoleSemanticSpan, "w2-20", "trace_semantic_span", 9, 2, 0, 5),
+		row("hop1", TraceCausalRoleCausalHop, "w2-20", "wakeup_causal_impact", 8, 2, 1, 5),
+		row("ctx2", TraceCausalRoleRootCauseContext, "w2-20", "root_cause_rank", 2, 2, 2, 5),
+		row("ctx0", TraceCausalRoleRootCauseContext, "w2-20", "root_cause_rank", 7, 2, 0, 5),
+		row("hop0", TraceCausalRoleCausalHop, "w2-20", "wakeup_causal_impact", 1, 2, 0, 5),
+		// A larger value at the same depth and a deeper hop: the tie key
+		// never outranks either.
+		row("ctxBig", TraceCausalRoleRootCauseContext, "w2-20", "root_cause_rank", 9, 2, 0, 5.001),
+		row("deep", TraceCausalRoleSemanticSpan, "w3-30", "trace_semantic_span", 2, 3, 1, 9),
+	}
+	byLabel := map[string]TraceCausalProjectionNode{}
+	for _, n := range rows {
+		byLabel[n.Summary] = n
+	}
+	labels := func(nodes []TraceCausalProjectionNode) string {
+		var out []string
+		for _, n := range nodes {
+			out = append(out, n.Summary)
+		}
+		return strings.Join(out, ",")
+	}
+	for _, c := range []struct {
+		name string
+		less func(a, b TraceCausalProjectionNode) bool
+		want string
+	}{
+		{"hop", func(a, b TraceCausalProjectionNode) bool { return traceCausalProjectionHopLess(a, b, pathIndex) },
+			"ctxBig,sem3,sem0,hop1,ctx2,ctx0,hop0,deep"},
+		{"classified", hmc377F4Classified(pathIndex),
+			"hop1,hop0,ctxBig,sem3,sem0,ctx2,ctx0,deep"},
+	} {
+		for i := range rows {
+			for j := range rows {
+				if i != j && c.less(rows[i], rows[j]) == c.less(rows[j], rows[i]) {
+					t.Fatalf("%s order: %s and %s must be strictly ordered", c.name, rows[i].Summary, rows[j].Summary)
+				}
+			}
+		}
+		for seed := int64(1); seed <= 200; seed++ {
+			in := append([]TraceCausalProjectionNode(nil), rows...)
+			rand.New(rand.NewSource(seed)).Shuffle(len(in), func(i, j int) { in[i], in[j] = in[j], in[i] })
+			sort.SliceStable(in, func(i, j int) bool { return c.less(in[i], in[j]) })
+			if got := labels(in); got != c.want {
+				t.Fatalf("%s order, input shuffle %d: got %s want %s", c.name, seed, got, c.want)
+			}
+		}
+	}
+
+	// Witnesses: the same ties were broken another way at d5ef1c6fe.
+	baseHop := func(a, b string) bool { return hmc377F4BaseHopLess(byLabel[a], byLabel[b], pathIndex) }
+	nowHop := func(a, b string) bool { return traceCausalProjectionHopLess(byLabel[a], byLabel[b], pathIndex) }
+	if !baseHop("hop1", "sem3") || !nowHop("sem3", "hop1") {
+		t.Fatal("d5ef1c6fe put the lower rank first even against a semantic record; the semantic record now comes first")
+	}
+	if !baseHop("hop0", "hop1") || !nowHop("hop1", "hop0") {
+		t.Fatal("d5ef1c6fe fell through to the coordinate key when only one row carried a rank; the ranked row now comes first")
+	}
+	if hmc377F4BaseClassifiedLess(byLabel["sem0"], byLabel["ctx2"], pathIndex) || hmc377F4BaseClassifiedLess(byLabel["ctx2"], byLabel["sem0"], pathIndex) ||
+		!traceCausalProjectionClassifiedLess(byLabel["sem0"], byLabel["ctx2"], pathIndex) {
+		t.Fatal("d5ef1c6fe left two roles of one role rank incomparable; they now take the hop order")
+	}
+	// Outside the ties the d5ef1c6fe order is kept.
+	for _, p := range [][2]string{{"ctxBig", "sem3"}, {"hop0", "deep"}, {"sem3", "deep"}} {
+		if !baseHop(p[0], p[1]) || !nowHop(p[0], p[1]) {
+			t.Fatalf("value / depth order of %s before %s must be the d5ef1c6fe order", p[0], p[1])
+		}
 	}
 }
 

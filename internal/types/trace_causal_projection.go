@@ -5225,10 +5225,14 @@ func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[
 	if aInPath != bInPath {
 		return aInPath
 	}
-	// Two rows that both carry a recorded chain depth keep the order they
-	// have had since the hop surface was built (4ec40e892): the shallower hop
-	// first, value inside one depth. Every row takes a chain position from
-	// its own typed fields, so the relation stays a strict weak order.
+	// Two rows that both carry a recorded chain depth keep the depth order
+	// they have had since the hop surface was built (4ec40e892) — the
+	// shallower hop first — and, inside one depth, the value order
+	// (cumulative, impact, confidence). Only rows that tie on every value at
+	// one depth may order differently from d5ef1c6fe: they now take the total
+	// tie key of traceCausalProjectionNodeLess. Every row takes a chain
+	// position from its own typed fields, so the relation stays a strict weak
+	// order.
 	if pa, pb := traceCausalProjectionChainOrderPosition(a), traceCausalProjectionChainOrderPosition(b); pa != pb {
 		return pa < pb
 	}
@@ -5237,10 +5241,19 @@ func traceCausalProjectionHopLess(a, b TraceCausalProjectionNode, pathIndex map[
 
 // traceCausalProjectionChainOrderPosition is the chain position a hop or
 // classified row sorts at (HMC377 F4). A row with a recorded chain depth sorts
-// at that depth, so two such rows compare exactly as before the order rewrite
-// (d5ef1c6fe compared depth only when both rows carried one). A row without a
-// recorded depth gets a position from its own typed fields, never from the
-// rows sorted with it. The depthless rows that reach these comparators:
+// at that depth, so two such rows keep the d5ef1c6fe depth order (d5ef1c6fe
+// compared depth only when both rows carried one) and, inside one depth, its
+// value order (cumulative, impact, confidence). What is new for two such rows
+// is confined to rows that tie on every value at one depth: d5ef1c6fe broke
+// that tie by rank only when both rows carried one and otherwise fell through
+// to the coordinate key (a relation that could cycle); the tie key is now
+// total — the semantic record first, then ranked rows by rank ahead of
+// unranked ones, then the coordinate key (traceCausalProjectionNodeLess). In
+// the classified order two different roles of one role rank, which d5ef1c6fe
+// left incomparable at every depth and value, now take this hop order (E2-R3).
+// A row without a recorded depth gets a position from its own typed fields,
+// never from the rows sorted with it. The depthless rows that reach these
+// comparators:
 //
 //   - the analysed thread's own rows: its wakeup_causal_impact hops (engine
 //     depth 0, which the producer zero-drops), its wait records on the
@@ -5293,8 +5306,9 @@ func traceCausalProjectionClassifiedLess(a, b TraceCausalProjectionNode, pathInd
 	}
 	// HMC377 E2-R3: two roles of the same rank (root_cause_context and
 	// semantic_span) fall through to the hop order; returning false both ways
-	// there left them incomparable while each compared to a third row, so
-	// the relative order of two context rows depended on a semantic row.
+	// there (d5ef1c6fe, at every depth and value) left them incomparable while
+	// each compared to a third row, so the relative order of two context rows
+	// depended on a semantic row.
 	if ra, rb := traceCausalProjectionRoleRank(a.Role), traceCausalProjectionRoleRank(b.Role); ra != rb {
 		return ra < rb
 	}
