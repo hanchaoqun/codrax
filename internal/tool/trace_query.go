@@ -9692,6 +9692,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		// HMC377 fix round 5: the board position of every seat that resolves
 		// a share claim (the record identity below keys on the same position).
 		shareHolderPositions := traceQueryShareHolderPositions(rankRows)
+		// HMC377 fix round 7 (R7-2): the causal impacts whose chain-view
+		// records this publication emits with their engine accounts.
+		shareClaimImpactRecords := traceQueryShareClaimImpactRecords(result.WakeupChain)
 		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() &&
 				!traceQueryRootCauseRankRowCapExempt(item) {
@@ -9763,7 +9766,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				notes = append(notes, fmt.Sprintf("%s=%.3f", sentinelKey, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotesForPublished(item)...)
-			notes = append(notes, traceQueryShareClaimsNotes(item, shareHolderPositions)...)
+			notes = append(notes, traceQueryShareClaimsNotes(item, shareHolderPositions, shareClaimImpactRecords)...)
 			notes = append(notes, traceQueryTypedRootCauseIOPressureRichNotes(item)...)
 			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
 			// attribution — the trace-published tgid plus the resolved owning
@@ -10422,7 +10425,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
-			if strings.TrimSpace(impact.DominantState) == "" && strings.TrimSpace(impact.Summary) == "" {
+			if !traceQueryWakeupCausalImpactPublishable(impact) {
 				continue
 			}
 			impact = traceQueryPriorityCausalImpactForPublication(impact)
@@ -10435,7 +10438,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// single primary-account projection.
 			impact = tracequery.WakeupCausalImpactPrimaryStateAccount(impact)
 			out = append(out, types.ObservationRecord{
-				ID:                 fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
+				ID:                 traceQueryWakeupCausalImpactRecordID(scope, i),
 				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(impact.MeasurementSources),
 				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 				Producer:           "trace_query",
@@ -11708,8 +11711,13 @@ func traceQueryShareHolderPositions(rows []tracequery.RootCauseRankItem) map[str
 // traceQueryShareClaimsNotes carries the engine-resolved share claims of one
 // rank row (HMC377 fix round 5): typed holder references by board position —
 // a holder the engine resolved but the emission cannot place rides without a
-// position (it reads as compacted, never as a guessed seat).
-func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map[string]int) []string {
+// position (it reads as compacted, never as a guessed seat). HMC377 fix round
+// 7 (R7-2): an unresolved claim whose holders are causal impacts' own seats
+// carries those impacts' positions only when every one of them has its own
+// chain-view record on this publication publishing that same account
+// (impactRecords) — otherwise none (a partial set would name some holders as
+// all of them).
+func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map[string]int, impactRecords map[int]bool) []string {
 	if len(item.ShareClaims) == 0 {
 		return nil
 	}
@@ -11721,9 +11729,66 @@ func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map
 				note.HolderPositions = append(note.HolderPositions, pos)
 			}
 		}
+		if !c.Resolved && len(c.HolderCausalImpacts) > 0 {
+			all := true
+			for _, ordinal := range c.HolderCausalImpacts {
+				all = all && impactRecords[ordinal]
+			}
+			if all {
+				note.HolderImpactPositions = append([]int(nil), c.HolderCausalImpacts...)
+			}
+		}
 		claims = append(claims, note)
 	}
 	return traceQueryTypedKVNotes([][2]string{{types.TraceNoteKeyShareClaims, types.EncodeTraceShareClaimsNote(claims)}})
+}
+
+// traceQueryWakeupCausalImpactRecordID is the record identity of the causal
+// impact at index i of a publication's chain (one source for the emission and
+// the share-claim codec's TraceShareClaimCausalImpactRecordMarker).
+func traceQueryWakeupCausalImpactRecordID(scope string, i int) string {
+	return "trace_query:" + scope + types.TraceShareClaimCausalImpactRecordMarker + strconv.Itoa(i+1)
+}
+
+// traceQueryWakeupCausalImpactPublishable is the causal-impact emission's
+// row guard (an impact with neither a dominant state nor a summary publishes
+// no record).
+func traceQueryWakeupCausalImpactPublishable(impact tracequery.WakeupCausalImpact) bool {
+	return strings.TrimSpace(impact.DominantState) != "" || strings.TrimSpace(impact.Summary) != ""
+}
+
+// traceQueryShareClaimImpactRecords — HMC377 fix round 7 (R7-2): the 1-based
+// positions of the chain's causal impacts whose own chain-view record this
+// publication emits (inside the typed row cap, past the row guard) with the
+// account the engine minted the impact's own seat from — the publication's
+// priority filter left the impact's inversion composition as the engine
+// built it (a record whose composition the filter withdrew publishes another
+// account and stands for no seat).
+func traceQueryShareClaimImpactRecords(chain *tracequery.ChainResult) map[int]bool {
+	if chain == nil {
+		return nil
+	}
+	var out map[int]bool
+	for i, impact := range chain.CausalImpacts {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
+			break
+		}
+		if !traceQueryWakeupCausalImpactPublishable(impact) {
+			continue
+		}
+		published := traceQueryPriorityCausalImpactForPublication(impact)
+		if published.PriorityInversionCandidate != impact.PriorityInversionCandidate ||
+			published.PriorityInversionGatedMs != impact.PriorityInversionGatedMs ||
+			published.GatedRunnableMs != impact.GatedRunnableMs ||
+			published.GatedRunningDeficitMs != impact.GatedRunningDeficitMs {
+			continue
+		}
+		if out == nil {
+			out = map[int]bool{}
+		}
+		out[i+1] = true
+	}
+	return out
 }
 
 func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankItem) []string {

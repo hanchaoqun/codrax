@@ -1705,6 +1705,8 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	if len(members) != 1 {
 		// A family value is not its representative's measured state account.
 		merged.measuredStateIntervals = nil
+		// HMC377 fix round 7: nor is it one causal impact's own account.
+		merged.causalImpactOrdinal = 0
 	}
 	// ORD: the merged row keeps the producer-disjointness proof only when
 	// every member had it (idempotent re-fold in the enrich pass).

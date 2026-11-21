@@ -4769,6 +4769,15 @@ type RootCauseRankItem struct {
 	// claims' instants, nothing else.
 	dioCausePartition    rspaDIOCausePartition
 	dioPartitionInstants []foldInterval
+	// causalImpactOrdinal (HMC377 fix round 7, never serialized): the 1-based
+	// position in the chain's CausalImpacts of the wakeup causal impact this
+	// seat was minted from, set only where the seat's account IS the account
+	// that impact's chain-view record publishes (the impact's own seat, or the
+	// primary-state seat of an impact with a separate inversion sub-seat —
+	// never that sub-seat, whose account the record does not publish). Any
+	// copy that becomes another seat (rspaClearClaims) and any multi-member
+	// fold clears it. Read only by resolveRankShareClaimHolderImpacts.
+	causalImpactOrdinal int
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.
