@@ -6215,6 +6215,16 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			if line := firstPositive(endLine, start.line); line > slice.lineEnd {
 				slice.lineEnd = line
 			}
+			// HMC377 fix round 6: the slice keeps its own segments beside
+			// the sum — exactly the segments durMs sums above (slices are
+			// tracked on the D/IO buckets only), with the same cap and latch
+			// as the group's dioIntervals below — the instants a
+			// cause-partition seat's share claims are compared by.
+			if len(slice.intervals) < CriticalBlockingCredentialSegmentCap {
+				slice.intervals = append(slice.intervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
+			} else {
+				slice.intervalsOverflow = true
+			}
 			td.causeSlices[cause] = slice
 		}
 		firstSegment := td.DurationMs <= 0
@@ -17498,6 +17508,11 @@ type dioStateFamilyMember struct {
 	// anchoredMs (RSPA §29.61.10): the member's chain-anchored portion off
 	// the ledger (whole group / slice accounting respectively).
 	anchoredMs float64
+	// sliceIntervals / sliceIntervalsOverflow (HMC377 fix round 6): a slice
+	// member's own segments (offCPUCauseSlice.intervals) — the share-claim
+	// instants of its partition seat only.
+	sliceIntervals         []foldInterval
+	sliceIntervalsOverflow bool
 }
 
 // dioStateMemberFromTd builds the whole-group member (pre-§29.50.5 accounting
@@ -17522,8 +17537,34 @@ func dioStateMemberFromSlice(state string, td ThreadDuration, cause string, slic
 		segMinMs: slice.segMinMs, segMaxMs: slice.segMaxMs,
 		startTs: slice.startTs, endTs: slice.endTs,
 		lineStart: slice.lineStart, lineEnd: slice.lineEnd,
-		anchoredMs: slice.anchoredMs,
+		anchoredMs:     slice.anchoredMs,
+		sliceIntervals: append([]foldInterval(nil), slice.intervals...), sliceIntervalsOverflow: slice.intervalsOverflow,
 	}
+}
+
+// dioStateMemberInstants is one member's own segment instants (HMC377 fix
+// round 6): the whole group's segments for a whole-td member, the slice's own
+// segments for a slice member. ok=false when the list is absent, latched
+// incomplete, malformed, or does not reproduce the member's account.
+func dioStateMemberInstants(m dioStateFamilyMember) ([]foldInterval, bool) {
+	segs, overflow := m.sliceIntervals, m.sliceIntervalsOverflow
+	if m.wholeTd {
+		segs, overflow = m.td.dioIntervals, m.td.dioIntervalsOverflow
+	}
+	if overflow || len(segs) == 0 {
+		return nil, false
+	}
+	total := 0.0
+	for _, seg := range segs {
+		if seg.start <= 0 || seg.end <= seg.start {
+			return nil, false
+		}
+		total += (seg.end - seg.start) * 1000
+	}
+	if !rspaWithinTol(total, m.durMs) {
+		return nil, false
+	}
+	return segs, true
 }
 
 func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[int]bool, hasCausalChain, producerDisjoint bool) []RootCauseRankItem {
@@ -17910,6 +17951,30 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 				item.dioSegmentIntervals = dioSegs
 				item.dioSegmentIntervalsD = dioSegsD
 				item.dioSegmentIntervalsIO = dioSegsIO
+			}
+		}
+		// HMC377 fix round 6: the seat is one proof partition of its thread's
+		// D/IO account — its typed identity rides every D/IO share claim it
+		// makes and every D/IO share it holds, so a claim can only resolve
+		// against a holder of the same partition. A seat minted from proof
+		// slices carries no dioSegmentIntervals (above: whole-td members
+		// only); when every member's own segment list is complete the
+		// partition's instants ride separately, for the claims alone (no
+		// value, lane or credential reads them).
+		item.dioCausePartition = rspaDIOCausePartition{set: true, cause: cause}
+		if caliber == RootCauseMemberFoldCaliberSumDisjoint && len(item.dioSegmentIntervals) == 0 {
+			var instants []foldInterval
+			complete := true
+			for _, m := range members {
+				segs, ok := dioStateMemberInstants(m)
+				if !ok {
+					complete = false
+					break
+				}
+				instants = append(instants, segs...)
+			}
+			if complete && len(instants) > 0 {
+				item.dioPartitionInstants = instants
 			}
 		}
 		return item

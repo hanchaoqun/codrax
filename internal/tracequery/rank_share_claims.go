@@ -35,6 +35,16 @@ package tracequery
 //   - the resolved claims ride typed to the projection (holder keys → record
 //     ids) and the renderer names the holder's [E#] or says it is compacted;
 //     it never searches the board for a holder.
+//
+// HMC377 fix round 6: a D/IO family claim also carries the speaking seat's
+// cause partition (§29.50.5) and every D/IO hold the holding seat's — a seat
+// minted from proof slices has no whole-td segment inventory, so its claims
+// were windowless and resolved by value against ANY holder of the thread and
+// family (another partition's seat). Now a claim resolves only to holders of
+// its own partition (or seats that hold for the whole thread: chain seats,
+// the thread's own unwalked seat), and a partition whose proof slices carried
+// a complete segment list gives its claims instants
+// (dioPartitionInstants).
 
 import (
 	"fmt"
@@ -96,7 +106,11 @@ type RootCauseShareClaim struct {
 	dio bool
 	// semantic: the share is a semantic span's in-window projection (the
 	// host-edge semantic seat and its ◇ remainder), not a state family.
-	semantic  bool
+	semantic bool
+	// partition (HMC377 fix round 6): the D/IO cause partition whose share
+	// the claim names — the speaking seat's own partition, stamped where the
+	// sentence is attached to the seat (rspaSetSentence / rspaAppendSentence).
+	partition rspaDIOCausePartition
 	windows   []foldInterval
 	holderIdx []int
 }
@@ -107,8 +121,41 @@ type rspaHeldShare struct {
 	role     RootCauseShareHolderRole
 	dio      bool
 	semantic bool
-	windows  []foldInterval
-	ms       float64
+	// partition (HMC377 fix round 6): the holding seat's D/IO cause
+	// partition (unset on a seat that holds for the whole thread: a chain
+	// seat, the thread's own unwalked seat).
+	partition rspaDIOCausePartition
+	windows   []foldInterval
+	ms        float64
+}
+
+// rspaDIOCausePartition is the typed identity of one D/IO proof partition of a
+// thread's account (§29.50.5): the formal window seat minted for one proven
+// wait object (cause), or for the unproven fragments (cause ""). HMC377 fix
+// round 6: a claim of one partition seat must never resolve to a seat of
+// another partition of the same thread by value — the partitions are disjoint
+// accounts. Unset (the zero value) on every seat that is not such a
+// partition: it holds or claims for the whole thread family.
+type rspaDIOCausePartition struct {
+	set   bool
+	cause string
+}
+
+// admits reports whether a hold of partition h can hold a share a claim of
+// partition c names: equal partitions, or either side speaks for the whole
+// thread family.
+func (c rspaDIOCausePartition) admits(h rspaDIOCausePartition) bool {
+	return !c.set || !h.set || c.cause == h.cause
+}
+
+// rspaStampClaimPartitions types the D/IO claims of a sentence attached to
+// item with the seat's own cause partition.
+func rspaStampClaimPartitions(item *RootCauseRankItem, claims []RootCauseShareClaim) {
+	for i := range claims {
+		if claims[i].dio && !claims[i].semantic {
+			claims[i].partition = item.dioCausePartition
+		}
+	}
 }
 
 // rspaClaimSpan is one replaceable span of a row's Summary: its held form,
@@ -175,6 +222,7 @@ func rspaPlainSentence(text string) rspaSentence { return rspaSentence{text: tex
 func rspaSetSentence(item *RootCauseRankItem, s rspaSentence) {
 	item.Summary = s.text
 	item.ShareClaims = append([]RootCauseShareClaim(nil), s.claims...)
+	rspaStampClaimPartitions(item, item.ShareClaims)
 	item.rspaClaimSpans = append([]rspaClaimSpan(nil), s.spans...)
 }
 
@@ -182,7 +230,9 @@ func rspaSetSentence(item *RootCauseRankItem, s rspaSentence) {
 func rspaAppendSentence(item *RootCauseRankItem, s rspaSentence) {
 	item.Summary += s.text
 	base := len(item.ShareClaims)
-	item.ShareClaims = append(append([]RootCauseShareClaim(nil), item.ShareClaims...), s.claims...)
+	added := append([]RootCauseShareClaim(nil), s.claims...)
+	rspaStampClaimPartitions(item, added)
+	item.ShareClaims = append(append([]RootCauseShareClaim(nil), item.ShareClaims...), added...)
 	spans := append([]rspaClaimSpan(nil), item.rspaClaimSpans...)
 	for _, sp := range s.spans {
 		shifted := sp
@@ -203,7 +253,8 @@ func rspaClearClaims(item *RootCauseRankItem) {
 	item.ShareHolderKey = ""
 }
 
-// rspaHold records that a seat holds a share (one entry per role).
+// rspaHold records that a seat holds a share (one entry per role). A D/IO
+// share is held in the seat's own cause partition (HMC377 fix round 6).
 func rspaHold(item *RootCauseRankItem, role RootCauseShareHolderRole, dio bool, windows []foldInterval, ms float64) {
 	held := make([]rspaHeldShare, 0, len(item.rspaHeld)+1)
 	for _, h := range item.rspaHeld {
@@ -211,7 +262,11 @@ func rspaHold(item *RootCauseRankItem, role RootCauseShareHolderRole, dio bool, 
 			held = append(held, h)
 		}
 	}
-	item.rspaHeld = append(held, rspaHeldShare{role: role, dio: dio, windows: rspaFoldCopy(windows), ms: ms})
+	share := rspaHeldShare{role: role, dio: dio, windows: rspaFoldCopy(windows), ms: ms}
+	if dio {
+		share.partition = item.dioCausePartition
+	}
+	item.rspaHeld = append(held, share)
 }
 
 func rspaFoldCopy(windows []foldInterval) []foldInterval {
@@ -500,9 +555,10 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 func (c RootCauseShareClaim) holders() []int { return c.holderIdx }
 
 // resolveShareClaim resolves one claim against the board: the seats of the
-// claim's thread holding a share of the claim's role and family must hold the
-// claim's instants (a seat without a segment inventory contributes its
-// value), or — for a claim without instants — its value.
+// claim's thread holding a share of the claim's role, family and D/IO cause
+// partition must hold the claim's instants (a seat without a segment
+// inventory contributes its value), or — for a claim without instants — its
+// value.
 func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem) {
 	c.Resolved, c.Exact, c.holderIdx = false, false, nil
 	if c.pid <= 0 || c.ShareMs <= rspaAnchorIdentityTolMs {
@@ -525,6 +581,12 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem) {
 		heldMs, windowless := 0.0, false
 		for _, h := range row.rspaHeld {
 			if h.role != c.Role || h.dio != c.dio || h.semantic != c.semantic || h.ms <= rspaAnchorIdentityTolMs {
+				continue
+			}
+			// HMC377 fix round 6: a D/IO cause partition's share is held only
+			// in that partition (or by a seat holding for the whole thread)
+			// — never by another partition's seat of equal value.
+			if !c.partition.admits(h.partition) {
 				continue
 			}
 			heldMs += h.ms

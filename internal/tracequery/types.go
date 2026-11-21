@@ -2867,6 +2867,15 @@ type offCPUCauseSlice struct {
 	// remainder is an exact same-segment-set bipartition, never a second
 	// aggregation. 0 when no anchor windows were supplied to the sweep.
 	anchoredMs float64
+	// intervals / intervalsOverflow (HMC377 fix round 6): the slice's own
+	// clamped segments, appended at the same close site with the same
+	// endpoints durMs sums. Capped like ThreadDuration.dioIntervals (the
+	// first CriticalBlockingCredentialSegmentCap segments; the latch means
+	// the list is incomplete and never stands for the slice). Read only as
+	// the instants of the cause-partition seat's share claims — never as a
+	// value, lane or credential inventory.
+	intervals         []foldInterval
+	intervalsOverflow bool
 }
 
 type ThreadDuration struct {
@@ -4748,6 +4757,18 @@ type RootCauseRankItem struct {
 	ShareHolderKey string                `json:"-"`
 	rspaClaimSpans []rspaClaimSpan
 	rspaHeld       []rspaHeldShare
+	// dioCausePartition / dioPartitionInstants (HMC377 fix round 6, never
+	// serialized): a formal D/IO window seat is one proof partition of its
+	// thread's D/IO account (§29.50.5) — the partition's typed identity rides
+	// every claim the seat (or a copy of it: its ◇ twin, its clipped half)
+	// makes about its D/IO shares and every D/IO share it holds, so a claim
+	// resolves only against a holder of the same partition (or a seat that
+	// holds for the whole thread). dioPartitionInstants: the partition's own
+	// segment instants when its members are proof slices that carried a
+	// complete segment list (dioSegmentIntervals stays whole-td only) — the
+	// claims' instants, nothing else.
+	dioCausePartition    rspaDIOCausePartition
+	dioPartitionInstants []foldInterval
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

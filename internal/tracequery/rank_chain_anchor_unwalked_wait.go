@@ -731,6 +731,9 @@ func rspaMintUnwalkedSeat(from RootCauseRankItem, part *rspaUnwalkedPart) RootCa
 	seat.inversionAccountRepresentedBy, seat.inversionAccountRepresents = "", ""
 	seat.rspaUnwalkedHeldMs = 0
 	seat.rspaUnwalkedShareOwned = false
+	// HMC377 fix round 6: the unwalked seat holds the thread's share (every
+	// partition's instants inside the unwalked waits), never one partition's.
+	seat.dioCausePartition, seat.dioPartitionInstants = rspaDIOCausePartition{}, nil
 	seat.MemberCount, seat.MemberRoster, seat.MemberMaxMs, seat.MemberMinMs = 0, nil, 0, 0
 	seat.MemberFoldCaliber, seat.MemberSumMs = "", 0
 	seat.RunningMs, seat.SleepMs = 0, 0

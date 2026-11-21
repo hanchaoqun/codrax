@@ -1453,7 +1453,16 @@ func reanchorOnChainStateSeatsCarried(chain ChainResult, stats WindowStats, item
 			// HMC377 fix round 5: the instants of each part of this seat's
 			// account (both channels — one thread's D and IO segments never
 			// overlap, so a partition's instants name that partition's share).
-			inst := rspaInstantsOf(item.dioSegmentIntervals, full, walkedFoldOf(item.Thread.PID), part.ownedSupport(scope))
+			// HMC377 fix round 6: a partition seat minted from proof slices
+			// carries no dioSegmentIntervals; its claims take the partition's
+			// own instants when the slices carried a complete segment list
+			// (otherwise they stay windowless and the typed partition identity
+			// alone keeps them inside their partition).
+			instants := item.dioSegmentIntervals
+			if len(instants) == 0 {
+				instants = item.dioPartitionInstants
+			}
+			inst := rspaInstantsOf(instants, full, walkedFoldOf(item.Thread.PID), part.ownedSupport(scope))
 			// RNB-1 B-3: same case-A ownership qualification as the runnable
 			// arm (presence ∧ decision identity ∧ published seat Σ ≈ anchored).
 			caseAOwned := presence.dio && decision.identityHolds && rspaWithinTol(presence.dioMs, decision.anchoredMs)
