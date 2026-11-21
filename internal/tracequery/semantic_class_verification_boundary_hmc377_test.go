@@ -1,13 +1,23 @@
 package tracequery
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // HMC377 CV-1: the class-verification literals are word-bounded. ART's
 // "VerifyClassLoaderContextMatch" checks that the compiled code's recorded
 // class-loader context matches while that code is opened; it is not class
 // verification and must not join the class-verification family (it did in
-// every one of the 75 baseline captures, 1-7 markers each, up to 0.24 ms;
-// Douyin reboot5 TID 11105 counted 127 / 92.266 ms instead of 126 / 92.026).
+// every one of the 75 baseline captures: 3 to 7 markers each, 251 in all
+// (58 captures with 3, 10 with 4, 6 with 5, 1 with 7); the longest is
+// 1.075 ms (105 网易云音乐 background-kill cold start #3,
+// ftrace-20261019_17.55.02, TID 37022); Douyin reboot5 TID 11105 counted
+// 127 / 92.266 ms instead of 126 / 92.026 because of its one 0.240 ms marker).
+//
+// EVOLUTION RECORD (HMC377 round 9, R9-4, register R8C-2, 2026-11-21): this
+// comment said "1-7 markers each, up to 0.24 ms"; the measured census is the
+// one above (fix8/review-cv1/oracle/vlcm_dur.tsv; TIDs fix9/r4/vlcm_tid.out).
 func TestHMC377CV1ClassVerificationLiteralsAreWordBounded(t *testing.T) {
 	for _, name := range []string{
 		"VerifyClass com.example.Foo",
@@ -49,5 +59,94 @@ func TestHMC377CV1WordBoundedLiteralFindsALaterBoundedOccurrence(t *testing.T) {
 	}
 	if !traceSpanContainsWordBoundedLiteral("verifyclass", "verifyclass") {
 		t.Fatal("the whole name is bounded")
+	}
+}
+
+// HMC377 round 9 (R9-3, register R8C-3): the CV-1 word boundary and the
+// platform vocabulary's operation boundary stay two rules. The vocabulary
+// matches an operation head at the start of the name only, and lets the
+// bytes after it continue the name when they are a letter, or "_" / "::"
+// followed by a letter; a digit there is a glued parameter stamp
+// ("PartialGC::RunPhases0;GCReason2"). A class-verification literal can occur
+// anywhere in a name, so it needs a rule on both sides, and it follows its
+// built-in sibling arms (texture upload, the GC prefix boundary): an ASCII
+// letter or digit on either side continues the word, anything else bounds it.
+// Measured on the 75 baseline captures (1,304,813 census names, fix9/r3):
+//   - the vocabulary's rule on both sides (mirrored before the literal)
+//     loses the positive "art::ClassVerifier::VerifyClass": a "::" qualifier
+//     before the literal is a namespace, not a continuation;
+//   - the CV-1 rule in the vocabulary fails its real ArkTS heads with a
+//     glued numeric stamp ("H:PartialGC::RunPhases0;GCReason2;…");
+//   - the vocabulary's rule after the literal and this rule before it keeps
+//     the census set (2,871 names) and every verdict here, but splices two
+//     rules into one predicate, moves the class-verification arm off the
+//     boundary of its sibling arms, and flips four spellings no capture
+//     contains (below).
+//
+// So the current rule stays, and the reviewer's boundary probe
+// (fix8/review-cv1/oracle/boundary_probe.out) is pinned as its explicit
+// expectations.
+func TestHMC377R9ClassVerificationBoundaryProbeExpectations(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		cv   bool
+	}{
+		{"VerifyClassLoaderContextMatch", false},
+		{"verify_class_loader_context_match", true}, // the verify + class token arm
+		{"Verify_Class_Loader_Context_Match", true}, // the verify + class token arm
+		{"verify class loader context match", true}, // the verify + class token arm
+		// '_', '::' and '/' after the literal bound it (the vocabulary's
+		// rule would continue the name after "_" / "::" + letter).
+		{"VerifyClass_LoaderContextMatch", true},
+		{"VerifyClass::LoaderContextMatch", true},
+		{"VerifyClass/LoaderContextMatch", true},
+		{"VerifyClass;", true},
+		{"Lcom/example/VerifyClass;", true},
+		{"VerifyClass(Foo)", true},
+		// A non-ASCII byte bounds the literal on either side.
+		{"VerifyClass中文", true},
+		{"中VerifyClass", true},
+		{"VerifyClassé", true},
+		{"éVerifyClass", true},
+		{"VERIFYCLASS FOO", true},
+		{"VerİfyClass foo", true}, // the verify + class token arm
+		// A digit on either side continues the word (the vocabulary's rule
+		// would end the name before a digit stamp).
+		{"VerifyClass2", false},
+		{"2VerifyClass", false},
+		{"classverification2", false},
+		{"VerifyClasses", false},
+		{"ReverifyClass", false},
+		{"art::verifier::ClassVerifier::VerifyClass", true},
+		{"H:VerifyClass foo", true},
+		{"H:[a,0,0]#VerifyClass foo", true},
+		{"verifyclass verifyclassx", true},
+		{"xverifyclass verifyclass", true},
+		{"verifyclas", false},
+		{"", false},
+		{" ", false},
+		{"VerifyClass\tfoo", true},
+		{"ClassVerifierCache", false},
+		{"class_verifier_cache", true}, // the verify + class token arm
+		{"VerifyClassUsingOatFile", false},
+		{"verifyClassUsingOatFile", false},
+	} {
+		lower := strings.ToLower(strings.TrimSpace(c.name))
+		predicate := lower != "" && traceSpanLooksLikeClassVerification(lower, traceSpanNameTokenSet(lower))
+		class := traceSpanSemanticClass(c.name)
+		if predicate != c.cv || (class == "class_verification") != c.cv {
+			t.Errorf("%q: predicate %t class %q, want class verification %t", c.name, predicate, class, c.cv)
+		}
+	}
+	for _, c := range []struct {
+		lower, literal string
+		bounded        bool
+	}{
+		{"", "x", false}, {"x", "", false}, {"ab", "abc", false}, {"abc", "abc", true}, {"aabc", "abc", false},
+		{"abca", "abc", false}, {"abcabc", "abc", false}, {"abc-abc", "abc", true}, {"aaaa", "aa", false}, {"a-aa", "aa", true},
+	} {
+		if got := traceSpanContainsWordBoundedLiteral(c.lower, c.literal); got != c.bounded {
+			t.Errorf("bounded(%q, %q) = %t, want %t", c.lower, c.literal, got, c.bounded)
+		}
 	}
 }

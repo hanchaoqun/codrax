@@ -23227,8 +23227,13 @@ func traceSpanNameTokenSet(lower string) map[string]bool {
 // bare substring let ART's "VerifyClassLoaderContextMatch" (the check that
 // the compiled code's recorded class-loader context matches, part of opening
 // that code) count as class verification: 251 such markers across the 75
-// baseline captures, the only name besides "VerifyClass <descriptor>" the
-// substring rule matched there.
+// baseline captures (3 to 7 in every capture: 58 captures with 3, 10 with
+// 4, 6 with 5, 1 with 7; the longest 1.075 ms, 105 网易云音乐
+// background-kill cold start #3, ftrace-20261019_17.55.02, TID 37022), the
+// only name besides "VerifyClass <descriptor>" the substring rule matched
+// there. (HMC377 round 9, R9-4: the census figures above were measured; the
+// 0.240 ms figure once quoted as the maximum is the Douyin reboot5 TID 11105
+// marker.)
 func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) bool {
 	for _, literal := range []string{"verifyclass", "verify_class", "classverification", "class_verification", "class verifier", "classverifier"} {
 		if traceSpanContainsWordBoundedLiteral(lower, literal) {
@@ -23240,6 +23245,18 @@ func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) b
 
 // traceSpanContainsWordBoundedLiteral reports whether literal occurs in lower
 // with no ASCII letter or digit immediately before or after that occurrence.
+//
+// HMC377 round 9 (R9-3): this is not the platform vocabulary's operation
+// boundary (semanticVocabContinuesOperation), and deliberately so. A
+// vocabulary head is matched at the start of the name only and may carry a
+// glued numeric stamp ("PartialGC::RunPhases0;GCReason2"), while "_" / "::"
+// plus a letter after it continue the operation; a literal here can occur
+// anywhere in the name, so both of its sides need a rule, and it keeps the
+// boundary of its sibling arms (texture upload, semanticSpanHasPrefixBoundary).
+// Neither rule serves both layers: the vocabulary's rule mirrored before a
+// literal loses "art::ClassVerifier::VerifyClass", and this rule in the
+// vocabulary loses its real stamped heads (measured over the 75 baseline
+// captures; TestHMC377R9ClassVerificationBoundaryProbeExpectations).
 func traceSpanContainsWordBoundedLiteral(lower, literal string) bool {
 	if literal == "" {
 		return false
