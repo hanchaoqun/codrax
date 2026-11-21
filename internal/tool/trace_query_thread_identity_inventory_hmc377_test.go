@@ -101,58 +101,111 @@ func TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName(t *testing.T) {
 	}
 }
 
-// Douyin reboot capture 5 [140.911304, 141.835458) TID 11105 (reviewer
-// repro): TID 11317 is published as #tp-io-29 (most of the window); its
-// class-verification record and its span-member observation named it by the
-// marker-time comm #tp-fixed-1176.
+// 105 蜂鸟 container cold start #5 (ftrace-20261019_17.35.50), the analysed
+// main thread 28252 in [4819.5, 4820.0) (HMC377 round 9, R9-2, register
+// R8C-1): the worker TID 28559 is named download_sdk for the window (sched
+// names: download_sdk ×121, the creator-inherited LMagex-Work-2 ×3), but all
+// 44 of its VerifyClass markers in the window carry the row-header comm
+// me.ele.hb.frame (raw oracle fix9/r2/oracle_28559.py; review oracle
+// fix8/review-cv1/oracle/rename_repro_28559.out). This is the discriminating
+// real repro of F1: the class-verification span record and the span-member
+// observation fold from the complete span inventory after publication, and
+// name TID 28559 me.ele.hb.frame-28559 (the marker-time name) when that
+// inventory is not published under the display view
+// (publishTraceSpanInventory a no-op: fix9/r2/mutant_f1_noop.log FAILS here).
+const (
+	hmc377HoneybirdContainer5Digest = "0e535301ac34e2ce47dfa28cb72e543225a0acccc74da04f06a973c555226732"
+	hmc377HoneybirdContainer5Size   = 114960266
+)
+
+func TestHMC377WholeOriginalHoneybirdContainerSpanRecordsNameTheWorkerByItsDisplayName(t *testing.T) {
+	path := hmc376Original(t, "CODRAX_HMC377_HONEYBIRD_CONTAINER5", hmc377HoneybirdContainer5Digest, hmc377HoneybirdContainer5Size)
+	result, native := hmc376QueryTarget(t, path, "root_cause_rank", map[string]any{"pid": 28252, "target_scope": "thread"}, 4819.5, 4820.0)
+	if !result.Success {
+		t.Fatalf("query failed: %s", result.Summary)
+	}
+	identity, ok := hmc377Identity(native, 28559)
+	if !ok || identity.DisplayComm != "download_sdk" {
+		t.Fatalf("TID 28559 identity %+v", identity)
+	}
+	// The marker-time name is one of the thread's own names in the window:
+	// a record named by it is a different name than the display.
+	markerTimeName := false
+	for _, name := range identity.Names {
+		if name.Comm == "me.ele.hb.frame" {
+			markerTimeName = true
+		}
+	}
+	if !markerTimeName {
+		t.Fatalf("TID 28559 must carry the marker-time name me.ele.hb.frame among its names: %+v", identity.Names)
+	}
+	var spanRecord, memberRecord bool
+	for _, record := range result.Observations {
+		if !strings.HasSuffix(record.Subject, "-28559") {
+			continue
+		}
+		if record.Subject != "download_sdk-28559" {
+			t.Fatalf("%s %s names TID 28559 %q, want its display download_sdk-28559", record.ID, record.ClaimKey, record.Subject)
+		}
+		switch {
+		case record.ClaimKey == "trace_semantic_span:class_verification":
+			spanRecord = true
+		case record.ClaimKey == "trace_span_members_observation":
+			memberRecord = true
+			if record.Value != "44" {
+				t.Fatalf("the span-member observation of TID 28559 counts %s members, the raw capture 44 VerifyClass markers", record.Value)
+			}
+		}
+	}
+	if !spanRecord || !memberRecord {
+		t.Fatalf("the class-verification span record (%v) and the span-member observation (%v) of TID 28559 must be published", spanRecord, memberRecord)
+	}
+}
+
+// Douyin reboot capture 5 [140.911304, 141.835458) TID 11105: TID 11317 is
+// published as #tp-io-29 (most of the window).
 //
-// EVOLUTION RECORD (HMC377 CV-1, 2026-11-20): that record came from one
-// 0.005 ms "VerifyClassLoaderContextMatch" marker at 141.681957 s, which the
-// substring rule counted as class verification. It is the class-loader context
-// check of opening compiled code, so TID 11317 has no class-verification record
-// any more, and no semantic marker in this window (or in the Honeybird reboot
-// window) runs under a name other than its thread's display name. The rename
-// at marker time stays pinned by the synthetic
-// TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName; on this capture the
-// pin keeps the identity of 11317, states that the mislabelled record is gone,
-// and checks that every span record of a renamed thread (11105, 11115) is
-// named by that thread's display name.
-func TestHMC377WholeOriginalDouyinSpanRecordsNameTheWorkerByItsDisplayName(t *testing.T) {
+// EVOLUTION RECORD (HMC377 CV-1, 2026-11-20): that thread's class-verification
+// record came from one 0.005 ms "VerifyClassLoaderContextMatch" marker at
+// 141.681957 s, which the substring rule counted as class verification. It is
+// the class-loader context check of opening compiled code, so TID 11317 has
+// no class-verification record any more.
+//
+// EVOLUTION RECORD (HMC377 round 9, R9-2, register R8C-1, 2026-11-21): this
+// test was TestHMC377WholeOriginalDouyinSpanRecordsNameTheWorkerByItsDisplayName,
+// the whole-original pin of F1 (span records folded from the span inventory
+// name a renamed thread by its display name). After CV-1 it could no longer
+// tell display naming from marker-time naming: the renamed threads 11105 and
+// 11115 mark every span under their display comm, so with F1 reverted
+// (publishTraceSpanInventory a no-op) it still passed (review round 8,
+// fix8/review-cv1/mutant/mutant_f1_run.log). Its F1 assertions are retired;
+// F1 is pinned by the discriminating Honeybird container #5 repro above and
+// by the synthetic TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName.
+// What remains here discriminates: the identity of 11317, every record
+// naming it by #tp-io-29 (a rank row named it #tp-fixed-1176 when display
+// naming was mutated, fix8/review-cv1/mutant/mutant_run.log), and the
+// class-loader context check not being a class-verification record (CV-1).
+func TestHMC377WholeOriginalDouyinClassLoaderContextCheckIsNoClassVerificationRecord(t *testing.T) {
 	path := hmc376Original(t, "CODRAX_HMC377_DOUYIN_REBOOT", hmc377DouyinDigest, hmc377DouyinSize)
 	result, native := hmc376QueryTarget(t, path, "root_cause_rank", map[string]any{"pid": 11105, "target_scope": "thread"}, 140.911304, 141.835458)
 	identity, ok := hmc377Identity(native, 11317)
 	if !ok || identity.DisplayComm != "#tp-io-29" {
 		t.Fatalf("TID 11317 identity %+v", identity)
 	}
-	display := map[string]string{}
-	for _, id := range native.ThreadIdentities {
-		if len(id.Names) > 1 {
-			display[fmt.Sprintf("-%d", id.TID)] = id.DisplayComm
-		}
-	}
-	renamedSpanRecords := map[string]bool{}
+	named := false
 	for _, record := range result.Observations {
-		if strings.HasSuffix(record.Subject, "-11317") {
-			if record.Subject != "#tp-io-29-11317" {
-				t.Fatalf("%s %s names TID 11317 %q, want #tp-io-29-11317", record.ID, record.ClaimKey, record.Subject)
-			}
-			if record.ClaimKey == "trace_semantic_span:class_verification" {
-				t.Fatalf("TID 11317 runs no class verification in this window; %s is the class-loader context check", record.ID)
-			}
-		}
-		if !strings.HasPrefix(record.ClaimKey, "trace_semantic_span:") && record.ClaimKey != "trace_span_members_observation" {
+		if !strings.HasSuffix(record.Subject, "-11317") {
 			continue
 		}
-		for suffix, comm := range display {
-			if strings.HasSuffix(record.Subject, suffix) {
-				if record.Subject != comm+suffix {
-					t.Fatalf("%s %s names a renamed thread %q, want %q", record.ID, record.ClaimKey, record.Subject, comm+suffix)
-				}
-				renamedSpanRecords[record.Subject] = true
-			}
+		named = true
+		if record.Subject != "#tp-io-29-11317" {
+			t.Fatalf("%s %s names TID 11317 %q, want #tp-io-29-11317", record.ID, record.ClaimKey, record.Subject)
+		}
+		if record.ClaimKey == "trace_semantic_span:class_verification" {
+			t.Fatalf("TID 11317 runs no class verification in this window; %s is the class-loader context check", record.ID)
 		}
 	}
-	if !renamedSpanRecords[".ugc.aweme.lite-11105"] || !renamedSpanRecords["RenderThread-11115"] {
-		t.Fatalf("the span records of the renamed threads 11105 and 11115 must be published: %v", renamedSpanRecords)
+	if !named {
+		t.Fatalf("TID 11317 must be published on some record of this window")
 	}
 }
