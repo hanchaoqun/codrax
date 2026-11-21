@@ -1441,6 +1441,12 @@ const (
 	// runtimeTraceProjShareRefCompacted — the claim did not resolve against
 	// the published board, or a holder record is drawn nowhere here.
 	runtimeTraceProjShareRefCompacted
+	// runtimeTraceProjShareRefPartial (HMC377 round 10, R-377-10 ③) — a
+	// represented sentence that resolves only in part: the node's typed
+	// ChainAnchorRepresentedHeldMS is counted at the holders of its resolved
+	// claims (their [E#] in the refs when every such holder is drawn here,
+	// none otherwise) and the row publishes its own account less that share.
+	runtimeTraceProjShareRefPartial
 )
 
 // runtimeTraceProjDrawnRecord is where one record id is drawn on this
@@ -1594,6 +1600,35 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 	return out
 }
 
+// runtimeTraceProjResolvedRepresentedHolderTags (HMC377 round 10, R-377-10 ③)
+// names the holders of a partially represented row's resolved claims — the
+// rows that count its ChainAnchorRepresentedHeldMS: their [E#] when every such
+// holder record is drawn on this projection in another row, nil otherwise (the
+// see-detail form, which names no holder and claims nothing about the board).
+func runtimeTraceProjResolvedRepresentedHolderTags(node types.TraceCausalProjectionNode, index map[string]runtimeTraceProjDrawnRecord, self *runtimeTraceProjTreeRow) []string {
+	var tags []string
+	seen := map[string]bool{}
+	for _, c := range node.ShareClaims {
+		if !c.Represented || !c.Resolved {
+			continue
+		}
+		if len(c.HolderEvidenceIDs) == 0 {
+			return nil
+		}
+		for _, id := range c.HolderEvidenceIDs {
+			drawn, ok := index[strings.TrimSpace(id)]
+			if !ok || drawn.row == nil || drawn.row == self || drawn.tag == "" {
+				return nil
+			}
+			if !seen[drawn.tag] {
+				seen[drawn.tag] = true
+				tags = append(tags, drawn.tag)
+			}
+		}
+	}
+	return tags
+}
+
 // runtimeTraceProjStampShareClaimRefs — HMC377 fix round 5 (replaces the RNB-1
 // D1 twin-visibility sweep and the round-3/4 unwalked-seat marker lookup):
 // every holder word of a row reads the row's engine-resolved share claims —
@@ -1630,6 +1665,11 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 				row.ChainAnchorUnwalkedInvisible = unwalked.state == runtimeTraceProjShareRefCompacted
 				row.ChainAnchorUnwalkedUnreferenced = unwalked.state == runtimeTraceProjShareRefNone
 			}
+		}
+		if rn.ChainAnchorRepresentedHeldMS > 0 && !rn.ChainAnchorRepresentedByChainSeat {
+			row.RepresentedState = runtimeTraceProjShareRefPartial
+			row.RepresentedRefs = runtimeTraceProjResolvedRepresentedHolderTags(rn, index, row)
+			continue
 		}
 		if represented := runtimeTraceProjResolveShareRef(rn, index, row, true); represented.state != runtimeTraceProjShareRefNone || rn.ChainAnchorRepresentedByChainSeat {
 			row.RepresentedState = represented.state

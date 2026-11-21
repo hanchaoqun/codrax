@@ -175,10 +175,22 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 	// visual double count (its own tree sentence says 不参赛、不与之相加).
 	// The dedicated disclosure footnote names every excluded row (排除≠消失);
 	// the residual (B) seat keeps participating with its residual value.
-	if row.Node.GatedShareConstituentSeat {
+	// HMC377 round 10 (R-377-10 ②): only while a published seat counts the
+	// share — a constituent whose claim seats the publication gate withdrew
+	// carries the share with its own value.
+	if runtimeTraceProjGatedConstituentCountedAtClaimSeat(row.Node) {
 		return false
 	}
 	return runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjGatedConstituentCountedAtClaimSeat is the one predicate of
+// the LEVELMERGE-1 constituent exclusion, its footnote census and the
+// claim-seat pointer (HMC377 round 10, R-377-10 ②): a demoted constituent row
+// whose share a published claiming inversion seat counts. The publication
+// gate's typed withdrawal decision (GatedShareClaimWithdrawn) ends it.
+func runtimeTraceProjGatedConstituentCountedAtClaimSeat(node types.TraceCausalProjectionNode) bool {
+	return node.GatedShareConstituentSeat && !node.GatedShareClaimWithdrawn
 }
 
 // runtimeTraceProjElimGatedConstituentExcluded reports a row the LEVELMERGE-1
@@ -188,7 +200,7 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 // or subset markers (engine clone of a chain aggregate seat), so the three
 // exclusion footnotes can never double-count one row.
 func runtimeTraceProjElimGatedConstituentExcluded(row runtimeTraceProjTreeRow) bool {
-	if !row.Node.GatedShareConstituentSeat || runtimeTraceProjElimRepresentedOnBoard(row) ||
+	if !runtimeTraceProjGatedConstituentCountedAtClaimSeat(row.Node) || runtimeTraceProjElimRepresentedOnBoard(row) ||
 		strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
 		return false
 	}

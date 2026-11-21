@@ -218,6 +218,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
 	"ShareClaims":                       {Status: "displayed", Ref: "HMC377 fix5 share-claim holder references: 行2 同源二分/三分 holder words, pair class (0), represented sentence, ◎ represented exclusion"},
+	// HMC377 round 10 (R-377-10 ③): 行2 锚定份部分由链席[E#]代表 披露行(全账与已计入份).
+	"ChainAnchorRepresentedHeldMS": {Status: "displayed", Ref: "HMC377 R-377-10 ③ 行2 锚定份部分由链席[E#]代表:全账=行值+已计入份,其中已计入[E#]"},
+	// HMC377 round 10 (R-377-10 ②): 构成份 ◎ 排除门 / 脚注普查 / 反转席指针同一裁决 + 行2 自计句.
+	"GatedShareClaimWithdrawn": {Status: "displayed", Ref: "HMC377 R-377-10 ② 构成份 ◎ 排除门+脚注普查+[E#] 指针跳过+行2 由本行自计句(构成/残余)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
 	"GatedShareClaimedMS":           {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
 	"GatedShareFullMS":              {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
@@ -652,6 +656,9 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
 	"ShareClaims":                       {Status: "note_consumed", Ref: "share_claims → Node.ShareClaims(HMC377 fix5 resolved holder references)"},
 	"ShareHolderKey":                    {Status: "note_consumed", Ref: "share_claims holder positions (traceQueryShareHolderPositions → the holder record ids on Node.ShareClaims)"},
+	// HMC377 round 10 (R-377-10 ③②).
+	"ChainAnchorRepresentedHeldMs": {Status: "note_consumed", Ref: "chain_anchor_represented_held_ms → Node.ChainAnchorRepresentedHeldMS(R-377-10 ③ 部分代表份)"},
+	"GatedShareClaimWithdrawn":     {Status: "note_consumed", Ref: "gated_share_claim_withdrawn → Node.GatedShareClaimWithdrawn(R-377-10 ② 反转席仅作上下文)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
 	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},

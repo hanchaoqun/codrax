@@ -60,6 +60,12 @@ func runtimeTraceProjStampGatedShareSplit(model *runtimeTraceProjTreeModel) {
 		if len(row.Node.GatedShareClaimSeats) == 0 {
 			continue
 		}
+		if row.Node.GatedShareClaimWithdrawn {
+			// HMC377 round 10 (R-377-10 ②): the publication gate published
+			// every claim seat as context only — the same typed decision the
+			// ◎ constituent exclusion reads; the pointer names no seat.
+			continue
+		}
 		refs := make([]string, 0, len(row.Node.GatedShareClaimSeats))
 		complete := true
 		for _, span := range row.Node.GatedShareClaimSeats {

@@ -11581,6 +11581,9 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	if item.ChainAnchorRepresentedByChainSeat {
 		representedBySeat = "true"
 	}
+	// HMC377 round 10 (R-377-10 ③): the share a partially represented
+	// satellite's resolved claims hand to holders on the published board.
+	representedHeld := traceQueryObservationMSValue(item.ChainAnchorRepresentedHeldMs)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family — emitted only when the engine minted it (GatedShareFullMs > 0
 	// ⇔ the split ran on this seat pair; the overlap key rides the fail-open
@@ -11598,6 +11601,12 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	}
 	gatedShareOverlap := traceQueryObservationMSValue(item.GatedShareOverlapDisclosureMs)
 	gatedShareClaimSeats := strings.Join(item.GatedShareClaimSeats, ",")
+	// HMC377 round 10 (R-377-10 ②): the publication gate withdrew every claim
+	// seat of this split.
+	gatedShareClaimWithdrawn := ""
+	if item.GatedShareClaimWithdrawn {
+		gatedShareClaimWithdrawn = "true"
+	}
 	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror refusal record — the
 	// four fields ride together or not at all (stamped atomically at the
 	// single engine refusal site; the pair presence IS the typed record).
@@ -11660,11 +11669,13 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
 		{types.TraceNoteKeyChainAnchorRepresentedByChainSeat, representedBySeat},
+		{types.TraceNoteKeyChainAnchorRepresentedHeld, representedHeld},
 		{types.TraceNoteKeyGatedShareClaimed, gatedShareClaimed},
 		{types.TraceNoteKeyGatedShareFull, gatedShareFull},
 		{types.TraceNoteKeyGatedShareConstituentSeat, gatedShareConstituent},
 		{types.TraceNoteKeyGatedShareClaimSeats, gatedShareClaimSeats},
 		{types.TraceNoteKeyGatedShareOverlap, gatedShareOverlap},
+		{types.TraceNoteKeyGatedShareClaimWithdrawn, gatedShareClaimWithdrawn},
 		{types.TraceNoteKeyGatedCompositeEdgePreShare, gatedCompositePre},
 		{types.TraceNoteKeyGatedCompositeEdgePostShare, gatedCompositePost},
 		{types.TraceNoteKeyGatedCompositeEdgeAnchorTs, gatedCompositeAnchorTs},
@@ -16946,17 +16957,19 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 		published.Items[i], withdrawn[i] = traceQueryRootCauseRankWireItemPublicationInUniverse(published.Items[i], universe)
 	}
 	published.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
+	withdrawnDetail := make([]bool, len(published.AbsorbedItems))
 	for i := range published.AbsorbedItems {
-		published.AbsorbedItems[i] = traceQueryRootCauseRankWireItemForPublicationInUniverse(published.AbsorbedItems[i], universe)
+		published.AbsorbedItems[i], withdrawnDetail[i] = traceQueryRootCauseRankWireItemPublicationInUniverse(published.AbsorbedItems[i], universe)
 	}
-	// HMC377 fix round 9 (R9-1): the engine resolved every share claim
-	// against its own board; a claim is valid only against the record
-	// published here. This is the one choke point every consumer reads (the
-	// share_claims note and its holder positions, the projection's
-	// represented marker, the renderer's holder words and the ◎ exclusion):
-	// a claim whose holder the gate above withdrew names no holder, and a
-	// represented satellite keeps its own value.
-	tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn)
+	// HMC377 round 10 (batch-owner ruling R-377-10 ①): the gate's typed
+	// withdrawal decision is applied once, here, on the published copy: a
+	// withdrawn row holds no share and makes no claim, and the engine's one
+	// resolver re-runs against this published board. This is the one choke
+	// point every consumer reads (the share_claims note and its holder
+	// positions, the projection's represented marker and partial share, the
+	// gated-share split's withdrawal marker, the renderer's holder words and
+	// the ◎ exclusions). A board with no withdrawn row is untouched.
+	tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn, withdrawnDetail)
 	return &published
 }
 

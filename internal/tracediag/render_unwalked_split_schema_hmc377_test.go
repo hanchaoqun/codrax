@@ -32,6 +32,9 @@ func rankItemSchemaBeforeUnwalkedSplit(t *testing.T, typ reflect.Type, schema st
 	if typ != reflect.TypeOf(tracequery.RootCauseRankItem{}) {
 		return schema
 	}
+	// HMC377 round 10: the later reviewed withdrawn-holder fields are
+	// stripped first.
+	schema = rankItemSchemaBeforeWithdrawnHolder(t, typ, schema)
 	counts := map[string]int{}
 	var previous []string
 	for _, field := range strings.Split(schema, ";") {
@@ -56,12 +59,17 @@ func rankItemSchemaBeforeUnwalkedSplit(t *testing.T, typ reflect.Type, schema st
 
 func TestHMC377UnwalkedSplitRankItemSchemaAddsOnlyReviewedOptionalFields(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.RootCauseRankItem{})
-	current, schema := detailSchemaFingerprint(typ)
+	_, fullSchema := detailSchemaFingerprint(typ)
+	// HMC377 round 10: the unwalked-split era witness reads the schema
+	// without the later reviewed withdrawn-holder fields.
+	schema := rankItemSchemaBeforeWithdrawnHolder(t, typ, fullSchema)
+	currentSum := sha256.Sum256([]byte(schema))
+	current := hex.EncodeToString(currentSum[:])
 	const currentFullRankItem = "eb714fa97cad8691039bee7dbeea9343af8be7e9d87e8d13f1abb7998d4bbcb8"
 	if current != currentFullRankItem {
 		t.Fatalf("RootCauseRankItem schema drift after the unwalked-split review: got=%s want=%s\nschema=%s", current, currentFullRankItem, schema)
 	}
-	previous := rankItemSchemaBeforeUnwalkedSplit(t, typ, schema)
+	previous := rankItemSchemaBeforeUnwalkedSplit(t, typ, fullSchema)
 	sum := sha256.Sum256([]byte(previous))
 	// The complete RootCauseRankItem schema of the own-work review
 	// (TestHMC377OwnWorkPricingRankItemSchemaAddsOnlyReviewedOptionalFields).

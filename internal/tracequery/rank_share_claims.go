@@ -45,6 +45,18 @@ package tracequery
 // the thread's own unwalked seat), and a partition whose proof slices carried
 // a complete segment list gives its claims instants
 // (dioPartitionInstants).
+//
+// HMC377 round 10 (batch-owner ruling R-377-10): the trace_query publication
+// gate can still publish a seat as context only after this resolution. Its
+// typed decision is applied once, on the published copy
+// (WithdrawRankShareHolders): the withdrawn row holds no share and makes no
+// claim, and this same resolver re-runs — no second resolution rule. A
+// represented sentence that resolves only in part publishes the row's own
+// account less the shares its resolved claims hand to holders on the board
+// (ChainAnchorRepresentedHeldMs), so every share keeps exactly one carrier;
+// that holds alike when the engine cap, rather than the gate, cut a holder. A
+// claim whose engine-resolved holder the gate withdrew says the holding row is
+// published only as context; the cap-cut compaction wording is unchanged.
 
 import (
 	"fmt"
@@ -113,6 +125,12 @@ type RootCauseShareClaim struct {
 	partition rspaDIOCausePartition
 	windows   []foldInterval
 	holderIdx []int
+	// holderWithdrawn (HMC377 round 10, R-377-10 ④): the engine resolved this
+	// claim to a seat that the trace_query publication gate then published as
+	// context only. Stamped once where the gate's decision is applied
+	// (WithdrawRankShareHolders); an unresolved claim with it names that the
+	// holding row is published only as context, never that it is absent.
+	holderWithdrawn bool
 }
 
 // rspaHeldShare is what one seat holds: recorded where the seat is minted,
@@ -176,11 +194,19 @@ func rspaStampClaimPartitions(item *RootCauseRankItem, claims []RootCauseShareCl
 // its compaction-disclosure form, the claims that govern it and the form the
 // Summary carries now.
 type rspaClaimSpan struct {
-	claims      []int
-	held        string
-	compact     string
+	claims  []int
+	held    string
+	compact string
+	// context (HMC377 round 10, R-377-10 ④): the form taken when every
+	// unresolved claim of the span lost its holder to the publication gate —
+	// the holding row is published only as context. The cap-cut compaction
+	// form (compact) is unchanged.
+	context     string
 	current     string
 	represented bool
+	// inside / full: a represented span's account figures, from which the
+	// resolver writes its partial form (some claims resolve, some do not).
+	inside, full float64
 }
 
 // rspaSentence is one engine sentence with the claims it makes, every claim
@@ -197,6 +223,14 @@ type rspaSentence struct {
 // in the text. A phrase without a claim is not a holder claim (returned as
 // is, never rewritten).
 func (s *rspaSentence) span(held, compact string, claims ...RootCauseShareClaim) string {
+	return s.spanContext(held, compact, compact, claims...)
+}
+
+// spanContext is span with the form the phrase takes when its holder was
+// withdrawn by the publication gate (published only as context). Every phrase
+// whose claim can name a chain seat registers through it: the gate withdraws
+// priority-inversion seats only, and those hold the chain-seat role.
+func (s *rspaSentence) spanContext(held, compact, context string, claims ...RootCauseShareClaim) string {
 	var idx []int
 	for _, c := range claims {
 		if c.Part == "" {
@@ -208,22 +242,24 @@ func (s *rspaSentence) span(held, compact string, claims ...RootCauseShareClaim)
 	if len(idx) == 0 {
 		return held
 	}
-	s.spans = append(s.spans, rspaClaimSpan{claims: idx, held: held, compact: compact, current: held})
+	s.spans = append(s.spans, rspaClaimSpan{claims: idx, held: held, compact: compact, context: context, current: held})
 	return held
 }
 
-// representedSpan registers a whole "represented by" sentence: the row wears
+// representedSpan registers a whole "represented by" sentence over a
+// satellite account of inside ms (of full): the row wears
 // ChainAnchorRepresentedByChainSeat only while every claim resolves.
-func (s *rspaSentence) representedSpan(held, compact string, claims ...RootCauseShareClaim) string {
+func (s *rspaSentence) representedSpan(held string, inside, full float64, claims ...RootCauseShareClaim) string {
 	marked := make([]RootCauseShareClaim, len(claims))
 	for i, c := range claims {
 		c.Represented = c.Part != ""
 		marked[i] = c
 	}
 	before := len(s.spans)
-	out := s.span(held, compact, marked...)
+	out := s.spanContext(held, rspaRepresentedCompact(inside, full), rspaRepresentedContext(inside, full), marked...)
 	if len(s.spans) > before {
-		s.spans[len(s.spans)-1].represented = true
+		sp := &s.spans[len(s.spans)-1]
+		sp.represented, sp.inside, sp.full = true, inside, full
 	}
 	return out
 }
@@ -539,22 +575,47 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 // its claims allow (the held form only while every claim it governs
 // resolves) and keeps ChainAnchorRepresentedByChainSeat only while every
 // claim of its "represented by" sentence resolves.
+//
+// HMC377 round 10 (R-377-10 ③④): an unresolved span whose every unresolved
+// claim lost its holder to the publication gate takes its context form (the
+// holding row is published only as context); a represented sentence that
+// resolves only in part takes its partial form, and the row publishes its own
+// account less the shares its resolved claims hand to holders on the board
+// (ChainAnchorRepresentedHeldMs) — exactly one carrier per share. The row's
+// minted value channels are kept aside while it is partial, so every run of
+// the resolver writes from the same account.
 func rspaWriteClaimSpans(item *RootCauseRankItem) {
 	claims := item.ShareClaims
 	spans := append([]rspaClaimSpan(nil), item.rspaClaimSpans...)
 	cursor := 0
-	represented, sawRepresented := true, false
 	for si := range spans {
 		sp := &spans[si]
-		resolved := true
+		resolved, anyResolved, withdrawnOnly := true, false, true
+		resolvedMs, restMs := 0.0, 0.0
 		for _, ci := range sp.claims {
-			if ci < 0 || ci >= len(claims) || !claims[ci].Resolved {
-				resolved = false
+			if ci < 0 || ci >= len(claims) {
+				resolved, withdrawnOnly = false, false
+				continue
 			}
+			if claims[ci].Resolved {
+				anyResolved = true
+				resolvedMs += claims[ci].ShareMs
+				continue
+			}
+			resolved = false
+			restMs += claims[ci].ShareMs
+			withdrawnOnly = withdrawnOnly && claims[ci].holderWithdrawn
 		}
-		want := sp.compact
-		if resolved {
+		var want string
+		switch {
+		case resolved:
 			want = sp.held
+		case sp.represented && anyResolved:
+			want = rspaRepresentedPartial(sp.inside, sp.full, resolvedMs, restMs, withdrawnOnly)
+		case withdrawnOnly && sp.context != "":
+			want = sp.context
+		default:
+			want = sp.compact
 		}
 		if at := strings.Index(item.Summary[cursor:], sp.current); at >= 0 {
 			at += cursor
@@ -562,104 +623,175 @@ func rspaWriteClaimSpans(item *RootCauseRankItem) {
 			sp.current = want
 			cursor = at + len(want)
 		}
-		if sp.represented {
-			sawRepresented = true
-			represented = represented && resolved
-		}
 	}
 	item.rspaClaimSpans = spans
+	// The represented state reads the typed claims (never the text): the row
+	// is represented whole only while every claim of its "represented by"
+	// sentence resolves, and in part while some do.
+	represented, sawRepresented, anyResolved := true, false, false
+	heldElsewhere := 0.0
+	for _, c := range claims {
+		if !c.Represented {
+			continue
+		}
+		sawRepresented = true
+		if c.Resolved {
+			anyResolved = true
+			heldElsewhere += c.ShareMs
+		} else {
+			represented = false
+		}
+	}
 	if sawRepresented {
 		item.ChainAnchorRepresentedByChainSeat = represented
+		if represented || !anyResolved {
+			heldElsewhere = 0
+		}
+		rspaWriteRepresentedHeld(item, heldElsewhere)
 	}
 }
 
-// WithdrawRankShareHolders (HMC377 fix round 9, R9-1) re-validates the share
-// claims of a published board against the record actually published.
-// resolveRankShareClaims resolves every claim against the engine's final
-// board; a later publication gate (the trace_query tool's priority proof
-// boundary) can still withdraw a holder row — publish it as context only,
-// without the rank seat, the inversion type or the gated share it held.
-// withdrawn[i] is that gate's own decision for board row i (the precise
-// typed signal; never a value, name or text match). A claim one of whose
-// holders was withdrawn is unresolved: it names no holder (its spans take
-// their compaction-disclosure form, the renderer its see-detail form), and a
-// "represented by" claimant stops wearing ChainAnchorRepresentedByChainSeat,
-// so it keeps its own value (the share keeps exactly one carrier). A seat
-// keeps its ShareHolderKey only while a resolved claim names it. Rows whose
-// claims name no withdrawn holder are left untouched (a board without a
-// withdrawn holder is byte-identical). The rows are published copies: claims
-// are replaced, never mutated in place, so the engine result is unchanged.
-func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawn []bool) {
-	gone := map[string]bool{}
-	for i := range board {
-		if i < len(withdrawn) && withdrawn[i] {
-			if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" {
-				gone[key] = true
-			}
+// rspaValueChannels are a row's published value channels.
+type rspaValueChannels struct {
+	runnable, impact, projected, cumulative, effective, score float64
+}
+
+func rspaValueChannelsOf(item RootCauseRankItem) rspaValueChannels {
+	return rspaValueChannels{runnable: item.RunnableMs, impact: item.ImpactMs, projected: item.ProjectedImpactMs,
+		cumulative: item.CumulativeImpactMs, effective: item.EffectiveImpactMs, score: item.Score}
+}
+
+// write publishes v less heldMs on every value channel (the score scales with
+// the effective account).
+func (v rspaValueChannels) write(item *RootCauseRankItem, heldMs float64) {
+	less := func(x float64) float64 {
+		if x <= 0 {
+			return x
 		}
+		return rspaClampNonNegative(x - heldMs)
 	}
-	if len(gone) == 0 {
+	item.RunnableMs, item.ImpactMs, item.ProjectedImpactMs = less(v.runnable), less(v.impact), less(v.projected)
+	item.CumulativeImpactMs, item.EffectiveImpactMs = less(v.cumulative), less(v.effective)
+	item.Score = v.score
+	if v.effective > 0 {
+		item.Score = v.score * item.EffectiveImpactMs / v.effective
+	}
+}
+
+// rspaWriteRepresentedHeld applies the partial-represented account (HMC377
+// round 10, R-377-10 ③): heldMs > 0 only while the row's represented sentence
+// resolves in part.
+func rspaWriteRepresentedHeld(item *RootCauseRankItem, heldMs float64) {
+	if heldMs > rspaAnchorIdentityTolMs {
+		if item.rspaRepresentedAccount == nil {
+			minted := rspaValueChannelsOf(*item)
+			item.rspaRepresentedAccount = &minted
+		}
+		item.rspaRepresentedAccount.write(item, heldMs)
+		item.ChainAnchorRepresentedHeldMs = heldMs
 		return
 	}
-	revalidate := func(item *RootCauseRankItem) {
-		changed := false
-		for _, c := range item.ShareClaims {
-			for _, key := range c.HolderKeys {
-				if gone[strings.TrimSpace(key)] {
-					changed = true
-				}
-			}
-		}
-		if !changed {
-			return
-		}
-		claims := append([]RootCauseShareClaim(nil), item.ShareClaims...)
-		representedLost := false
-		for ci := range claims {
-			c := &claims[ci]
-			named := false
-			for _, key := range c.HolderKeys {
-				if gone[strings.TrimSpace(key)] {
-					named = true
-				}
-			}
-			if !named {
-				continue
-			}
-			c.Resolved, c.Exact, c.HolderKeys, c.holderIdx = false, false, nil, nil
-			if c.Represented {
-				representedLost = true
-			}
-		}
-		item.ShareClaims = claims
-		rspaWriteClaimSpans(item)
-		if representedLost {
-			item.ChainAnchorRepresentedByChainSeat = false
-		}
+	if item.rspaRepresentedAccount != nil {
+		item.rspaRepresentedAccount.write(item, 0)
+		item.rspaRepresentedAccount = nil
 	}
+	item.ChainAnchorRepresentedHeldMs = 0
+}
+
+// WithdrawRankShareHolders (HMC377 round 10, batch-owner ruling R-377-10 ①)
+// applies the trace_query publication gate's typed withdrawal decision to a
+// published rank copy. The gate (the tool's priority proof boundary) can
+// publish a seat the engine resolved claims against as context only — no rank
+// seat, no inversion type, no gated share. withdrawnBoard[i] /
+// withdrawnDetail[i] is that gate's own decision for each published row (the
+// precise typed signal; never a value, name or text match).
+//
+// A withdrawn row holds no share and makes no claim: its holds, claims, claim
+// spans and split fields go with its seat. Then the engine's one resolver
+// (resolveRankShareClaims) re-runs on the published copy — no second
+// resolution rule exists: a claim another published seat still covers stays
+// resolved (one carrier), a claim nobody covers is unresolved, and a claim
+// whose engine-resolved holder was withdrawn says the holding row is published
+// only as context. A LEVELMERGE-1 split whose every claim seat was withdrawn
+// is marked GatedShareClaimWithdrawn (its constituent carries its own value).
+// A board with no withdrawn row is untouched (byte-identical). The rows are
+// published copies: claims and spans are replaced, never mutated in place, so
+// the engine result is unchanged.
+func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard, withdrawnDetail []bool) {
+	gone := map[string]bool{}
+	claimSeats := map[int]map[string]bool{}
+	withdrewAny := false
 	for i := range board {
-		revalidate(&board[i])
+		if i >= len(withdrawnBoard) || !withdrawnBoard[i] {
+			continue
+		}
+		withdrewAny = true
+		if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" {
+			gone[key] = true
+		}
+		if claimSeats[board[i].Thread.PID] == nil {
+			claimSeats[board[i].Thread.PID] = map[string]bool{}
+		}
+		claimSeats[board[i].Thread.PID][fmt.Sprintf("%d..%d", board[i].LineStart, board[i].LineEnd)] = true
+		rspaWithdrawSeat(&board[i])
 	}
 	for i := range detail {
-		revalidate(&detail[i])
+		if i < len(withdrawnDetail) && withdrawnDetail[i] {
+			withdrewAny = true
+			rspaWithdrawSeat(&detail[i])
+		}
 	}
-	named := map[string]bool{}
-	for _, rows := range [][]RootCauseRankItem{board, detail} {
-		for _, row := range rows {
-			for _, c := range row.ShareClaims {
-				if c.Resolved {
-					for _, key := range c.HolderKeys {
-						named[strings.TrimSpace(key)] = true
-					}
-				}
+	if !withdrewAny {
+		return
+	}
+	mark := func(item *RootCauseRankItem) {
+		named := false
+		for _, c := range item.ShareClaims {
+			for _, key := range c.HolderKeys {
+				named = named || gone[strings.TrimSpace(key)]
 			}
 		}
+		if named {
+			claims := append([]RootCauseShareClaim(nil), item.ShareClaims...)
+			for ci := range claims {
+				for _, key := range claims[ci].HolderKeys {
+					claims[ci].holderWithdrawn = claims[ci].holderWithdrawn || gone[strings.TrimSpace(key)]
+				}
+			}
+			item.ShareClaims = claims
+		}
+		levelMergeWithdrawClaimSeats(item, claimSeats[item.Thread.PID])
 	}
 	for i := range board {
-		if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" && !named[key] {
-			board[i].ShareHolderKey = ""
-		}
+		mark(&board[i])
 	}
+	for i := range detail {
+		mark(&detail[i])
+	}
+	resolveRankShareClaims(board, detail)
+}
+
+// rspaWithdrawSeat drops what a gate-withdrawn row held and claimed: its
+// holds, claims and spans, its holder key, and the split fields that described
+// its seat's share of another seat's account (two-way / three-way / divergent
+// split, represented form, gated-share split). The row's own measures stay —
+// in particular a gated composite seat's refusal record
+// (GatedCompositeEdge*), which splits the row's own ready time at the
+// analysed thread's waits for disclosure and names no holder.
+func rspaWithdrawSeat(item *RootCauseRankItem) {
+	if item.rspaRepresentedAccount != nil {
+		// A row that held its own account less a share counted elsewhere
+		// makes no claim now: it publishes its own account again.
+		item.rspaRepresentedAccount.write(item, 0)
+	}
+	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
+	item.ShareHolderKey = ""
+	item.ChainAnchoredMs, item.ChainAnchorFullMs, item.ChainAnchorRemainderSeat = 0, 0, false
+	item.ChainAnchorUnwalkedMs, item.ChainAnchorOutsideMs, item.ChainAnchorUnwalkedSeat = 0, 0, false
+	item.ChainAnchorOwnershipDivergent, item.ChainAnchorChainLaneMs, item.ChainAnchorCensusMs = false, 0, 0
+	item.ChainAnchorRepresentedByChainSeat, item.ChainAnchorRepresentedHeldMs, item.rspaRepresentedAccount = false, 0, nil
+	item.GatedShareClaimedMs, item.GatedShareFullMs, item.GatedShareConstituentSeat = 0, 0, false
+	item.GatedShareClaimSeats, item.GatedShareOverlapDisclosureMs, item.GatedShareClaimWithdrawn = nil, 0, false
 }
 
 // holders re-derives the board indexes a resolved claim named (kept on the

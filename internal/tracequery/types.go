@@ -4547,6 +4547,17 @@ type RootCauseRankItem struct {
 	// pair (single seat + E# merge); this ◇ demotion is the non-twin
 	// fallback layer.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// ChainAnchorRepresentedHeldMs (HMC377 round 10, batch-owner ruling
+	// R-377-10 ③, 2026-11-21): set only on a row whose "represented by"
+	// sentence resolves in part against the published board — some of its
+	// claims resolve to holder seats on that board and some do not (the cap
+	// or the publication gate cut their holders). It is the sum of the shares
+	// the resolved claims hand to those holders, which carry them; the row's
+	// published value channels are its own account less this share (one
+	// carrier per share), and ChainAnchorRepresentedByChainSeat stays false
+	// (the row is not represented whole). Written by the one resolver
+	// (resolveRankShareClaims), never from text; 0 on every other row.
+	ChainAnchorRepresentedHeldMs float64 `json:"chain_anchor_represented_held_ms,omitempty"`
 	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
 	// the (pid, runnable) chain AGGREGATE seat's interval-accounting split
 	// against the same thread's priority-inversion chain seat(s), whose R5d
@@ -4584,6 +4595,15 @@ type RootCauseRankItem struct {
 	GatedShareConstituentSeat     bool     `json:"gated_share_constituent_seat,omitempty"`
 	GatedShareClaimSeats          []string `json:"gated_share_claim_seats,omitempty"`
 	GatedShareOverlapDisclosureMs float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
+	// GatedShareClaimWithdrawn (HMC377 round 10, batch-owner ruling
+	// R-377-10 ②, 2026-11-21): the trace_query publication gate published
+	// every claim seat this split names (GatedShareClaimSeats) as context only
+	// — its typed withdrawal decision, applied once where the rank copy is
+	// published (WithdrawRankShareHolders). No published seat counts the
+	// claimed share then: the constituent row carries it with its own value,
+	// and no word of the pair says that seat counts it. Never set by the
+	// engine itself.
+	GatedShareClaimWithdrawn bool `json:"gated_share_claim_withdrawn,omitempty"`
 	// HostWakeupEdgeAnchorTs / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
 	// RootCauseOnChainBasisHostWakeupEdge semantic seat, a
@@ -4757,6 +4777,12 @@ type RootCauseRankItem struct {
 	ShareHolderKey string                `json:"-"`
 	rspaClaimSpans []rspaClaimSpan
 	rspaHeld       []rspaHeldShare
+	// rspaRepresentedAccount (unexported, HMC377 round 10, never serialized):
+	// the row's own value channels as minted, kept while its represented
+	// sentence resolves in part, so the resolver writes the carried-elsewhere
+	// share off the same account on every run (idempotent) and restores it
+	// when the sentence resolves whole or not at all.
+	rspaRepresentedAccount *rspaValueChannels
 	// dioCausePartition / dioPartitionInstants (HMC377 fix round 6, never
 	// serialized): a formal D/IO window seat is one proof partition of its
 	// thread's D/IO account (§29.50.5) — the partition's typed identity rides

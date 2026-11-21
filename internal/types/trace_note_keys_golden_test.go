@@ -142,6 +142,9 @@ var traceNoteKeyGoldenRows = []string{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
 	// whole-seat ◇ demotion marker (honest sibling of credential_lane_demoted).
 	"chain_anchor_represented_by_chain_seat|state|hard_consumer",
+	// HMC377 round 10 (R-377-10 ③): the share a partly represented
+	// satellite's resolved claims hand to holder seats on the published board.
+	"chain_anchor_represented_held_ms|state|hard_consumer",
 	// HMC377 fix round 3: the typed three-way split's unwalked part and the
 	// role marker of the thread's own seat holding it.
 	"chain_anchor_unwalked|state|hard_consumer",
@@ -310,6 +313,9 @@ var traceNoteKeyGoldenRows = []string{
 	// family — A/B decomposition floats, the constituent-row marker, the
 	// claim-seat [E#] pointer roster and the fail-open overlap disclosure.
 	"gated_share_claim_seats|state|hard_consumer",
+	// HMC377 round 10 (R-377-10 ②): the publication gate withdrew every
+	// claim seat of the split.
+	"gated_share_claim_withdrawn|state|hard_consumer",
 	"gated_share_claimed|state|hard_consumer",
 	"gated_share_constituent_seat|state|hard_consumer",
 	"gated_share_full|state|hard_consumer",

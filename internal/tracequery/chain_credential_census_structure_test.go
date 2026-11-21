@@ -100,6 +100,10 @@ var chainCredentialFieldDispositions = map[string]chainCredentialFieldDispositio
 	"ChainRelevance":                    {chainCredentialDispositionExempt, "ordinal-channel output consumed before census"},
 	"ChainDepth":                        {chainCredentialDispositionExempt, "display depth metadata"},
 	"ChainBranch":                       {chainCredentialDispositionExempt, "display branch metadata"},
+	// HMC377 round 10 (R-377-10 ③): the share a partly represented satellite
+	// hands to holder seats on the published board — written by the share
+	// resolver after the census ran; it credits no chain seat.
+	"ChainAnchorRepresentedHeldMs": {chainCredentialDispositionExempt, "partial representation share written by the post-census resolver"},
 }
 
 func TestRootCauseRankChainAdmissionFieldsHaveCensusDisposition(t *testing.T) {

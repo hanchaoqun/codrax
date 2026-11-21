@@ -871,6 +871,14 @@ type TraceCausalProjectionNode struct {
 	// so the 无链上凭证 sentence is forbidden on it). Wording/channel input
 	// only.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// ChainAnchorRepresentedHeldMS (HMC377 round 10, R-377-10 ③; compiled from
+	// the chain_anchor_represented_held_ms note): on a satellite whose
+	// represented sentence resolves only in part, the share its resolved
+	// claims hand to holder seats on the published board. The row's value
+	// channels already carry its own account less this share (one carrier per
+	// share); the display adds it back only to state the whole account and
+	// names the holders where the share is counted. 0 on every other row.
+	ChainAnchorRepresentedHeldMS float64 `json:"chain_anchor_represented_held_ms,omitempty"`
 	// ShareClaims (HMC377 fix round 5; compiled from the share_claims note,
 	// never serialized): every claim this row makes that a share of its
 	// account is held by another seat, as the engine resolved it against the
@@ -895,6 +903,14 @@ type TraceCausalProjectionNode struct {
 	GatedShareConstituentSeat     bool     `json:"gated_share_constituent_seat,omitempty"`
 	GatedShareClaimSeats          []string `json:"gated_share_claim_seats,omitempty"`
 	GatedShareOverlapDisclosureMS float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
+	// GatedShareClaimWithdrawn (HMC377 round 10, R-377-10 ②; compiled from
+	// the gated_share_claim_withdrawn note): the publication gate published
+	// every claiming inversion seat of this split as context only. The ◎
+	// constituent exclusion, its footnote census and the claim-seat pointer
+	// all read this one decision: the constituent counts its own value, the
+	// pointer names no seat, and neither the constituent nor the residual
+	// says the share is counted in that seat.
+	GatedShareClaimWithdrawn bool `json:"gated_share_claim_withdrawn,omitempty"`
 	// GatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling 2026-07-19): the
 	// R4-mirror refusal record on a gated composite seat — the pre/post
 	// bisection measures of the seat's runnable census account at the host's
@@ -4324,6 +4340,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainCredentialCensus = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialCensus))
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
+	// HMC377 round 10 (R-377-10 ③): the partially represented share.
+	node.ChainAnchorRepresentedHeldMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorRepresentedHeld)
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	node.ShareClaims = ParseTraceShareClaimsNote(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyShareClaims), record.ID)
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.
@@ -4338,6 +4356,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 	}
 	node.GatedShareOverlapDisclosureMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareOverlap)
+	// HMC377 round 10 (R-377-10 ②): the publication gate's withdrawal of
+	// every claim seat of the split.
+	node.GatedShareClaimWithdrawn = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedShareClaimWithdrawn)) == "true"
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record — the four fields
 	// travel together or not at all (atomic engine stamp; a partial set never
 	// mints the disclosure — all-or-nothing, 宁漏勿假指).

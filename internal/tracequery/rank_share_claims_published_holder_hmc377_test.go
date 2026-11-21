@@ -10,6 +10,26 @@ package tracequery
 // satellite stops wearing the marker, a withdrawn seat keeps no holder key,
 // claims naming only published holders keep their bytes, a board without a
 // withdrawn holder is unchanged, and the input rows are never mutated.
+//
+// EVOLUTION RECORD (HMC377 round 10, batch-owner ruling R-377-10 ①④,
+// 2026-11-21): WithdrawRankShareHolders no longer re-validates claims by its
+// own rule (R9-1's partial copy of the resolver, which unresolved a whole
+// multi-holder claim when one holder was withdrawn — review 9 U1). A withdrawn
+// row now holds no share and makes no claim (its split and claim fields go
+// with its seat) and the one resolver re-runs on the published copy; the
+// decision for absorbed detail rows rides beside the board's. Pins moved:
+//   - split pair: the withdrawn seat's own remainder claim was kept resolved
+//     and the remainder kept its holder key; now the withdrawn seat makes no
+//     claim (ShareClaims nil, split fields zero) and the remainder holds no
+//     key (no claim names it). Raw evidence of the old behaviour:
+//     fix9/review-holders/perturb/out/nec_w11098.perturb.txt (PB[2] context row
+//     still CLAIM remainder/remainder_seat resolved holders=[seat-18]) and the
+//     held split 「同源二分:全窗1.130ms=本行锚定0.820ms+其余0.310ms(◇余段席)」
+//     on that row in nec_w11098.fence_zh.txt (register R9H-5);
+//   - the claimant's span takes the context form (the holding row is
+//     published only as context), no longer the compaction form "the owning
+//     seat is not on the published board" (register R9H-4, same perturb.txt
+//     PB[18]/PB[19] SUMMARY).
 
 import (
 	"reflect"
@@ -55,7 +75,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 	t.Run("no withdrawn holder: unchanged", func(t *testing.T) {
 		for _, board := range [][]RootCauseRankItem{hmc377R9PairBoard(), hmc377R9RepresentedBoard()} {
 			published := append([]RootCauseRankItem(nil), board...)
-			WithdrawRankShareHolders(published, nil, []bool{false, false})
+			WithdrawRankShareHolders(published, nil, []bool{false, false}, nil)
 			if !reflect.DeepEqual(published, board) {
 				t.Fatalf("a board without a withdrawn holder changed:\n%+v\n%+v", published, board)
 			}
@@ -68,27 +88,29 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		}
 		engineSummary := board[0].Summary
 		published := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(published, nil, []bool{false, true})
+		WithdrawRankShareHolders(published, nil, []bool{false, true}, nil)
 		rem, seat := published[0], published[1]
 		if c := rem.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 {
 			t.Errorf("the claim on a withdrawn holder stays resolved: %+v", c)
 		}
-		if !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeatUnpublished) || strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat+" ") {
-			t.Errorf("the remainder's span keeps its held form: %q", rem.Summary)
+		if !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeatContext) || strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat+" ") ||
+			strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeatUnpublished) {
+			t.Errorf("the remainder's span must say the holding row is published only as context: %q", rem.Summary)
 		}
 		if seat.ShareHolderKey != "" {
 			t.Errorf("the withdrawn seat keeps the holder key %q", seat.ShareHolderKey)
 		}
-		// The withdrawn seat's own claim names a published holder (the
-		// remainder): it keeps its resolution and the remainder its key.
-		if c := seat.ShareClaims[0]; !c.Resolved || len(c.HolderKeys) != 1 || c.HolderKeys[0] != rem.ShareHolderKey || rem.ShareHolderKey == "" {
-			t.Errorf("a claim on a published holder changed: %+v (remainder key %q)", c, rem.ShareHolderKey)
+		// The withdrawn seat makes no claim and keeps no split: no claim
+		// names the remainder, which therefore holds no key.
+		if len(seat.ShareClaims) != 0 || seat.ChainAnchoredMs != 0 || seat.ChainAnchorFullMs != 0 || rem.ShareHolderKey != "" {
+			t.Errorf("the withdrawn seat still claims or splits: claims=%+v anchored=%.3f full=%.3f (remainder key %q)",
+				seat.ShareClaims, seat.ChainAnchoredMs, seat.ChainAnchorFullMs, rem.ShareHolderKey)
 		}
 		if c := board[0].ShareClaims[0]; !c.Resolved || len(c.HolderKeys) != 1 || board[0].Summary != engineSummary || board[1].ShareHolderKey == "" {
 			t.Errorf("the engine rows were mutated: %+v %q key=%q", c, board[0].Summary, board[1].ShareHolderKey)
 		}
 		again := append([]RootCauseRankItem(nil), published...)
-		WithdrawRankShareHolders(again, nil, []bool{false, true})
+		WithdrawRankShareHolders(again, nil, []bool{false, true}, nil)
 		if !reflect.DeepEqual(again, published) {
 			t.Errorf("re-validation is not idempotent")
 		}
@@ -100,7 +122,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 			t.Fatalf("precondition: the engine resolved the represented claim: %+v marker=%t", c, sat.ChainAnchorRepresentedByChainSeat)
 		}
 		published := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(published, nil, []bool{true, false})
+		WithdrawRankShareHolders(published, nil, []bool{true, false}, nil)
 		got := published[1]
 		if c := got.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 || !c.Represented {
 			t.Errorf("the represented claim on a withdrawn holder: %+v", c)
@@ -108,8 +130,8 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		if got.ChainAnchorRepresentedByChainSeat {
 			t.Errorf("the satellite still wears the represented marker")
 		}
-		if !strings.Contains(got.Summary, rspaRepresentedCompact(7.0, 7.0)) || strings.Contains(got.Summary, "anchored share represented by the chain seat") {
-			t.Errorf("the represented sentence keeps its held form: %q", got.Summary)
+		if !strings.Contains(got.Summary, rspaRepresentedContext(7.0, 7.0)) || strings.Contains(got.Summary, "anchored share represented by the chain seat") {
+			t.Errorf("the represented sentence must say the holding row is published only as context: %q", got.Summary)
 		}
 		if published[0].ShareHolderKey != "" || !board[1].ChainAnchorRepresentedByChainSeat || !board[1].ShareClaims[0].Resolved {
 			t.Errorf("holder key %q / the engine rows were mutated", published[0].ShareHolderKey)
@@ -125,7 +147,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		}
 		pd := append([]RootCauseRankItem(nil), detail...)
 		pb := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(pb, pd, []bool{true})
+		WithdrawRankShareHolders(pb, pd, []bool{true}, nil)
 		if c := pd[0].ShareClaims[0]; c.Resolved || pd[0].ChainAnchorRepresentedByChainSeat || pb[0].ShareHolderKey != "" {
 			t.Errorf("the detail row's claim on a withdrawn holder: %+v marker=%t key=%q", c, pd[0].ChainAnchorRepresentedByChainSeat, pb[0].ShareHolderKey)
 		}

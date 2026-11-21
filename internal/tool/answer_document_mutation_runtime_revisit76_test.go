@@ -783,6 +783,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// and rides verbatim in the legend entry; the en probe is the sentence
 		// head shared by both faces.
 		runtimeTraceProjMarkChainAnchorRepresented: {"锚定份由", "anchored share represented by"},
+		// HMC377 round 10 (R-377-10 ③②): the partially represented satellite
+		// and the split whose claiming seats are context only.
+		runtimeTraceProjMarkChainAnchorRepresentedPartial: {"锚定份部分由", "anchored share partly"},
+		runtimeTraceProjMarkGatedShareClaimWithdrawn:      {"自计", "with its own value"},
 		// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less
 		// blocking_span basis-form glyphs (dedicated, one-per-form).
 		runtimeTraceProjMarkIconBlockingWait: {"⊖", "⊖"},
@@ -1974,6 +1978,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// pair + fail-open overlap clause + aggregate↔member pointer pair
 		// (fixture home: answer_document_projection_levelmerge_test.go).
 		{"levelmerge_gated_share", levelmergeGatedShareProjection()},
+		// HMC377 round 10 (R-377-10 ③②): the partly represented satellite and
+		// the split whose claim seats are context only (fixture home:
+		// trace_query_withdrawn_holders_r10_hmc377_test.go).
+		{"hmc377_r10_partly_represented", hmc377R10PartialRepresentedProjection(true)},
+		{"hmc377_r10_withdrawn_split", hmc377R10WithdrawnSplitProjection()},
 		// SPANTOP-1 (§29.131, 2026-07-18): the semantic family seat's
 		// constituent top-3 sub-rows + counted remainder + legend entry
 		// (fixture home: answer_document_projection_spantop_test.go, the

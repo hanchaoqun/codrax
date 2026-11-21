@@ -374,6 +374,19 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 	},
 	// LEVELMERGE-1 件2 fail-open (裁定④): X is the engine-typed overlap
 	// measure displayed on the clause itself; no value decomposition claimed.
+	// HMC377 round 10 (R-377-10 ③): 「其中一部分…计入该席,只以其余部分进入」
+	// = the typed held share (ChainAnchorRepresentedHeldMS, displayed in the
+	// 行2 sentence: 全账 = 行值 + 已计入份) and the row value (displayed).
+	runtimeTraceProjMarkChainAnchorRepresentedPartial: {
+		Components: []string{"ChainAnchorRepresentedHeldMS"},
+		Reason:     "「其中 X 已计入[E#],本行只计其余 Y」= 引擎 typed 部分代表份(全账=Y+X)的逐字转录,行值即发布值",
+	},
+	// HMC377 round 10 (R-377-10 ②): 「构成份+残余份仍==修前全账」 = the same
+	// engine A+B identity the split entry already registers.
+	runtimeTraceProjMarkGatedShareClaimWithdrawn: {
+		Components: []string{"GatedShareClaimedMS", "GatedShareFullMS"},
+		Reason:     "「构成份+残余份仍==修前全账」= 引擎 A+B 恒等(同分账条目);反转席撤回只改归属词,不改分量",
+	},
 	runtimeTraceProjMarkGatedShareOverlap: {
 		Components: []string{"GatedShareOverlapDisclosureMS"},
 		Reason:     "「其中 X ms 与反转席[E#]重叠」= 引擎 typed 真段重叠测度的逐字转录(下界),主值零动、无拆分承诺",

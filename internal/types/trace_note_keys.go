@@ -893,6 +893,13 @@ const (
 	// 「锚定份由链席代表(整席降道)」 word family, never 无链上凭证. Wording/
 	// channel input only.
 	TraceNoteKeyChainAnchorRepresentedByChainSeat = "chain_anchor_represented_by_chain_seat"
+	// TraceNoteKeyChainAnchorRepresentedHeld (HMC377 round 10, R-377-10 ③):
+	// on a satellite whose "represented by" sentence resolves only in part
+	// against the published board, the share its resolved claims hand to
+	// holder seats on that board (which carry it). The row's published values
+	// are its own account less this share; the display names the holders and
+	// says the share is counted there. Absent on every other row.
+	TraceNoteKeyChainAnchorRepresentedHeld = "chain_anchor_represented_held_ms"
 	// TraceNoteKeyShareClaims (HMC377 fix round 5): the typed holder
 	// references of every claim a rank row's sentences make that a share of
 	// its account is held by another seat of the same board — part, holder
@@ -929,6 +936,12 @@ const (
 	TraceNoteKeyGatedShareConstituentSeat = "gated_share_constituent_seat"
 	TraceNoteKeyGatedShareClaimSeats      = "gated_share_claim_seats"
 	TraceNoteKeyGatedShareOverlap         = "gated_share_overlap"
+	// TraceNoteKeyGatedShareClaimWithdrawn (HMC377 round 10, R-377-10 ②):
+	// "true" on a gated-share split row whose every claiming inversion seat
+	// the trace_query publication gate published as context only — no
+	// published seat counts the claimed share, so the constituent row counts
+	// it with its own value and no word of the pair says the seat counts it.
+	TraceNoteKeyGatedShareClaimWithdrawn = "gated_share_claim_withdrawn"
 	// TraceNoteKeyGatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling
 	// 2026-07-19): the R4-mirror refusal record — a gated composite seat
 	// (priority_inversion_runnable_wait family) whose runnable census account
@@ -1970,6 +1983,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 round 10 (R-377-10 ③): the partially represented satellite's
+	// share counted at its resolved holders.
+	{TraceNoteKeyChainAnchorRepresentedHeld, "state", TraceNoteCarrierHardConsumer},
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	{TraceNoteKeyShareClaims, "state", TraceNoteCarrierHardConsumer},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
@@ -1980,6 +1996,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyGatedShareConstituentSeat, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedShareClaimSeats, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedShareOverlap, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 round 10 (R-377-10 ②): the split whose claim seats the
+	// publication gate withdrew.
+	{TraceNoteKeyGatedShareClaimWithdrawn, "state", TraceNoteCarrierHardConsumer},
 	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror refusal record —
 	// seat-face pre/post/anchor pair + side-channel account/seat_published
 	// (行2 分账披露 sub-line and ◎ non-seat mention inputs).

@@ -924,6 +924,22 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 					Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 23.471, Resolved: true, Represented: true}},
 				Summary: "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
 			}, {
+				// HMC377 round 10 (R-377-10 ②): a constituent whose claiming
+				// seat the publication gate published as context only —
+				// exercises the gated_share_claim_withdrawn contract key.
+				Rank: 0, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "dep-withdrawn", PID: 119},
+				ImpactMs: 4.0, ProjectedImpactMs: 4.0, CumulativeImpactMs: 4.0,
+				EffectiveImpactMs: 4.0, Score: 0.1, Confidence: 0.82,
+				LineStart: 116, LineEnd: 117,
+				Source:    "wakeup_chain.aggregated_impacts",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent", ChainDepth: 1,
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 4.0,
+				GatedShareClaimedMs: 4.0, GatedShareFullMs: 6.0,
+				GatedShareConstituentSeat: true, GatedShareClaimWithdrawn: true,
+				GatedShareClaimSeats: []string{"400..440"},
+				Summary:              "runnable share 4.000ms overlapping the priority-inversion seat branch windows (the claiming inversion seat is published only as context, tier context_only)",
+			}, {
 				// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the residual
 				// (B) aggregate seat after the gated-share split — exercises
 				// the gated_share_claimed / gated_share_full /
@@ -1353,6 +1369,11 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 	// each record's own physical source/query rather than borrowing the
 	// synthetic full.systrace fixture's coordinates or fabricating a note.
 	records = append(records, traceNoteKeysEmitMeasuredWaitFixtureHMC301(t)...)
+	// HMC377 round 10: the represented-satellite family rides a board with no
+	// row the publication gate withdraws (the main fixture withdraws one, and
+	// the resolver then re-runs over these hand claims, which carry no engine
+	// instants and so resolve nothing).
+	records = append(records, traceQueryTypedObservations(traceNoteKeysEmitRepresentedFixtureResult(), "full.systrace", "payload-ref", "raw-ref", "represented", time.Unix(1751600000, 0).UTC())...)
 	// Exercise the new contract carrier through real SQLite preparation and
 	// public trace_query publication, not a hand-written note or exemption.
 	resourcePath, err := filepath.Abs("../../eval/fixtures/hmosperf_native_resource_stack/capture.data")
@@ -1539,5 +1560,47 @@ func TestTraceNoteKeysBlockingFromSiteRidesBothLockFaces(t *testing.T) {
 		if id == "" {
 			t.Errorf("typed note %q must ride the wire on its face (rank/critical_blocking)", note)
 		}
+	}
+}
+
+// traceNoteKeysEmitRepresentedFixtureResult (HMC377 round 10) exercises the
+// represented-satellite contract keys on a board the publication gate leaves
+// whole: a satellite represented by its chain seat
+// (chain_anchor_represented_by_chain_seat) and one whose represented sentence
+// resolves only in part (chain_anchor_represented_held_ms: its own 3.000 less
+// the 1.000 counted at its resolved holder).
+func traceNoteKeysEmitRepresentedFixtureResult() tracequery.Result {
+	return tracequery.Result{
+		TraceArtifacts: []tracequery.TraceArtifactSource{{SourcePath: "full.systrace", Kind: "ftrace", CausalCompatible: true}},
+		RootCauseRank: &tracequery.RootCauseRankResult{Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2}, Items: []tracequery.RootCauseRankItem{{
+			Rank: 1, Tier: "tertiary", Type: "scheduler_latency",
+			Thread:   tracequery.ThreadRef{Comm: "shadowhook-task", PID: 113},
+			ImpactMs: 23.471, ProjectedImpactMs: 23.471, CumulativeImpactMs: 23.471,
+			EffectiveImpactMs: 23.471, Score: 0.2, Confidence: 0.7, LineStart: 108, LineEnd: 109,
+			Source: "scheduler_latency_stats", Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+			DominantState: string(tracequery.StateRunnable), RunnableMs: 23.471,
+			ChainAnchorRepresentedByChainSeat: true,
+			ShareClaims: []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored,
+				Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 23.471, Resolved: true, Represented: true}},
+			Summary: "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
+		}, {
+			// HMC377 round 10 (R-377-10 ③): a satellite whose represented
+			// sentence resolves only in part — exercises the
+			// chain_anchor_represented_held_ms contract key (own account
+			// 3.000 less the 1.000 counted at its resolved holder).
+			Rank: 0, Tier: "tertiary", Type: "scheduler_latency",
+			Thread:   tracequery.ThreadRef{Comm: "shadowhook-task", PID: 118},
+			ImpactMs: 2.0, ProjectedImpactMs: 2.0, CumulativeImpactMs: 2.0,
+			EffectiveImpactMs: 2.0, Score: 0.1, Confidence: 0.7,
+			LineStart: 114, LineEnd: 115,
+			Source:    "scheduler_latency_stats",
+			Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+			DominantState: string(tracequery.StateRunnable), RunnableMs: 2.0,
+			ChainAnchorRepresentedHeldMs: 1.0,
+			ShareClaims: []tracequery.RootCauseShareClaim{
+				{Part: tracequery.RootCauseShareClaimAnchored, Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 2.0, Represented: true},
+				{Part: tracequery.RootCauseShareClaimUnwalked, Role: tracequery.RootCauseShareHolderUnwalkedSeat, ShareMs: 1.0, Resolved: true, Represented: true}},
+			Summary: "satellite partly represented: 1.000ms of it is held by a seat of this thread on the published board",
+		}}},
 	}
 }

@@ -1641,6 +1641,16 @@ const (
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
+	// HMC377 round 10 (R-377-10 ③): a satellite whose represented sentence
+	// resolves only in part — its value is its own account less the share
+	// counted at its holder seats (锚定份部分由链席[E#]代表 … 其中 X 已计入[E#]).
+	runtimeTraceProjMarkChainAnchorRepresentedPartial
+
+	// HMC377 round 10 (R-377-10 ②): a gated-share split whose claiming
+	// inversion seats the publication gate published as context only — the
+	// constituent row counts its share itself (…由本行自计).
+	runtimeTraceProjMarkGatedShareClaimWithdrawn
+
 	runtimeTraceProjMarkCount
 )
 
@@ -2446,6 +2456,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorRepresented, runtimeTraceProjLegendGroupMark,
 			"- `锚定份由链席代表(整席不入链上榜)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席不入链上榜)」不同——本席有凭证,不入链上榜的理由是同段物理时间恰一全额席。",
 			"- `anchored share represented by the chain seat (whole seat off the on-chain board)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole seat off the on-chain board)` — this seat holds credential, and the off-the-board reason is one-full-seat-per-physical-time."},
+		// HMC377 round 10 (R-377-10 ③): the partially represented satellite.
+		{runtimeTraceProjMarkChainAnchorRepresentedPartial, runtimeTraceProjLegendGroupMark,
+			"- `锚定份部分由链席[E#]代表` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),其中一部分由同线程链上席持有并计入该席([E#]),另一部分的持有席不在链上榜(被截断,或仅作上下文):本行记 ◇ 邻近,只以其余部分进入 ◎ " + tracefence.OptimizationOverviewZH + ",每份时间只计一次。",
+			"- `anchored share partly represented by the chain seat [E#]` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential); part of it is held and counted by the thread's chain-lane seat ([E#]) and the seat holding the other part is not a ranked seat (compacted off, or context only): the row rides the ◇ adjacent channel and enters the ◎ " + tracefence.OptimizationOverviewEN + " with the other part only, so each share of time counts once."},
+		// HMC377 round 10 (R-377-10 ②): the split whose claiming seats are
+		// context only.
+		{runtimeTraceProjMarkGatedShareClaimWithdrawn, runtimeTraceProjLegendGroupMark,
+			"- `由本行自计` = 分账构成份所重叠的同线程反转席仅作上下文(不参与" + tracefence.SeatChannelChainZH + "),该份额不由它计入:构成行以自身数值进入 ◎ " + tracefence.OptimizationOverviewZH + ",残余席句不再说已计入反转席;构成份+残余份仍==修前全账。",
+			"- `with its own value` = the priority-inversion seat a split-account constituent share overlaps is context only (not ranked) and does not count that share: the constituent row enters the ◎ " + tracefence.OptimizationOverviewEN + " with its own value, and the residual seat no longer says the share is counted at that seat; constituent + residual still == the pre-split account."},
 		// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the split pair's
 		// account entry — one rule, two row faces (residual seat + demoted
 		// constituent row).
@@ -7283,6 +7302,31 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	if row.Node.ChainAnchorRepresentedByChainSeat || row.RepresentedState != runtimeTraceProjShareRefNone {
 		var text string
 		switch row.RepresentedState {
+		case runtimeTraceProjShareRefPartial:
+			// HMC377 round 10 (R-377-10 ③): the represented sentence resolves
+			// only in part — the typed held share is counted at the resolved
+			// holders, the row's value (already published less that share)
+			// counts the rest. The holders are named by [E#] only when every
+			// one is drawn here; otherwise the see-detail form names none.
+			row.marks.mark(runtimeTraceProjMarkChainAnchorRepresentedPartial)
+			held := row.Node.ChainAnchorRepresentedHeldMS
+			own := runtimeTraceProjNodeDisplayImpact(row.Node)
+			if len(row.RepresentedRefs) > 0 {
+				ref := "[" + strings.Join(row.RepresentedRefs, "][") + "]"
+				text = fmt.Sprintf("锚定份部分由链席%s代表:本席全账 %.3fms 锚定于 typed 唤醒依赖窗内(有凭证),其中 %.3fms 已计入%s,本行只计其余 %.3fms,记 ◇ 邻近",
+					ref, own+held, held, ref, own)
+				if !zh {
+					text = fmt.Sprintf("anchored share partly represented by the chain seat %s: this seat's whole %.3fms account is anchored inside typed wakeup-dependency windows (it HAS credential); %.3fms of it is counted at %s and this row counts only the other %.3fms, on the ◇ adjacent channel",
+						ref, own+held, held, ref, own)
+				}
+			} else {
+				text = fmt.Sprintf("锚定份部分由本线程另一席持有(见明细):本席全账 %.3fms 锚定于 typed 唤醒依赖窗内(有凭证),其中 %.3fms 由该席计入,本行只计其余 %.3fms,记 ◇ 邻近",
+					own+held, held, own)
+				if !zh {
+					text = fmt.Sprintf("anchored share partly held by another seat of this thread (see the detail index): this seat's whole %.3fms account is anchored inside typed wakeup-dependency windows (it HAS credential); %.3fms of it is counted by that seat and this row counts only the other %.3fms, on the ◇ adjacent channel",
+						own+held, held, own)
+				}
+			}
 		case runtimeTraceProjShareRefRendered:
 			row.marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
 			ref := strings.Join(row.RepresentedRefs, ",")
@@ -7320,7 +7364,28 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			invWordZH = "反转席[" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
 			invWordEN = "the priority-inversion seat [" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
 		}
-		if row.Node.GatedShareFullMS > 0 {
+		switch {
+		case row.Node.GatedShareClaimWithdrawn && row.Node.GatedShareFullMS > 0:
+			// HMC377 round 10 (R-377-10 ②): every claim seat is published as
+			// context only — no seat counts the share, this row does (it
+			// carries its own value on ◎); the sentence names no seat as
+			// counting it and asserts nothing about the board.
+			row.marks.mark(runtimeTraceProjMarkGatedShareClaimWithdrawn)
+			text := fmt.Sprintf("分账构成份:本行 %.3fms 为全账 %.3fms 中与本线程反转席分支窗重叠的份额;该反转席仅作上下文(不参与%s),此份额由本行自计",
+				row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS, tracefence.SeatChannelChainZH)
+			if !zh {
+				text = fmt.Sprintf("split-account constituent share: this row's %.3fms is the share of the %.3fms account overlapping the branch windows of this thread's priority-inversion seat; that seat is context only (not ranked), so this row counts the share with its own value",
+					row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
+			}
+			out = append(out, text)
+		case row.Node.GatedShareClaimWithdrawn:
+			row.marks.mark(runtimeTraceProjMarkGatedShareClaimWithdrawn)
+			text := "分账构成份(合并行):各成员份额与同线程反转席分支窗重叠;该反转席仅作上下文(不参与" + tracefence.SeatChannelChainZH + "),成员份额由本行自计,成员级分账见明细行"
+			if !zh {
+				text = "split-account constituent share (merged row): every member share overlaps the branch windows of the same thread's priority-inversion seat; that seat is context only (not ranked), so this row counts the member shares with its own value; the per-member decomposition lives on the member detail rows"
+			}
+			out = append(out, text)
+		case row.Node.GatedShareFullMS > 0:
 			text := fmt.Sprintf("分账构成份·归因已计入%s:本行 %.3fms 为全账 %.3fms 中与反转席分支窗重叠、已由其 gated 复合计入的份额,不参赛、不与之相加",
 				invWordZH, row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
 			if !zh {
@@ -7328,7 +7393,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 					invWordEN, row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
 			}
 			out = append(out, text)
-		} else {
+		default:
 			text := "分账构成份(合并行):各成员份额已由同线程反转席 gated 复合计入,成员级分账见明细行,不参赛、不与反转席相加"
 			if !zh {
 				text = "split-account constituent share (merged row): every member share is already counted by the same thread's priority-inversion seat gated composite; the per-member decomposition lives on the member detail rows — never competing, never additive with that seat"
@@ -7351,6 +7416,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		if !zh {
 			text = fmt.Sprintf("split-account residual seat: full account %.3fms = %.3fms counted at %s + this seat's residual %.3fms (one segment set, two disjoint shares, additive back)",
 				row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, invWordEN, residual)
+		}
+		if row.Node.GatedShareClaimWithdrawn {
+			// HMC377 round 10 (R-377-10 ②): the claimed share is counted by
+			// this thread's constituent row, not by the context-only seat.
+			row.marks.mark(runtimeTraceProjMarkGatedShareClaimWithdrawn)
+			text = fmt.Sprintf("分账残余席:全账 %.3fms = 构成份 %.3fms(与本线程反转席分支窗重叠,该席仅作上下文,由本线程构成份行自计) + 本席残余 %.3fms(同一段集两不重叠份,可加还原全账)",
+				row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, residual)
+			if !zh {
+				text = fmt.Sprintf("split-account residual seat: full account %.3fms = %.3fms constituent share (overlapping the branch windows of this thread's priority-inversion seat, which is context only; this thread's constituent row counts it with its own value) + this seat's residual %.3fms (one segment set, two disjoint shares, additive back)",
+					row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, residual)
+			}
 		}
 		out = append(out, text)
 	}

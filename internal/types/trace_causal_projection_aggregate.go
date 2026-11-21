@@ -631,12 +631,22 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.GatedShareFullMS = loser.GatedShareFullMS
 		survivor.GatedShareConstituentSeat = loser.GatedShareConstituentSeat
 		survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+		// HMC377 round 10: the gate's withdrawal of the claim seats is part
+		// of the same disclosure.
+		survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
 	}
 	if survivor.GatedShareOverlapDisclosureMS == 0 && loser.GatedShareOverlapDisclosureMS > 0 {
 		survivor.GatedShareOverlapDisclosureMS = loser.GatedShareOverlapDisclosureMS
 		if len(survivor.GatedShareClaimSeats) == 0 {
 			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+			survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
 		}
+	}
+	// HMC377 round 10 (R-377-10 ③): the partially represented share travels
+	// with the claims of the sentence that makes it.
+	if survivor.ChainAnchorRepresentedHeldMS == 0 && loser.ChainAnchorRepresentedHeldMS > 0 && len(survivor.ShareClaims) == 0 {
+		survivor.ChainAnchorRepresentedHeldMS = loser.ChainAnchorRepresentedHeldMS
+		survivor.ShareClaims = loser.ShareClaims
 	}
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record travels as ONE
 	// disclosure the same way (all four fields together — a survivor with
@@ -1556,6 +1566,16 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		// XLANE-1 件1: mirrors the engine fold key — the represented-demoted
 		// satellite is its own account form.
 		return "anchor_represented"
+	case node.ChainAnchorRepresentedHeldMS > 0:
+		// HMC377 round 10 (R-377-10 ③): a partially represented satellite
+		// publishes its own account less the share counted at its holders —
+		// a carved account, never re-Σ with a plain row.
+		return "anchor_represented_partial"
+	case node.GatedShareConstituentSeat && node.GatedShareClaimWithdrawn:
+		// HMC377 round 10 (R-377-10 ②): a constituent whose claim seats were
+		// withdrawn counts its own value — a different account story from a
+		// constituent whose seat counts it.
+		return "gated_share_constituent_withdrawn"
 	case node.GatedShareConstituentSeat:
 		// LEVELMERGE-1 件2: the demoted A constituent row is its own account
 		// form — never re-Σ with plain rows or with its residual twin.
@@ -2134,6 +2154,18 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 			aggregate.ChainAnchorUnwalkedMS = 0
 			aggregate.ChainAnchorOutsideMS = 0
 			aggregate.MergedChainAnchorMemberAccounts = true
+			break
+		}
+	}
+	// HMC377 round 10 (R-377-10 ③): same per-seat-ledger discipline for a
+	// partially represented satellite — the members' value channels are
+	// already carved (each publishes its own account less the share counted
+	// at its holders), so the Σ row keeps the carved Σ; the per-member held
+	// share and its holder claims have no single referent on a member Σ.
+	for _, idx := range members {
+		if nodes[idx].ChainAnchorRepresentedHeldMS > 0 {
+			aggregate.ChainAnchorRepresentedHeldMS = 0
+			aggregate.ShareClaims = nil
 			break
 		}
 	}
