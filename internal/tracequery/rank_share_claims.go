@@ -502,36 +502,7 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 			resolveShareClaim(&claims[ci], board)
 		}
 		item.ShareClaims = claims
-		spans := append([]rspaClaimSpan(nil), item.rspaClaimSpans...)
-		cursor := 0
-		represented, sawRepresented := true, false
-		for si := range spans {
-			sp := &spans[si]
-			resolved := true
-			for _, ci := range sp.claims {
-				if ci < 0 || ci >= len(claims) || !claims[ci].Resolved {
-					resolved = false
-				}
-			}
-			want := sp.compact
-			if resolved {
-				want = sp.held
-			}
-			if at := strings.Index(item.Summary[cursor:], sp.current); at >= 0 {
-				at += cursor
-				item.Summary = item.Summary[:at] + want + item.Summary[at+len(sp.current):]
-				sp.current = want
-				cursor = at + len(want)
-			}
-			if sp.represented {
-				sawRepresented = true
-				represented = represented && resolved
-			}
-		}
-		item.rspaClaimSpans = spans
-		if sawRepresented {
-			item.ChainAnchorRepresentedByChainSeat = represented
-		}
+		rspaWriteClaimSpans(item)
 	}
 	for i := range board {
 		resolveRow(&board[i])
@@ -561,6 +532,133 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 	}
 	for i := range detail {
 		assign(&detail[i])
+	}
+}
+
+// rspaWriteClaimSpans writes every claim span of a row's Summary in the form
+// its claims allow (the held form only while every claim it governs
+// resolves) and keeps ChainAnchorRepresentedByChainSeat only while every
+// claim of its "represented by" sentence resolves.
+func rspaWriteClaimSpans(item *RootCauseRankItem) {
+	claims := item.ShareClaims
+	spans := append([]rspaClaimSpan(nil), item.rspaClaimSpans...)
+	cursor := 0
+	represented, sawRepresented := true, false
+	for si := range spans {
+		sp := &spans[si]
+		resolved := true
+		for _, ci := range sp.claims {
+			if ci < 0 || ci >= len(claims) || !claims[ci].Resolved {
+				resolved = false
+			}
+		}
+		want := sp.compact
+		if resolved {
+			want = sp.held
+		}
+		if at := strings.Index(item.Summary[cursor:], sp.current); at >= 0 {
+			at += cursor
+			item.Summary = item.Summary[:at] + want + item.Summary[at+len(sp.current):]
+			sp.current = want
+			cursor = at + len(want)
+		}
+		if sp.represented {
+			sawRepresented = true
+			represented = represented && resolved
+		}
+	}
+	item.rspaClaimSpans = spans
+	if sawRepresented {
+		item.ChainAnchorRepresentedByChainSeat = represented
+	}
+}
+
+// WithdrawRankShareHolders (HMC377 fix round 9, R9-1) re-validates the share
+// claims of a published board against the record actually published.
+// resolveRankShareClaims resolves every claim against the engine's final
+// board; a later publication gate (the trace_query tool's priority proof
+// boundary) can still withdraw a holder row — publish it as context only,
+// without the rank seat, the inversion type or the gated share it held.
+// withdrawn[i] is that gate's own decision for board row i (the precise
+// typed signal; never a value, name or text match). A claim one of whose
+// holders was withdrawn is unresolved: it names no holder (its spans take
+// their compaction-disclosure form, the renderer its see-detail form), and a
+// "represented by" claimant stops wearing ChainAnchorRepresentedByChainSeat,
+// so it keeps its own value (the share keeps exactly one carrier). A seat
+// keeps its ShareHolderKey only while a resolved claim names it. Rows whose
+// claims name no withdrawn holder are left untouched (a board without a
+// withdrawn holder is byte-identical). The rows are published copies: claims
+// are replaced, never mutated in place, so the engine result is unchanged.
+func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawn []bool) {
+	gone := map[string]bool{}
+	for i := range board {
+		if i < len(withdrawn) && withdrawn[i] {
+			if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" {
+				gone[key] = true
+			}
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+	revalidate := func(item *RootCauseRankItem) {
+		changed := false
+		for _, c := range item.ShareClaims {
+			for _, key := range c.HolderKeys {
+				if gone[strings.TrimSpace(key)] {
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			return
+		}
+		claims := append([]RootCauseShareClaim(nil), item.ShareClaims...)
+		representedLost := false
+		for ci := range claims {
+			c := &claims[ci]
+			named := false
+			for _, key := range c.HolderKeys {
+				if gone[strings.TrimSpace(key)] {
+					named = true
+				}
+			}
+			if !named {
+				continue
+			}
+			c.Resolved, c.Exact, c.HolderKeys, c.holderIdx = false, false, nil, nil
+			if c.Represented {
+				representedLost = true
+			}
+		}
+		item.ShareClaims = claims
+		rspaWriteClaimSpans(item)
+		if representedLost {
+			item.ChainAnchorRepresentedByChainSeat = false
+		}
+	}
+	for i := range board {
+		revalidate(&board[i])
+	}
+	for i := range detail {
+		revalidate(&detail[i])
+	}
+	named := map[string]bool{}
+	for _, rows := range [][]RootCauseRankItem{board, detail} {
+		for _, row := range rows {
+			for _, c := range row.ShareClaims {
+				if c.Resolved {
+					for _, key := range c.HolderKeys {
+						named[strings.TrimSpace(key)] = true
+					}
+				}
+			}
+		}
+	}
+	for i := range board {
+		if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" && !named[key] {
+			board[i].ShareHolderKey = ""
+		}
 	}
 }
 

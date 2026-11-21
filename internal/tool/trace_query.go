@@ -16495,12 +16495,23 @@ func traceQueryPriorityRootCauseForPublication(item tracequery.RootCauseRankItem
 }
 
 func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
+	published, _ := traceQueryPriorityRootCausePublicationInUniverse(item, universe)
+	return published
+}
+
+// traceQueryPriorityRootCausePublicationInUniverse is the gate itself; it also
+// returns its decision for the row: withdrawn=true when it published the row
+// as context only (the fail-closed arm below). HMC377 fix round 9 (R9-1): that
+// decision is the typed signal the rank publisher re-validates the engine's
+// share claims against — a claim names a holder only while the holder is
+// published as the seat the engine resolved it to.
+func traceQueryPriorityRootCausePublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) (tracequery.RootCauseRankItem, bool) {
 	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources)
 	if item.Type != "priority_inversion_runnable_wait" {
 		item.PriorityOverlap = nil
 	}
 	if !runtimeTracePriorityInversionCandidateType(item.Type) {
-		return item
+		return item, false
 	}
 	// Priority proof is evaluated against the engine-owned value before the
 	// separate background publication caliber clears that private ordering
@@ -16515,7 +16526,7 @@ func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCau
 			item.PriorityOverlap = w.ForRankMember(path, types.TraceThreadCoordinate{TID: item.Thread.PID, TGID: max(item.Thread.TGID, 0)},
 				item.StartTs, item.EndTs)
 		}
-		return item
+		return item, false
 	}
 	item.Rank = 0
 	item.Tier = tracequery.RootCauseTierContextOnly
@@ -16535,7 +16546,7 @@ func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCau
 	item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs =
 		traceQueryPriorityCoverageForPublication(coverageCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
 	item.Summary = fmt.Sprintf("scheduler state retained as context: priority relation caliber %q does not authorize a finite positive inversion root", strings.TrimSpace(item.PriorityRelationCaliber))
-	return item
+	return item, true
 }
 
 // traceQueryRootCauseForPublication applies row-level proof validation. The
@@ -16553,7 +16564,15 @@ func traceQueryRootCauseForPublicationInUniverse(item tracequery.RootCauseRankIt
 }
 
 func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
-	item = traceQueryRootCauseForPublicationInUniverse(item, universe)
+	published, _ := traceQueryRootCauseRankWireItemPublicationInUniverse(item, universe)
+	return published
+}
+
+// traceQueryRootCauseRankWireItemPublicationInUniverse publishes one rank row
+// and returns the priority gate's decision for it (withdrawn=true: published
+// as context only).
+func traceQueryRootCauseRankWireItemPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) (tracequery.RootCauseRankItem, bool) {
+	item, withdrawn := traceQueryPriorityRootCausePublicationInUniverse(item, universe)
 	if traceQueryRootCauseItemRelevance(item) == "background" {
 		item.EffectiveImpactMs = 0
 		if measured, ok := traceQueryBackgroundPublishedMeasurement(item); ok {
@@ -16564,7 +16583,7 @@ func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.Roo
 			item.ImpactMs, item.ProjectedImpactMs = measured, measured
 		}
 	}
-	return item
+	return item, withdrawn
 }
 
 func traceQueryBackgroundPublishedMeasurement(item tracequery.RootCauseRankItem) (float64, bool) {
@@ -16922,13 +16941,22 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 	}
 	published := *rank
 	published.Items = append([]tracequery.RootCauseRankItem(nil), rank.Items...)
+	withdrawn := make([]bool, len(published.Items))
 	for i := range published.Items {
-		published.Items[i] = traceQueryRootCauseRankWireItemForPublicationInUniverse(published.Items[i], universe)
+		published.Items[i], withdrawn[i] = traceQueryRootCauseRankWireItemPublicationInUniverse(published.Items[i], universe)
 	}
 	published.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
 	for i := range published.AbsorbedItems {
 		published.AbsorbedItems[i] = traceQueryRootCauseRankWireItemForPublicationInUniverse(published.AbsorbedItems[i], universe)
 	}
+	// HMC377 fix round 9 (R9-1): the engine resolved every share claim
+	// against its own board; a claim is valid only against the record
+	// published here. This is the one choke point every consumer reads (the
+	// share_claims note and its holder positions, the projection's
+	// represented marker, the renderer's holder words and the ◎ exclusion):
+	// a claim whose holder the gate above withdrew names no holder, and a
+	// represented satellite keeps its own value.
+	tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn)
 	return &published
 }
 
