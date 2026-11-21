@@ -17455,6 +17455,38 @@ func stampRootEvidenceRankCaliber(root RootEvidence, item *RootCauseRankItem) {
 	}
 }
 
+// rootEvidenceStateOwnedByWindowStats reports whether the formal WindowStats
+// family seats of root's thread already carry root's state account, so the
+// analysed thread's own RootEvidence wait row must not mint a second rank
+// vote for the same instants.
+//
+// EVOLUTION (HMC377 R9P-1): the D/IO arms used to read the top-8 display
+// lists (DStateTop / IOWaitTop) while the D/IO family seats mint from the
+// full pre-cap census (修复轮二 件A). When the analysed thread's own D/IO
+// groups sat below the display cap (105 元宝 后台销毁后冷启动 #2, TID 58533:
+// eight larger D groups of other threads), the predicate answered "not
+// owned" although nine cause-partition seats held the thread's whole 4.256ms
+// D account, and the thread's 1.666ms vfs_path_open_ng wait RootEvidence
+// minted a second D seat beside the 3.435ms vfs_path_open_ng partition that
+// already holds its instants: one physical wait on two seats, summed to
+// 5.922ms once the thread wore one display name. The D/IO arms now ask the
+// exact member population the family seats are minted from
+// (rootCauseDIOFamilyMembers), so the predicate and the mint are one rule.
+//
+// The D/IO arms answer for the whole D/IO family: one formal seat per (thread,
+// proven cause) joins the D and the iowait fragments of a wait object, and
+// the thread's census groups tile its complete in-window D/IO time, so every
+// in-window D/IO instant of the thread lies in exactly one partition seat.
+// The analysed thread's chain waits are clamped to the window, so a D/IO wait
+// RootEvidence of the thread is a subset of the thread's partition seats
+// whenever the census holds the thread; it stays lossless on the wakeup_chain
+// view. Typed signals only: the numeric thread identity, the typed state
+// token and membership in the formal account population — no value, name or
+// caller string participates.
+//
+// The runnable arm keeps reading RunnableTop: the analysed thread's own ready
+// wait seat beside its census ready seats is the RULER2-1 two-ruler
+// publication (§29.150②, its own ruling and pins), not this rule.
 func rootEvidenceStateOwnedByWindowStats(root RootEvidence, stats WindowStats) bool {
 	containsThread := func(items []ThreadDuration) bool {
 		for _, td := range items {
@@ -17467,13 +17499,35 @@ func rootEvidenceStateOwnedByWindowStats(root RootEvidence, stats WindowStats) b
 	switch strings.TrimSpace(root.Type) {
 	case "runnable_wait":
 		return containsThread(stats.RunnableTop)
-	case "io_wait":
-		return containsThread(stats.IOWaitTop)
-	case "d_state_or_io_wait":
-		return containsThread(stats.DStateTop) || containsThread(stats.IOWaitTop)
+	case "io_wait", "d_state_or_io_wait":
+		ioMembers, dMembers := rootCauseDIOFamilyMembers(stats)
+		return containsThread(dMembers) || containsThread(ioMembers)
 	default:
 		return false
 	}
+}
+
+// rootCauseDIOFamilyMembers is the one member population the formal D/IO
+// family seats mint from (rootCauseDIOStateFamilyItems) and the target-own
+// RootEvidence ownership predicate reads. 修复轮二 件A (2026-07-13): the
+// formal family accounts read the FULL pre-cap census — 席位按全量账铸值
+// (tieba 60555 witness: the capped basis under-reported the fscache cause
+// seat 4.739 vs provable 7.386 and left hmfs_get_dnode 0.171 seatless).
+// Selection reuses the display lists' OWN comparator uncapped
+// (topThreadDurations — 单一值源: when nothing is evicted the member sequence
+// is byte-identical to the pre-census mint). A WindowStats built without the
+// census (legacy fixtures/direct literals) fails open to the capped lists
+// verbatim.
+func rootCauseDIOFamilyMembers(stats WindowStats) (ioMembers, dMembers []ThreadDuration) {
+	ioMembers = stats.IOWaitTop
+	if stats.iowaitCensus != nil {
+		ioMembers = topThreadDurations(stats.iowaitCensus, len(stats.iowaitCensus))
+	}
+	dMembers = stats.DStateTop
+	if stats.dstateCensus != nil {
+		dMembers = topThreadDurations(stats.dstateCensus, len(stats.dstateCensus))
+	}
+	return ioMembers, dMembers
 }
 
 // rootCauseDIOStateFamilyItems publishes one formal D/IO blocking account per
@@ -17609,22 +17663,7 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			threads[key] = td.Thread
 		}
 	}
-	// 修复轮二 件A (2026-07-13): the formal family accounts read the FULL
-	// pre-cap census — 席位按全量账铸值 (tieba 60555 witness: the capped
-	// basis under-reported the fscache cause seat 4.739 vs provable 7.386
-	// and left hmfs_get_dnode 0.171 seatless). Selection reuses the display
-	// lists' OWN comparator uncapped (topThreadDurations — 单一值源: when
-	// nothing is evicted the member sequence is byte-identical to the
-	// pre-census mint). A WindowStats built without the census (legacy
-	// fixtures/direct literals) fails open to the capped lists verbatim.
-	ioMembers := stats.IOWaitTop
-	if stats.iowaitCensus != nil {
-		ioMembers = topThreadDurations(stats.iowaitCensus, len(stats.iowaitCensus))
-	}
-	dMembers := stats.DStateTop
-	if stats.dstateCensus != nil {
-		dMembers = topThreadDurations(stats.dstateCensus, len(stats.dstateCensus))
-	}
+	ioMembers, dMembers := rootCauseDIOFamilyMembers(stats)
 	for _, td := range ioMembers {
 		add(string(StateIOWait), td)
 	}
