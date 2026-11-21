@@ -105,8 +105,8 @@ func TestHMC377RenderNamesTheResidualOwnerThroughItsClaim(t *testing.T) {
 				zh, seat.EvidenceTag, sat.ChainAnchorUnwalkedRef, sat.ChainAnchorUnwalkedInvisible, sat.ChainAnchorUnwalkedUnreferenced, sat.ChainAnchorUnwalkedExact)
 		}
 		fence := strings.ReplaceAll(runtimeTraceProjTreeFence(model, zh), "\n", " ")
-		if strings.Contains(fence, "未上本榜") || strings.Contains(fence, "not on this board") {
-			t.Fatalf("zh=%t: the seat holding the share is on this board, the face says it is not:\n%s", zh, fence)
+		if banned := hmc377R7RetiredAbsenceWord(fence); banned != "" {
+			t.Fatalf("zh=%t: the seat holding the share is on this board, the face says %q:\n%s", zh, banned, fence)
 		}
 		word := "(⛓唤醒锚定席)"
 		if !zh {
@@ -119,16 +119,17 @@ func TestHMC377RenderNamesTheResidualOwnerThroughItsClaim(t *testing.T) {
 }
 
 // The same claim, unresolved by the engine (its holder is off the published
-// board): the face says so; a node compiled without any typed reference names
-// no holder and claims no absence.
+// board): HMC377 fix round 7 (R-377-8) — the face points at the detail index
+// and claims nothing about the board (the absence word is retired); a node
+// compiled without any typed reference says the same.
 func TestHMC377RenderUnresolvedAndUnreferencedClaims(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(hmc377R5ResidualProjection(""), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	sat := hmc377R5Rows(model, "res-sat")["res-sat"]
 	if sat == nil || !sat.ChainAnchorUnwalkedInvisible || sat.ChainAnchorUnwalkedRef != "" {
 		t.Fatalf("an unresolved claim renders as compacted: %+v", sat)
 	}
-	if fence := runtimeTraceProjTreeFence(model, true); !strings.Contains(fence, "唤醒锚定席未上本榜") {
-		t.Fatalf("an unresolved claim says its seat is not on this board:\n%s", fence)
+	if fence := runtimeTraceProjTreeFence(model, true); !strings.Contains(fence, "唤醒锚定席见明细") || hmc377R7RetiredAbsenceWord(fence) != "" {
+		t.Fatalf("an unresolved claim points at the detail index and claims no absence:\n%s", fence)
 	}
 	p := hmc377R5ResidualProjection("res-seat")
 	p.AdjacentCauses[1].ShareClaims = nil
@@ -138,7 +139,7 @@ func TestHMC377RenderUnresolvedAndUnreferencedClaims(t *testing.T) {
 		t.Fatalf("a node without a typed reference is unreferenced, not compacted: %+v", sat)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "唤醒锚定席见明细") || strings.Contains(fence, "唤醒锚定席未上本榜") {
+	if !strings.Contains(fence, "唤醒锚定席见明细") || hmc377R7RetiredAbsenceWord(fence) != "" {
 		t.Fatalf("an unreferenced node names no holder and claims no absence:\n%s", fence)
 	}
 }
@@ -170,7 +171,9 @@ func TestHMC377RenderPairReadsTheTypedHolderNotAValueMatch(t *testing.T) {
 
 // A represented satellite whose holder renders on no surface of this board
 // (or whose claim the engine did not resolve) never says its time is already
-// represented on the chain tier and keeps its own value in the overview.
+// represented on the chain tier and keeps its own value in the overview;
+// HMC377 fix round 7 (R-377-8): it points at the detail index (the
+// see-detail form) and never says the holding seat is off this board.
 func TestHMC377RenderRepresentedHolderOffTheBoard(t *testing.T) {
 	p := types.TraceCausalProjection{WakeupPath: []string{"app-100"}, WindowStartTs: 1.0, WindowEndTs: 1.1}
 	p.AdjacentCauses = append(p.AdjacentCauses, types.TraceCausalProjectionNode{
@@ -189,12 +192,12 @@ func TestHMC377RenderRepresentedHolderOffTheBoard(t *testing.T) {
 		if strings.Contains(fence, "同段物理时间已由链上席全额代表") || strings.Contains(fence, "already fully represented on the chain tier") {
 			t.Fatalf("zh=%t: the holder is off this board — no representation claim:\n%s", zh, fence)
 		}
-		want := "持有这段时间的本线程席未上本榜"
+		want := "锚定份由本线程另一席持有(见明细)"
 		if !zh {
-			want = "the seat of this thread holding that time is not on this board"
+			want = "anchored share held by another seat of this thread (see the detail index)"
 		}
-		if !strings.Contains(fence, want) {
-			t.Fatalf("zh=%t: the satellite says the holding seat is off this board:\n%s", zh, fence)
+		if !strings.Contains(fence, want) || hmc377R7RetiredAbsenceWord(fence) != "" {
+			t.Fatalf("zh=%t: the satellite points at the detail index and claims nothing about the board:\n%s", zh, fence)
 		}
 		row := hmc377R5Rows(model, "b-sat")["b-sat"]
 		if row == nil || runtimeTraceProjElimRepresentedExcluded(*row) || runtimeTraceProjElimRepresentedOnBoard(*row) {

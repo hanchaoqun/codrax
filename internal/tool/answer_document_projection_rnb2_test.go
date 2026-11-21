@@ -466,7 +466,7 @@ func TestRNB2ZeroAnchoredBracketSpeaksNoAnchoredShare(t *testing.T) {
 	if !strings.Contains(fence, "同源二分:全窗9.272ms=锚定0.000ms(无锚定段)+本行其余9.272ms(无链上凭证)") {
 		t.Fatalf("the zero-anchored remainder must speak the 无锚定段 bracket:\n%s", fence)
 	}
-	if strings.Contains(fence, "(⛓链上席)") || strings.Contains(fence, "锚定席未上本榜") {
+	if strings.Contains(fence, "(⛓链上席)") || strings.Contains(fence, "(锚定席见明细)") || hmc377R7RetiredAbsenceWord(fence) != "" {
 		t.Fatalf("a 0.000 anchored share has NO owner — neither ownership bracket may render:\n%s", fence)
 	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)

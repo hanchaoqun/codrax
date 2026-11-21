@@ -1458,7 +1458,7 @@ type runtimeTraceProjDrawnRecord struct {
 // runtimeTraceProjDrawnRecordIndex is THE index of every record id the
 // projection draws (HMC377 fix round 6; round 5 indexed the rows' own and
 // merged ids only, so a seat drawn inside another row — the NetEase inversion
-// candidate folded into its chain row — read as not on this board and its
+// candidate folded into its chain row — read as not drawn and its
 // represented satellite re-entered the ◎ population as a second owner). Every
 // holder lookup and, through the stamped holder state, the ◎ eligibility read
 // it. Drawn-id classes:

@@ -24,10 +24,12 @@
 #     logd.writer-9163 full-window runnable 49.656ms splits as anchored
 #     0.033ms + adjacent remainder 49.623ms. The anchored twin is outside the
 #     bounded board, so the exact honest carrier is
-#     「同源二分:全窗49.656ms=锚定0.033ms(锚定席未上本榜,见明细)+本行其余49.623ms
-#     (无链上凭证)」. This supersedes the July-16 0.018/49.638 seal after later
-#     chain-account expansion; multiple post-change H2/H7 production runs
-#     reproduce the 0.033/49.623 form.
+#     「同源二分:全窗49.656ms=锚定0.033ms(锚定席见明细)+本行其余49.623ms
+#     (无链上凭证)」 (HMC377 R-377-8, 2026-11-20: a holder the board cannot
+#     point at takes the see-detail form, never an absence word; the earlier
+#     「(锚定席未上本榜,见明细)」 form is retired). This supersedes the July-16
+#     0.018/49.638 seal after later chain-account expansion; multiple
+#     post-change H2/H7 production runs reproduce the 0.033/49.623 form.
 #   · Compaction/enumeration authority supersedes the old RNB-5B requirement
 #     that one visible micro-seat fold spell a fixed 0.105ms. The current board
 #     keeps small on-chain seats in detail and must disclose a non-zero `未入榜
@@ -55,7 +57,7 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="65.912 36.757 dma_fence_default_w 49.623 0.033 按全域最大核最高频 枚举未完整 未计价占用"
 EXPECT_MATCHES_REGEX="供给折算缺口 65\\.912ms
-同源二分:全窗49\\.656ms=锚定0\\.033ms\\(锚定席未上本榜,见明细\\)\\+本行其余49\\.623ms\\(无链上凭证\\)
+同源二分:全窗49\\.656ms=锚定0\\.033ms\\(锚定席见明细\\)\\+本行其余49\\.623ms\\(无链上凭证\\)
 未入榜 +⛓ [1-9][0-9]* 行"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence enumeration_status=incomplete"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

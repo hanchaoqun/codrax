@@ -135,9 +135,11 @@ func TestRSPARemainderRowRendersSplitDisclosureAndCategory(t *testing.T) {
 	// EVOLUTION RECORD (RNB-1 D1 修复轮, 2026-07-14): this remainder's ⛓
 	// counterpart is rank-suppressed off the render BY FIXTURE DESIGN — the
 	// former 「(⛓链上席)」 ownership word was therefore a dangling pointer;
-	// the twin-visibility backstop now downgrades it to the honest 未上榜
-	// form. The visible pair keeps the ownership word (D-IO pin below).
-	if !strings.Contains(fence, "同源二分:全窗31.191ms=锚定1.759ms(锚定席未上本榜,见明细)+本行其余29.432ms(无链上凭证)") {
+	// the twin-visibility backstop now downgrades it — since HMC377 fix round
+	// 7 (R-377-8) to the see-detail form 「(锚定席见明细)」, which claims nothing
+	// about the board (the absence form is retired). The visible pair keeps
+	// the ownership word (D-IO pin below).
+	if !strings.Contains(fence, "同源二分:全窗31.191ms=锚定1.759ms(锚定席见明细)+本行其余29.432ms(无链上凭证)") {
 		t.Fatalf("the ◇ runnable remainder must disclose the bipartition on 行2 (twin-invisible form):\n%s", fence)
 	}
 	if !strings.Contains(fence, "同源二分:全窗36.757ms=锚定3.598ms") &&
@@ -162,7 +164,7 @@ func TestRSPARemainderRowRendersSplitDisclosureAndCategory(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaSameSourceSplitProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !rspaFenceContains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (anchored seat not on this board; see the detail index) + this remainder 29.432ms (no chain credential)") {
+	if !rspaFenceContains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (anchored seat: see the detail index) + this remainder 29.432ms (no chain credential)") {
 		t.Fatalf("en mirror of the remainder disclosure missing:\n%s", fenceEN)
 	}
 }

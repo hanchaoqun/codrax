@@ -302,14 +302,15 @@ func TestHMC377WholeOriginalDeliveredSplitsNameEveryPartOnce(t *testing.T) {
 			// HMC377 fix round 4: both rows of the three-way pair restore the
 			// full account — with the three seats when the wakeup-anchored
 			// seat is on this board and publishes the account's part, with
-			// the three typed parts when it is not on this board (its value
-			// cannot be checked against the part there).
+			// the three typed parts when the lookup does not prove it drawn
+			// (its value cannot be checked against the part there; round 7,
+			// R-377-8: that seat's word is the see-detail form).
 			pairs := regexp.MustCompile(`同源三分对席:[^;]*;[^(]*合计还原全窗账`).FindAllString(zh, -1)
 			if len(pairs) < 2 {
 				t.Errorf("both rows of the three-way pair restore the full account, found %d", len(pairs))
 			}
 			for _, pair := range pairs {
-				if strings.Contains(pair, "唤醒锚定席未上本榜") && strings.Contains(pair, "三席合计还原") {
+				if strings.Contains(pair, "唤醒锚定席见明细") && strings.Contains(pair, "三席合计还原") {
 					t.Errorf("an off-board wakeup-anchored seat's value is unknown here — no three-seat sum claim: %s", pair)
 				}
 			}

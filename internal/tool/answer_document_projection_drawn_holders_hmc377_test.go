@@ -123,10 +123,8 @@ func TestHMC377R6FoldedRankTwinHolderIsOnTheBoard(t *testing.T) {
 			t.Fatalf("zh=%t: a share whose holder is drawn never enters the ◎ population a second time", zh)
 		}
 		fence := strings.ReplaceAll(runtimeTraceProjTreeFence(model, zh), "\n", " ")
-		for _, banned := range []string{"未上本榜", "not on this board"} {
-			if strings.Contains(fence, banned) {
-				t.Fatalf("zh=%t: the holder is drawn on this board, the face says %q:\n%s", zh, banned, fence)
-			}
+		if banned := hmc377R7RetiredAbsenceWord(fence); banned != "" {
+			t.Fatalf("zh=%t: the holder is drawn on this board, the face says %q:\n%s", zh, banned, fence)
 		}
 		anchoredWord, represented := "(⛓链上席)", "锚定份由链席["+holderTag+"]代表"
 		if !zh {
@@ -320,12 +318,16 @@ func TestHMC377R6HolderStateFollowsEveryDrawnIDClass(t *testing.T) {
 					}
 				}
 				fence := strings.ReplaceAll(runtimeTraceProjTreeFence(model, zh), "\n", " ")
-				absent := strings.Contains(fence, "未上本榜") || strings.Contains(fence, "not on this board")
-				if drawnElsewhere && absent {
-					t.Fatalf("%s: the holder is drawn [%s], the face says it is not on this board:\n%s", label, c.wantTag, fence)
+				// HMC377 fix round 7 (R-377-8): no face ever asserts a holder's
+				// absence; a holder the lookup does not prove drawn takes the
+				// see-detail form.
+				if hmc377R7RetiredAbsenceWord(fence) != "" {
+					t.Fatalf("%s: the face asserts a holder's absence (%q):\n%s", label, hmc377R7RetiredAbsenceWord(fence), fence)
 				}
-				if !drawnElsewhere && !c.self && !absent {
-					t.Fatalf("%s: the holder is drawn nowhere, the face must say so:\n%s", label, fence)
+				squashed := hmc377R7Squash(fence)
+				seeDetail := strings.Contains(squashed, "见明细") || strings.Contains(squashed, hmc377R7Squash("see the detail index"))
+				if !drawnElsewhere && !c.self && !seeDetail {
+					t.Fatalf("%s: the holder is not proven drawn, the face points at the detail index:\n%s", label, fence)
 				}
 				if claimant == "represented" && drawnElsewhere && !strings.Contains(fence, "["+c.wantTag+"]") {
 					t.Fatalf("%s: the represented sentence names the holder's [%s]:\n%s", label, c.wantTag, fence)

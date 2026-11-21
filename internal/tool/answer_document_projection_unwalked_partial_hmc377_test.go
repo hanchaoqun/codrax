@@ -75,7 +75,7 @@ func TestHMC377PartialAccountNamesTheWakeupAnchoredSeatByIdentity(t *testing.T) 
 			t.Fatalf("missing %q:\n%s", pin, fence)
 		}
 	}
-	if strings.Contains(fence, "未上本榜") {
+	if hmc377R7RetiredAbsenceWord(fence) != "" {
 		t.Fatalf("the wakeup-anchored seat is on this board — no row may say otherwise:\n%s", fence)
 	}
 	if strings.Contains(strings.ReplaceAll(fence, " ", ""), "三席合计还原全窗账206.856ms") {
@@ -91,7 +91,7 @@ func TestHMC377PartialAccountNamesTheWakeupAnchoredSeatByIdentity(t *testing.T) 
 			t.Fatalf("en missing %q:\n%s", pin, fenceEN)
 		}
 	}
-	if strings.Contains(fenceEN, "not on this board") {
+	if hmc377R7RetiredAbsenceWord(fenceEN) != "" {
 		t.Fatalf("en: the wakeup-anchored seat is on this board:\n%s", fenceEN)
 	}
 }

@@ -105,8 +105,8 @@ func TestHMC377R6WholeOriginalNetEaseHoldersDrawnInsideChainRows(t *testing.T) {
 		}
 		fence := runtimeTraceProjTreeFence(model, zh)
 		flat := strings.ReplaceAll(fence, "\n", " ")
-		for _, banned := range []string{"锚定席未上本榜", "anchored seat not on this board"} {
-			if strings.Contains(flat, banned) {
+		for _, banned := range []string{hmc377R7RetiredAbsenceWord(flat), hmc377R7RetiredAbsenceWord(fence)} {
+			if banned != "" {
 				t.Fatalf("zh=%t: R-377-7 — the holders are drawn on this board, the face says %q:\n%s", zh, banned, fence)
 			}
 		}

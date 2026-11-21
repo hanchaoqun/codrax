@@ -124,7 +124,9 @@ func TestHMC377ThreeWaySplitNamesEveryPartWithItsSeat(t *testing.T) {
 }
 
 // The unwalked seat compacted off the board: every sentence that names it
-// says so, and the pair restores the full account with the three typed parts
+// points at the detail index (HMC377 fix round 7, R-377-8: the see-detail
+// form, never an absence word), and the pair restores the full account with
+// the three typed parts
 // it names (HMC377 fix round 4: an off-board seat's value cannot be checked
 // against the account's part, so the pair never claims the three SEATS add up
 // — the account may hold only part of the thread's share).
@@ -135,10 +137,10 @@ func TestHMC377ThreeWaySplitSaysWhenTheWakeupAnchoredSeatIsOffTheBoard(t *testin
 		t.Fatalf("the off-board wakeup-anchored seat's value is unknown here — no three-seat sum claim:\n%s", fence)
 	}
 	for _, pin := range []string{
-		"同源三分:全窗206.862ms=本行锚定29.904ms+唤醒锚定0.012ms(唤醒锚定席未上本榜,见明细)+其余176.946ms(◇余段席)",
-		"同源三分:全窗206.862ms=锚定29.904ms(⛓链上席)+唤醒锚定0.012ms(唤醒锚定席未上本榜,见明细)+本行其余176.946ms",
-		"唤醒锚定席未上本榜(见明细),⛓席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
-		"唤醒锚定席未上本榜(见明细),◇席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
+		"同源三分:全窗206.862ms=本行锚定29.904ms+唤醒锚定0.012ms(唤醒锚定席见明细)+其余176.946ms(◇余段席)",
+		"同源三分:全窗206.862ms=锚定29.904ms(⛓链上席)+唤醒锚定0.012ms(唤醒锚定席见明细)+本行其余176.946ms",
+		"唤醒锚定席见明细,⛓席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
+		"唤醒锚定席见明细,◇席=本行;锚定、唤醒锚定0.012ms、其余三份合计还原全窗账 206.862ms",
 	} {
 		if !rspaFenceContains(fence, pin) {
 			t.Fatalf("missing %q:\n%s", pin, fence)
@@ -157,8 +159,8 @@ func TestHMC377UnwalkedSeatNeverStandsInForTheWalkedTwin(t *testing.T) {
 		t.Fatalf("fixture drifted")
 	}
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !rspaFenceContains(fence, "同源三分:全窗206.862ms=锚定29.904ms(锚定席未上本榜,见明细)+唤醒锚定0.012ms(⛓唤醒锚定席)+本行其余176.946ms") {
-		t.Fatalf("the walked part's seat is off the board and the remainder says so:\n%s", fence)
+	if !rspaFenceContains(fence, "同源三分:全窗206.862ms=锚定29.904ms(锚定席见明细)+唤醒锚定0.012ms(⛓唤醒锚定席)+本行其余176.946ms") {
+		t.Fatalf("the walked part's seat is off the board and the remainder points at the detail index:\n%s", fence)
 	}
 	if rem.AccountRelRef == strings.TrimSpace(own.EvidenceTag) {
 		t.Fatalf("the unwalked seat was paired as the walked half: %+v", rem.AccountRelRef)

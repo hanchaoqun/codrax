@@ -142,9 +142,12 @@ func TestXLANERepresentedSentenceNounFallbackWithoutRef(t *testing.T) {
 		strings.Contains(notesEN, "already fully represented on the chain tier") {
 		t.Fatalf("P3-①: en mirror of the noun fallback missing:\n%s", notesEN)
 	}
+	// HMC377 fix round 7 (R-377-8): a compacted holder takes the same
+	// see-detail form — it claims nothing about the board.
 	row.RepresentedState = runtimeTraceProjShareRefCompacted
-	if notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n"); !strings.Contains(notes, "持有这段时间的本线程席未上本榜(见明细)") {
-		t.Fatalf("P3-①: a compacted holder is said to be off this board:\n%s", notes)
+	if notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n"); !strings.Contains(notes, "锚定份由本线程另一席持有(见明细)") ||
+		hmc377R7RetiredAbsenceWord(notes) != "" || strings.Contains(notes, "同段物理时间已由链上席全额代表") {
+		t.Fatalf("P3-①: a compacted holder points at the detail index and claims no absence:\n%s", notes)
 	}
 }
 
