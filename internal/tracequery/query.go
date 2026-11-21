@@ -23220,14 +23220,51 @@ func traceSpanNameTokenSet(lower string) map[string]bool {
 	return tokens
 }
 
+// traceSpanLooksLikeClassVerification matches class-verification work names.
+// HMC377 CV-1 (2026-11-20): every literal arm is word-bounded — the
+// characters on both sides of the literal must not be ASCII letters or
+// digits — matching the precision bar of the texture-upload and GC arms. A
+// bare substring let ART's "VerifyClassLoaderContextMatch" (the check that
+// the compiled code's recorded class-loader context matches, part of opening
+// that code) count as class verification: 251 such markers across the 75
+// baseline captures, the only name besides "VerifyClass <descriptor>" the
+// substring rule matched there.
 func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) bool {
-	return strings.Contains(lower, "verifyclass") ||
-		strings.Contains(lower, "verify_class") ||
-		strings.Contains(lower, "classverification") ||
-		strings.Contains(lower, "class_verification") ||
-		strings.Contains(lower, "class verifier") ||
-		strings.Contains(lower, "classverifier") ||
-		((tokens["verify"] || tokens["verifier"] || tokens["verification"]) && tokens["class"])
+	for _, literal := range []string{"verifyclass", "verify_class", "classverification", "class_verification", "class verifier", "classverifier"} {
+		if traceSpanContainsWordBoundedLiteral(lower, literal) {
+			return true
+		}
+	}
+	return (tokens["verify"] || tokens["verifier"] || tokens["verification"]) && tokens["class"]
+}
+
+// traceSpanContainsWordBoundedLiteral reports whether literal occurs in lower
+// with no ASCII letter or digit immediately before or after that occurrence.
+func traceSpanContainsWordBoundedLiteral(lower, literal string) bool {
+	if literal == "" {
+		return false
+	}
+	for from := 0; from <= len(lower)-len(literal); {
+		i := strings.Index(lower[from:], literal)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(literal)
+		if !traceSpanASCIIAlnumAt(lower, start-1) && !traceSpanASCIIAlnumAt(lower, end) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+func traceSpanASCIIAlnumAt(s string, i int) bool {
+	if i < 0 || i >= len(s) {
+		return false
+	}
+	c := s[i]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 func traceSpanLooksLikeShaderCompile(lower string, tokens map[string]bool) bool {

@@ -100,9 +100,14 @@ func hmc377OwnRow(rank *tracequery.RootCauseRankResult, tid int, typ string) *tr
 }
 
 // Douyin Lite, device-reboot cold start 5, the closed bindApplication marker:
-// the main thread verifies 127 classes, 92.266 ms in the window, 80.201 ms of
+// the main thread verifies 126 classes, 92.026 ms in the window, 79.961 ms of
 // it on a CPU, largest 42.895 ms. Before HMC377 the row was folded from the
 // listed sample: 5 members, 60.118 ms (the five largest).
+// EVOLUTION RECORD (HMC377 CV-1, 2026-11-20): this pin read 127 / 92.266 /
+// 80.201 / 95 not listed while the class-verification literal was a bare
+// substring; that counted the 0.240 ms "VerifyClassLoaderContextMatch" marker
+// at 140.981627 s (capture lines 115181-115211), which is the class-loader
+// context check of opening the compiled code, not class verification.
 func TestHMC377WholeOriginalDouyinRebootOwnWorkIsComplete(t *testing.T) {
 	path := hmc376Original(t, "CODRAX_HMC377_DOUYIN_REBOOT",
 		"8087138a5810347675fe7764974f5103cad4a9a71e56d7d1702d65da2256892e", 138438125)
@@ -113,8 +118,8 @@ func TestHMC377WholeOriginalDouyinRebootOwnWorkIsComplete(t *testing.T) {
 		!hmc376Near(states.SleepMs, 273.049) || !hmc376Near(states.DStateMs+states.IOWaitMs, 42.572) {
 		t.Fatalf("the scheduler partition disagrees with the raw oracle: %+v", states)
 	}
-	if !hmc376Near(states.DeterministicRunningMs, 80.201) {
-		t.Fatalf("the running time spent in the thread's own verification is 80.201 ms: %.3f", states.DeterministicRunningMs)
+	if !hmc376Near(states.DeterministicRunningMs, 79.961) {
+		t.Fatalf("the running time spent in the thread's own verification is 79.961 ms: %.3f", states.DeterministicRunningMs)
 	}
 	rank := result.RootCauseRank
 	if rank == nil {
@@ -124,13 +129,13 @@ func TestHMC377WholeOriginalDouyinRebootOwnWorkIsComplete(t *testing.T) {
 	if row == nil {
 		t.Fatalf("the main thread's own class verification is not a ranked on-chain cause:\n%s", hmc376Board(rank))
 	}
-	if row.ChainRelevance != "on_chain" || row.Rank <= 0 || row.MemberCount != 127 || !hmc376Near(row.EffectiveImpactMs, 92.266) ||
-		!hmc376Near(row.CumulativeImpactMs, 92.266) || !hmc376Near(row.OwnWorkOnCPUMs, 80.201) || !hmc376Near(row.MemberMaxMs, 42.895) ||
-		row.MemberNotListedCount != 95 || len(row.MemberRoster) != 32 {
-		t.Fatalf("the own verification row must be complete (127 members, 92.266 ms, 80.201 ms on a CPU, 95 not listed): %s members=%d on_cpu=%.3f not_listed=%d roster=%d",
+	if row.ChainRelevance != "on_chain" || row.Rank <= 0 || row.MemberCount != 126 || !hmc376Near(row.EffectiveImpactMs, 92.026) ||
+		!hmc376Near(row.CumulativeImpactMs, 92.026) || !hmc376Near(row.OwnWorkOnCPUMs, 79.961) || !hmc376Near(row.MemberMaxMs, 42.895) ||
+		row.MemberNotListedCount != 94 || len(row.MemberRoster) != 32 {
+		t.Fatalf("the own verification row must be complete (126 members, 92.026 ms, 79.961 ms on a CPU, 94 not listed): %s members=%d on_cpu=%.3f not_listed=%d roster=%d",
 			hmc376RowLabel(*row), row.MemberCount, row.OwnWorkOnCPUMs, row.MemberNotListedCount, len(row.MemberRoster))
 	}
-	if !strings.Contains(published.Summary, "member_count=127 member_not_listed=95 own_work_on_cpu=80.201ms") {
+	if !strings.Contains(published.Summary, "member_count=126 member_not_listed=94 own_work_on_cpu=79.961ms") {
 		t.Fatal("the model-facing board row must state the complete count, the members not listed and the on-CPU share")
 	}
 	// EVOLUTION RECORD (HMC377 E1E6-R4): the bound caveat keeps the
@@ -148,8 +153,8 @@ func TestHMC377WholeOriginalDouyinRebootOwnWorkIsComplete(t *testing.T) {
 		if obs.Predicate != "trace_semantic_span" || !strings.HasSuffix(obs.Subject, fmt.Sprintf("-%d", tid)) {
 			continue
 		}
-		if hmc376RecordNote(obs, types.TraceNoteKeyMemberCount) != "127" || obs.Value != "92.266" ||
-			hmc376RecordNote(obs, types.TraceNoteKeyMemberNotListed) != "95" {
+		if hmc376RecordNote(obs, types.TraceNoteKeyMemberCount) != "126" || obs.Value != "92.026" ||
+			hmc376RecordNote(obs, types.TraceNoteKeyMemberNotListed) != "94" {
 			t.Fatalf("the semantic record must agree with the board row: value=%s notes=%v", obs.Value, obs.RichNotes)
 		}
 		record = true

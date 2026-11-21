@@ -610,7 +610,7 @@ func rcrcSemanticAdjacentProjection() types.TraceCausalProjection {
 		AdjacentCauses: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "rcrc-span",
 			Subject: "binder:8815_1-6581", Predicate: "trace_semantic_span",
-			SemanticClass: "class_verification", SpanName: "VerifyClassLoaderContextMatch",
+			SemanticClass: "class_verification", SpanName: "VerifyClass com.example.Foo",
 			ChainRelevance: "adjacent", ImpactMS: 0.672,
 			QueryWindowStartTs: 100.0, QueryWindowEndTs: 100.081, // 81ms source
 			Confidence: 0.82,
@@ -782,7 +782,7 @@ func TestRCRCSemanticRelationNamesHost(t *testing.T) {
 		SemanticSpans: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "rcrc-span2",
 			Subject: "binder:8815_1-6581", Predicate: "trace_semantic_span",
-			SemanticClass: "class_verification", SpanName: "VerifyClassLoaderContextMatch",
+			SemanticClass: "class_verification", SpanName: "VerifyClass com.example.Foo",
 			ImpactMS: 0.672, Confidence: 0.82,
 		}},
 	}

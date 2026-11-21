@@ -653,7 +653,7 @@ func TestHMC376BuiltInArmsKeepTheirNames(t *testing.T) {
 		{"JIT compiling void pkg.Entry.run() (kind=Baseline)", "jit_compile"}, {"H:JITCompileTask", "jit_compile"},
 		{"void vm::jit::JitCompiler::CompileMethod(int)", "jit_compile"},
 		{"H:Ark runtime compile", "runtime_compile"}, {"H:ark::RuntimeCompiler::CompileMethod(int)", "runtime_compile"},
-		{"VerifyClass com.example.Foo", "class_verification"}, {"VerifyClassLoaderContextMatch", "class_verification"},
+		{"VerifyClass com.example.Foo", "class_verification"},
 		{"ShaderCompile pipeline warmup", "shader_compile"}, {"shader_compile", "shader_compile"},
 		{"driver_compile_shader", "shader_compile"}, {"H:shader_cache: load/compile shaders, use_cache:1", "shader_compile"},
 		{"cmpbe_v2_compile_multiple_shaders", "shader_compile"}, {"H:Load/Compile Shaders", "shader_compile"},
@@ -680,6 +680,13 @@ func TestHMC376BuiltInArmsKeepTheirNames(t *testing.T) {
 		"GCLockerMetrics", "gc_cache lookup", "GC metrics flush", "ImageGCrop", "magicgcvalue", "garbage collector metrics", "H:gc_cache",
 		"void vm::jit::JitCompiler::LoadCacheEntry(int)", "H:RuntimeCompiler::Initialize(ArkMethod*)", "H:Ark runtime compiler cache lookup", "JIT MemoryRegion Setup",
 		"PreCompileCache", "Choreographer#doFrame",
+		// EVOLUTION RECORD (HMC377 CV-1, 2026-11-20): "VerifyClassLoaderContextMatch"
+		// was listed among the positives above, copied from the substring
+		// rule of the time. It is ART's check that the compiled code's
+		// recorded class-loader context matches (opening that code), not
+		// class verification; the class-verification literals are now
+		// word-bounded, so it stays unclassified.
+		"VerifyClassLoaderContextMatch", "H:VerifyClassLoaderContextMatch",
 	} {
 		if class := TraceSpanSemanticClass(name); class != "" {
 			t.Errorf("%q must stay unclassified, got %q", name, class)

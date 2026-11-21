@@ -105,6 +105,18 @@ func TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName(t *testing.T) {
 // repro): TID 11317 is published as #tp-io-29 (most of the window); its
 // class-verification record and its span-member observation named it by the
 // marker-time comm #tp-fixed-1176.
+//
+// EVOLUTION RECORD (HMC377 CV-1, 2026-11-20): that record came from one
+// 0.005 ms "VerifyClassLoaderContextMatch" marker at 141.681957 s, which the
+// substring rule counted as class verification. It is the class-loader context
+// check of opening compiled code, so TID 11317 has no class-verification record
+// any more, and no semantic marker in this window (or in the Honeybird reboot
+// window) runs under a name other than its thread's display name. The rename
+// at marker time stays pinned by the synthetic
+// TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName; on this capture the
+// pin keeps the identity of 11317, states that the mislabelled record is gone,
+// and checks that every span record of a renamed thread (11105, 11115) is
+// named by that thread's display name.
 func TestHMC377WholeOriginalDouyinSpanRecordsNameTheWorkerByItsDisplayName(t *testing.T) {
 	path := hmc376Original(t, "CODRAX_HMC377_DOUYIN_REBOOT", hmc377DouyinDigest, hmc377DouyinSize)
 	result, native := hmc376QueryTarget(t, path, "root_cause_rank", map[string]any{"pid": 11105, "target_scope": "thread"}, 140.911304, 141.835458)
@@ -112,17 +124,35 @@ func TestHMC377WholeOriginalDouyinSpanRecordsNameTheWorkerByItsDisplayName(t *te
 	if !ok || identity.DisplayComm != "#tp-io-29" {
 		t.Fatalf("TID 11317 identity %+v", identity)
 	}
-	seen := map[string]bool{}
+	display := map[string]string{}
+	for _, id := range native.ThreadIdentities {
+		if len(id.Names) > 1 {
+			display[fmt.Sprintf("-%d", id.TID)] = id.DisplayComm
+		}
+	}
+	renamedSpanRecords := map[string]bool{}
 	for _, record := range result.Observations {
-		if !strings.HasSuffix(record.Subject, "-11317") {
+		if strings.HasSuffix(record.Subject, "-11317") {
+			if record.Subject != "#tp-io-29-11317" {
+				t.Fatalf("%s %s names TID 11317 %q, want #tp-io-29-11317", record.ID, record.ClaimKey, record.Subject)
+			}
+			if record.ClaimKey == "trace_semantic_span:class_verification" {
+				t.Fatalf("TID 11317 runs no class verification in this window; %s is the class-loader context check", record.ID)
+			}
+		}
+		if !strings.HasPrefix(record.ClaimKey, "trace_semantic_span:") && record.ClaimKey != "trace_span_members_observation" {
 			continue
 		}
-		if record.Subject != "#tp-io-29-11317" {
-			t.Fatalf("%s %s names TID 11317 %q, want #tp-io-29-11317", record.ID, record.ClaimKey, record.Subject)
+		for suffix, comm := range display {
+			if strings.HasSuffix(record.Subject, suffix) {
+				if record.Subject != comm+suffix {
+					t.Fatalf("%s %s names a renamed thread %q, want %q", record.ID, record.ClaimKey, record.Subject, comm+suffix)
+				}
+				renamedSpanRecords[record.Subject] = true
+			}
 		}
-		seen[record.ClaimKey] = true
 	}
-	if !seen["trace_semantic_span:class_verification"] || !seen["trace_span_members_observation"] {
-		t.Fatalf("the repro records must be published for TID 11317: %v", seen)
+	if !renamedSpanRecords[".ugc.aweme.lite-11105"] || !renamedSpanRecords["RenderThread-11115"] {
+		t.Fatalf("the span records of the renamed threads 11105 and 11115 must be published: %v", renamedSpanRecords)
 	}
 }
