@@ -122,8 +122,10 @@ type rspaHeldShare struct {
 	dio      bool
 	semantic bool
 	// partition (HMC377 fix round 6): the holding seat's D/IO cause
-	// partition (unset on a seat that holds for the whole thread: a chain
-	// seat, the thread's own unwalked seat).
+	// partition, unset on every seat that is not one partition: the seats
+	// that hold for the whole thread (a chain seat, the thread's own unwalked
+	// seat) and pid-level accounts such as the state-churn twin — which
+	// round 7 keeps from holding a partition's share (admits).
 	partition rspaDIOCausePartition
 	windows   []foldInterval
 	ms        float64
@@ -141,11 +143,23 @@ type rspaDIOCausePartition struct {
 	cause string
 }
 
-// admits reports whether a hold of partition h can hold a share a claim of
-// partition c names: equal partitions, or either side speaks for the whole
-// thread family.
-func (c rspaDIOCausePartition) admits(h rspaDIOCausePartition) bool {
-	return !c.set || !h.set || c.cause == h.cause
+// admits reports whether hold h can hold a share a claim of partition c
+// names: a whole-thread claim is held by any partition's holds; a partition's
+// claim is held by a hold of the same partition, or by a hold of a seat that
+// holds for the whole thread — the thread-level chain seat or the thread's
+// own unwalked seat. HMC377 fix round 7 (R7-3): any other hold without a
+// partition (the pid-level state-churn ◇ twin's remainder) is another
+// account, never the partition's own twin — a partition's remainder claim
+// resolves only within its partition.
+func (c rspaDIOCausePartition) admits(h rspaHeldShare) bool {
+	switch {
+	case !c.set:
+		return true
+	case h.partition.set:
+		return c.cause == h.partition.cause
+	default:
+		return h.role == RootCauseShareHolderChainSeat || h.role == RootCauseShareHolderUnwalkedSeat
+	}
 }
 
 // rspaStampClaimPartitions types the D/IO claims of a sentence attached to
@@ -586,7 +600,7 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem) {
 			// HMC377 fix round 6: a D/IO cause partition's share is held only
 			// in that partition (or by a seat holding for the whole thread)
 			// — never by another partition's seat of equal value.
-			if !c.partition.admits(h.partition) {
+			if !c.partition.admits(h) {
 				continue
 			}
 			heldMs += h.ms
