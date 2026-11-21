@@ -16483,13 +16483,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			seatedCausalRootEvidence[key] = true
 		}
 	}
-	// HMC377 fix round 7 (R7-2): the impact's own seat carries the impact's
-	// position (its chain-view record identity) — see causalImpactOrdinal.
-	ownSeat := func(item RootCauseRankItem, impactIndex int) RootCauseRankItem {
-		item.causalImpactOrdinal = impactIndex + 1
-		return item
-	}
-	for impactIndex, impact := range chain.CausalImpacts {
+	for _, impact := range chain.CausalImpacts {
 		if impact.TotalMs <= 0 {
 			continue
 		}
@@ -16546,11 +16540,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		if separatePrioritySeat {
 			items = append(items,
-				ownSeat(rootCausePrimaryItemFromCausalImpact(impact), impactIndex),
+				rootCausePrimaryItemFromCausalImpact(impact),
 				rootCausePriorityItemFromCausalImpact(impact),
 			)
 		} else {
-			items = append(items, ownSeat(rootCauseItemFromCausalImpact(impact), impactIndex))
+			items = append(items, rootCauseItemFromCausalImpact(impact))
 		}
 		seatRootEvidenceTwin(impact)
 	}
@@ -18293,9 +18287,6 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// absorbed rows ride as lossless detail and resolve against the same
 	// board.
 	resolveRankShareClaims(rank.Items, rank.AbsorbedItems)
-	// HMC377 fix round 7 (R7-2): a claim the published board does not hold
-	// names the causal impacts whose own seats hold it on the pool.
-	resolveRankShareClaimHolderImpacts(rank.Items, rank.AbsorbedItems, rank.preTruncationItems)
 	return rank
 }
 

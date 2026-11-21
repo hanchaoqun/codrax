@@ -898,13 +898,9 @@ const (
 	// its account is held by another seat of the same board — part, holder
 	// role, share, the engine's resolution against the published board and
 	// the holder rows' board positions (EncodeTraceShareClaimsNote /
-	// ParseTraceShareClaimsNote, one codec) — and (HMC377 fix round 7) on a
-	// claim the published board does not hold, the positions of the causal
-	// impacts whose own seats hold the share (their chain-view records). The
-	// renderer names a holder only through these references (seat [E#] or the
-	// held form when the reference is drawn here, otherwise the see-detail
-	// form, never an absence word); it never searches the board for one.
-	// Wording input, and the ◎ eligibility of a represented satellite.
+	// ParseTraceShareClaimsNote, one codec). The renderer names a holder only
+	// through these references (seat [E#], or compacted — see the detail
+	// index); it never searches the board for one. Wording input only.
 	TraceNoteKeyShareClaims = "share_claims"
 	// TraceNoteKeyGatedShareClaimed / TraceNoteKeyGatedShareFull /
 	// TraceNoteKeyGatedShareConstituentSeat / TraceNoteKeyGatedShareClaimSeats

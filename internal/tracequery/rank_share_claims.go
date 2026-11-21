@@ -48,7 +48,6 @@ package tracequery
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -102,17 +101,6 @@ type RootCauseShareClaim struct {
 	// wears ChainAnchorRepresentedByChainSeat only while it resolves).
 	Represented bool
 	HolderKeys  []string
-	// HolderCausalImpacts (HMC377 fix round 7, R7-2): on a claim the
-	// published board does not hold (Resolved false), the 1-based positions in
-	// the chain's CausalImpacts of the wakeup causal impacts whose own seats
-	// hold the share on the pre-truncation pool (both rank passes) — set only
-	// when every such holder is a causal impact's own seat
-	// (causalImpactOrdinal), so the same causal impact can be recognised where
-	// the chain view draws its own record of it. The claim stays unresolved
-	// (the rank board does not hold it; its sentence keeps its compaction
-	// form); the projection, never the engine, decides whether that record is
-	// drawn.
-	HolderCausalImpacts []int
 
 	pid int
 	dio bool
@@ -277,8 +265,6 @@ func rspaAppendSentence(item *RootCauseRankItem, s rspaSentence) {
 func rspaClearClaims(item *RootCauseRankItem) {
 	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
 	item.ShareHolderKey = ""
-	// HMC377 fix round 7: the copy is no causal impact's own account.
-	item.causalImpactOrdinal = 0
 }
 
 // rspaHold records that a seat holds a share (one entry per role). A D/IO
@@ -575,63 +561,6 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 	}
 	for i := range detail {
 		assign(&detail[i])
-	}
-}
-
-// resolveRankShareClaimHolderImpacts — HMC377 fix round 7 (R7-2), after the
-// resolution pass: a claim the published board does not hold is resolved
-// against the seats of the pre-truncation pool (pool: both rank passes'
-// truncation inputs) that are one wakeup causal impact's own account
-// (causalImpactOrdinal; deduplicated by impact, the later pass's copy
-// winning). When those seats hold the claim's share (the same typed
-// resolution: thread, role, family, partition, instants or value), the claim
-// carries their impacts' positions. A claim whose holders include any seat
-// that is not an impact's own account never resolves here (no impact can
-// stand for that seat), and a seat whose impact record publishes another
-// account (an inversion sub-seat beside its primary-state seat) carries no
-// position — those two records are not the same account.
-func resolveRankShareClaimHolderImpacts(board, detail, pool []RootCauseRankItem) {
-	var minted []RootCauseRankItem
-	at := map[int]int{}
-	for _, it := range pool {
-		if it.causalImpactOrdinal <= 0 || it.AbsorbedByRankFamily || it.ChainAnchorFullMs > 0 ||
-			strings.TrimSpace(it.Source) != "wakeup_chain.causal_impacts" {
-			continue
-		}
-		if i, seen := at[it.causalImpactOrdinal]; seen {
-			minted[i] = it
-			continue
-		}
-		at[it.causalImpactOrdinal] = len(minted)
-		minted = append(minted, it)
-	}
-	link := func(item *RootCauseRankItem) {
-		for ci := range item.ShareClaims {
-			c := &item.ShareClaims[ci]
-			c.HolderCausalImpacts = nil
-			if c.Resolved || len(minted) == 0 {
-				continue
-			}
-			probe := *c
-			resolveShareClaim(&probe, minted)
-			if !probe.Resolved {
-				continue
-			}
-			seen := map[int]bool{}
-			for _, h := range probe.holderIdx {
-				if o := minted[h].causalImpactOrdinal; !seen[o] {
-					seen[o] = true
-					c.HolderCausalImpacts = append(c.HolderCausalImpacts, o)
-				}
-			}
-			sort.Ints(c.HolderCausalImpacts)
-		}
-	}
-	for i := range board {
-		link(&board[i])
-	}
-	for i := range detail {
-		link(&detail[i])
 	}
 }
 

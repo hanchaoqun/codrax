@@ -217,14 +217,9 @@ func runtimeTraceProjElimRepresentedExcluded(row runtimeTraceProjTreeRow) bool {
 
 // runtimeTraceProjElimRepresentedOnBoard — HMC377 fix round 5: a represented
 // satellite leaves the ◎ population only while the holder its typed claims
-// name renders on this board. HMC377 fix round 7 (R7-2, R-377-8 value part):
-// that holder may be drawn as its causal impact's chain-view record after the
-// rank cap cut its rank copy — the engine then drops the represented marker
-// (the rank board does not hold the share) while the typed claim still names
-// the drawn impact, so the stamped holder state alone decides: a share whose
-// holder is drawn on this board never enters the population a second time.
+// name renders on this board.
 func runtimeTraceProjElimRepresentedOnBoard(row runtimeTraceProjTreeRow) bool {
-	return row.RepresentedState == runtimeTraceProjShareRefRendered
+	return row.Node.ChainAnchorRepresentedByChainSeat && row.RepresentedState == runtimeTraceProjShareRefRendered
 }
 
 // runtimeTraceProjElimSemanticCensusRow is the SEATLESS semantic census

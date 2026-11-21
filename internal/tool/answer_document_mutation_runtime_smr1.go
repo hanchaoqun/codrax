@@ -1476,13 +1476,6 @@ type runtimeTraceProjDrawnRecord struct {
 // A row's own records win over a peer copy of the same record; a record is
 // drawn only under an [E#] (a tagless carrier draws nothing a sentence could
 // point at).
-//
-// HMC377 fix round 7 (R7-2): a causal impact's chain-view record
-// (wakeup_causal_impact) is indexed like any record, so a claim whose holder
-// seat the rank cap cut names the same causal impact by that record's id
-// (TraceCausalProjectionShareClaim.HolderImpactEvidenceIDs, typed from the
-// engine) and every holder lookup — and through the stamped holder state the
-// ◎ eligibility — finds it wherever the projection draws it.
 func runtimeTraceProjDrawnRecordIndex(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[string]runtimeTraceProjDrawnRecord {
 	index := map[string]runtimeTraceProjDrawnRecord{}
 	put := func(ids []string, drawn runtimeTraceProjDrawnRecord) {
@@ -1540,9 +1533,7 @@ func runtimeTraceProjDrawnRecordIndex(model *runtimeTraceProjTreeModel, all []*r
 }
 
 // runtimeTraceProjResolveShareRef reads the claims of the given parts (or the
-// represented-sentence claims when represented) — never a board search: a
-// resolved claim's holder records, or (HMC377 fix round 7) an unresolved
-// claim's holders' causal-impact records. A
+// represented-sentence claims when represented) — never a board search. A
 // holder drawn only inside the claimant's own row is no other seat of this
 // board: the part then names no holder and claims no absence (see-detail
 // form, HMC377 fix round 6).
@@ -1575,19 +1566,10 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 	seen := map[drawnAt]bool{}
 	selfDrawn := false
 	for _, c := range claims {
-		holders := c.HolderEvidenceIDs
-		if !c.Resolved {
-			// HMC377 fix round 7 (R7-2): the published rank board does not
-			// hold the share, but its holders on the engine's pool are causal
-			// impacts' own seats — the same impacts are drawn wherever their
-			// chain-view records are (typed record identities carried from the
-			// engine, never a value or name match).
-			holders = c.HolderImpactEvidenceIDs
-		}
-		if len(holders) == 0 {
+		if !c.Resolved || len(c.HolderEvidenceIDs) == 0 {
 			return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
 		}
-		for _, id := range holders {
+		for _, id := range c.HolderEvidenceIDs {
 			drawn, ok := index[strings.TrimSpace(id)]
 			if !ok || drawn.row == nil {
 				return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}

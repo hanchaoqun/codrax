@@ -9,13 +9,6 @@ package types
 // publishes exactly that share, and the holder rows' board positions. The
 // projection turns the positions into the holder records' ids on the same
 // board; the renderer names the holder through them and nothing else.
-//
-// HMC377 fix round 7 (R7-2): a claim the published board does not hold may
-// carry the positions of the wakeup causal impacts whose own seats hold the
-// share on the engine's pre-truncation pool; the projection turns them into
-// the ids of those impacts' chain-view records on the same publication
-// (wakeup_causal_impact:<position>) — the same causal impact under another
-// record identity, never a value or name match.
 
 import (
 	"fmt"
@@ -39,11 +32,6 @@ type TraceCausalProjectionShareClaim struct {
 	// Represented: a "represented by" sentence makes the claim.
 	Represented       bool
 	HolderEvidenceIDs []string
-	// HolderImpactEvidenceIDs (HMC377 fix round 7): on a claim the published
-	// rank board does not hold (Resolved false), the ids of the chain-view
-	// records of the causal impacts whose own seats hold the share — the
-	// holder is drawn where one of those records is drawn.
-	HolderImpactEvidenceIDs []string
 }
 
 // TraceShareClaimNote is one claim on the note wire (holder board positions,
@@ -56,25 +44,14 @@ type TraceShareClaimNote struct {
 	Exact           bool
 	Represented     bool
 	HolderPositions []int
-	// HolderImpactPositions (HMC377 fix round 7): the 1-based positions of the
-	// causal impacts whose chain-view records publish the holders' accounts
-	// (an unresolved claim only; the wire's optional eighth field).
-	HolderImpactPositions []int
 }
 
-const (
-	traceShareClaimRecordPositionMarker = "#root_cause_rank:"
-	// TraceShareClaimCausalImpactRecordMarker is the record-identity suffix of
-	// a causal impact's chain-view record on a trace_query publication
-	// ("<scope>#wakeup_causal_impact:<position>").
-	TraceShareClaimCausalImpactRecordMarker = "#wakeup_causal_impact:"
-)
+const traceShareClaimRecordPositionMarker = "#root_cause_rank:"
 
 // EncodeTraceShareClaimsNote renders the note value: one entry per claim,
 // "part/role/resolved/exact/represented/share/pos+pos", entries joined by
-// ";" — an unresolved claim naming its holders' causal impacts appends
-// "/impact+impact" (HMC377 fix round 7). "" for no claim (the note is then
-// zero-dropped).
+// ";". "" for no
+// claim (the note is then zero-dropped).
 func EncodeTraceShareClaimsNote(claims []TraceShareClaimNote) string {
 	parts := make([]string, 0, len(claims))
 	for _, c := range claims {
@@ -87,26 +64,10 @@ func EncodeTraceShareClaimsNote(claims []TraceShareClaimNote) string {
 				positions = append(positions, strconv.Itoa(p))
 			}
 		}
-		entry := fmt.Sprintf("%s/%s/%s/%s/%s/%.3f/%s", c.Part, c.Role, shareClaimBit(c.Resolved), shareClaimBit(c.Exact),
-			shareClaimBit(c.Represented), c.ShareMS, strings.Join(positions, "+"))
-		if impacts := shareClaimPositionList(c.HolderImpactPositions); impacts != "" && !c.Resolved {
-			// HMC377 fix round 7: the optional eighth field (absent on every
-			// other claim, so their bytes do not move).
-			entry += "/" + impacts
-		}
-		parts = append(parts, entry)
+		parts = append(parts, fmt.Sprintf("%s/%s/%s/%s/%s/%.3f/%s", c.Part, c.Role, shareClaimBit(c.Resolved), shareClaimBit(c.Exact),
+			shareClaimBit(c.Represented), c.ShareMS, strings.Join(positions, "+")))
 	}
 	return strings.Join(parts, ";")
-}
-
-func shareClaimPositionList(list []int) string {
-	out := make([]string, 0, len(list))
-	for _, p := range list {
-		if p > 0 {
-			out = append(out, strconv.Itoa(p))
-		}
-	}
-	return strings.Join(out, "+")
 }
 
 func shareClaimBitValid(v string) bool { return v == "0" || v == "1" }
@@ -128,15 +89,14 @@ func ParseTraceShareClaimsNote(value, recordID string) []TraceCausalProjectionSh
 	if value == "" {
 		return nil
 	}
-	prefix, scope := "", ""
+	prefix := ""
 	if at := strings.LastIndex(recordID, traceShareClaimRecordPositionMarker); at >= 0 {
 		prefix = recordID[:at+len(traceShareClaimRecordPositionMarker)]
-		scope = recordID[:at]
 	}
 	var out []TraceCausalProjectionShareClaim
 	for _, entry := range strings.Split(value, ";") {
 		fields := strings.Split(strings.TrimSpace(entry), "/")
-		if (len(fields) != 7 && len(fields) != 8) || fields[0] == "" || fields[1] == "" {
+		if len(fields) != 7 || fields[0] == "" || fields[1] == "" {
 			continue
 		}
 		share, err := strconv.ParseFloat(fields[5], 64)
@@ -149,15 +109,6 @@ func ParseTraceShareClaimsNote(value, recordID string) []TraceCausalProjectionSh
 			for _, raw := range strings.Split(fields[6], "+") {
 				if pos, err := strconv.Atoi(raw); err == nil && pos > 0 {
 					claim.HolderEvidenceIDs = append(claim.HolderEvidenceIDs, prefix+strconv.Itoa(pos))
-				}
-			}
-		}
-		if len(fields) == 8 && fields[7] != "" && scope != "" && !claim.Resolved {
-			// HMC377 fix round 7: the holders' causal impacts' chain-view
-			// records on the same publication.
-			for _, raw := range strings.Split(fields[7], "+") {
-				if pos, err := strconv.Atoi(raw); err == nil && pos > 0 {
-					claim.HolderImpactEvidenceIDs = append(claim.HolderImpactEvidenceIDs, scope+TraceShareClaimCausalImpactRecordMarker+strconv.Itoa(pos))
 				}
 			}
 		}
