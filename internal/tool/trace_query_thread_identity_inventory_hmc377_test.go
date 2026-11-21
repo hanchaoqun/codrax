@@ -104,15 +104,21 @@ func TestHMC377SpanRecordsNameARenamedThreadByItsDisplayName(t *testing.T) {
 // 105 蜂鸟 container cold start #5 (ftrace-20261019_17.35.50), the analysed
 // main thread 28252 in [4819.5, 4820.0) (HMC377 round 9, R9-2, register
 // R8C-1): the worker TID 28559 is named download_sdk for the window (sched
-// names: download_sdk ×121, the creator-inherited LMagex-Work-2 ×3), but all
-// 44 of its VerifyClass markers in the window carry the row-header comm
-// me.ele.hb.frame (raw oracle fix9/r2/oracle_28559.py; review oracle
-// fix8/review-cv1/oracle/rename_repro_28559.out). This is the discriminating
-// real repro of F1: the class-verification span record and the span-member
-// observation fold from the complete span inventory after publication, and
-// name TID 28559 me.ele.hb.frame-28559 (the marker-time name) when that
-// inventory is not published under the display view
-// (publishTraceSpanInventory a no-op: fix9/r2/mutant_f1_noop.log FAILS here).
+// names: download_sdk ×121, the creator-inherited LMagex-Work-2 ×3), and
+// download_sdk is also its name when its markers are written. All 44 of its
+// VerifyClass markers in the window nevertheless carry the row-header comm
+// me.ele.hb.frame: the row header prints the comm cached when the trace was
+// dumped, a name the thread takes later (the first scheduler payload naming
+// 28559 me.ele.hb.frame is at 4824.894820, outside the window; raw oracle
+// fix9/r2/oracle_28559.py; review oracle fix8/review-cv1/oracle/
+// rename_repro_28559.out; correction round 10, fix9/review-cv1/oracle/
+// {marker_time_rows.txt,raw_28559.out,next_comm_28559.out}). This is the
+// discriminating real repro of F1: the class-verification span record and
+// the span-member observation fold from the complete span inventory after
+// publication, and name TID 28559 me.ele.hb.frame-28559 (the row-header
+// dump-time comm) when that inventory is not published under the display
+// view (publishTraceSpanInventory a no-op: fix9/r2/mutant_f1_noop.log FAILS
+// here).
 const (
 	hmc377HoneybirdContainer5Digest = "0e535301ac34e2ce47dfa28cb72e543225a0acccc74da04f06a973c555226732"
 	hmc377HoneybirdContainer5Size   = 114960266
@@ -128,16 +134,17 @@ func TestHMC377WholeOriginalHoneybirdContainerSpanRecordsNameTheWorkerByItsDispl
 	if !ok || identity.DisplayComm != "download_sdk" {
 		t.Fatalf("TID 28559 identity %+v", identity)
 	}
-	// The marker-time name is one of the thread's own names in the window:
-	// a record named by it is a different name than the display.
-	markerTimeName := false
+	// The row-header comm (the comm cached at dump time, not the name the
+	// thread had when it wrote its markers) is among the thread's names: a
+	// record named by it is a different name than the display.
+	rowHeaderName := false
 	for _, name := range identity.Names {
 		if name.Comm == "me.ele.hb.frame" {
-			markerTimeName = true
+			rowHeaderName = true
 		}
 	}
-	if !markerTimeName {
-		t.Fatalf("TID 28559 must carry the marker-time name me.ele.hb.frame among its names: %+v", identity.Names)
+	if !rowHeaderName {
+		t.Fatalf("TID 28559 must carry the row-header comm me.ele.hb.frame among its names: %+v", identity.Names)
 	}
 	var spanRecord, memberRecord bool
 	for _, record := range result.Observations {
@@ -185,6 +192,15 @@ func TestHMC377WholeOriginalHoneybirdContainerSpanRecordsNameTheWorkerByItsDispl
 // naming it by #tp-io-29 (a rank row named it #tp-fixed-1176 when display
 // naming was mutated, fix8/review-cv1/mutant/mutant_run.log), and the
 // class-loader context check not being a class-verification record (CV-1).
+//
+// EVOLUTION RECORD (HMC377 round 10, register R9C-1 (4), 2026-11-21): the
+// R9-2 re-scope also dropped the guard that the span records of the renamed
+// threads are published, so a mutant that stops publishing the analysed
+// thread's span-member records (review round 9, fix9/review-cv1/mutant/
+// M5b_member.go with M5_trace_query.go) passed it (run_M5b.log). The guard is
+// restored: the analysed thread 11105 publishes both a semantic span record
+// and its span-member record, and 11115 a span or span-member record, each
+// named by the thread's display name.
 func TestHMC377WholeOriginalDouyinClassLoaderContextCheckIsNoClassVerificationRecord(t *testing.T) {
 	path := hmc376Original(t, "CODRAX_HMC377_DOUYIN_REBOOT", hmc377DouyinDigest, hmc377DouyinSize)
 	result, native := hmc376QueryTarget(t, path, "root_cause_rank", map[string]any{"pid": 11105, "target_scope": "thread"}, 140.911304, 141.835458)
@@ -193,7 +209,24 @@ func TestHMC377WholeOriginalDouyinClassLoaderContextCheckIsNoClassVerificationRe
 		t.Fatalf("TID 11317 identity %+v", identity)
 	}
 	named := false
+	renamed := map[string]string{"-11105": ".ugc.aweme.lite-11105", "-11115": "RenderThread-11115"}
+	spanRecords := map[string]bool{}
 	for _, record := range result.Observations {
+		kind := ""
+		switch {
+		case strings.HasPrefix(record.ClaimKey, "trace_semantic_span:"):
+			kind = "span"
+		case record.ClaimKey == "trace_span_members_observation":
+			kind = "member"
+		}
+		for suffix, want := range renamed {
+			if kind != "" && strings.HasSuffix(record.Subject, suffix) {
+				if record.Subject != want {
+					t.Fatalf("%s %s names a renamed thread %q, want %q", record.ID, record.ClaimKey, record.Subject, want)
+				}
+				spanRecords[want+"/"+kind] = true
+			}
+		}
 		if !strings.HasSuffix(record.Subject, "-11317") {
 			continue
 		}
@@ -207,5 +240,9 @@ func TestHMC377WholeOriginalDouyinClassLoaderContextCheckIsNoClassVerificationRe
 	}
 	if !named {
 		t.Fatalf("TID 11317 must be published on some record of this window")
+	}
+	if !spanRecords[".ugc.aweme.lite-11105/span"] || !spanRecords[".ugc.aweme.lite-11105/member"] ||
+		!(spanRecords["RenderThread-11115/span"] || spanRecords["RenderThread-11115/member"]) {
+		t.Fatalf("the span and span-member records of the analysed thread 11105 and a span record of 11115 must be published: %v", spanRecords)
 	}
 }

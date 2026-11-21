@@ -71,10 +71,14 @@ func TestHMC377CV1WordBoundedLiteralFindsALaterBoundedOccurrence(t *testing.T) {
 // anywhere in a name, so it needs a rule on both sides, and it follows its
 // built-in sibling arms (texture upload, the GC prefix boundary): an ASCII
 // letter or digit on either side continues the word, anything else bounds it.
-// Measured on the 75 baseline captures (1,304,813 census names, fix9/r3):
+// On the 75 baseline captures (1,304,813 census names, fix9/r3):
 //   - the vocabulary's rule on both sides (mirrored before the literal)
-//     loses the positive "art::ClassVerifier::VerifyClass": a "::" qualifier
-//     before the literal is a namespace, not a continuation;
+//     would lose the pinned positive "art::ClassVerifier::VerifyClass" (a
+//     "::" qualifier before the literal is a namespace, not a continuation).
+//     That is a synthetic-pin reason, not a capture measurement: no raw line
+//     of the 75 captures contains that spelling and 0 of the 1,304,813
+//     census names flip under the mirrored rule (round 10 correction,
+//     fix9/review-cv1/oracle/raw_flip_spellings.txt, census/head.log);
 //   - the CV-1 rule in the vocabulary fails its real ArkTS heads with a
 //     glued numeric stamp ("H:PartialGC::RunPhases0;GCReason2;…");
 //   - the vocabulary's rule after the literal and this rule before it keeps
@@ -92,8 +96,8 @@ func TestHMC377R9ClassVerificationBoundaryProbeExpectations(t *testing.T) {
 		cv   bool
 	}{
 		{"VerifyClassLoaderContextMatch", false},
-		{"verify_class_loader_context_match", true}, // the verify + class token arm
-		{"Verify_Class_Loader_Context_Match", true}, // the verify + class token arm
+		{"verify_class_loader_context_match", true}, // the "verify_class" literal arm (the token arm agrees)
+		{"Verify_Class_Loader_Context_Match", true}, // the "verify_class" literal arm (the token arm agrees)
 		{"verify class loader context match", true}, // the verify + class token arm
 		// '_', '::' and '/' after the literal bound it (the vocabulary's
 		// rule would continue the name after "_" / "::" + letter).
@@ -109,7 +113,9 @@ func TestHMC377R9ClassVerificationBoundaryProbeExpectations(t *testing.T) {
 		{"VerifyClassé", true},
 		{"éVerifyClass", true},
 		{"VERIFYCLASS FOO", true},
-		{"VerİfyClass foo", true}, // the verify + class token arm
+		// Go lowercases U+0130 to 'i', so the "verifyclass" literal arm decides
+		// (fix9/review-cv1/mutant/probe_arms.log: token_arm=false).
+		{"VerİfyClass foo", true},
 		// A digit on either side continues the word (the vocabulary's rule
 		// would end the name before a digit stamp).
 		{"VerifyClass2", false},

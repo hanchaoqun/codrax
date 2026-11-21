@@ -23293,9 +23293,12 @@ func traceSpanLooksLikeClassVerification(lower string, tokens map[string]bool) b
 // anywhere in the name, so both of its sides need a rule, and it keeps the
 // boundary of its sibling arms (texture upload, semanticSpanHasPrefixBoundary).
 // Neither rule serves both layers: the vocabulary's rule mirrored before a
-// literal loses "art::ClassVerifier::VerifyClass", and this rule in the
-// vocabulary loses its real stamped heads (measured over the 75 baseline
-// captures; TestHMC377R9ClassVerificationBoundaryProbeExpectations).
+// literal would lose the pinned spelling "art::ClassVerifier::VerifyClass" (a
+// synthetic pin: no baseline capture contains it, and 0 of the 1,304,813
+// census names of the 75 baseline captures flip under the mirrored rule),
+// and this rule in the vocabulary loses its real stamped heads (measured
+// over the 75 baseline captures;
+// TestHMC377R9ClassVerificationBoundaryProbeExpectations).
 func traceSpanContainsWordBoundedLiteral(lower, literal string) bool {
 	if literal == "" {
 		return false
