@@ -746,7 +746,12 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 	// claim of its row over the SAME rendered-row universe the pairing arms
 	// read — the holder's [E#] when it renders here, the compaction form
 	// otherwise, a see-detail form on a node without a typed reference.
-	anchoredRefs := runtimeTraceProjStampShareClaimRefs(all)
+	// HMC377 fix round 6: "renders here" is the drawn-record index — every
+	// record id the projection draws, wherever it is drawn (a row's own
+	// record, a record merged into it, a rank twin folded into a chain row,
+	// every other folded peer, an engine-absorbed chain row inside its family
+	// row), under the [E#] it is drawn with.
+	anchoredRefs := runtimeTraceProjStampShareClaimRefs(model, all)
 
 	// Pair class (0): ◇ remainder half ↔ ⛓ counterpart. HMC377 fix round 5:
 	// the counterpart is the ONE seat the remainder's anchored-share claim
@@ -786,7 +791,11 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			continue
 		}
 		ref := anchoredRefs[rem]
-		if ref.state != runtimeTraceProjShareRefRendered || !ref.exact || len(ref.rows) != 1 {
+		// HMC377 fix round 6: the counterpart must be the holder's OWN row —
+		// a holder drawn inside another row (a rank twin folded into a chain
+		// row) is named by its [E#], but that row publishes the host's
+		// account, never this share.
+		if ref.state != runtimeTraceProjShareRefRendered || !ref.exact || !ref.own || len(ref.rows) != 1 {
 			continue
 		}
 		pick := ref.rows[0]
@@ -1408,12 +1417,15 @@ func runtimeTraceProjStampOverflowSeriesMirrors(model *runtimeTraceProjTreeModel
 }
 
 // runtimeTraceProjShareRef is one part of a row's account as its typed share
-// claims name the holder (HMC377 fix round 5).
+// claims name the holder (HMC377 fix round 5). own (HMC377 fix round 6): every
+// holder is drawn as its row's own account (the row's record or one merged
+// into it), not as a peer folded into another row.
 type runtimeTraceProjShareRef struct {
 	state  int
 	rows   []*runtimeTraceProjTreeRow
 	tags   []string
 	exact  bool
+	own    bool
 	seatMS float64
 }
 
@@ -1423,26 +1435,97 @@ const (
 	// sentence names no holder and claims no absence.
 	runtimeTraceProjShareRefNone = iota
 	// runtimeTraceProjShareRefRendered — the engine resolved the claim and
-	// every holder record renders on a surface of this board.
+	// every holder record is drawn on this projection (in another row than
+	// the claimant's).
 	runtimeTraceProjShareRefRendered
 	// runtimeTraceProjShareRefCompacted — the claim did not resolve against
-	// the published board, or a holder record renders on no surface here.
+	// the published board, or a holder record is drawn nowhere here.
 	runtimeTraceProjShareRefCompacted
 )
 
-// runtimeTraceProjShareRefIndex maps every rendered record id (a merged row
-// answers for each record merged into it) to its row.
-func runtimeTraceProjShareRefIndex(all []*runtimeTraceProjTreeRow) map[string]*runtimeTraceProjTreeRow {
-	index := map[string]*runtimeTraceProjTreeRow{}
+// runtimeTraceProjDrawnRecord is where one record id is drawn on this
+// projection (HMC377 fix round 6): the row it is drawn in, the [E#] under
+// which it is drawn there, whether it is that row's own account (the row's
+// record or a record merged into it — the row publishes its value) and its
+// own display value.
+type runtimeTraceProjDrawnRecord struct {
+	row       *runtimeTraceProjTreeRow
+	tag       string
+	own       bool
+	displayMS float64
+}
+
+// runtimeTraceProjDrawnRecordIndex is THE index of every record id the
+// projection draws (HMC377 fix round 6; round 5 indexed the rows' own and
+// merged ids only, so a seat drawn inside another row — the NetEase inversion
+// candidate folded into its chain row — read as not on this board and its
+// represented satellite re-entered the ◎ population as a second owner). Every
+// holder lookup and, through the stamped holder state, the ◎ eligibility read
+// it. Drawn-id classes:
+//   - a row's own record and every record merged into it (self rows, tree
+//     rows — trunk chain nodes, cause children, semantic and depthless rows —
+//     adjacent and background stanza rows; the four lanes are every row the
+//     projection draws), under the row's [E#];
+//   - a folded peer drawn inside its host row (rank twin, self-symptom twin,
+//     same-segment mirror, branch-twin copy — each in the row's [E#+E#]
+//     bracket; a same-thread IO peer in the row's IO note), under the peer's
+//     own [E#];
+//   - an engine-absorbed chain-lane row, drawn inside its family row (its own
+//     [E#] only in the detail stanza), under the family row's [E#].
+//
+// A row's own records win over a peer copy of the same record; a record is
+// drawn only under an [E#] (a tagless carrier draws nothing a sentence could
+// point at).
+func runtimeTraceProjDrawnRecordIndex(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[string]runtimeTraceProjDrawnRecord {
+	index := map[string]runtimeTraceProjDrawnRecord{}
+	put := func(ids []string, drawn runtimeTraceProjDrawnRecord) {
+		if drawn.tag == "" {
+			return
+		}
+		for _, id := range ids {
+			if id = strings.TrimSpace(id); id == "" {
+				continue
+			}
+			if _, seen := index[id]; !seen {
+				index[id] = drawn
+			}
+		}
+	}
 	for _, row := range all {
 		if !row.HasData {
 			continue
 		}
-		for _, id := range append([]string{row.Node.EvidenceID}, row.Node.MergedEvidenceIDs...) {
-			if id = strings.TrimSpace(id); id != "" {
-				if _, seen := index[id]; !seen {
-					index[id] = row
-				}
+		put(runtimeTraceProjNodeRecordIDs(row.Node), runtimeTraceProjDrawnRecord{row: row, tag: strings.TrimSpace(row.EvidenceTag), own: true,
+			displayMS: runtimeTraceProjNodeDisplayImpact(row.Node)})
+	}
+	peer := func(row *runtimeTraceProjTreeRow, tag string, drawn runtimeTraceProjPeerDrawn) {
+		put(drawn.recordIDs, runtimeTraceProjDrawnRecord{row: row, tag: strings.TrimSpace(tag), displayMS: drawn.displayMS})
+	}
+	for _, row := range all {
+		if !row.HasData {
+			continue
+		}
+		for _, p := range row.RankFoldPeers {
+			peer(row, p.EvidenceTag, p.drawn)
+		}
+		for _, p := range row.SelfSymptomFoldPeers {
+			peer(row, p.EvidenceTag, p.drawn)
+		}
+		for _, p := range row.SameSegMirrorPeers {
+			peer(row, p.EvidenceTag, p.drawn)
+		}
+		for _, p := range row.BranchTwinFoldPeers {
+			peer(row, p.EvidenceTag, p.drawn)
+		}
+		for _, p := range row.IOFoldPeers {
+			peer(row, p.EvidenceTag, p.drawn)
+		}
+	}
+	if model != nil {
+		hosts := runtimeTraceProjAbsorbedChainHosts(model)
+		for _, node := range model.absorbedChainRows {
+			if host := hosts[strings.TrimSpace(node.AbsorbedInto)]; host != nil && host.HasData {
+				peer(host, host.EvidenceTag, runtimeTraceProjPeerDrawnOf(node))
 			}
 		}
 	}
@@ -1450,8 +1533,11 @@ func runtimeTraceProjShareRefIndex(all []*runtimeTraceProjTreeRow) map[string]*r
 }
 
 // runtimeTraceProjResolveShareRef reads the claims of the given parts (or the
-// represented-sentence claims when represented) — never a board search.
-func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index map[string]*runtimeTraceProjTreeRow, self *runtimeTraceProjTreeRow, represented bool, parts ...string) runtimeTraceProjShareRef {
+// represented-sentence claims when represented) — never a board search. A
+// holder drawn only inside the claimant's own row is no other seat of this
+// board: the part then names no holder and claims no absence (see-detail
+// form, HMC377 fix round 6).
+func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index map[string]runtimeTraceProjDrawnRecord, self *runtimeTraceProjTreeRow, represented bool, parts ...string) runtimeTraceProjShareRef {
 	var claims []types.TraceCausalProjectionShareClaim
 	for _, c := range node.ShareClaims {
 		if represented {
@@ -1472,24 +1558,37 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 	if len(claims) == 0 {
 		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
 	}
-	out := runtimeTraceProjShareRef{state: runtimeTraceProjShareRefRendered}
-	seen := map[*runtimeTraceProjTreeRow]bool{}
+	out := runtimeTraceProjShareRef{state: runtimeTraceProjShareRefRendered, own: true}
+	type drawnAt struct {
+		row *runtimeTraceProjTreeRow
+		tag string
+	}
+	seen := map[drawnAt]bool{}
+	selfDrawn := false
 	for _, c := range claims {
 		if !c.Resolved || len(c.HolderEvidenceIDs) == 0 {
 			return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
 		}
 		for _, id := range c.HolderEvidenceIDs {
-			row := index[strings.TrimSpace(id)]
-			if row == nil || row == self || strings.TrimSpace(row.EvidenceTag) == "" {
+			drawn, ok := index[strings.TrimSpace(id)]
+			if !ok || drawn.row == nil {
 				return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
 			}
-			if !seen[row] {
-				seen[row] = true
-				out.rows = append(out.rows, row)
-				out.tags = append(out.tags, strings.TrimSpace(row.EvidenceTag))
-				out.seatMS += runtimeTraceProjNodeDisplayImpact(row.Node)
+			if drawn.row == self {
+				selfDrawn = true
+				continue
+			}
+			out.own = out.own && drawn.own
+			if at := (drawnAt{drawn.row, drawn.tag}); !seen[at] {
+				seen[at] = true
+				out.rows = append(out.rows, drawn.row)
+				out.tags = append(out.tags, drawn.tag)
+				out.seatMS += drawn.displayMS
 			}
 		}
+	}
+	if selfDrawn {
+		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
 	}
 	out.exact = len(claims) == 1 && claims[0].Exact && len(out.rows) == 1
 	return out
@@ -1502,8 +1601,8 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 // account), the ⛓ seat's ◇ remainder, the unwalked part's holder, the
 // represented sentence's holders. Returns the anchored-share references of the
 // remainder rows (the pair class (0) counterpart).
-func runtimeTraceProjStampShareClaimRefs(all []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef {
-	index := runtimeTraceProjShareRefIndex(all)
+func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef {
+	index := runtimeTraceProjDrawnRecordIndex(model, all)
 	anchored := map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef{}
 	for _, row := range all {
 		rn := row.Node

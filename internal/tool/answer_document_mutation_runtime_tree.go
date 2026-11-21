@@ -696,6 +696,9 @@ const (
 type runtimeTraceProjBranchTwinFoldPeer struct {
 	EvidenceTag       string
 	EffectiveImpactMS float64
+	// drawn (HMC377 fix round 6): the record ids this peer draws inside its
+	// host row and its own display value — the drawn-record index input.
+	drawn runtimeTraceProjPeerDrawn
 }
 
 // runtimeTraceProjIOFoldPeer is one compactly grouped IO observation. Its
@@ -715,6 +718,8 @@ type runtimeTraceProjIOFoldPeer struct {
 	FamilyMemberCount int
 	FamilyMemberMaxMS float64
 	FamilyFoldCaliber string
+	// drawn (HMC377 fix round 6): the drawn-record index input.
+	drawn runtimeTraceProjPeerDrawn
 }
 
 // runtimeTraceProjAbsorbedChainPeer is one engine-absorbed chain-lane
@@ -725,6 +730,32 @@ type runtimeTraceProjIOFoldPeer struct {
 // that could be double-read.
 type runtimeTraceProjAbsorbedChainPeer struct {
 	EvidenceTag string
+}
+
+// runtimeTraceProjPeerDrawn is what one peer carrier draws inside its host
+// row (HMC377 fix round 6): the record ids the folded node stands for (its own
+// and those merged into it) and its own display value. Read only by the
+// drawn-record index (runtimeTraceProjDrawnRecordIndex).
+type runtimeTraceProjPeerDrawn struct {
+	recordIDs []string
+	displayMS float64
+}
+
+// runtimeTraceProjPeerDrawnOf records what a folded node draws.
+func runtimeTraceProjPeerDrawnOf(node types.TraceCausalProjectionNode) runtimeTraceProjPeerDrawn {
+	return runtimeTraceProjPeerDrawn{recordIDs: runtimeTraceProjNodeRecordIDs(node), displayMS: runtimeTraceProjNodeDisplayImpact(node)}
+}
+
+// runtimeTraceProjNodeRecordIDs is every record id one drawn node stands for:
+// its own and every record merged into it (HMC377 fix round 6).
+func runtimeTraceProjNodeRecordIDs(node types.TraceCausalProjectionNode) []string {
+	var out []string
+	for _, id := range append([]string{node.EvidenceID}, node.MergedEvidenceIDs...) {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 type runtimeTraceProjTreeModel struct {
@@ -924,6 +955,39 @@ type runtimeTraceProjTreeModel struct {
 	// already does); a nil set (hand-built test models) renders no dynamic
 	// legend entries.
 	Marks *runtimeTraceProjMarkSet
+	// absorbedChainRows (HMC377 fix round 6): projection.AbsorbedChainRows —
+	// the engine-absorbed chain-lane rows each drawn inside the first row of
+	// its family (runtimeTraceProjAbsorbedChainHosts). Read by the
+	// drawn-record index and the absorbed-peer attach only.
+	absorbedChainRows []types.TraceCausalProjectionNode
+}
+
+// runtimeTraceProjAbsorbedChainHosts maps every absorbed family key to the
+// row the family's absorbed chain-lane rows are drawn in: the first row of
+// the four lanes (self, tree, adjacent, background order) carrying that
+// verbatim RankFamilyKey (HMC377 fix round 6: the one host rule, shared by the
+// peer attach and the drawn-record index).
+func runtimeTraceProjAbsorbedChainHosts(model *runtimeTraceProjTreeModel) map[string]*runtimeTraceProjTreeRow {
+	keys := map[string]bool{}
+	for _, node := range model.absorbedChainRows {
+		if key := strings.TrimSpace(node.AbsorbedInto); key != "" {
+			keys[key] = true
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	hosts := map[string]*runtimeTraceProjTreeRow{}
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
+		for i := range rows {
+			key := strings.TrimSpace(rows[i].Node.RankFamilyKey)
+			if key == "" || !keys[key] || hosts[key] != nil {
+				continue
+			}
+			hosts[key] = &rows[i]
+		}
+	}
+	return hosts
 }
 
 // runtimeTraceProjCrownWords is the single wording source for every system
@@ -3405,6 +3469,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// disclosure side channel travels verbatim the same way (render
 		// re-validates the running==unknown identity).
 		SelfRunningFoldUnmeasured: projection.SelfRunningFoldUnmeasured,
+		// HMC377 fix round 6: the engine-absorbed chain-lane rows travel with
+		// the model so the drawn-record index sees them inside their family
+		// row before the evidence-index pass below attaches their tags.
+		absorbedChainRows: projection.AbsorbedChainRows,
 	}
 	if projection.TargetStateAccount != nil {
 		model.TargetMeasurementOrigins = types.CloneTraceSchedulerMeasurementOrigins(projection.TargetStateAccount.MeasurementOrigins)
@@ -3631,6 +3699,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						model.SelfRows[twin].SelfSymptomFoldPeers,
 						runtimeTraceProjSelfSymptomFoldPeer{
 							EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+							drawn:       runtimeTraceProjPeerDrawnOf(node),
 						},
 					)
 					continue
@@ -4098,6 +4167,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					model.SelfRows[twin].SelfSymptomFoldPeers,
 					runtimeTraceProjSelfSymptomFoldPeer{
 						EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+						drawn:       runtimeTraceProjPeerDrawnOf(node),
 					},
 				)
 				continue
@@ -4350,6 +4420,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						CumulativeImpactMS:  peer.CumulativeImpactMS,
 						DisplayImpactMS:     runtimeTraceProjNodeDisplayImpact(peer),
 						TargetImpactMS:      peer.TargetImpactMS,
+						drawn:               runtimeTraceProjPeerDrawnOf(peer),
 					})
 				}
 			}
@@ -4374,6 +4445,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					}
 					rows[i].SameSegMirrorPeers = append(rows[i].SameSegMirrorPeers, runtimeTraceProjSameSegMirrorPeer{
 						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						drawn:       runtimeTraceProjPeerDrawnOf(peer),
 						StateWord:   stateWord,
 						Valueless:   runtimeTraceProjNodeDisplayImpact(peer) <= 0,
 					})
@@ -4396,6 +4468,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					rows[i].BranchTwinFoldPeers = append(rows[i].BranchTwinFoldPeers, runtimeTraceProjBranchTwinFoldPeer{
 						EvidenceTag:       runtimeTraceProjEvidenceTag(peer, evidence, zh),
 						EffectiveImpactMS: peer.EffectiveImpactMS,
+						drawn:             runtimeTraceProjPeerDrawnOf(peer),
 					})
 				}
 			}
@@ -4530,23 +4603,13 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 				EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 			})
 		}
-		claimed := map[string]bool{}
-		attach := func(rows []runtimeTraceProjTreeRow) {
-			for i := range rows {
-				key := strings.TrimSpace(rows[i].Node.RankFamilyKey)
-				if key == "" || claimed[key] {
-					continue
-				}
-				if peers := absorbedByFamily[key]; len(peers) > 0 {
-					rows[i].AbsorbedChainPeers = peers
-					claimed[key] = true
-				}
+		// HMC377 fix round 6: the host rule is shared with the drawn-record
+		// index (the first row of the family, lane order unchanged).
+		for key, host := range runtimeTraceProjAbsorbedChainHosts(&model) {
+			if peers := absorbedByFamily[key]; len(peers) > 0 {
+				host.AbsorbedChainPeers = peers
 			}
 		}
-		attach(model.SelfRows)
-		attach(model.TreeRows)
-		attach(model.Adjacent)
-		attach(model.Background)
 	}
 
 	// CMP-7a: flat-fallback renders (no resolved target) stamp every row so the
@@ -6476,10 +6539,14 @@ type runtimeTraceProjRankFoldPeer struct {
 	// peer competes with the same 已由链上解释 ladder it would have used as a
 	// standalone row.
 	TargetImpactMS float64
+	// drawn (HMC377 fix round 6): the drawn-record index input.
+	drawn runtimeTraceProjPeerDrawn
 }
 
 type runtimeTraceProjSelfSymptomFoldPeer struct {
 	EvidenceTag string
+	// drawn (HMC377 fix round 6): the drawn-record index input.
+	drawn runtimeTraceProjPeerDrawn
 }
 
 // runtimeTraceProjSameSegmentTwinKey is the SFD-precedent same-segment
@@ -6546,7 +6613,9 @@ func runtimeTraceProjPropagateDStateProofToTwins(nodes []types.TraceCausalProjec
 // only — never an ms account.
 type runtimeTraceProjSameSegMirrorPeer struct {
 	EvidenceTag string
-	StateWord   string
+	// drawn (HMC377 fix round 6): the drawn-record index input.
+	drawn     runtimeTraceProjPeerDrawn
+	StateWord string
 	// Valueless marks a mirror copy that carried no display value of its own
 	// (修复轮 P4-c: the detail wording then says 同段(无单列值) instead of
 	// claiming 同值).

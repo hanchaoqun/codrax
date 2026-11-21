@@ -36,6 +36,7 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 		StartTs:           node.StartTs, EndTs: node.EndTs,
 		QueryWindowStartTs: node.QueryWindowStartTs, QueryWindowEndTs: node.QueryWindowEndTs,
 		MeasurementOrigins: types.CloneTraceSchedulerMeasurementOrigins(node.MeasurementOrigins),
+		drawn:              runtimeTraceProjPeerDrawnOf(node),
 	}
 	// Existing score/count family disclosures remain authoritative and must
 	// not be replaced by a millisecond label, even for rank publications.
