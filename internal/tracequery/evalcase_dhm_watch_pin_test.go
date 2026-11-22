@@ -268,22 +268,30 @@ func TestEvalcaseDHMEPSNaturalSubTenPercentAnchorSpecimen(t *testing.T) {
 	// sits beyond this board's adjacent cap (pre-truncation pool, disclosed
 	// by the compaction). The natural ≪10% split now lives on the
 	// restriction seat, with the same exact identity.
+	//
+	// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+	// 2026-11-22): old → new = the specimen's split rode the thread's
+	// same-source split fields on the restriction seat (◇ remainder marker,
+	// ChainAnchoredMs 0.031 / ChainAnchorFullMs 27.507) → its own typed subset
+	// fields: restricted account 27.507, 0.031 counted on the chain seat (the
+	// natural ≪10% part), 27.476 counted here; same exact identity. The split
+	// fields keep the thread-account meaning and are absent on the seat.
 	seat := evalcaseDHMFindItem(rank.Items, "cpu_affinity_or_cpuset", 9655)
 	if seat == nil {
 		t.Fatal("DHM-EPS: 9655 restriction ◇ seat missing")
 	}
-	if !seat.ChainAnchorRemainderSeat {
-		t.Fatal("DHM-EPS: specimen lost its ◇ remainder marker")
+	if seat.ChainAnchorRemainderSeat || seat.ChainAnchorFullMs != 0 || seat.ChainAnchoredMs != 0 {
+		t.Fatalf("DHM-EPS: the restriction seat must not wear the thread's split fields: %+v", seat)
 	}
-	if !near(seat.ChainAnchoredMs, 0.031, 0.001) || !near(seat.ChainAnchorFullMs, 27.507, 0.001) ||
-		!near(seat.ImpactMs, 27.476, 0.001) {
-		t.Fatalf("DHM-EPS: specimen values drifted: anchored=%.3f full=%.3f remainder=%.3f",
-			seat.ChainAnchoredMs, seat.ChainAnchorFullMs, seat.ImpactMs)
+	if !near(seat.ShareCountedElsewhereMs, 0.031, 0.001) || !near(seat.RestrictedReadyAccountMs, 27.507, 0.001) ||
+		!near(seat.ShareCountedHereMs, 27.476, 0.001) || !near(seat.ImpactMs, 27.476, 0.001) {
+		t.Fatalf("DHM-EPS: specimen values drifted: elsewhere=%.3f account=%.3f here=%.3f impact=%.3f",
+			seat.ShareCountedElsewhereMs, seat.RestrictedReadyAccountMs, seat.ShareCountedHereMs, seat.ImpactMs)
 	}
-	// µs identity: anchored + remainder == full (三级精确区间, never a hull).
-	if !near(seat.ChainAnchoredMs+seat.ImpactMs, seat.ChainAnchorFullMs, 0.0011) {
+	// µs identity: elsewhere + here == account (三级精确区间, never a hull).
+	if !near(seat.ShareCountedElsewhereMs+seat.ShareCountedHereMs, seat.RestrictedReadyAccountMs, 0.0011) {
 		t.Fatalf("DHM-EPS: split identity broken: %.6f + %.6f != %.6f",
-			seat.ChainAnchoredMs, seat.ImpactMs, seat.ChainAnchorFullMs)
+			seat.ShareCountedElsewhereMs, seat.ShareCountedHereMs, seat.RestrictedReadyAccountMs)
 	}
 	for _, it := range rank.preTruncationItems {
 		if it.Thread.PID == 9655 && it.Type == "runnable_wait" && it.ChainAnchorRemainderSeat && !near(it.ImpactMs, 3.684, 0.001) && it.rspaCarvedAppliedMs > 0 {

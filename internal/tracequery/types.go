@@ -4578,6 +4578,33 @@ type RootCauseRankItem struct {
 	// the one resolver (resolveRankShareClaims), never from text; 0 on every
 	// other row and on every engine result.
 	ShareReturnedMs float64 `json:"share_returned_ms,omitempty"`
+	// RestrictedReadyAccountMs / ShareCountedElsewhereMs / ShareCountedHereMs
+	// (HMC377 round 12, batch-owner ruling R-377-12 ③, 2026-11-22): the typed
+	// subset fields of the one-carrier pass (carveCPUConstraintReadyInstants).
+	// A cpu_affinity_or_cpuset seat publishes a subset of its thread's ready
+	// time; it never carries the thread's same-source split fields
+	// (ChainAnchorFullMs / ChainAnchoredMs / ChainAnchorRemainderSeat and the
+	// three-way parts), which keep the thread-account meaning.
+	//   RestrictedReadyAccountMs — on a restriction seat part of whose
+	//                         restricted instants lie inside instants this
+	//                         thread's on-chain seats hold: the seat's whole
+	//                         restricted ready account (its own instants and
+	//                         those parts together). Set by the carve.
+	//   ShareCountedElsewhereMs — on a row that handed carved shares to other
+	//                         rows of the same thread (that restriction seat;
+	//                         a ◇ remainder that left instants to it): the part
+	//                         of the account the carve split that rows on the
+	//                         published board count (its resolved carved
+	//                         claims). Written by the one resolver.
+	//   ShareCountedHereMs  — on that row: what it counts of that account (the
+	//                         account less ShareCountedElsewhereMs). Written by
+	//                         the one resolver.
+	// Every number a face prints for the split is one of these or a claim's
+	// own share; the display computes none of them. 0 on every other row and
+	// whenever no carved share is counted elsewhere.
+	RestrictedReadyAccountMs float64 `json:"restricted_ready_account_ms,omitempty"`
+	ShareCountedElsewhereMs  float64 `json:"share_counted_elsewhere_ms,omitempty"`
+	ShareCountedHereMs       float64 `json:"share_counted_here_ms,omitempty"`
 	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
 	// the (pid, runnable) chain AGGREGATE seat's interval-accounting split
 	// against the same thread's priority-inversion chain seat(s), whose R5d
@@ -4814,6 +4841,11 @@ type RootCauseRankItem struct {
 	// cut returns to this row.
 	rspaCarvedAppliedMs float64
 	rspaCarvedEffective bool
+	// rspaCarvedAccountMs (unexported, HMC377 round 12, R-377-12 ③): the
+	// account the carve split, recorded where the carve first runs on the row
+	// (a restriction seat's restricted account; a ◇ remainder's rest) — the
+	// resolver writes ShareCountedHereMs from it.
+	rspaCarvedAccountMs float64
 	// rspaUnwalkedHeldMs (unexported, HMC377 fix round 3, never serialized):
 	// on a case-B split (no chain-lane seat) the clipped window seat holds the
 	// thread's walked AND unwalked share as one object; both halves remember

@@ -73,10 +73,17 @@ func TestHMC377R11RemainderNamesTheRestrictionRowByEvidenceNumber(t *testing.T) 
 				t.Fatalf("the restriction row must publish its own 25.748ms:\n%s", text.String())
 			}
 			want := "其余29.432ms(无链上凭证;其中CPU亲和/cpuset 限制下25.748ms另行计入[" + m[1] + "],本行计3.684ms)"
-			split := "同源二分:全窗27.507ms=锚定1.759ms(⛓链上席)+本行其余25.748ms(无链上凭证)"
+			// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12
+			// ③, 2026-11-22): old → new = 「同源二分:全窗27.507ms=锚定1.759ms
+			// (⛓链上席)+本行其余25.748ms(无链上凭证)」 (the thread's same-source
+			// split words over the restriction subset: a 全窗 account that is
+			// not the thread's 31.191ms) → the restriction row's own account,
+			// 「CPU亲和/cpuset限制下合计27.507ms:其中1.759ms另行计入[E#],本行计
+			// 25.748ms(无链上凭证)」 with the ⛓ seat's [E#].
+			split := regexp.MustCompile(`CPU亲和/cpuset限制下合计27\.507ms:其中1\.759ms另行计入\[E\d+(?:\(\+\d+\))?(?:\+E\d+)?\],本行计25\.748ms\(无链上凭证\)`)
 			if lang == "en" {
 				want = "remainder 29.432ms (no chain credential; of which 25.748ms under the CPU affinity/cpuset restriction is counted separately on [" + m[1] + "], this row 3.684ms)"
-				split = "same-source split: full-window 27.507ms=1.759ms anchored (⛓ chain seat) + this remainder 25.748ms (no chain credential)"
+				split = regexp.MustCompile(`27\.507ms under the CPU affinity/cpuset restriction in all: of which 1\.759ms is counted separately on \[E\d+(?:\(\+\d+\))?(?:\+E\d+)?\]; this row 25\.748ms \(no chain credential\)`)
 			}
 			// The fence wraps long lines; compare on whitespace-joined text.
 			joined := strings.ReplaceAll(rendered, "cpuset 限制", "cpuset限制")
@@ -84,8 +91,13 @@ func TestHMC377R11RemainderNamesTheRestrictionRowByEvidenceNumber(t *testing.T) 
 			if !strings.Contains(joined, wantJoined) {
 				t.Fatalf("the remainder must name the restriction row's share by its evidence number (%q):\n%s", want, text.String())
 			}
-			if !strings.Contains(rendered, split) {
-				t.Fatalf("the restriction row must state its own split (%q):\n%s", split, text.String())
+			if !split.MatchString(joined) {
+				t.Fatalf("the restriction row must state its own restricted account (%q):\n%s", split, text.String())
+			}
+			for _, banned := range []string{"全窗27.507ms", "full-window 27.507ms"} {
+				if strings.Contains(rendered, banned) {
+					t.Fatalf("the restriction row must never state a whole-window account (%q):\n%s", banned, text.String())
+				}
 			}
 		})
 	}
@@ -186,6 +198,12 @@ func TestHMC377R11SubsetShareReplacesTheTwoSeatRestoration(t *testing.T) {
 		if strings.HasSuffix(node.Subject, "-2955") && node.ChainAnchorRemainderSeat && node.TypeToken == "d_state_or_io_wait" {
 			node.ShareClaims = append(append([]types.TraceCausalProjectionShareClaim(nil), node.ShareClaims...),
 				types.TraceCausalProjectionShareClaim{Part: "subset", Role: "subset_seat", ShareMS: 10, Resolved: true, Exact: true, HolderEvidenceIDs: []string{holder}})
+			// EVOLUTION RECORD (HMC377 round 12, R-377-12 ③): the engine wire
+			// carries the split's typed numbers beside the resolved claim (the
+			// display no longer derives 本行计 = rest − share): old → new = the
+			// claim alone → the claim and ShareCountedElsewhereMS 10 /
+			// ShareCountedHereMS 23.159.
+			node.ShareCountedElsewhereMS, node.ShareCountedHereMS = 10, 23.159
 			injected = true
 		}
 	}

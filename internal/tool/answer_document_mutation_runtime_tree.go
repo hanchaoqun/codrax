@@ -569,9 +569,34 @@ type runtimeTraceProjTreeRow struct {
 	// row) counts — the sum of the row's resolved subset claims, which the
 	// engine left out of the row's published value — and that row's [E#] and
 	// type token when it is drawn here (empty: the see-detail form).
-	ChainAnchorSubsetMS   float64
-	ChainAnchorSubsetRef  string
-	ChainAnchorSubsetType string
+	//
+	// HMC377 round 12 (R-377-12 ③): the share and this row's own count are
+	// the engine's typed numbers (Node.ShareCountedElsewhereMS /
+	// Node.ShareCountedHereMS, read into ChainAnchorSubsetMS /
+	// ChainAnchorSubsetOwnMS); the display computes neither.
+	ChainAnchorSubsetMS    float64
+	ChainAnchorSubsetOwnMS float64
+	ChainAnchorSubsetRef   string
+	ChainAnchorSubsetType  string
+	// ChainAnchorRestCarriers (HMC377 round 12, R-377-12 ③): on a ⛓ row whose
+	// rest is carried by more than its ◇ remainder seat (the same thread's
+	// CPU-restriction row holds part of it), every row holding that rest as
+	// the engine resolved its remainder claim, by [E#] in claim order — set
+	// only when each one is drawn here and at least one is not a ◇ remainder
+	// (otherwise the plain ◇ word, or the see-detail form, keeps its bytes).
+	ChainAnchorRestCarriers []runtimeTraceProjRestCarrier
+	// ChainAnchorRestSeeDetail: the rest is partly carried by that
+	// restriction row but some carrier is drawn only inside another row —
+	// the see-detail form names none (never credits the whole rest to ◇).
+	ChainAnchorRestSeeDetail bool
+	// RestrictedParts (HMC377 round 12, R-377-12 ③): on a CPU-restriction row
+	// that left part of its restricted ready time to this thread's on-chain
+	// seats (Node.RestrictedReadyAccountMS), each part rows on the published
+	// board count — one per resolved carved claim, its engine share and the
+	// holder's [E#] when every holder record is drawn here ("" → the
+	// see-detail form), and whether the chain seat keeps its own account for
+	// it (the row's chain-account claim: case A').
+	RestrictedParts []runtimeTraceProjRestrictedPart
 	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
 	// fix round 3): the pair sentence's third part (the unwalked seat) when
 	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
@@ -2469,9 +2494,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `同源三分` = 一份全窗账拆成三份:⛓锚定席(链已走的依赖窗内,链上席持有)+唤醒锚定席(目标某次等待由本线程自己的唤醒结束、链未走的那几次等待内,本线程自己的链上席持有)+◇余段席(其余时间,目标此时并未在等待本线程,无链上凭证);三份不相交、每份只由一席持有,相加恰还原全窗值;持有某份的席无法在本榜指认时,行内以「见明细」指向明细,不对该席是否在本榜作断言。唤醒锚定席持的是本线程在这些等待内的全部时间;某行的账只含这些时间的一部分时(卫星行、多个统计分组之一),行内写明本行这份的值并指向持有全部时间的唤醒锚定席及其值,此时还原本行全窗值的是本行三份,三席之和不还原。",
 			"- `same-source three-way split` = one whole-window account in three parts: the ⛓ anchored seat (inside the dependency windows the chain walked; held by the chain seat) + the wakeup-anchored seat (inside the analysed thread's waits that this thread's own wakeup ended and the chain did not walk; held by this thread's own on-chain seat) + the ◇ remainder seat (the rest; the analysed thread was not waiting for this thread then; no chain credential). The three parts are disjoint, each is held by exactly one seat, and they sum exactly back to the whole-window value; where the board cannot point at the seat holding a part, the row points to the detail index instead (see the detail index) and asserts nothing about whether that seat is on the board. The wakeup-anchored seat holds all of the thread's time inside those waits; when a row's account holds only part of it (a satellite row, one of several census groups), the row states its own part and names the wakeup-anchored seat with the value it holds — the row's three parts then restore its whole-window value, and the three seats' sum does not."},
 		// HMC377 round 11 (R-377-11 ②): the rest's own carrier split.
+		// EVOLUTION RECORD (HMC377 round 12, R-377-12 ③): the entry now
+		// teaches both directions of the one-carrier split — the ◇ remainder's
+		// rest partly counted on the restriction row, and the restriction
+		// row's restricted time partly counted on the thread's on-chain seats
+		// (the restriction row states its own account, never the whole-window
+		// account; the ⛓ row names every carrier of its rest).
 		{runtimeTraceProjMarkChainAnchorSubsetShare, runtimeTraceProjLegendGroupMark,
-			"- `另行计入` = 全窗账的其余时间里,有一段落在同线程成因更具体的那一行(如CPU亲和/cpuset限制)自己的时间内:这一段只由那一行计入,本行只计其余部分;两行不相交,相加还原其余时间,每个时刻只计一次。",
-			"- `counted separately on` = part of the account's remaining time lies inside the time of a more specific cause row of the same thread (such as a CPU affinity/cpuset restriction): that part is counted on that row only and this row counts the rest; the two rows are disjoint, sum back to the remaining time, and every instant is counted once."},
+			"- `另行计入` = 同一线程的同一段就绪时间只由一行计入:◇余段席的其余时间里落在同线程成因更具体那一行(如CPU亲和/cpuset限制)自己时间内的一段,由那一行计入;CPU亲和/cpuset限制行的受限时间里落在本线程链上席时段内的一段,由链上席计入。写明「其中X ms另行计入[E#]」的行只计其余部分(本行计),各部分不相交、相加还原该行的账,每个时刻只计一次;链上席行的其余时间由几行分计时,行内逐一写出各行的[E#]。CPU亲和/cpuset限制行的账只是本线程就绪时间里受限的那一部分,不是全窗账。",
+			"- `counted separately on` = one stretch of a thread's ready time is counted on one row only: where part of a ◇ remainder seat's remaining time lies inside the time of a more specific cause row of the same thread (such as a CPU affinity/cpuset restriction), that row counts it; where part of a CPU affinity/cpuset restriction row's restricted time lies inside the time of this thread's on-chain seats, the on-chain seat counts it. A row stating 「of which X ms is counted separately on [E#]」 counts only the rest (this row); the parts are disjoint, sum back to that row's account, and every instant is counted once; when several rows carry an on-chain row's remainder, the row names each one by [E#]. A CPU affinity/cpuset restriction row's account is only the restricted part of the thread's ready time, never the whole-window account."},
 		// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation entry
 		// — the same-source split's honest form when the chain seat does not
 		// hold the anchored share at the same value.
@@ -3386,7 +3417,9 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	// direction as the special grammars below (the R2 pass forks these on the
 	// anchorForm group key; the trunk ×2 fold excludes them outright).
 	if node.ChainAnchorFullMS > 0 || node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted ||
-		node.ChainAnchorRepresentedByChainSeat {
+		node.ChainAnchorRepresentedByChainSeat || node.RestrictedReadyAccountMS > 0 || node.ShareCountedElsewhereMS > 0 {
+		// HMC377 round 12 (R-377-12 ③): the restriction subset's typed
+		// account identity joins the same exclusion.
 		return false
 	}
 	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): a gated-share split half (the
@@ -7132,6 +7165,15 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// (full − anchored), never a new account. Emitted HERE (the shared 行2
 	// relation/disclosure composer) so the tree, ◇/▒ stanza and self faces all
 	// speak it from one site.
+	// HMC377 round 12 (R-377-12 ③): a CPU-restriction row that left part of
+	// its restricted ready time to this thread's on-chain seats states its own
+	// restricted account — never the thread's whole-window account — and the
+	// parts rows on the published board count, by [E#]; every number is the
+	// engine's.
+	if len(row.RestrictedParts) > 0 && row.Node.RestrictedReadyAccountMS > 0 {
+		row.marks.mark(runtimeTraceProjMarkChainAnchorSubsetShare)
+		out = append(out, runtimeTraceProjRestrictedAccountText(row, zh))
+	}
 	if row.Node.ChainAnchorFullMS > 0 {
 		full := row.Node.ChainAnchorFullMS
 		anchored := row.Node.ChainAnchoredMS
@@ -7157,11 +7199,14 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// HMC377 round 11 (R-377-11 ②): part of a remainder's rest is counted
 		// on the same thread's cause-specific row — the rest keeps its
 		// figure (the split stays exact) and says which part this row counts.
+		//
+		// HMC377 round 12 (R-377-12 ③): both numbers of the clause are the
+		// engine's (the share counted on that row, what this row counts).
 		subsetClause := func(rest float64, word string, zh bool) string { return word }
 		if row.Node.ChainAnchorRemainderSeat && row.ChainAnchorSubsetMS > 0 {
 			row.marks.mark(runtimeTraceProjMarkChainAnchorSubsetShare)
 			subsetClause = func(rest float64, word string, zh bool) string {
-				return runtimeTraceProjSubsetShareClause(rest, row.ChainAnchorSubsetMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType, word, zh)
+				return runtimeTraceProjSubsetShareClause(row.ChainAnchorSubsetMS, row.ChainAnchorSubsetOwnMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType, word, zh)
 			}
 		}
 		restWordZH := "本行其余"
@@ -7299,10 +7344,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
 			}
 			remainderWord, remainderWordEN := "(◇余段席)", "(◇ remainder seat)"
-			if row.ChainAnchorTwinUnreferenced || row.ChainAnchorTwinInvisible {
+			switch {
+			case row.ChainAnchorTwinUnreferenced || row.ChainAnchorTwinInvisible || row.ChainAnchorRestSeeDetail:
 				// HMC377 fix round 7 (R-377-8): see-detail form, no board claim.
 				remainderWord = "(◇余段席见明细)"
 				remainderWordEN = "(◇ remainder seat: see the detail index)"
+			case len(row.ChainAnchorRestCarriers) > 0:
+				// HMC377 round 12 (R-377-12 ③): the rest is carried by more
+				// than the ◇ remainder seat — each carrier is named by [E#]
+				// (each row states its own part).
+				row.marks.mark(runtimeTraceProjMarkChainAnchorSubsetShare)
+				remainderWord, remainderWordEN = runtimeTraceProjRestCarrierWords(row.ChainAnchorRestCarriers)
 			}
 			text = fmt.Sprintf("同源二分:全窗%.3fms=本行锚定%.3fms+其余%.3fms%s", full, anchored, rem, remainderWord)
 			if !zh {
@@ -21870,12 +21922,12 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 // (its [E#] when the row is drawn here, the see-detail form otherwise) and
 // what this row counts. Values are the engine's: the resolved subset claims'
 // share, which the engine left out of this row's published value.
-func runtimeTraceProjSubsetShareClause(rest, subsetMS float64, ref, holderType, word string, zh bool) string {
+//
+// HMC377 round 12 (R-377-12 ③; register R11T-6): own is the engine's
+// ShareCountedHereMS. EVOLUTION RECORD: old → new = own := rest − subsetMS
+// (display arithmetic) → the engine's typed count.
+func runtimeTraceProjSubsetShareClause(subsetMS, own float64, ref, holderType, word string, zh bool) string {
 	ref = strings.TrimSpace(ref)
-	own := rest - subsetMS
-	if own < 0 {
-		own = 0
-	}
 	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(holderType, zh))
 	if zh {
 		if ref == "" || label == "" {
@@ -21887,6 +21939,67 @@ func runtimeTraceProjSubsetShareClause(rest, subsetMS float64, ref, holderType, 
 		return fmt.Sprintf("%s; of which %.3fms is counted separately on a more specific cause row of this thread (see the detail index), this row %.3fms", word, subsetMS, own)
 	}
 	return fmt.Sprintf("%s; of which %.3fms under the %s is counted separately on [%s], this row %.3fms", word, subsetMS, label, ref, own)
+}
+
+// runtimeTraceProjRestCarrierWords (HMC377 round 12, R-377-12 ③) is the ⛓
+// row's rest word when the engine resolved the rest to more than the ◇
+// remainder seat: every carrier by [E#] (the ◇ remainder seat, the
+// CPU-restriction row by its type label), in claim order.
+func runtimeTraceProjRestCarrierWords(carriers []runtimeTraceProjRestCarrier) (string, string) {
+	zhParts := make([]string, 0, len(carriers))
+	enParts := make([]string, 0, len(carriers))
+	for _, c := range carriers {
+		zhName, enName := "◇余段席", "the ◇ remainder seat"
+		if !c.Remainder {
+			zhName = strings.TrimSpace(TraceRootCauseTypeDisplayLabel(c.Object, true))
+			enName = "the " + strings.TrimSpace(TraceRootCauseTypeDisplayLabel(c.Object, false))
+		}
+		zhParts = append(zhParts, fmt.Sprintf("%s[%s]", zhName, c.Ref))
+		enParts = append(enParts, fmt.Sprintf("%s [%s]", enName, c.Ref))
+	}
+	if len(carriers) == 1 {
+		return "(" + zhParts[0] + "计入)", "(counted by " + enParts[0] + ")"
+	}
+	return "(" + strings.Join(zhParts, "、") + "分计)", "(counted by " + strings.Join(enParts, " and ") + ")"
+}
+
+// runtimeTraceProjRestrictedAccountText (HMC377 round 12, R-377-12 ③) is a
+// CPU-restriction row's own account sentence: its whole restricted ready
+// account, each part rows on the published board count (its [E#], or the
+// see-detail form; the chain seat keeping its own account for a walked part
+// on case A') and what this row counts — the engine's numbers
+// (Node.RestrictedReadyAccountMS, the claims' own shares,
+// Node.ShareCountedHereMS).
+func runtimeTraceProjRestrictedAccountText(row runtimeTraceProjTreeRow, zh bool) string {
+	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(row.Node.Object, zh))
+	parts := make([]string, 0, len(row.RestrictedParts))
+	for _, p := range row.RestrictedParts {
+		ref := strings.TrimSpace(p.Ref)
+		switch {
+		case zh && p.OwnAccount && ref != "":
+			parts = append(parts, fmt.Sprintf("%.3fms落在链上席[%s]时段内(链席另列自账)", p.MS, ref))
+		case zh && p.OwnAccount:
+			parts = append(parts, fmt.Sprintf("%.3fms落在本线程链上席时段内(链席另列自账,见明细)", p.MS))
+		case zh && ref != "":
+			parts = append(parts, fmt.Sprintf("%.3fms另行计入[%s]", p.MS, ref))
+		case zh:
+			parts = append(parts, fmt.Sprintf("%.3fms另行计入本线程链上席(见明细)", p.MS))
+		case p.OwnAccount && ref != "":
+			parts = append(parts, fmt.Sprintf("%.3fms lies inside the time of the chain seat [%s] (the chain seat keeps its own separate account)", p.MS, ref))
+		case p.OwnAccount:
+			parts = append(parts, fmt.Sprintf("%.3fms lies inside the time of this thread's chain seat (the chain seat keeps its own separate account; see the detail index)", p.MS))
+		case ref != "":
+			parts = append(parts, fmt.Sprintf("%.3fms is counted separately on [%s]", p.MS, ref))
+		default:
+			parts = append(parts, fmt.Sprintf("%.3fms is counted separately on this thread's on-chain seat (see the detail index)", p.MS))
+		}
+	}
+	if zh {
+		return fmt.Sprintf("%s下合计%.3fms:其中%s,本行计%.3fms(无链上凭证)",
+			label, row.Node.RestrictedReadyAccountMS, strings.Join(parts, "、"), row.Node.ShareCountedHereMS)
+	}
+	return fmt.Sprintf("%.3fms under the %s in all: of which %s; this row %.3fms (no chain credential)",
+		row.Node.RestrictedReadyAccountMS, label, strings.Join(parts, ", "), row.Node.ShareCountedHereMS)
 }
 
 func runtimeTraceProjUnwalkedPartWords(ref string, invisible, unreferenced, exact bool, seatMS float64) (string, string) {

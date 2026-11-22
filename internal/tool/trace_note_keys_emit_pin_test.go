@@ -1619,6 +1619,25 @@ func traceNoteKeysEmitRepresentedFixtureResult() tracequery.Result {
 			ShareClaims: []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored,
 				Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 1.0, ReturnedMs: 1.0}},
 			Summary: "runnable remainder 2.000ms; full-window account 3.000ms = 1.000ms anchored (the owning row is published only as context, tier context_only, so this row counts that share with its own value) + this remainder",
+		}, {
+			// HMC377 round 12 (R-377-12 ③): a CPU-restriction seat part of
+			// whose restricted ready time lies inside its thread's chain
+			// seat's instants — exercises the restricted_ready_account_ms /
+			// share_counted_elsewhere_ms / share_counted_here_ms contract keys
+			// (its 4.000 restricted account: 1.000 counted on the chain seat,
+			// 3.000 here).
+			Rank: 0, Tier: "tertiary", Type: "cpu_affinity_or_cpuset",
+			Thread:   tracequery.ThreadRef{Comm: "dep-restricted", PID: 122},
+			ImpactMs: 3.0, ProjectedImpactMs: 3.0, CumulativeImpactMs: 3.0,
+			EffectiveImpactMs: 3.0, Score: 0.1, Confidence: 0.72,
+			LineStart: 120, LineEnd: 121,
+			Source:    "window_stats.cpu_constraints",
+			Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+			DominantState: string(tracequery.StateRunnable), RunnableMs: 3.0,
+			RestrictedReadyAccountMs: 4.0, ShareCountedElsewhereMs: 1.0, ShareCountedHereMs: 3.0,
+			ShareClaims: []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored,
+				Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 1.0, Resolved: true}},
+			Summary: "dep-restricted cpu constraint; this row counts the ready time under this CPU restriction that no on-chain seat of this thread publishes (4.000ms under the restriction in all); 1.000ms of it lies inside instants this thread's chain seat already publishes (one thread, one object: counted there, not here)",
 		}}},
 	}
 }

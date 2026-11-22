@@ -1628,20 +1628,116 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 // thread's cause-specific row (the engine left it out of this row's value),
 // and that row's [E#] and type when the drawn-record lookup proves it drawn
 // in another row here.
+//
+// HMC377 round 12 (R-377-12 ③): both numbers are the engine's typed fields —
+// the share rows on the published board count (ShareCountedElsewhereMS, the
+// remainder's resolved carved claims: its subset claims) and what this row
+// counts (ShareCountedHereMS). EVOLUTION RECORD: old → new = the display
+// summed the resolved subset claims and printed rest − that sum as 本行计 →
+// it prints the engine's two numbers; the per-claim resolved check is gone
+// with the sum (the engine counts only resolved claims, so no reachable
+// shape told the two apart — review-11 mutant T02 survived every suite).
 func runtimeTraceProjStampSubsetShare(row *runtimeTraceProjTreeRow, index map[string]runtimeTraceProjDrawnRecord) {
-	row.ChainAnchorSubsetMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType = 0, "", ""
-	for _, c := range row.Node.ShareClaims {
-		if c.Part == string(tracequery.RootCauseShareClaimSubset) && !c.Represented && c.Resolved {
-			row.ChainAnchorSubsetMS += c.ShareMS
-		}
-	}
-	if row.ChainAnchorSubsetMS <= 0 {
+	row.ChainAnchorSubsetMS, row.ChainAnchorSubsetOwnMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType = 0, 0, "", ""
+	if row.Node.ShareCountedElsewhereMS <= 0 {
 		return
 	}
+	row.ChainAnchorSubsetMS = row.Node.ShareCountedElsewhereMS
+	row.ChainAnchorSubsetOwnMS = row.Node.ShareCountedHereMS
 	ref := runtimeTraceProjResolveShareRef(row.Node, index, row, false, string(tracequery.RootCauseShareClaimSubset))
 	if ref.state == runtimeTraceProjShareRefRendered && len(ref.rows) == 1 && ref.rows[0] != nil {
 		row.ChainAnchorSubsetRef = strings.Join(ref.tags, ",")
 		row.ChainAnchorSubsetType = strings.TrimSpace(ref.rows[0].Node.Object)
+	}
+}
+
+// runtimeTraceProjRestCarrier is one row holding a ⛓ row's rest (HMC377 round
+// 12, R-377-12 ③): its [E#], whether it is the thread's ◇ remainder seat, and
+// its type token (the CPU-restriction row's label).
+type runtimeTraceProjRestCarrier struct {
+	Ref       string
+	Remainder bool
+	Object    string
+}
+
+// runtimeTraceProjStampRestCarriers names every row holding a ⛓ row's rest
+// when the engine resolved its remainder claim to the same thread's
+// CPU-restriction row besides (or instead of) the thread's ◇ remainder seat
+// (the restriction row publishes those instants as its own): each holder by
+// [E#] in claim order, only when each one is drawn here (twin, from
+// runtimeTraceProjResolveShareRef) as its own row of a named kind — the ◇
+// remainder seat or the restriction row. A restriction holder beside one that
+// is drawn only inside another row (a folded overflow row) takes the
+// see-detail form (restSeeDetail), which names no carrier; a rest no
+// restriction row holds keeps the ◇ word's bytes.
+func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtimeTraceProjShareRef) {
+	row.ChainAnchorRestCarriers, row.ChainAnchorRestSeeDetail = nil, false
+	if twin.state != runtimeTraceProjShareRefRendered || twin.successor || len(twin.rows) == 0 || len(twin.rows) != len(twin.tags) {
+		return
+	}
+	carriers := make([]runtimeTraceProjRestCarrier, 0, len(twin.rows))
+	restriction, named := false, true
+	for i, holder := range twin.rows {
+		if holder == nil || strings.TrimSpace(twin.tags[i]) == "" {
+			return
+		}
+		object := runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(holder.Node.TypeToken, holder.Node.Object))
+		isRestriction := object == "cpu_affinity_or_cpuset"
+		restriction = restriction || isRestriction
+		named = named && (isRestriction || holder.Node.ChainAnchorRemainderSeat)
+		carriers = append(carriers, runtimeTraceProjRestCarrier{Ref: strings.TrimSpace(twin.tags[i]),
+			Remainder: holder.Node.ChainAnchorRemainderSeat && !isRestriction, Object: object})
+	}
+	switch {
+	case !restriction:
+	case named:
+		row.ChainAnchorRestCarriers = carriers
+	default:
+		row.ChainAnchorRestSeeDetail = true
+	}
+}
+
+// runtimeTraceProjRestrictedPart is one part of a CPU-restriction row's
+// restricted ready time that rows on the published board count (HMC377 round
+// 12, R-377-12 ③): the resolved carved claim's own share, its holders' [E#]
+// ("" → the see-detail form) and whether the chain seat keeps its own account
+// for it (case A': the row's chain-account claim beside a walked part).
+type runtimeTraceProjRestrictedPart struct {
+	MS         float64
+	Ref        string
+	OwnAccount bool
+}
+
+// runtimeTraceProjStampRestrictedParts stamps a CPU-restriction row that left
+// part of its restricted ready time to this thread's on-chain seats with the
+// parts rows on the published board count: one per resolved claim of the
+// part handed over (anchored / unwalked), in claim order, each holder named
+// by [E#] only when every one of its records is drawn here.
+func runtimeTraceProjStampRestrictedParts(row *runtimeTraceProjTreeRow, index map[string]runtimeTraceProjDrawnRecord) {
+	row.RestrictedParts = nil
+	rn := row.Node
+	if rn.RestrictedReadyAccountMS <= 0 || rn.ShareCountedElsewhereMS <= 0 {
+		return
+	}
+	ownAccount := false
+	for _, c := range rn.ShareClaims {
+		if c.Part == string(tracequery.RootCauseShareClaimChainAccount) {
+			ownAccount = true
+		}
+	}
+	for _, c := range rn.ShareClaims {
+		if c.Represented || !c.Resolved || c.ShareMS <= 0 ||
+			(c.Part != string(tracequery.RootCauseShareClaimAnchored) && c.Part != string(tracequery.RootCauseShareClaimUnwalked)) {
+			continue
+		}
+		one := rn
+		one.ShareClaims = []types.TraceCausalProjectionShareClaim{c}
+		part := runtimeTraceProjRestrictedPart{MS: c.ShareMS,
+			OwnAccount: ownAccount && c.Part == string(tracequery.RootCauseShareClaimAnchored) && c.Role == string(tracequery.RootCauseShareHolderChainSeat)}
+		if ref := runtimeTraceProjResolveShareRef(one, index, row, false, c.Part); ref.state == runtimeTraceProjShareRefRendered && len(ref.tags) > 0 {
+			part.Ref = strings.Join(ref.tags, ",")
+		}
+		row.RestrictedParts = append(row.RestrictedParts, part)
 	}
 }
 
@@ -1709,6 +1805,8 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 				anchored[row] = twin
 			default:
 				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimRemainder))
+				// HMC377 round 12 (R-377-12 ③): the rest's carriers by [E#].
+				runtimeTraceProjStampRestCarriers(row, twin)
 			}
 			row.ChainAnchorTwinInvisible = twin.state == runtimeTraceProjShareRefCompacted
 			row.ChainAnchorTwinUnreferenced = twin.state == runtimeTraceProjShareRefNone
@@ -1726,6 +1824,9 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 				row.ChainAnchorUnwalkedUnreferenced = unwalked.state == runtimeTraceProjShareRefNone
 			}
 		}
+		// HMC377 round 12 (R-377-12 ③): a restriction row's parts counted on
+		// this thread's on-chain seats.
+		runtimeTraceProjStampRestrictedParts(row, index)
 		if rn.ChainAnchorRepresentedHeldMS > 0 && !rn.ChainAnchorRepresentedByChainSeat {
 			row.RepresentedState = runtimeTraceProjShareRefPartial
 			row.RepresentedRefs = runtimeTraceProjResolvedRepresentedHolderTags(rn, index, row)

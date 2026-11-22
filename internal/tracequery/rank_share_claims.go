@@ -431,7 +431,8 @@ func rspaAppendSentence(item *RootCauseRankItem, s rspaSentence) {
 func rspaClearClaims(item *RootCauseRankItem) {
 	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
 	item.ShareHolderKey = ""
-	item.rspaCarvedAppliedMs, item.rspaCarvedEffective = 0, false
+	item.rspaCarvedAppliedMs, item.rspaCarvedEffective, item.rspaCarvedAccountMs = 0, false, 0
+	item.RestrictedReadyAccountMs, item.ShareCountedElsewhereMs, item.ShareCountedHereMs = 0, 0, 0
 }
 
 // rspaHold records that a seat holds a share (one entry per role). A D/IO
@@ -1488,6 +1489,10 @@ func rspaWithdrawSeat(item *RootCauseRankItem) {
 	item.GatedShareClaimedMs, item.GatedShareFullMs, item.GatedShareConstituentSeat = 0, 0, false
 	item.GatedShareClaimSeats, item.GatedShareOverlapDisclosureMs, item.GatedShareClaimWithdrawn = nil, 0, false
 	item.ShareReturnedMs = 0
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields go
+	// with its seat too.
+	item.RestrictedReadyAccountMs, item.ShareCountedElsewhereMs, item.ShareCountedHereMs = 0, 0, 0
+	item.rspaCarvedAccountMs = 0
 }
 
 // holders re-derives the board indexes a resolved claim named (kept on the

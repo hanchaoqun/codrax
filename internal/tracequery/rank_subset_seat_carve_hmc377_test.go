@@ -95,9 +95,20 @@ func TestHMC377R11RestrictionSeatAndReadyRemainderCarryEachInstantOnce(t *testin
 		})
 	}
 	t.Run("JankManager-9655/restriction seat keeps its instants outside the chain seat", func(t *testing.T) {
-		seat := find(9655, "cpu_affinity_or_cpuset", true)
+		// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+		// 2026-11-22): old → new = the seat's split rode the thread's
+		// same-source split fields (ChainAnchoredMs 1.759 / ChainAnchorFullMs
+		// 27.507 / ChainAnchorRemainderSeat) → its own typed subset fields
+		// (RestrictedReadyAccountMs 27.507 / ShareCountedElsewhereMs 1.759 /
+		// ShareCountedHereMs 25.748), and the split fields stay zero on it.
+		// Raw evidence that the old fields misled every face: review-population
+		// out/new/head/head_n21w.fence_zh.txt (the restriction row stated
+		// 「同源二分:全窗182.107ms」 and was paired as the thread's ◇ seat).
+		seat := find(9655, "cpu_affinity_or_cpuset", false)
 		if seat == nil || math.Abs(seat.RunnableMs-25.748) > 0.002 || math.Abs(seat.EffectiveImpactMs-25.748) > 0.002 ||
-			math.Abs(seat.ChainAnchoredMs-1.759) > 0.002 || math.Abs(seat.ChainAnchorFullMs-27.507) > 0.002 ||
+			math.Abs(seat.RestrictedReadyAccountMs-27.507) > 0.002 || math.Abs(seat.ShareCountedElsewhereMs-1.759) > 0.002 ||
+			math.Abs(seat.ShareCountedHereMs-25.748) > 0.002 ||
+			seat.ChainAnchoredMs != 0 || seat.ChainAnchorFullMs != 0 || seat.ChainAnchorRemainderSeat ||
 			seat.ChainRelevance != "adjacent" || seat.ChainCredentialLaneDemoted {
 			t.Fatalf("restriction seat split: %+v", seat)
 		}
@@ -115,6 +126,14 @@ func TestHMC377R11RestrictionSeatAndReadyRemainderCarryEachInstantOnce(t *testin
 		// The carve runs before the cap: the enrich pool the cap reads
 		// already holds the restriction seat's and the remainder's own
 		// accounts, not the whole restricted / remaining ready time.
+		//
+		// HMC377 round 12 (R-377-12 ⑧, register R11T-1): the pool's order and
+		// every value channel and score the cap and the sort read — review
+		// 11's mutants P27 (score not scaled: remainder 25.724), P28
+		// (cumulative kept: 29.432) and P29 (projected kept: 29.432) changed
+		// them on this board (review-pins/probe/channels_probe.log) while this
+		// subtest asserted the effective channel alone.
+		seatAt, remAt := -1, -1
 		var seat, rem *RootCauseRankItem
 		for i := range rank.preTruncationItems {
 			it := &rank.preTruncationItems[i]
@@ -123,18 +142,41 @@ func TestHMC377R11RestrictionSeatAndReadyRemainderCarryEachInstantOnce(t *testin
 			}
 			switch {
 			case it.Type == "cpu_affinity_or_cpuset":
-				seat = it
+				seat, seatAt = it, i
 			case it.Type == "runnable_wait" && it.ChainAnchorRemainderSeat:
-				rem = it
+				// The last remainder in the pool is the enrich lane's (the
+				// pool appends the build lane's input first).
+				rem, remAt = it, i
 			}
 		}
-		if seat == nil || rem == nil || math.Abs(seat.EffectiveImpactMs-25.748) > 0.002 || math.Abs(rem.EffectiveImpactMs-3.684) > 0.002 {
-			t.Fatalf("pre-cap pool must carry the carved values: restriction=%+v remainder=%+v", seat, rem)
+		if seat == nil || rem == nil {
+			t.Fatalf("pre-cap pool: restriction=%+v remainder=%+v", seat, rem)
+		}
+		for _, ch := range []struct {
+			name      string
+			got, want float64
+		}{
+			{"restriction runnable", seat.RunnableMs, 25.748}, {"restriction impact", seat.ImpactMs, 25.748},
+			{"restriction projected", seat.ProjectedImpactMs, 25.748}, {"restriction cumulative", seat.CumulativeImpactMs, 25.748},
+			{"restriction effective", seat.EffectiveImpactMs, 25.748}, {"restriction score", seat.Score, 18.2206},
+			{"remainder runnable", rem.RunnableMs, 3.684}, {"remainder impact", rem.ImpactMs, 3.684},
+			{"remainder projected", rem.ProjectedImpactMs, 3.684}, {"remainder cumulative", rem.CumulativeImpactMs, 3.684},
+			{"remainder effective", rem.EffectiveImpactMs, 3.684},
+			// 25.7236 (its score on its whole remaining account) × 3.684 / 29.432.
+			{"remainder score", rem.Score, 3.2198},
+		} {
+			if math.Abs(ch.got-ch.want) > 0.002 {
+				t.Errorf("pre-cap pool %s = %.4f, want %.4f", ch.name, ch.got, ch.want)
+			}
+		}
+		if seatAt > remAt {
+			t.Fatalf("the sorted enrich pool must order the restriction seat (%.3f) before the remainder (%.3f): positions %d, %d",
+				seat.EffectiveImpactMs, rem.EffectiveImpactMs, seatAt, remAt)
 		}
 	})
 	t.Run("JankManager-9655/remainder carries the rest and names the restriction seat", func(t *testing.T) {
 		rem := find(9655, "runnable_wait", true)
-		seat := find(9655, "cpu_affinity_or_cpuset", true)
+		seat := find(9655, "cpu_affinity_or_cpuset", false)
 		if rem == nil || seat == nil || math.Abs(rem.RunnableMs-3.684) > 0.002 || math.Abs(rem.EffectiveImpactMs-3.684) > 0.002 ||
 			math.Abs(rem.ChainAnchoredMs-1.759) > 0.002 || math.Abs(rem.ChainAnchorFullMs-31.191) > 0.002 {
 			t.Fatalf("remainder: %+v", rem)

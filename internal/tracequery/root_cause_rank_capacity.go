@@ -446,7 +446,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			continue
 		}
 		if item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-			item.GatedShareConstituentSeat || rspaRemainderKeepsDemotedLane(item) {
+			item.GatedShareConstituentSeat || rspaRemainderKeepsDemotedLane(item) || item.RestrictedReadyAccountMs > 0 {
 			// RNB-1 R4 lane-demoted seats (D1 修复轮): ◇-family disclosure
 			// rows — mirrored side lane so「值零动,通道位归位」holds on the
 			// published wire, never a candidate seat. XLANE-1 件1: the
@@ -561,15 +561,16 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	return out, capDead, len(selfSide), candidateTotal, candidateEmitted, sideTotal, sideEmitted
 }
 
-// rspaRemainderKeepsDemotedLane — HMC377 round 11 (R-377-11 ②): two seats
-// wear the ◇ remainder form for their split but replace a row that rode the
-// demoted ◇ disclosure lane, and keep that lane (the board's capacity is not
-// redistributed by the split): a cause-specific subset seat (the
-// CPU-restriction seat holding its own instants) and the plain remainder twin
-// of an inversion window account whose several chain seats hold its walked
-// share (the twin represents that account as its lossless detail). Typed
-// signals only: the subset-seat hold and the represented inversion key.
+// rspaRemainderKeepsDemotedLane — HMC377 round 11 (R-377-11 ②): the plain
+// remainder twin of an inversion window account whose several chain seats
+// hold its walked share wears the ◇ remainder form for its split but replaces
+// a row that rode the demoted ◇ disclosure lane, and keeps that lane (the
+// board's capacity is not redistributed by the split; the twin represents
+// that account as its lossless detail). Typed signal only: the represented
+// inversion key. HMC377 round 12 (R-377-12 ③): the CPU-restriction seat that
+// holds its own instants no longer wears the remainder form — it keeps the
+// demoted lane by its typed subset field (RestrictedReadyAccountMs), so its
+// remainder-marker arm here is gone.
 func rspaRemainderKeepsDemotedLane(item RootCauseRankItem) bool {
-	return item.ChainAnchorRemainderSeat &&
-		(rspaHolds(item, RootCauseShareHolderSubsetSeat, false) || item.inversionAccountRepresents != "")
+	return item.ChainAnchorRemainderSeat && item.inversionAccountRepresents != ""
 }

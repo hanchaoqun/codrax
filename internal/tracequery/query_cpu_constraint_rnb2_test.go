@@ -150,9 +150,17 @@ func TestRNB2AffinityDonghuRealPayloadAndNarrowedEvidence(t *testing.T) {
 	// a 1.137ms segment still open at the trace end; the old board summed
 	// chain 0.033 + remainder 49.623 + this seat 48.519 = 98.175ms on
 	// 49.656ms of ready time, the new one 0.033 + 1.137 + 48.486 = 49.656ms.
+	//
+	// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+	// 2026-11-22): old → new = the split rode the thread's same-source split
+	// fields on the seat (◇ remainder marker, ChainAnchoredMs 0.033 /
+	// ChainAnchorFullMs 48.519) → its own typed subset fields (restricted
+	// account 48.519, 0.033 counted on the chain seat, 48.486 here); the
+	// split fields stay on the thread's own seats.
 	seat := check(2955, 13762.791708, 13763.024898, 9163, false)
-	if !seat.ChainAnchorRemainderSeat || seat.ChainRelevance != "adjacent" ||
-		math.Abs(seat.ChainAnchoredMs-0.033) > 0.002 || math.Abs(seat.ChainAnchorFullMs-48.519) > 0.002 ||
+	if seat.ChainAnchorRemainderSeat || seat.ChainAnchoredMs != 0 || seat.ChainAnchorFullMs != 0 || seat.ChainRelevance != "adjacent" ||
+		math.Abs(seat.ShareCountedElsewhereMs-0.033) > 0.002 || math.Abs(seat.RestrictedReadyAccountMs-48.519) > 0.002 ||
+		math.Abs(seat.ShareCountedHereMs-48.486) > 0.002 ||
 		math.Abs(seat.RunnableMs-48.486) > 0.002 || math.Abs(seat.EffectiveImpactMs-48.486) > 0.002 {
 		t.Fatalf("logd.writer restriction seat split drifted: %+v", seat)
 	}

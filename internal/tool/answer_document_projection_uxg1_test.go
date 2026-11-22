@@ -334,12 +334,27 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Reason:     "「只计成员段与链窗精确交集」——交集载体已显示(行3 链上计入)",
 	},
 	// HMC377 round 11 (R-377-11 ②): 「另行计入」 splits a remainder's rest
-	// into the part the same thread's restriction row counts (the resolved
-	// subset share claim, typed on the node) and this row's own value; the
-	// rest itself is the displayed census pair (full − anchored).
+	// into the part the same thread's restriction row counts and this row's
+	// own count.
+	// EVOLUTION RECORD (HMC377 round 12, R-377-12 ③; register R11T-6): old →
+	// new = components ShareClaims/ChainAnchorFullMS/ChainAnchoredMS/
+	// EffectiveImpactMS with the reason 「两数之和恒等于全窗−锚定(显示面不另
+	// 算)」 → the engine's typed split numbers. The old reason was false twice:
+	// the display computed 本行计 as rest − share (tree.go
+	// runtimeTraceProjSubsetShareClause), and on a three-way split the rest is
+	// the outside part, not 全窗−锚定. Every printed number is now an engine
+	// field: the ◇ form prints the rest (two-way: ChainAnchorFullMS −
+	// ChainAnchoredMS, three-way: ChainAnchorOutsideMS beside
+	// ChainAnchorUnwalkedMS), the share counted on the restriction row
+	// (ShareCountedElsewhereMS) and its own count (ShareCountedHereMS); the
+	// restriction form prints its restricted account
+	// (RestrictedReadyAccountMS), each resolved part's own share (ShareClaims)
+	// and its own count (ShareCountedHereMS); the ⛓ form names every carrier
+	// of its rest by [E#] (ShareClaims holders).
 	runtimeTraceProjMarkChainAnchorSubsetShare: {
-		Components: []string{"ShareClaims", "ChainAnchorFullMS", "ChainAnchoredMS", "EffectiveImpactMS"},
-		Reason:     "「其余=另行计入[E#]的一段+本行计」= 已解析 subset 份(ShareClaims typed 份额)与本行发布值;两数之和恒等于全窗−锚定(引擎同一账,显示面不另算)",
+		Components: []string{"ShareClaims", "ShareCountedElsewhereMS", "ShareCountedHereMS", "RestrictedReadyAccountMS",
+			"ChainAnchorFullMS", "ChainAnchoredMS", "ChainAnchorUnwalkedMS", "ChainAnchorOutsideMS"},
+		Reason: "「其中X另行计入[E#],本行计Y」= 引擎 typed 份额(ShareCountedElsewhereMS / 各 ShareClaims 份额)与本行计(ShareCountedHereMS),两数之和恒等于该行被拆的账(◇:二分 全窗−锚定 / 三分 其余段;限制行:RestrictedReadyAccountMS),显示面不另算",
 	},
 	// HMC377 R-377-11 ③: the own-work part's word promises the member
 	// instants outside the thread's on-chain waits; the value carrier is the

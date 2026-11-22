@@ -44,18 +44,36 @@ func TestHMC377R11RestrictionSeatSpeaksTheDivergentFormOfItsThread(t *testing.T)
 	carveCPUConstraintReadyInstants(items)
 	resolveRankShareClaims(items, nil)
 	got := items[2]
+	// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+	// 2026-11-22): old → new = the seat's split and the thread's divergence
+	// verdict rode the thread's same-source split fields on the seat
+	// (ChainAnchorRemainderSeat, ChainAnchoredMs 5 / ChainAnchorFullMs 25,
+	// ChainAnchorOwnershipDivergent with the two Σs) → the seat carries its
+	// own typed subset fields (RestrictedReadyAccountMs 25 /
+	// ShareCountedElsewhereMs 5 / ShareCountedHereMs 20) and no split or
+	// divergence field; its chain-account claim is the typed divergence
+	// signal its words read. Raw evidence the old fields made the face state a
+	// 全窗 account for the subset: review-population
+	// out/pop/head/head_w54w1.fence_zh.txt E28
+	// (「账目关系(锚定权属失合):全窗36.968ms=…」 beside the thread's 105.717).
 	t.Run("split", func(t *testing.T) {
-		if !got.ChainAnchorRemainderSeat || math.Abs(got.ChainAnchoredMs-5) > 0.002 || math.Abs(got.ChainAnchorFullMs-25) > 0.002 ||
+		if got.ChainAnchorRemainderSeat || got.ChainAnchoredMs != 0 || got.ChainAnchorFullMs != 0 ||
+			math.Abs(got.RestrictedReadyAccountMs-25) > 0.002 || math.Abs(got.ShareCountedElsewhereMs-5) > 0.002 ||
+			math.Abs(got.ShareCountedHereMs-20) > 0.002 ||
 			math.Abs(got.RunnableMs-20) > 0.002 || math.Abs(got.EffectiveImpactMs-20) > 0.002 || got.ChainCredentialLaneDemoted {
 			t.Fatalf("restriction seat: %+v", got)
 		}
 		if math.Abs(items[1].RunnableMs-30) > 0.002 {
 			t.Fatalf("the remainder leaves the 20ms restricted share to the seat: %.3f", items[1].RunnableMs)
 		}
+		if math.Abs(items[1].ShareCountedElsewhereMs-20) > 0.002 || math.Abs(items[1].ShareCountedHereMs-30) > 0.002 ||
+			math.Abs(items[1].ChainAnchorFullMs-57.413) > 0.002 || !items[1].ChainAnchorOwnershipDivergent {
+			t.Fatalf("the remainder keeps the thread's split and counts 30 of its 50ms rest: %+v", items[1])
+		}
 	})
 	t.Run("divergent form", func(t *testing.T) {
-		if !got.ChainAnchorOwnershipDivergent || math.Abs(got.ChainAnchorChainLaneMs-7.121) > 0.002 || math.Abs(got.ChainAnchorCensusMs-7.413) > 0.002 {
-			t.Fatalf("the seat must carry its thread's divergence verdict: %+v", got)
+		if got.ChainAnchorOwnershipDivergent || got.ChainAnchorChainLaneMs != 0 || got.ChainAnchorCensusMs != 0 {
+			t.Fatalf("the thread's divergence verdict stays on the thread's own seats: %+v", got)
 		}
 		account := false
 		for _, c := range got.ShareClaims {
@@ -132,8 +150,14 @@ func TestHMC377R11RestrictionSeatKeepsTheDemotedSideLane(t *testing.T) {
 			RunnableMs: float64(100 - i), EffectiveImpactMs: float64(100 - i), ChainAnchorRemainderSeat: true, ChainAnchoredMs: 1,
 			ChainAnchorFullMs: float64(101 - i), ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain"})
 	}
+	// EVOLUTION RECORD (HMC377 round 12, R-377-12 ③): old → new = the split
+	// seat wore ChainAnchorRemainderSeat / ChainAnchoredMs 3.913 /
+	// ChainAnchorFullMs 6.606 and kept the demoted lane through the
+	// remainder-marker arm of rspaRemainderKeepsDemotedLane → it carries its
+	// typed subset field (RestrictedReadyAccountMs 6.606) and keeps the lane
+	// by it.
 	seat := RootCauseRankItem{Type: "cpu_affinity_or_cpuset", Source: "window_stats.cpu_constraints", Thread: ThreadRef{PID: 76},
-		RunnableMs: 2.693, EffectiveImpactMs: 2.693, ChainAnchorRemainderSeat: true, ChainAnchoredMs: 3.913, ChainAnchorFullMs: 6.606,
+		RunnableMs: 2.693, EffectiveImpactMs: 2.693, RestrictedReadyAccountMs: 6.606,
 		ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain"}
 	rspaHold(&seat, RootCauseShareHolderSubsetSeat, false, []foldInterval{{start: 1, end: 1.002693}}, 2.693)
 	items = append(items, seat)

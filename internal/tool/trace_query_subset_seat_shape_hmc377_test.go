@@ -13,8 +13,26 @@ import (
 // case A): a chain seat holding the walked share, the thread's
 // cpu_affinity_or_cpuset ◇ seat keeping its restricted instants outside it,
 // and the ◇ runnable remainder whose rest is partly counted on that seat.
+//
+// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+// 2026-11-22): old → new = the restriction node wore the thread's
+// same-source split (ChainAnchorRemainderSeat, ChainAnchoredMS 7.413,
+// ChainAnchorFullMS 36.968) and the display derived 本行计 as rest − share →
+// the nodes carry the engine's round-12 wire: the restriction node its typed
+// subset fields (RestrictedReadyAccountMS 36.968, ShareCountedElsewhereMS
+// 7.413, ShareCountedHereMS 29.555), the remainder its share counted on the
+// restriction row and its own count (29.555 / 68.749), and the ⛓ node its
+// same-source split with a remainder claim the engine resolved to both rows
+// that carry the rest (review-population w47 HeapTaskDaemon-26594: the ⛓
+// row credited the whole rest 282.170 to ◇ while ◇ published 167.008 and the
+// restriction row 115.162).
 func hmc377R11SubsetShareProjection() types.TraceCausalProjection {
 	chain := elimChainNode("r11-chain", "nputmethod.anco-38135", "runnable_wait", "runnable", 1, 7.413, 41)
+	chain.ChainAnchorFullMS, chain.ChainAnchoredMS = 105.717, 7.413
+	chain.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 98.304,
+			Resolved: true, HolderEvidenceIDs: []string{"r11-rem", "r11-cpu"}},
+	}
 	adjacent := func(id, typ string, value float64, line int) types.TraceCausalProjectionNode {
 		return types.TraceCausalProjectionNode{
 			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: id,
@@ -25,13 +43,14 @@ func hmc377R11SubsetShareProjection() types.TraceCausalProjection {
 		}
 	}
 	restriction := adjacent("r11-cpu", "cpu_affinity_or_cpuset", 29.555, 60)
-	restriction.ChainAnchorRemainderSeat, restriction.ChainAnchoredMS, restriction.ChainAnchorFullMS = true, 7.413, 36.968
+	restriction.RestrictedReadyAccountMS, restriction.ShareCountedElsewhereMS, restriction.ShareCountedHereMS = 36.968, 7.413, 29.555
 	restriction.ShareClaims = []types.TraceCausalProjectionShareClaim{
 		{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderChainSeat), ShareMS: 7.413,
 			Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r11-chain"}},
 	}
 	remainder := adjacent("r11-rem", "runnable_wait", 68.749, 50)
 	remainder.ChainAnchorRemainderSeat, remainder.ChainAnchoredMS, remainder.ChainAnchorFullMS = true, 7.413, 105.717
+	remainder.ShareCountedElsewhereMS, remainder.ShareCountedHereMS = 29.555, 68.749
 	remainder.ShareClaims = []types.TraceCausalProjectionShareClaim{
 		{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderChainSeat), ShareMS: 7.413,
 			Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r11-chain"}},
@@ -69,6 +88,34 @@ func TestHMC377R11SubsetShareHandShape(t *testing.T) {
 		}
 		if !model.Marks.has(runtimeTraceProjMarkChainAnchorSubsetShare) {
 			t.Fatalf("zh=%t: the 另行计入 mark must be set", zh)
+		}
+		chain := xlane2FindRowByEvidenceID(&model, "r11-chain")
+		rem := xlane2FindRowByEvidenceID(&model, "r11-rem")
+		if chain == nil || rem == nil || chain.EvidenceTag == "" || rem.EvidenceTag == "" {
+			t.Fatal("the ⛓ and ◇ rows must be drawn")
+		}
+		// HMC377 round 12 (R-377-12 ③): the restriction row states its own
+		// restricted account, never the thread's whole-window account, and
+		// the ⛓ row names every carrier of its rest.
+		restrictionWant := "CPU亲和/cpuset限制下合计36.968ms:其中7.413ms另行计入[" + chain.EvidenceTag + "],本行计29.555ms(无链上凭证)"
+		chainWant := "其余98.304ms(◇余段席[" + rem.EvidenceTag + "]、CPU亲和/cpuset限制[" + cpu.EvidenceTag + "]分计)"
+		if !zh {
+			restrictionWant = "36.968ms under the CPU affinity/cpuset restriction in all: of which 7.413ms is counted separately on [" + chain.EvidenceTag + "]; this row 29.555ms (no chain credential)"
+			chainWant = "remainder 98.304ms (counted by the ◇ remainder seat [" + rem.EvidenceTag + "] and the CPU affinity/cpuset restriction [" + cpu.EvidenceTag + "])"
+		}
+		// The fence wraps long lines under tree rails; compare on the text
+		// with the rails dropped.
+		joined := strings.ReplaceAll(strings.Join(strings.Fields(strings.ReplaceAll(fence, "│", " ")), " "), "cpuset 限制", "cpuset限制")
+		if !strings.Contains(joined, restrictionWant) {
+			t.Fatalf("zh=%t: the restriction row's own account %q missing:\n%s", zh, restrictionWant, fence)
+		}
+		if !strings.Contains(joined, chainWant) {
+			t.Fatalf("zh=%t: the ⛓ row's rest carriers %q missing:\n%s", zh, chainWant, fence)
+		}
+		for _, banned := range []string{"全窗36.968ms", "full-window 36.968ms", "合计还原全窗账 36.968ms", "◇席=[" + cpu.EvidenceTag + "]", "◇ seat = [" + cpu.EvidenceTag + "]"} {
+			if strings.Contains(fence, banned) {
+				t.Fatalf("zh=%t: the restriction row must never state or be paired as the thread's whole-window account (%q):\n%s", zh, banned, fence)
+			}
 		}
 	}
 }

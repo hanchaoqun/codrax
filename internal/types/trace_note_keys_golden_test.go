@@ -609,6 +609,9 @@ var traceNoteKeyGoldenRows = []string{
 	// RSPA M-IO (§29.61.10c, 2026-07-14): per-IO completion-closure credential.
 	"resource_completion_closure|state|hard_consumer",
 	"resource_stack|resource_stack|soft_consumer",
+	// HMC377 round 12 (R-377-12 ③): a restriction row's whole restricted
+	// ready account (the restriction subset's typed field).
+	"restricted_ready_account_ms|state|hard_consumer",
 	"restricted_runnable|cpu_load|display_only",
 	"restriction_proof|cpu_load|display_only",
 	"ret|io|display_only",
@@ -668,6 +671,10 @@ var traceNoteKeyGoldenRows = []string{
 	"seqno|dma_fence|display_only",
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	"share_claims|state|hard_consumer",
+	// HMC377 round 12 (R-377-12 ③): on a row that handed carved shares over,
+	// the part rows on the published board count and what it counts itself.
+	"share_counted_elsewhere_ms|state|hard_consumer",
+	"share_counted_here_ms|state|hard_consumer",
 	// HMC377 round 11 (R-377-11 ①): the share a gate-withdrawn holder's
 	// published successor took back.
 	"share_returned_ms|state|hard_consumer",

@@ -236,6 +236,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// HMC377 round 11 (R-377-11 ①): 行2 ◇ 余段席「锚定份中 X ms 的持有行仅作上下文,本行以自身数值计入,本行共计 Y」/
 	// 卫星行承载句 / 残余席收回句 + 构成份部分收回句.
 	"ShareReturnedMS": {Status: "displayed", Ref: "HMC377 R-377-11 ① 行2 继承份(撤回持有行的段由本行计入):◇余段席共计句、卫星行承载句、残余席本席计句、构成份部分收回句"},
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields.
+	"RestrictedReadyAccountMS": {Status: "displayed", Ref: "HMC377 R-377-12 ③ 行2 CPU亲和/cpuset限制行自身账「限制下合计X:其中…另行计入[E#],本行计Y」"},
+	"ShareCountedElsewhereMS":  {Status: "displayed", Ref: "HMC377 R-377-12 ③ 行2 另行计入份(◇余段席其余中由限制行计入的一段;限制行由链上席计入的份额门)"},
+	"ShareCountedHereMS":       {Status: "displayed", Ref: "HMC377 R-377-12 ③ 行2 本行计(◇余段席与限制行各自计入的部分,引擎数值)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
 	"GatedShareClaimedMS":       {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
 	"GatedShareFullMS":          {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
@@ -682,6 +686,10 @@ var rankItemContract = map[string]fieldDisposition{
 	"GatedShareClaimWithdrawn":     {Status: "note_consumed", Ref: "gated_share_claim_withdrawn → Node.GatedShareClaimWithdrawn(R-377-10 ② 反转席仅作上下文)"},
 	// HMC377 round 11 (R-377-11 ①).
 	"ShareReturnedMs": {Status: "note_consumed", Ref: "share_returned_ms → Node.ShareReturnedMS(R-377-11 ① 撤回持有行的段由继承行计入)"},
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields.
+	"RestrictedReadyAccountMs": {Status: "note_consumed", Ref: "restricted_ready_account_ms → Node.RestrictedReadyAccountMS(R-377-12 ③ 限制行自身受限账)"},
+	"ShareCountedElsewhereMs":  {Status: "note_consumed", Ref: "share_counted_elsewhere_ms → Node.ShareCountedElsewhereMS(R-377-12 ③ 另行计入份)"},
+	"ShareCountedHereMs":       {Status: "note_consumed", Ref: "share_counted_here_ms → Node.ShareCountedHereMS(R-377-12 ③ 本行计)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
 	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},

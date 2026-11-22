@@ -707,7 +707,9 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// values + remainder marker move together (a survivor with its own
 	// decomposition keeps it; the two halves of one bipartition can never R1
 	// same-fact merge because their published values differ by construction).
+	tookLoserClaims := false
 	if survivor.ChainAnchorFullMS == 0 && loser.ChainAnchorFullMS > 0 {
+		tookLoserClaims = true
 		survivor.ChainAnchoredMS = loser.ChainAnchoredMS
 		survivor.ChainAnchorFullMS = loser.ChainAnchorFullMS
 		survivor.ChainAnchorRemainderSeat = loser.ChainAnchorRemainderSeat
@@ -765,6 +767,15 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// took back travels with the claims that took it.
 	if survivor.ShareReturnedMS == 0 && loser.ShareReturnedMS > 0 && len(survivor.ShareClaims) == 0 {
 		survivor.ShareReturnedMS = loser.ShareReturnedMS
+		survivor.ShareClaims = loser.ShareClaims
+		tookLoserClaims = true
+	}
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields
+	// travel as one disclosure with the claims whose resolution wrote them.
+	if survivor.ShareCountedElsewhereMS == 0 && loser.ShareCountedElsewhereMS > 0 && (len(survivor.ShareClaims) == 0 || tookLoserClaims) {
+		survivor.RestrictedReadyAccountMS = loser.RestrictedReadyAccountMS
+		survivor.ShareCountedElsewhereMS = loser.ShareCountedElsewhereMS
+		survivor.ShareCountedHereMS = loser.ShareCountedHereMS
 		survivor.ShareClaims = loser.ShareClaims
 	}
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record travels as ONE
@@ -1683,6 +1694,11 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		return "anchor_unwalked"
 	case node.ChainAnchorFullMS > 0:
 		return "anchor_clipped"
+	case node.RestrictedReadyAccountMS > 0:
+		// HMC377 round 12 (R-377-12 ③): a restriction row that left part of
+		// its instants to this thread's on-chain seats is its own account
+		// form (the round-11 carve gave it the remainder form instead).
+		return "restricted_subset"
 	case node.ChainCredentialLaneDemoted:
 		return "lane_demoted"
 	case node.ChainAnchorRepresentedByChainSeat:
@@ -2318,6 +2334,19 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 	for _, idx := range members {
 		if nodes[idx].ShareReturnedMS > 0 {
 			aggregate.ShareReturnedMS = 0
+			aggregate.ShareClaims = nil
+			break
+		}
+	}
+	// HMC377 round 12 (R-377-12 ③): same discipline for the restriction
+	// subset's typed fields — the members' value channels already leave out
+	// the shares counted elsewhere, so the Σ row keeps the Σ; the per-member
+	// split and its claims have no single referent on a member Σ.
+	for _, idx := range members {
+		if nodes[idx].ShareCountedElsewhereMS > 0 || nodes[idx].RestrictedReadyAccountMS > 0 {
+			aggregate.RestrictedReadyAccountMS = 0
+			aggregate.ShareCountedElsewhereMS = 0
+			aggregate.ShareCountedHereMS = 0
 			aggregate.ShareClaims = nil
 			break
 		}

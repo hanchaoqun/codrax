@@ -37,6 +37,18 @@ package tracequery
 // keeps exactly one carrier. Typed instants and thread identity only; values
 // never decide. A thread whose holds carry no instants (a seat whose
 // inventory did not reproduce its account) is left untouched (fail open).
+//
+// HMC377 round 12 (batch-owner ruling R-377-12 ③, 2026-11-22): the
+// restriction seat's split is written in its own typed subset fields
+// (RestrictedReadyAccountMs; the resolver writes ShareCountedElsewhereMs /
+// ShareCountedHereMs on every row that handed carved shares over). Round 11
+// wrote it in the thread's same-source split fields (ChainAnchorFullMs /
+// ChainAnchoredMs / ChainAnchorRemainderSeat and the three-way parts), which
+// every face reads as the thread's whole-window account and its ◇ pair
+// partner: the restriction row stated a 全窗 account of its subset (105 网易云
+// 后台销毁 #4 nputmethod.anco-38135: 全窗36.968 beside the thread's 105.717) and
+// was paired as the thread's ◇ seat (review-population n21w daily_control-26026:
+// 「同源二分对席:◇席=[E14]…合计还原全窗账 182.107ms」 on a 196.790ms account).
 
 import (
 	"fmt"
@@ -219,18 +231,22 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 		case insideMs > rspaAnchorIdentityTolMs:
 			// The restriction seat keeps the instants the chain object does
 			// not hold; it publishes them as its own ◇ account.
+			//
+			// HMC377 round 12 (R-377-12 ③): the seat publishes a subset of
+			// its thread's ready time, so it carries the typed subset fields
+			// only (RestrictedReadyAccountMs here; the resolver writes the
+			// shares counted elsewhere and here). The thread's same-source
+			// split fields (full / anchored / remainder seat / three-way
+			// parts / ownership divergence) keep the thread-account meaning
+			// and stay on the thread's own seats.
 			var s rspaSentence
 			text := base + fmt.Sprintf("; this row counts the ready time under this CPU restriction that no on-chain seat of this thread publishes (%.3fms under the restriction in all)", fullMs)
-			var anchoredMs, unwalkedMs float64
 			for _, role := range roles {
 				part := insideByRole[role]
 				ms := rspaFoldLengthMs(part)
 				claimPart := RootCauseShareClaimAnchored
 				if role == RootCauseShareHolderUnwalkedSeat {
 					claimPart = RootCauseShareClaimUnwalked
-					unwalkedMs += ms
-				} else {
-					anchoredMs += ms
 				}
 				claim := rspaClaim(claimPart, role, x.Thread.PID, false, ms, part)
 				claim.carved = true
@@ -238,18 +254,16 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 			}
 			// Case A' (the thread's chain seat publishes its own account,
 			// which diverges from the anchored ledger): the remainder of the
-			// thread carries the typed divergence verdict; this row speaks
-			// the same double-account form for its share inside the walked
-			// windows (never "held by the chain seat" at that value).
+			// thread carries the typed divergence verdict; this row says the
+			// chain seat keeps its own account for the share inside the
+			// walked windows (never "held by the chain seat" at that value) —
+			// the chain-account claim is the typed signal the face reads.
 			if _, walked := insideByRole[RootCauseShareHolderChainSeat]; walked {
 				for _, r := range remainders {
 					rr := items[r.idx]
 					if !rr.ChainAnchorOwnershipDivergent {
 						continue
 					}
-					x.ChainAnchorOwnershipDivergent = true
-					x.ChainAnchorChainLaneMs = rr.ChainAnchorChainLaneMs
-					x.ChainAnchorCensusMs = rr.ChainAnchorCensusMs
 					account := rspaClaim(RootCauseShareClaimChainAccount, RootCauseShareHolderChainSeat, x.Thread.PID, false, rr.ChainAnchorChainLaneMs, nil)
 					accountHeld, accountCompact, accountContext := rspaChainAccountPhrases(rr.ChainAnchorChainLaneMs)
 					text += "; anchored-ownership divergence: " + s.spanContext(accountHeld, accountCompact, accountContext, account) +
@@ -258,14 +272,9 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 				}
 			}
 			s.text = text
+			x.RestrictedReadyAccountMs = fullMs
+			x.rspaCarvedAccountMs = fullMs
 			rspaApplyCarvedShares(x, insideMs)
-			x.ChainAnchorRemainderSeat = true
-			x.ChainAnchoredMs = anchoredMs
-			x.ChainAnchorFullMs = fullMs
-			if unwalkedMs > rspaAnchorIdentityTolMs {
-				x.ChainAnchorUnwalkedMs = unwalkedMs
-				x.ChainAnchorOutsideMs = ownMs
-			}
 			x.ChainCredentialLaneDemoted = false
 			x.Causality = "adjacent_to_wakeup_chain"
 			x.ChainRelevance = "adjacent"
@@ -308,6 +317,10 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 // shares, and its sentence names where the share is counted. It reports
 // whether the remainder holds no instant of its own any more.
 func rspaCarveRemainderShare(r *RootCauseRankItem, carve []foldInterval, carveMs float64) bool {
+	if r.rspaCarvedAccountMs <= 0 {
+		// The remainder's rest as minted: the account this carve splits.
+		r.rspaCarvedAccountMs = r.RunnableMs + r.rspaCarvedAppliedMs
+	}
 	held := make([]rspaHeldShare, 0, len(r.rspaHeld))
 	left := 0.0
 	for _, h := range r.rspaHeld {
@@ -345,12 +358,20 @@ func rspaCarvedClaimsMs(item RootCauseRankItem, resolvedOnly bool) float64 {
 }
 
 // rspaWriteCarvedShares publishes a row's account less the carved shares the
-// published board counts elsewhere (written by the one resolver).
+// published board counts elsewhere (written by the one resolver), and the
+// typed numbers of that split (HMC377 round 12, R-377-12 ③): the share
+// counted elsewhere and what the row counts itself.
 func rspaWriteCarvedShares(item *RootCauseRankItem) {
 	if item.rspaCarvedAppliedMs <= 0 && rspaCarvedClaimsMs(*item, false) <= 0 {
 		return
 	}
-	rspaApplyCarvedShares(item, rspaCarvedClaimsMs(*item, true))
+	elsewhere := rspaCarvedClaimsMs(*item, true)
+	rspaApplyCarvedShares(item, elsewhere)
+	item.ShareCountedElsewhereMs, item.ShareCountedHereMs = 0, 0
+	if elsewhere > rspaAnchorIdentityTolMs {
+		item.ShareCountedElsewhereMs = elsewhere
+		item.ShareCountedHereMs = rspaClampNonNegative(item.rspaCarvedAccountMs - elsewhere)
+	}
 }
 
 // rspaApplyCarvedShares leaves exactly targetMs of carved shares out of the

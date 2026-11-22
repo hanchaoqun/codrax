@@ -909,6 +909,20 @@ type TraceCausalProjectionNode struct {
 	// constituent's value is it; a satellite's own account already did). The
 	// display names this row as the one counting it. 0 on every other row.
 	ShareReturnedMS float64 `json:"share_returned_ms,omitempty"`
+	// RestrictedReadyAccountMS / ShareCountedElsewhereMS / ShareCountedHereMS
+	// (HMC377 round 12, R-377-12 ③; compiled from the
+	// restricted_ready_account_ms / share_counted_elsewhere_ms /
+	// share_counted_here_ms notes): the restriction subset's typed fields. A
+	// CPU-restriction row part of whose restricted ready time lies inside this
+	// thread's on-chain seats' instants carries its whole restricted account;
+	// every row that handed such shares over (that row, a ◇ remainder that
+	// left instants to it) carries the part rows on the published board count
+	// and what it counts itself. The face prints them verbatim; a restriction
+	// row never carries the thread's same-source split (ChainAnchor*). 0 on
+	// every other row.
+	RestrictedReadyAccountMS float64 `json:"restricted_ready_account_ms,omitempty"`
+	ShareCountedElsewhereMS  float64 `json:"share_counted_elsewhere_ms,omitempty"`
+	ShareCountedHereMS       float64 `json:"share_counted_here_ms,omitempty"`
 	// ShareClaims (HMC377 fix round 5; compiled from the share_claims note,
 	// never serialized): every claim this row makes that a share of its
 	// account is held by another seat, as the engine resolved it against the
@@ -4385,6 +4399,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's successor
 	// took back.
 	node.ShareReturnedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyShareReturned)
+	node.RestrictedReadyAccountMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyRestrictedReadyAccount)
+	node.ShareCountedElsewhereMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyShareCountedElsewhere)
+	node.ShareCountedHereMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyShareCountedHere)
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	node.ShareClaims = ParseTraceShareClaimsNote(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyShareClaims), record.ID)
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.

@@ -907,6 +907,19 @@ const (
 	// LEVELMERGE-1 residual publishes its own account plus it, a constituent
 	// publishes it). Absent on every other row.
 	TraceNoteKeyShareReturned = "share_returned_ms"
+	// TraceNoteKeyRestrictedReadyAccount / TraceNoteKeyShareCountedElsewhere /
+	// TraceNoteKeyShareCountedHere (HMC377 round 12, R-377-12 ③): the typed
+	// subset fields of the one-carrier pass. On a CPU-restriction row part of
+	// whose restricted ready time lies inside this thread's on-chain seats'
+	// instants, its whole restricted ready account; on every row that handed
+	// such shares over (that restriction row, a ◇ remainder that left
+	// instants to it), the part rows on the published board count and what
+	// the row counts itself. The face prints these numbers as they are (never
+	// a difference of its own); a restriction row never reads the thread's
+	// same-source split notes. Absent on every other row.
+	TraceNoteKeyRestrictedReadyAccount = "restricted_ready_account_ms"
+	TraceNoteKeyShareCountedElsewhere  = "share_counted_elsewhere_ms"
+	TraceNoteKeyShareCountedHere       = "share_counted_here_ms"
 	// TraceNoteKeyShareClaims (HMC377 fix round 5): the typed holder
 	// references of every claim a rank row's sentences make that a share of
 	// its account is held by another seat of the same board — part, holder
@@ -1996,6 +2009,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's published
 	// successor took back.
 	{TraceNoteKeyShareReturned, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields.
+	{TraceNoteKeyRestrictedReadyAccount, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyShareCountedElsewhere, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyShareCountedHere, "state", TraceNoteCarrierHardConsumer},
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	{TraceNoteKeyShareClaims, "state", TraceNoteCarrierHardConsumer},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split

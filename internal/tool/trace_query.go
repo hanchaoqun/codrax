@@ -11591,6 +11591,21 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's published
 	// successor took back.
 	shareReturned := traceQueryObservationMSValue(item.ShareReturnedMs)
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields —
+	// a restriction seat's whole restricted account, and on every row that
+	// handed carved shares over the part rows on the published board count
+	// and what the row counts itself (the face prints these engine numbers,
+	// never a difference of its own). The three ride together: the account
+	// only beside a share counted elsewhere.
+	restrictedAccount, countedElsewhere, countedHere := "", "", ""
+	if item.ShareCountedElsewhereMs > 0 {
+		countedElsewhere = traceQueryObservationMSValue(item.ShareCountedElsewhereMs)
+		countedHere = traceQueryObservationMSValue(item.ShareCountedHereMs)
+		if countedHere == "" {
+			countedHere = "0.000"
+		}
+		restrictedAccount = traceQueryObservationMSValue(item.RestrictedReadyAccountMs)
+	}
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family — emitted only when the engine minted it (GatedShareFullMs > 0
 	// ⇔ the split ran on this seat pair; the overlap key rides the fail-open
@@ -11678,6 +11693,9 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyChainAnchorRepresentedByChainSeat, representedBySeat},
 		{types.TraceNoteKeyChainAnchorRepresentedHeld, representedHeld},
 		{types.TraceNoteKeyShareReturned, shareReturned},
+		{types.TraceNoteKeyRestrictedReadyAccount, restrictedAccount},
+		{types.TraceNoteKeyShareCountedElsewhere, countedElsewhere},
+		{types.TraceNoteKeyShareCountedHere, countedHere},
 		{types.TraceNoteKeyGatedShareClaimed, gatedShareClaimed},
 		{types.TraceNoteKeyGatedShareFull, gatedShareFull},
 		{types.TraceNoteKeyGatedShareConstituentSeat, gatedShareConstituent},

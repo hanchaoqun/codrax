@@ -522,8 +522,17 @@ func TestRSPADonghuWitnessBoard(t *testing.T) {
 			jankRestriction = &rank.Items[i]
 		}
 	}
+	// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+	// 2026-11-22): old → new = the restriction seat's split rode the
+	// thread's same-source split fields (ChainAnchoredMs 1.759,
+	// ChainAnchorFullMs 27.507) → its typed subset fields (restricted account
+	// 27.507, 1.759 counted on the ⛓ seat, 25.748 here); the split fields
+	// stay zero on it (they keep the thread-account meaning: the ◇ remainder
+	// below still carries 31.191 / 1.759).
 	if jankRestriction == nil || math.Abs(jankRestriction.RunnableMs-25.748) > 0.002 ||
-		math.Abs(jankRestriction.ChainAnchoredMs-1.759) > 0.002 || math.Abs(jankRestriction.ChainAnchorFullMs-27.507) > 0.002 {
+		math.Abs(jankRestriction.RestrictedReadyAccountMs-27.507) > 0.002 || math.Abs(jankRestriction.ShareCountedElsewhereMs-1.759) > 0.002 ||
+		math.Abs(jankRestriction.ShareCountedHereMs-25.748) > 0.002 ||
+		jankRestriction.ChainAnchoredMs != 0 || jankRestriction.ChainAnchorFullMs != 0 || jankRestriction.ChainAnchorRemainderSeat {
 		t.Fatalf("JankManager restriction seat must keep its own instants outside the chain seat's: %+v", jankRestriction)
 	}
 	if math.Abs(jankRunnableRem.ChainAnchorFullMs-31.191) > 0.002 {

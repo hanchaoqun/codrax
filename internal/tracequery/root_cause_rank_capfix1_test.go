@@ -382,10 +382,18 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 			publishedKeys[fmt.Sprintf("%s|%s|%d", item.Type, threadKey(item.Thread), item.LineStart)] = true
 		}
 		worstPublished := -1
+		// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ③,
+		// 2026-11-22): old → new = the side-lane classes below listed the
+		// split CPU-restriction seat through its round-11 remainder marker →
+		// it rides the demoted side lane by its typed subset field
+		// (RestrictedReadyAccountMs), which the sweep reads the same way the
+		// cap does (truncateRootCauseRankCandidatesAndSideRows); without it
+		// the donghu 17267 restriction seat JankManager-9655 read as a
+		// candidate holding an adjacent slot.
 		for _, item := range published {
 			if rootCauseRankItemIsZeroSeatDisclosure(item) || item.ChainAnchorRemainderSeat ||
 				item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-				item.GatedShareConstituentSeat {
+				item.GatedShareConstituentSeat || item.RestrictedReadyAccountMs > 0 {
 				continue
 			}
 			if p := capSurvivalLanePriority(item); p > worstPublished {
@@ -395,7 +403,7 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		for _, item := range pool {
 			if rootCauseRankItemIsZeroSeatDisclosure(item) || item.ChainAnchorRemainderSeat ||
 				item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-				item.GatedShareConstituentSeat {
+				item.GatedShareConstituentSeat || item.RestrictedReadyAccountMs > 0 {
 				continue
 			}
 			key := fmt.Sprintf("%s|%s|%d", item.Type, threadKey(item.Thread), item.LineStart)
