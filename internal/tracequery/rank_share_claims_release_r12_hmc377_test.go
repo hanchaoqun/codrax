@@ -486,3 +486,31 @@ func TestHMC377R12SeveralSeatTwinDetailStaysWhileItsAbsorberCarriesIt(t *testing
 		t.Errorf("detail words: %q", detail[0].Summary)
 	}
 }
+
+// A claim resolved within the per-interval tolerance on the engine run (its
+// holder covers every instant but µs edges) keeps its held form: no part of
+// it is held by a successor — successor holds exist only after the gate's
+// withdrawal. (Found on the real-window sweep, w37 #tp-io-29-42203: the
+// work-in-progress measured the successor-held part as the resolved part
+// less the holders' exact cover and reworded the ◇ owner phrase and the
+// R-377-4 detail on a board the gate had not touched.)
+func TestHMC377R12ToleranceResolvedClaimKeepsItsHeldForm(t *testing.T) {
+	var windows, held []foldInterval
+	for i := 0; i < 5; i++ {
+		start := 10.2 + float64(i)*0.01
+		windows = append(windows, foldInterval{start: start, end: start + 0.001})
+		held = append(held, foldInterval{start: start + 0.0000003, end: start + 0.001})
+	}
+	seat := hmc377R11ChainRun(rspaFoldLengthMs(held), held, 21, 25)
+	rem := hmc377R11Remainder(5, 5, 10, 10.5, 70, 80)
+	rspaSetSentence(&rem, rspaRemainderSentence(hmc377R11Dep, "runnable (scheduling-pressure candidate)", 5, 5, 10,
+		rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 5, windows)))
+	items := []RootCauseRankItem{hmc377R11OtherSeat(), seat, rem}
+	resolveRankShareClaims(items, nil)
+	if c := items[2].ShareClaims[0]; !c.Resolved {
+		t.Fatalf("precondition: the claim resolves within tolerance: %+v", c)
+	}
+	if !strings.Contains(items[2].Summary, rspaSummaryOwnedByChainSeat) {
+		t.Errorf("an engine-run claim held by its own role's seat keeps the held form: %q", items[2].Summary)
+	}
+}

@@ -1569,7 +1569,7 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 			c.restWithdrawnMs = rspaClampNonNegative(c.ShareMs - c.ResolvedMs - c.ReturnedMs)
 		}
 	}
-	var windowed, windowedOwn []foldInterval
+	var windowed, windowedOwn, windowedSucc []foldInterval
 	windowlessMs, windowlessSuccMs, valueMs := 0.0, 0.0, 0.0
 	var holders []int
 	viaSuccessor, placed := map[int]bool{}, map[int]bool{}
@@ -1581,7 +1581,7 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 		onChain := rootCauseItemIsOnChain(*row)
 		// What this seat holds in the claim's role and family (a merged
 		// seat holds what each member held).
-		var heldWindows []foldInterval
+		var heldWindows, succWindows []foldInterval
 		heldMs, windowless, successor, ownRole := 0.0, false, false, false
 		for _, h := range row.rspaHeld {
 			if !c.heldBy(h) {
@@ -1592,6 +1592,7 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 					continue
 				}
 				successor = true
+				succWindows = append(succWindows, h.windows...)
 			} else {
 				// HMC377 fix round 6: a D/IO cause partition's share is
 				// held only in that partition (or by a seat holding for the
@@ -1618,6 +1619,7 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 				continue
 			}
 			windowed = append(windowed, heldWindows...)
+			windowedSucc = append(windowedSucc, succWindows...)
 			if ownRole && !successor {
 				windowedOwn = append(windowedOwn, heldWindows...)
 			}
@@ -1672,16 +1674,22 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 	for _, h := range holders {
 		c.Successor = c.Successor || viaSuccessor[h]
 	}
-	// The held part per disposition: the instants seats of the claim's role
-	// hold, the rest of the held part a withdrawn seat's successor holds.
+	// The held part per disposition: the instants only a withdrawn seat's
+	// successor holds (successor holds are written by the publication's
+	// successor rule alone — zero on every engine run), the rest held by
+	// seats of the claim's role.
 	switch {
 	case len(c.windows) > 0:
-		c.heldOwnMs = math.Min(c.ResolvedMs, scale(rspaFoldLengthMs(c.covered))+windowlessMs-windowlessSuccMs)
+		succOnly := foldIntervalSubtract(rspaFoldIntersect(rspaFoldCopy(windowedSucc), c.windows), rspaFoldCopy(windowedOwn))
+		c.heldSuccMs = scale(rspaFoldLengthMs(succOnly)) + windowlessSuccMs
 	case valueMs > 0:
-		c.heldOwnMs = c.ResolvedMs * (valueMs - windowlessSuccMs) / valueMs
+		c.heldSuccMs = c.ResolvedMs * windowlessSuccMs / valueMs
 	}
-	c.heldOwnMs = rspaClampNonNegative(c.heldOwnMs)
-	c.heldSuccMs = rspaClampNonNegative(c.ResolvedMs - c.heldOwnMs)
+	if c.heldSuccMs <= rspaAnchorIdentityTolMs {
+		c.heldSuccMs = 0
+	}
+	c.heldSuccMs = math.Min(c.heldSuccMs, c.ResolvedMs)
+	c.heldOwnMs = rspaClampNonNegative(c.ResolvedMs - c.heldSuccMs)
 	restWithdrawn(windowed)
 }
 
