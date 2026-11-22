@@ -603,8 +603,14 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 	if facts.SemanticClass != "" && facts.SpanName != "" {
 		parts = append(parts, fmt.Sprintf("确定性语义工作 %s（%s）", facts.SpanName, facts.SemanticClass))
 	}
-	if facts.BlockedReasonCaller != "" {
-		parts = append(parts, "阻塞记录调用者="+facts.BlockedReasonCaller)
+	// HMC377 R-377-11 ④: a ×N merged row names its causes (cause and ms,
+	// largest first) and the ms no proven cause holds, through the one
+	// wording the tree and the finalizer handoff use.
+	if cause := types.TraceBlockedReasonCauseText(facts.BlockedReasonCaller, facts.BlockedReasonCallerShares, true); cause != "" {
+		parts = append(parts, "阻塞记录调用者="+cause)
+		if unproven := types.TraceBlockedReasonUnprovenText(facts.BlockedReasonUnprovenMS, true); unproven != "" {
+			parts = append(parts, unproven)
+		}
 	}
 	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
 		parts = append(parts, "排查方向=优先级与依赖方供给")

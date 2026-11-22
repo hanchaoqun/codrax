@@ -6684,9 +6684,7 @@ func runtimeTraceProjPropagateDStateProofToTwins(nodes []types.TraceCausalProjec
 			continue
 		}
 		nodes[i].DStateRefinedNonIO = true
-		if nodes[i].BlockedReasonCaller == "" {
-			nodes[i].BlockedReasonCaller = donor.BlockedReasonCaller
-		}
+		types.TraceCausalProjectionAdoptBlockedReasonCause(&nodes[i], donor)
 	}
 }
 
@@ -8404,9 +8402,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalP
 			rankTwin := nodes[rankIdx]
 			node.DStateRefinedNonIO = node.DStateRefinedNonIO || rankTwin.DStateRefinedNonIO
 			node.DStateCauseUnprovenRemainder = node.DStateCauseUnprovenRemainder || rankTwin.DStateCauseUnprovenRemainder
-			if node.BlockedReasonCaller == "" {
-				node.BlockedReasonCaller = rankTwin.BlockedReasonCaller
-			}
+			types.TraceCausalProjectionAdoptBlockedReasonCause(&node, rankTwin)
 			if node.BlockedReasonWindowCount == 0 && rankTwin.BlockedReasonWindowCount > 0 {
 				node.BlockedReasonWindowCount = rankTwin.BlockedReasonWindowCount
 				node.BlockedReasonWindowCaller = rankTwin.BlockedReasonWindowCaller
@@ -11554,11 +11550,18 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// kernel wait call-site, not a resource object or holder identity. With no
 	// rank-family seat this row is the only carrier of that typed symbol; its
 	// presence must not depend on the dispatch shape (absent = absent).
-	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+	//
+	// HMC377 R-377-11 ④: a ×N merged row names its causes (cause and ms,
+	// largest first) and the ms no proven cause holds, through the one
+	// wording (types.TraceBlockedReasonCauseText).
+	if cause := node.BlockedReasonCauseText(zh); cause != "" {
 		if zh {
-			demoted = append(demoted, "内核调用点 "+caller)
+			demoted = append(demoted, "内核调用点 "+cause)
 		} else {
-			demoted = append(demoted, "kernel wait call-site "+caller)
+			demoted = append(demoted, "kernel wait call-site "+cause)
+		}
+		if unproven := types.TraceBlockedReasonUnprovenText(node.BlockedReasonUnprovenMS, zh); unproven != "" {
+			demoted = append(demoted, unproven)
 		}
 	}
 	if idleKind != "" {

@@ -227,6 +227,16 @@ func runtimeTraceProjBuildMicroAnchorFoldRow(group []*runtimeTraceProjTreeRow) r
 	node.ImpactMS = sum
 	node.CumulativeImpactMS = sum
 	node.EffectiveImpactMS = sum
+	// HMC377 R-377-11 ④ (R10P-4): the fold keeps its members' proven
+	// blocked_reason causes (cause and ms, largest first) through the one
+	// tally and wording — a micro D/IO seat folded here used to lose the
+	// 内核调用点 word its own row carried (105 抖音极速版 w42w2: 10536
+	// posix_lock_file 0.073 ms, named at main, folded at the batch head).
+	memberNodes := make([]types.TraceCausalProjectionNode, 0, len(members))
+	for _, member := range members {
+		memberNodes = append(memberNodes, member.Node)
+	}
+	node.BlockedReasonCallerShares, node.BlockedReasonUnprovenMS = types.TraceCausalProjectionFoldBlockedReasonCauses(memberNodes)
 	if uniformStateOK && uniformState != "" {
 		node.StateKind = uniformState // U4: 全员一致态词保留
 	}
@@ -343,11 +353,32 @@ func runtimeTraceProjMicroAnchorFoldName(node types.TraceCausalProjectionNode, z
 // the value channel already printed Σ, this tag names the ruler (账目合计
 // over sub-threshold anchored shares), re-affirms the preserved ⛓ credential
 // semantics, and points at the detail blocks.
+//
+// HMC377 R-377-11 ④: when the folded seats proved blocked_reason causes, the
+// tag closes with their cause words (types.TraceBlockedReasonCauseText), so
+// every face that prints the tag (tree, key-metrics name, detail) keeps them.
 func runtimeTraceProjMicroAnchorFoldTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	var text string
 	if zh {
-		return fmt.Sprintf("%d席合计(账目合计,单席%s,均<%.1fms)·凭证锚定段,仍属⛓链上通道·见明细",
+		text = fmt.Sprintf("%d席合计(账目合计,单席%s,均<%.1fms)·凭证锚定段,仍属⛓链上通道·见明细",
+			node.MergedCount, runtimeTraceProjMergedRangeText(node), runtimeTraceProjMicroAnchorFoldMs)
+	} else {
+		text = fmt.Sprintf("%d-seat total (account sum, each %s, all <%.1fms) · anchored credential shares, still the ⛓ on-chain channel · see the detail blocks",
 			node.MergedCount, runtimeTraceProjMergedRangeText(node), runtimeTraceProjMicroAnchorFoldMs)
 	}
-	return fmt.Sprintf("%d-seat total (account sum, each %s, all <%.1fms) · anchored credential shares, still the ⛓ on-chain channel · see the detail blocks",
-		node.MergedCount, runtimeTraceProjMergedRangeText(node), runtimeTraceProjMicroAnchorFoldMs)
+	if cause := node.BlockedReasonCauseText(zh); cause != "" {
+		if zh {
+			text += "·内核调用点 " + cause
+		} else {
+			text += " · kernel wait call-site " + cause
+		}
+		if unproven := types.TraceBlockedReasonUnprovenText(node.BlockedReasonUnprovenMS, zh); unproven != "" {
+			if zh {
+				text += "·" + unproven
+			} else {
+				text += " · " + unproven
+			}
+		}
+	}
+	return text
 }

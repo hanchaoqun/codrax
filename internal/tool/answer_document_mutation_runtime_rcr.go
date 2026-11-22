@@ -1477,11 +1477,17 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// dma_fence_default_wait): the unanimous blocked_reason semantic caller
 	// discloses on 行2 as a kernel wait call-site — engine-minted symbol only
 	// (absence never guesses), never a resource object or holder identity.
-	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+	// HMC377 R-377-11 ④: a ×N merged row names its causes (cause and ms,
+	// largest first) and the ms no proven cause holds, through the one
+	// wording (types.TraceBlockedReasonCauseText).
+	if cause := node.BlockedReasonCauseText(zh); cause != "" {
 		if zh {
-			identity = append(identity, "内核调用点 "+caller)
+			identity = append(identity, "内核调用点 "+cause)
 		} else {
-			identity = append(identity, "kernel wait call-site "+caller)
+			identity = append(identity, "kernel wait call-site "+cause)
+		}
+		if unproven := types.TraceBlockedReasonUnprovenText(node.BlockedReasonUnprovenMS, zh); unproven != "" {
+			identity = append(identity, unproven)
 		}
 	} else if node.BlockedReasonWindowCount > 0 {
 		// CR-3 件② P10 (冷读案7 GPU-fence witness, 2026-07-12): the row

@@ -542,7 +542,17 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 				b.WriteString("- On-chain wait evidence boundaries (a call site applies only to this wait record for the named thread):\n")
 			}
 			for _, node := range waits {
-				caller := traceDecisionPromptScalar(node.BlockedReasonCaller)
+				// HMC377 R-377-11 ④: a ×N merged row names its causes through
+				// the one wording the tree and side file use.
+				callerText := node.BlockedReasonCauseText(zh)
+				if unproven := types.TraceBlockedReasonUnprovenText(node.BlockedReasonUnprovenMS, zh); unproven != "" {
+					if zh {
+						callerText += "；" + unproven
+					} else {
+						callerText += "; " + unproven
+					}
+				}
+				caller := traceDecisionPromptScalar(callerText)
 				subject := traceDecisionPromptScalar(node.Subject)
 				cause := traceFinalReaderActualCauseLabel(node, zh)
 				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
@@ -666,7 +676,7 @@ func traceFinalReaderBlockedReasonRows(projection types.TraceCausalProjection, l
 	out := make([]types.TraceCausalProjectionNode, 0, limit)
 	for _, pool := range pools {
 		for _, node := range pool {
-			caller := strings.TrimSpace(node.BlockedReasonCaller)
+			caller := node.BlockedReasonCauseText(true)
 			if caller == "" || !traceFinalReaderNodeProvedOnChain(projection, node) ||
 				(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 				continue

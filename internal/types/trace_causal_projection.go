@@ -768,6 +768,17 @@ type TraceCausalProjectionNode struct {
 	// when absent/conflicting (absence never guesses). It identifies where
 	// the kernel wait was recorded, not a resource object or holder identity.
 	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
+	// BlockedReasonCallerShares / BlockedReasonUnprovenMS (HMC377 R-377-11 ④,
+	// R10P-4): the causes of a ×N merged row whose members name different
+	// blocked_reason callers (BlockedReasonCaller then stays ""): each
+	// proven caller with the ms its members hold, largest first, and the ms
+	// its honest-remainder members hold with no proven cause. Minted only by
+	// the one ×N merge body and carried as a unit with BlockedReasonCaller
+	// (TraceCausalProjectionAdoptBlockedReasonCause); every face names them
+	// through TraceBlockedReasonCauseText. Wording input only: no gate, score
+	// or sort lane reads them.
+	BlockedReasonCallerShares []TraceBlockedReasonCallerShare `json:"blocked_reason_caller_shares,omitempty"`
+	BlockedReasonUnprovenMS   float64                         `json:"blocked_reason_unproven_ms,omitempty"`
 	// BlockedReasonWindowCount / BlockedReasonWindowCaller (CR-3 件② P10,
 	// 2026-07-12): the UNCONSUMED sched_blocked_reason residual — set only
 	// when the row consumed no caller yet the window holds markers for its

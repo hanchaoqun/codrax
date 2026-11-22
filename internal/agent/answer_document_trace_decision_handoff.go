@@ -901,7 +901,7 @@ func traceDecisionHasAccountOrRoleRelations(set types.TraceCausalProjectionSet) 
 			for _, node := range lane {
 				if len(node.CrossDirectionOverlaps) > 0 || node.DStateSplitMS > 0 ||
 					node.IOWaitSplitMS > 0 || node.ResourceCompletionClosure ||
-					strings.TrimSpace(node.BlockedReasonCaller) != "" ||
+					node.HasBlockedReasonCause() ||
 					strings.TrimSpace(node.BlockingKind) != "" {
 					return true
 				}
@@ -981,7 +981,13 @@ func traceDecisionWriteNodeBlockingReasonAuthority(b *strings.Builder, node type
 		}
 		return
 	}
-	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+	// HMC377 R-377-11 ④: a ×N merged row names its causes (cause and ms,
+	// largest first, then the ms no proven cause holds) in the same field,
+	// through the one wording the reader faces use.
+	if caller := node.BlockedReasonCauseText(false); caller != "" {
+		if unproven := types.TraceBlockedReasonUnprovenText(node.BlockedReasonUnprovenMS, false); unproven != "" {
+			caller += "; " + unproven
+		}
 		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; caller_scope=`this_seat_only`; sibling_caller_transfer=`forbidden`; holder_authority=`not_provided_by_caller`; allowed_mechanism_scope=`kernel_reported_wait_callsite_for_this_seat`; not_authorized_mechanisms=`sibling_or_cross_row_cause,holder_identity,resource_identity`", caller)
 	}
 }

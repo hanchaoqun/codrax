@@ -139,6 +139,15 @@ var infoContractKnownGaps = map[string]infoContractKnownGap{
 }
 
 // --- T1 · TraceCausalProjectionNode contract (B 区) ---------------------------
+//
+// EVOLUTION RECORD (HMC377 round 11, R10P-4 / R-377-11 ④), rows
+// BlockedReasonCaller and BlockedReasonCallerShares: the display authority
+// used to read the caller field directly (scan token `.BlockedReasonCaller`,
+// tree.go self row + rcr.go 行2). Both faces now consume the unanimous caller
+// and a merged row's cause list through the one wording method, so both rows
+// scan for `.BlockedReasonCauseText(` (old: field token; new: method token,
+// the `.IsAggregateMetric(` precedent). Red evidence before the token moved:
+// fix11/dcause/logs/suite_s3_internal_tool.log (「显示权威零引用」 on both rows).
 
 var nodeFieldContract = map[string]fieldDisposition{
 	"RankSubjects":                  {Status: "projection_gate", Ref: "HMC363 RankSubjectScope typed board/member disclosure to roster and reader; no causal/election authority"},
@@ -261,7 +270,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"CPUConstraintGlobalMaxTierKHz":  {Status: "displayed", Ref: "R5a 行3 绑核排除更大核档(全域最大核档)"},
 	"ResourceCompletionClosure":      {Status: "displayed", Ref: "RSPA M-IO 行2 完成闭合注记"},
 	"SystemSupplement":               {Status: "displayed", Ref: "SUPP-CORE 修复轮 件5: E# 审计面 origin=system_supplement 出处 token"},
-	"BlockedReasonCaller":            {Status: "displayed", Ref: "件③ 行2 内核调用点 披露"},
+	"BlockedReasonCaller":            {Status: "displayed", Token: ".BlockedReasonCauseText(", Ref: "件③ 行2 内核调用点 披露"},
+	"BlockedReasonCallerShares":      {Status: "displayed", Token: ".BlockedReasonCauseText(", Ref: "HMC377 R-377-11 ④ ×N 合并行的 内核调用点 原因与 ms 列表"},
+	"BlockedReasonUnprovenMS":        {Status: "displayed", Ref: "HMC377 R-377-11 ④ ×N 合并行 原因未证 ms"},
 	"BlockedReasonWindowCount":       {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 blocked_reason 残余披露"},
 	"BlockedReasonWindowCaller":      {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 caller 符号"},
 	"ProcessTGID":                    {Status: "displayed", Ref: "CR-3 件③ 明细「进程 tgid=G」行"},

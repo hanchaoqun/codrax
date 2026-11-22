@@ -314,6 +314,10 @@ func candidateEvidenceFacts(projection types.TraceCausalProjection, node types.T
 		SemanticClass:          strings.TrimSpace(node.SemanticClass),
 		SpanName:               strings.TrimSpace(node.SpanName),
 		PriorityOverlap:        node.PriorityOverlap.Clone(),
+		// HMC377 R-377-11 ④: a merged row's cause list rides as one unit
+		// with BlockedReasonCaller.
+		BlockedReasonCallerShares: types.CloneTraceBlockedReasonCallerShares(node.BlockedReasonCallerShares),
+		BlockedReasonUnprovenMS:   node.BlockedReasonUnprovenMS,
 	}
 	if projection.TargetStateAccount != nil {
 		facts.TargetSubject = strings.TrimSpace(projection.TargetStateAccount.Subject)

@@ -184,6 +184,12 @@ type TraceCauseEvidenceFacts struct {
 	SemanticClass          string                        `json:"semantic_class,omitempty"`
 	SpanName               string                        `json:"span_name,omitempty"`
 	PriorityOverlap        *TraceRunnablePriorityOverlap `json:"priority_runnable_overlap,omitempty"`
+	// BlockedReasonCallerShares / BlockedReasonUnprovenMS mirror a merged
+	// row's cause list beside BlockedReasonCaller (TraceCausalProjectionNode,
+	// HMC377 R-377-11 ④); the side file words all three through
+	// TraceBlockedReasonCauseText.
+	BlockedReasonCallerShares []TraceBlockedReasonCallerShare `json:"blocked_reason_caller_shares,omitempty"`
+	BlockedReasonUnprovenMS   float64                         `json:"blocked_reason_unproven_ms,omitempty"`
 }
 
 // TraceCausalQualifier values — closed set, always explicit on every public

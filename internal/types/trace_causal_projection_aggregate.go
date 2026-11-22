@@ -782,9 +782,8 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	survivor.AbsorbedWholeSeatDemotedView = survivor.AbsorbedWholeSeatDemotedView || loser.AbsorbedWholeSeatDemotedView
 	survivor.ResourceCompletionClosure = survivor.ResourceCompletionClosure || loser.ResourceCompletionClosure
-	if survivor.BlockedReasonCaller == "" {
-		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
-	}
+	// One fact, one cause: the caller and a merged cause list travel as a unit.
+	TraceCausalProjectionAdoptBlockedReasonCause(survivor, loser)
 	if survivor.BlockedReasonWindowCount == 0 && loser.BlockedReasonWindowCount > 0 {
 		survivor.BlockedReasonWindowCount = loser.BlockedReasonWindowCount
 		survivor.BlockedReasonWindowCaller = loser.BlockedReasonWindowCaller
@@ -2475,8 +2474,34 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 		}
 	}
 	aggregate.DStateRefinedNonIO = refinedAll
-	if callerConflict {
+	// HMC377 R-377-11 ④ (R10P-4). EVOLUTION RECORD: a group whose members
+	// named different blocked_reason callers used to clear the caller and
+	// keep nothing — 105 元宝 后台销毁冷启动 #2 (TID 58533) merged nine
+	// cause-partition seats into one 4.256 ms D row and vfs_path_open_ng
+	// (3.435 ms of it) left every face
+	// (fix10/review-population/out/ybb2/head_ybb2.fence_zh.txt [E6(+8)]).
+	// The unanimous single-cause word stays exactly as before; a
+	// non-unanimous group now keeps its causes (cause and ms, largest
+	// first) and the ms its honest-remainder members hold. A row that names
+	// proven causes is no longer the honest remainder as a whole: its
+	// unproven part is the published BlockedReasonUnprovenMS instead.
+	memberCauseLists := false
+	for _, idx := range members {
+		if len(nodes[idx].BlockedReasonCallerShares) > 0 {
+			memberCauseLists = true
+			break
+		}
+	}
+	if callerConflict || memberCauseLists {
 		aggregate.BlockedReasonCaller = ""
+		sumCaliber := !union.applied && !union.crossWindowMax && !aggregate.MergedSameSegmentMirror
+		shares, unproven := traceCausalProjectionMergedBlockedReasonCauses(nodes, members, traceCausalProjectionDisplayValue, sumCaliber)
+		aggregate.BlockedReasonCallerShares = shares
+		aggregate.BlockedReasonUnprovenMS = 0
+		if len(shares) > 0 {
+			aggregate.BlockedReasonUnprovenMS = unproven
+			aggregate.DStateCauseUnprovenRemainder = false
+		}
 	}
 	// Display may use a union/MAX while Target has its own MAX and Effective
 	// has an independently admitted sum. Only axes actually retained above
