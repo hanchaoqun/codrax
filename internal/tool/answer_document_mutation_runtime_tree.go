@@ -17786,18 +17786,31 @@ func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionT
 }
 
 // runtimeTraceProjFourStateSemanticPointer resolves the 确定性工作 component's
-// evidence pointer: the LARGEST rendered target-thread semantic row's §29.27.1
-// seat badge + [E#] (三面记号一致 — the same glyph/tag pair the tree and the
-// detail table wear), plus the rendered family COUNT and the pointer row's
-// own published value (复核 E-P3: the running line discloses 共N类/最大 Y so
-// the ∩running union beside a single row's value never reads contradictory).
-// tag "" when no such row rendered (the value still publishes — the typed
-// account is the source; the pointer is navigation only).
+// evidence pointer: the rendered target-thread semantic row with the LARGEST
+// class wall, its §29.27.1 seat badge + [E#] (三面记号一致 — the same
+// glyph/tag pair the tree and the detail table wear), plus the rendered class
+// COUNT and that class wall (复核 E-P3: the running line discloses 共N类/最大
+// 类墙钟 Y so the ∩running union beside a single row's value never reads
+// contradictory). tag "" when no such row rendered (the value still publishes
+// — the typed account is the source; the pointer is navigation only).
+//
+// HMC377 R-377-12 ⑦ (R11O-1). EVOLUTION RECORD: the count was one per
+// rendered row and the maximum read each row's published effective. A split
+// own-work account (a8e2ee04f, R-377-11 ③) renders one semantic class as two
+// account parts — its own work outside the thread's chain waits and the part
+// inside them — so the line said 「共2类」 for one class and its 最大类墙钟 read
+// the own-work part's price instead of the class wall (105 元宝 后台销毁冷启动 #2,
+// TID 58533 bindApplication [10834.099821,10834.620005): 「共2类,最大类墙钟
+// 37.945ms」 against the class wall 40.085,
+// hmc377/fix11/merge/sweep/out/dio/merge/merge_w22.fence_zh.txt). Classes now
+// count by family identity (the two parts of one account are one class, by
+// the typed account identity) and the maximum reads each row's record wall.
 func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (string, int, float64) {
 	target := runtimeTraceCausalProjectionCanonicalNode(model.Target)
 	var best *runtimeTraceProjTreeRow
 	bestValue := 0.0
 	count := 0
+	accounts := map[string]bool{}
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.Adjacent, model.Background} {
 		for i := range rows {
 			row := &rows[i]
@@ -17810,8 +17823,15 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 			if runtimeTraceProjSemanticRowRecordsWait(row.Node) {
 				continue
 			}
-			count++
-			if value := runtimeTraceProjFamilyPublishedMS(row.Node); value > bestValue {
+			if account := strings.TrimSpace(row.Node.OwnWorkAccount); types.TraceCausalProjectionOwnWorkAccountFact(row.Node) != "" {
+				if !accounts[account] {
+					accounts[account] = true
+					count++
+				}
+			} else {
+				count++
+			}
+			if value := runtimeTraceProjSemanticRecordWallMS(row.Node); value > bestValue {
 				bestValue, best = value, row
 			}
 		}
