@@ -1209,6 +1209,12 @@ const (
 	// 窗口投影合计 union disclosure (intersection<union partial-overlap form).
 	runtimeTraceProjMarkFamilyChainIntersection
 
+	// HMC377 R-377-11 ③: the own-work part of an own-work account that the
+	// thread's chain waits split in two — its word 链上等待以外(共N条记录,
+	// 同线程) beside the record's 窗口投影合计 disclosure; the wait part of the
+	// same spans wears 链上计入 (above), and the two parts add up to the wall.
+	runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait
+
 	// §29.27② (COV-4, 2026-07-11): the four-state coverage account — the
 	// focused thread's full-window wall-clock partition + the running-segment
 	// attribution line (确定性工作/供给折算影响/自身执行). Renders in the
@@ -2055,6 +2061,10 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkFamilyChainIntersection, runtimeTraceProjLegendGroupCaliber,
 			"- `链上计入(共N条记录,同线程)` = " + tracefence.ImpactCaliberEffectiveZH + "只计成员区间与同线程链窗的精确交集;行旁「" + tracefence.ImpactCaliberWindowProjectionZH + "合计」为全部成员区间的并集口径,两口径同处披露、不相加;N为汇总记录数,每条可汇总多个物理区间。",
 			"- `on-chain counted (N records, same thread)` = the " + tracefence.ImpactCaliberEffectiveEN + " counts ONLY the exact intersection of the member intervals with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added; N counts summary records, each of which may aggregate multiple physical intervals."},
+		// HMC377 R-377-11 ③: the own-work part of a split own-work account.
+		{runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait, runtimeTraceProjLegendGroupCaliber,
+			"- `链上等待以外(共N条记录,同线程)` = " + tracefence.ImpactCaliberEffectiveZH + "只计目标自身语义片段成员区间中本线程未处于链上等待的时段;处于链上等待的时段由同一批片段的`链上计入`行另列,两行之和为行旁「" + tracefence.ImpactCaliberWindowProjectionZH + "合计」,同一时段只计一次;N为汇总记录数,每条可汇总多个物理区间。",
+			"- `outside on-chain waits (N records, same thread)` = the " + tracefence.ImpactCaliberEffectiveEN + " counts ONLY the instants of the target's own semantic span members during which the thread was not in an on-chain wait; the instants inside those waits are listed separately on the `on-chain counted` row of the same spans, and the two rows add up to the adjacent complete window-projection total — each instant is counted once; N counts summary records, each of which may aggregate multiple physical intervals."},
 		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
 			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
 			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
@@ -3007,7 +3017,8 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 			lines = append(lines, "- A merged item states whether it uses a sum, member maximum, interval union, or duplicate-publication fold. Wall-clock values across threads or overlapping query windows are not added directly.")
 		}
 	}
-	if hasAny(runtimeTraceProjMarkFamilyTotal, runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjMarkFamilyChainIntersection) {
+	if hasAny(runtimeTraceProjMarkFamilyTotal, runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjMarkFamilyChainIntersection,
+		runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait) {
 		lines = append(lines, "- "+runtimeTraceProjFamilyRecordCountScope(zh))
 	}
 	if hasAny(runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjMarkIconCaliberSide) {
@@ -8502,14 +8513,22 @@ func runtimeTraceProjSemanticTwinLane(node types.TraceCausalProjectionNode) (str
 }
 
 func runtimeTraceProjSemanticTwinKey(node types.TraceCausalProjectionNode) string {
-	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
-		return ""
-	}
 	if !types.TraceCausalProjectionKnownSubject(node.Subject) {
 		return ""
 	}
 	lane, ok := runtimeTraceProjSemanticTwinLane(node)
 	if !ok {
+		return ""
+	}
+	// HMC377 R-377-11 ③: a part of an own-work account pairs its rank row and
+	// its record by the engine's typed account identity alone. The value
+	// mirror below cannot be its proof (the own-work seat prices the members'
+	// instants outside the thread's chain waits, its record publishes their
+	// wall), and an account row never pairs with a plain row.
+	if fact := types.TraceCausalProjectionOwnWorkAccountFact(node); fact != "" {
+		return "own-work-account\x00" + lane + "\x00" + runtimeTraceCausalProjectionCanonicalNode(node.Subject) + "\x00" + fact
+	}
+	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
 		return ""
 	}
 	return lane + "\x00" + runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
@@ -8585,7 +8604,10 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		// CROWNSEM-1 (§40.28 ①): the B830 relation-only special fold is
 		// retired; credentialed semantic carriers fold through the generic
 		// effective-mirror arm below like every other seat.
-		if sem.SemanticChainProjectedMS > 0 {
+		if types.TraceCausalProjectionOwnWorkAccountFact(*sem) != "" {
+			// HMC377 R-377-11 ③: the typed account key already proved the
+			// pair is one part of one account; no value or member mirror.
+		} else if sem.SemanticChainProjectedMS > 0 {
 			// 审计 #5 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
 			// SAME-SOURCE value mirror for on-chain semantic twins. The rank
 			// lane's participation value is the exact member∩chain intersection
@@ -8607,7 +8629,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		} else if rankV, semV := runtimeTraceProjNodeDisplayImpact(rank), runtimeTraceProjNodeDisplayImpact(*sem); rankV <= 0 || rankV != semV {
 			continue // not the engine's one participation value — never fold
 		}
-		if rank.FamilyMemberCount != sem.FamilyMemberCount {
+		if rank.FamilyMemberCount != sem.FamilyMemberCount && types.TraceCausalProjectionOwnWorkAccountFact(*sem) == "" {
 			continue // different member accounting — never fold
 		}
 		if types.TraceCausalProjectionWindowPresent(rank.QueryWindowStartTs, rank.QueryWindowEndTs) &&
@@ -8709,6 +8731,66 @@ func runtimeTraceProjFoldSemanticRankLaneTwins(rankNodes []types.TraceCausalProj
 		}
 	}
 	return kept, semantics, peers
+}
+
+// runtimeTraceProjOwnWorkAccountRowPrice (HMC377 R-377-11 ③) reports the
+// priced instants and the wall of a record drawn for a part of an own-work
+// account. The analysed thread's own-work family and the wait family of the
+// same spans are two disjoint parts of one account; each part is one seat
+// (its rank row folds into its record by the typed account key). A record's
+// wall is not its part's instants: the own-work record's wall is the whole
+// account, the wait record's wall is member spans the own-work record
+// contains, so two record rows valued at their walls draw the same instants
+// twice (ybb2: 40.085 + 6.687 against a 40.085 ms union; w27w2 196.401 twice
+// in a 196.401 ms window). The row's value is the part's price
+// (runtimeTraceProjNodeDisplayImpactSource); the record keeps its wall on
+// ImpactMS for the window-projection disclosure and every table column.
+func runtimeTraceProjOwnWorkAccountRowPrice(node types.TraceCausalProjectionNode) (price, wall float64, ok bool) {
+	if !runtimeTraceCausalProjectionSemanticSpanRow(node) {
+		return 0, 0, false
+	}
+	price = types.TraceCausalProjectionOwnWorkAccountPartMS(node)
+	if price <= 0 || node.ImpactMS <= price || runtimeTraceProjRound3Equal(price, node.ImpactMS) {
+		return 0, 0, false
+	}
+	return price, node.ImpactMS, true
+}
+
+// runtimeTraceProjSemanticRecordWallMS is the wall a semantic row discloses
+// beside its value: the record's wall when the row is valued at an own-work
+// account part's price, else the row's display value (the record's wall).
+func runtimeTraceProjSemanticRecordWallMS(node types.TraceCausalProjectionNode) float64 {
+	if _, wall, ok := runtimeTraceProjOwnWorkAccountRowPrice(node); ok {
+		return wall
+	}
+	return runtimeTraceProjNodeDisplayImpact(node)
+}
+
+// runtimeTraceProjOwnWorkPartSplit reports the own-work part of a split
+// own-work account drawn at its price (the wall it discloses beside it).
+func runtimeTraceProjOwnWorkPartSplit(node types.TraceCausalProjectionNode) (wall float64, ok bool) {
+	if strings.TrimSpace(node.OwnWorkAccountPart) != types.TraceOwnWorkAccountPartOwnWork {
+		return 0, false
+	}
+	_, wall, ok = runtimeTraceProjOwnWorkAccountRowPrice(node)
+	return wall, ok
+}
+
+// runtimeTraceProjOwnWorkOutsideChainWaitWord is the own-work part's caliber
+// word (legend runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait): the
+// member instants outside the thread's on-chain waits.
+func runtimeTraceProjOwnWorkOutsideChainWaitWord(node types.TraceCausalProjectionNode, zh bool) string {
+	n := node.FamilyMemberCount
+	if n <= 1 {
+		if zh {
+			return "链上等待以外"
+		}
+		return "outside on-chain waits"
+	}
+	if zh {
+		return fmt.Sprintf("链上等待以外(%s,同线程)", runtimeTraceProjFamilyRecordCountWord(n, true))
+	}
+	return fmt.Sprintf("outside on-chain waits (%s, same thread)", runtimeTraceProjFamilyRecordCountWord(n, false))
 }
 
 // runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets runs one ambiguity
@@ -9235,6 +9317,12 @@ const (
 // runtimeTraceProjNodeDisplayImpact, returning the value together with its
 // typed source (precise signal — one field comparison per step).
 func runtimeTraceProjNodeDisplayImpactSource(node types.TraceCausalProjectionNode) (float64, runtimeTraceProjImpactSource) {
+	// HMC377 R-377-11 ③: a record drawn for a part of an own-work account is
+	// valued at the part's own instants, never at the family wall that also
+	// holds the other part's (runtimeTraceProjOwnWorkAccountRowPrice).
+	if price, _, ok := runtimeTraceProjOwnWorkAccountRowPrice(node); ok {
+		return price, runtimeTraceProjImpactSourceWindow
+	}
 	if node.IOPressureActivityIndex > 0 &&
 		(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) == "io_pressure" ||
 			runtimeTraceCausalProjectionCanonicalNode(node.Object) == "io_pressure") {
@@ -11317,7 +11405,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 			value = runtimeTraceProjCountEquivalentValueText(v, zh)
 		default:
-			if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
+			if prefix := runtimeTraceProjFamilyRowValuePrefix(node, zh); prefix != "" {
 				value = prefix + value
 			}
 		}
@@ -14468,7 +14556,7 @@ func runtimeTraceProjFamilyStemCellWidth(row runtimeTraceProjTreeRow, zh bool) i
 		(runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node)) {
 		return 0
 	}
-	prefix := runtimeTraceProjFamilyValuePrefix(node, zh)
+	prefix := runtimeTraceProjFamilyRowValuePrefix(node, zh)
 	if prefix == "" {
 		return 0
 	}
@@ -14580,7 +14668,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// context-only aggregate while its value shares the suffix-free word
 		// face with the legacy block_io_by_inode composite row.
 		b.WriteString(" " + runtimeTraceProjCompositeValueText(node, impact, zh))
-	} else if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
+	} else if prefix := runtimeTraceProjFamilyRowValuePrefix(node, zh); prefix != "" {
 		// RCM-2 D2 行1 (witness 「✦ VerifyClass ×14 合计7.124ms 9%」): a family
 		// row's main-line duration wears the compact caliber stem directly, so
 		// the merged magnitude is identifiable at the point of reading; the
@@ -15149,7 +15237,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// cpu·ms unit suffix on the main number — a plain-ms cum/effective tag
 	// next to it stacks two calibers on one row (same idle gate as the C00
 	// caliber word, which already excludes aggregates).
-	if node.CumulativeImpactMS > 0 && impact > 0 && node.CumulativeImpactMS != impact && !crossThread {
+	// HMC377 R-377-11 ③: a record valued at an own-work account part's price
+	// keeps its wall on the cumulative lane — that wall is disclosed on the
+	// row as 窗口投影合计, never as a chain cumulative.
+	_, _, accountPriced := runtimeTraceProjOwnWorkAccountRowPrice(node)
+	if node.CumulativeImpactMS > 0 && impact > 0 && node.CumulativeImpactMS != impact && !crossThread && !accountPriced {
 		// PTV6-C ruling A (#73, 用户裁定 2026-07-06): the chain-attribution
 		// word 链上累计 belongs to the chain universe; a ◇/▒ stanza row shows
 		// the SAME data under the 累计(跨线程) family word (single wording
@@ -17156,7 +17248,7 @@ func runtimeTraceProjConclusionFamilyCaliberSuffix(primary types.TraceCausalProj
 		// The dual-caliber lead keeps its own 链上计入 wording lane (审计 #62 ①).
 		return ""
 	}
-	word, _, ok := runtimeTraceProjFamilyCaliberWord(primary, zh)
+	word, _, ok := runtimeTraceProjFamilyEffectiveCaliberWord(primary, zh)
 	if !ok || !runtimeTraceProjRound3Equal(runtimeTraceProjFamilyPublishedMS(primary), primary.EffectiveImpactMS) {
 		return ""
 	}
@@ -20360,6 +20452,14 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				runtimeTraceCausalProjectionMarkdownSafe(fmt.Sprintf("%s;%s%s",
 					runtimeTraceProjFmtMS(intersection),
 					runtimeTraceProjSemanticChainIntersectionWord(node, zh),
+					runtimeTraceProjSemanticChainUnionDisclosure(node, zh, true))))
+		}
+		// HMC377 R-377-11 ③: the own-work part's mirror of the line above.
+		if _, split := runtimeTraceProjOwnWorkPartSplit(node); split {
+			add("链上等待以外", "outside on-chain waits",
+				runtimeTraceCausalProjectionMarkdownSafe(fmt.Sprintf("%s;%s%s",
+					runtimeTraceProjFmtMS(runtimeTraceProjNodeDisplayImpact(node)),
+					runtimeTraceProjOwnWorkOutsideChainWaitWord(node, zh),
 					runtimeTraceProjSemanticChainUnionDisclosure(node, zh, true))))
 		}
 		// RCM-2 D3 明细面 (§24.7.1 ① 区分键不能丢 + roster 全量在明细): the

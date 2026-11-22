@@ -146,6 +146,12 @@ func runtimeTraceProjMarkFamilyCaliber(marks *runtimeTraceProjMarkSet, caliberMa
 	if caliberMark == runtimeTraceProjMarkFamilyCountSum {
 		marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 	}
+	// HMC377 R-377-11 ③: the own-work part's word carries the family's
+	// record-count tail (共N条记录,同线程) and its row discloses the family
+	// 合计 (the record wall) beside it, so the 合计 entry is taught with it.
+	if caliberMark == runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait {
+		marks.mark(runtimeTraceProjMarkFamilyTotal)
+	}
 }
 
 // runtimeTraceProjCountEquivalentValueText is the ONE display form of a
@@ -273,6 +279,40 @@ func runtimeTraceProjFamilyValuePrefix(node types.TraceCausalProjectionNode, zh 
 	return ""
 }
 
+// runtimeTraceProjOwnWorkAccountOwnPart reports a row or record of the
+// own-work part of an own-work account (HMC377 R-377-11 ③; typed account
+// identity and part only).
+func runtimeTraceProjOwnWorkAccountOwnPart(node types.TraceCausalProjectionNode) bool {
+	return types.TraceCausalProjectionOwnWorkAccountFact(node) != "" &&
+		strings.TrimSpace(node.OwnWorkAccountPart) == types.TraceOwnWorkAccountPartOwnWork
+}
+
+// runtimeTraceProjFamilyEffectiveCaliberWord is the caliber word of a
+// family's PUBLISHED effective (the equation faces: 行3, the ◎ note, the
+// conclusion suffix). The own-work part of an own-work account publishes the
+// members' instants outside the thread's on-chain waits, never their 合计
+// (HMC377 R-377-11 ③); every other family's effective is its fold total and
+// keeps the fold word. Faces that describe the family fold itself (the
+// family stanza, the table token) keep runtimeTraceProjFamilyCaliberWord.
+func runtimeTraceProjFamilyEffectiveCaliberWord(node types.TraceCausalProjectionNode, zh bool) (string, runtimeTraceProjMark, bool) {
+	if runtimeTraceProjOwnWorkAccountOwnPart(node) {
+		return runtimeTraceProjOwnWorkOutsideChainWaitWord(node, zh), runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait, true
+	}
+	return runtimeTraceProjFamilyCaliberWord(node, zh)
+}
+
+// runtimeTraceProjFamilyRowValuePrefix is the 行1 stem of a row's own value:
+// the family stem when the row is valued at its family fold total, "" when the
+// row is a record valued at an own-work account part's price (HMC377
+// R-377-11 ③ — that price is not the fold total; the wall is disclosed on
+// 行3 beside it). Every face that prints the wall keeps the plain stem.
+func runtimeTraceProjFamilyRowValuePrefix(node types.TraceCausalProjectionNode, zh bool) string {
+	if _, _, priced := runtimeTraceProjOwnWorkAccountRowPrice(node); priced {
+		return ""
+	}
+	return runtimeTraceProjFamilyValuePrefix(node, zh)
+}
+
 // runtimeTraceProjFamilyPublishedMS is the family's PUBLISHED participation
 // value (§24.10 合并量参赛; D3 参赛值=发布值): the engine-published effective
 // attribution when present, else the row's typed on-chain intersection, else
@@ -323,7 +363,7 @@ func runtimeTraceProjSemanticChainDualCaliber(node types.TraceCausalProjectionNo
 	if intersection <= 0 {
 		return 0, false
 	}
-	union := runtimeTraceProjNodeDisplayImpact(node)
+	union := runtimeTraceProjSemanticRecordWallMS(node)
 	if union <= 0 || runtimeTraceProjRound3Equal(intersection, union) {
 		return 0, false
 	}
@@ -354,7 +394,7 @@ func runtimeTraceProjSemanticChainIntersectionWord(node types.TraceCausalProject
 // closed-set tokens 窗口投影 / 合计 / 见明细). The stanza variant swaps the
 // pointer for the detail block's own 供对照 convention.
 func runtimeTraceProjSemanticChainUnionDisclosure(node types.TraceCausalProjectionNode, zh, stanza bool) string {
-	union := runtimeTraceProjNodeDisplayImpact(node)
+	union := runtimeTraceProjSemanticRecordWallMS(node)
 	if union <= 0 {
 		return ""
 	}

@@ -1509,7 +1509,29 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		impactSource != runtimeTraceProjImpactSourceEffective
 	handled := false
 	semIntersection, semDual := runtimeTraceProjSemanticChainDualCaliber(node)
-	if runtimeTraceProjFamilyRow(node) || semDual {
+	if _, ownSplit := runtimeTraceProjOwnWorkPartSplit(node); ownSplit {
+		// HMC377 R-377-11 ③: the own-work part of an own-work account that
+		// the thread's chain waits split in two — the published value is the
+		// member instants outside those waits (the row's value), the wall is
+		// disclosed beside it, and the wait part of the same spans is the
+		// separate 链上计入 row. Identity gate: the published value equals the
+		// row value at print precision (拒渲绝不造数 otherwise).
+		v := runtimeTraceProjFamilyPublishedMS(node)
+		if v > 0 && runtimeTraceProjRound3Equal(v, impact) && !node.PeriodicSource {
+			out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
+				runtimeTraceProjFmtMS(v),
+				runtimeTraceProjOwnWorkOutsideChainWaitWord(node, zh),
+				runtimeTraceProjSemanticChainUnionDisclosure(node, zh, false))
+			out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+			if subRows, ok := runtimeTraceProjFamilySpanTopSubRows(row, zh); ok {
+				out.SubRows = subRows
+			}
+			row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+			runtimeTraceProjMarkFamilyCaliber(row.marks, runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait)
+			out.ConsumedEffective = true
+		}
+		handled = true
+	} else if runtimeTraceProjFamilyRow(node) || semDual {
 		// RCM-2 D2 (§24.10/§24.12 维度A ④, 2026-07-08): the family form OWNS
 		// the whole 行3/子行 seat — 行3 = 「有效归因 V = 合计(共N段,同线程)」
 		// (fifth caliber word per the typed fold-caliber ladder; union < Σ
@@ -1522,7 +1544,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// impact); when the two channels BOTH exist and disagree at print
 		// precision the "=" claim fails open (拒渲绝不造数 — the plain
 		// effective tag then stays on its legacy lane).
-		word, caliberMark, wordOK := runtimeTraceProjFamilyCaliberWord(node, zh)
+		word, caliberMark, wordOK := runtimeTraceProjFamilyEffectiveCaliberWord(node, zh)
 		v := runtimeTraceProjFamilyPublishedMS(node)
 		if semDual {
 			intersection := semIntersection

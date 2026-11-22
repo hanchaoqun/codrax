@@ -667,6 +667,17 @@ type TraceCausalProjectionNode struct {
 	// 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers and the R3
 	// disclosure sentence); score/sort producers use the same closed token.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
+	// OwnWorkAccount / OwnWorkAccountPart (HMC377 R-377-11 ③): the engine's
+	// typed own-work account identity of a row or record minted from the
+	// analysed thread's own-work family or from the wait family of the same
+	// spans (the record's TraceOwnWorkAccount carrier, verbatim). One
+	// part of one account is one fact (the own-work seat and its own record,
+	// the wait seat and its own record), the two parts carry disjoint
+	// instants, and a record's wall carries the instants of the parts it
+	// records — so account rows converge by this identity, never by value,
+	// and are never re-summed by a ×N merge. Empty on every other row.
+	OwnWorkAccount     string `json:"own_work_account,omitempty"`
+	OwnWorkAccountPart string `json:"own_work_account_part,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
 	// tree keys its depth attach to (branch, depth): a node from a DIFFERENT
@@ -4268,6 +4279,13 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// 「目标自身·确定性优化」 display qualifier forks on THIS single field (never a
 	// subject∧class∧relevance recomposition); absent = legacy overlap basis.
 	node.OnChainBasis = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyOnChainBasis))
+	// HMC377 R-377-11 ③: the own-work account identity rides the record's
+	// typed in-process carrier as a pair or not at all (a part without an
+	// account, or the reverse, is no identity).
+	if record.TraceOwnWorkAccount.Fact() != "" {
+		node.OwnWorkAccount = strings.TrimSpace(record.TraceOwnWorkAccount.Account)
+		node.OwnWorkAccountPart = strings.TrimSpace(record.TraceOwnWorkAccount.Part)
+	}
 	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score rows publish
 	// the *_score twin instead of the ms key (one row emits exactly one
 	// family) — the union read keeps the caliber-side row values flowing.
@@ -6613,14 +6631,22 @@ func traceCausalProjectionDedupeBaseKey(node TraceCausalProjectionNode) string {
 	if node.ChainAnchorRemainderSeat {
 		remainderHalf = "remainder"
 	}
-	return strings.Join([]string{
+	base := []string{
 		traceCausalProjectionCanonicalNode(node.Role),
 		traceCausalProjectionCanonicalNode(node.Subject),
 		traceCausalProjectionCanonicalNode(node.Predicate),
 		traceCausalProjectionCanonicalNode(node.Object),
 		traceCausalProjectionCanonicalNode(strings.Join(node.SupportRefs, "|")),
 		remainderHalf,
-	}, "\x00")
+	}
+	// HMC377 R-377-11 ③: the own-work and chain-wait parts of one own-work
+	// account are two seats even when one span carries both (same subject,
+	// tier, class and line range); a part is identified by the engine's typed
+	// account identity. Rows outside every account keep their bytes.
+	if fact := TraceCausalProjectionOwnWorkAccountFact(node); fact != "" {
+		base = append(base, fact)
+	}
+	return strings.Join(base, "\x00")
 }
 
 func traceCausalProjectionRankBoardDedupeKey(node TraceCausalProjectionNode) string {

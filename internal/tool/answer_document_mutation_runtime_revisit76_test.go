@@ -1030,6 +1030,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// partial-overlap on-chain semantic row publishes the intersection
 		// under 链上计入 beside the 窗口投影合计 union disclosure.
 		runtimeTraceProjMarkFamilyChainIntersection: {"链上计入", "on-chain counted"},
+		// HMC377 R-377-11 ③: the own-work part of a split own-work account
+		// (its record row valued at the part's instants).
+		runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait: {"链上等待以外", "outside on-chain waits"},
 	}
 }
 
@@ -2032,6 +2035,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// freq_only cause hoist — head declaration + short row markers
 		// (fixture home: answer_document_projection_clustertie_test.go).
 		{"clustertie_cause_hoist", clustertieCauseHoistProjection()},
+		// HMC377 R-377-11 ③: a split own-work account — the own-work part's
+		// 链上等待以外 word beside the wait part's 链上计入 (fixture home:
+		// trace_query_own_work_account_hmc377_test.go).
+		{"hmc377_r11_own_work_account", hmc377R11OwnWorkAccountProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

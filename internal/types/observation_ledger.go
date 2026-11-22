@@ -278,6 +278,11 @@ type ObservationRecord struct {
 	// the single answer-side disclosure caveat (R5: one total line, no
 	// per-face labels); this flag keeps the ledger/audit surface honest.
 	SystemSupplement bool `json:"system_supplement,omitempty"`
+
+	// TraceOwnWorkAccount (HMC377 R-377-11 ③): the engine's own-work account
+	// identity of a trace_query rank row or semantic record. It rides only the
+	// in-process native observation (restore or model JSON cannot supply it).
+	TraceOwnWorkAccount *TraceOwnWorkAccountRef `json:"-"`
 }
 
 // ObservationLedger is the deterministic, compiled fact ledger for a run. Later
@@ -705,6 +710,10 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 			subjects := *record.TraceRankSubjects
 			record.TraceRankSubjects = &subjects
 		}
+		if record.TraceOwnWorkAccount != nil {
+			account := *record.TraceOwnWorkAccount
+			record.TraceOwnWorkAccount = &account
+		}
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
@@ -930,6 +939,12 @@ type observationRecordMergeKey struct {
 	ResultCount             string
 	Scope                   string
 	GroundingStatus         GroundingStatus
+	// OwnWorkAccountFact (HMC377 R-377-11 ③): the typed own-work account
+	// part a record belongs to. Two records of different parts of one
+	// account can share subject, value and span (a one-member family whose
+	// member is the whole window: the wait record of the span and the
+	// own-work family record both publish its wall); they are two facts.
+	OwnWorkAccountFact string
 }
 
 func dedupeObservationRecords(in []ObservationRecord) []ObservationRecord {
@@ -979,6 +994,7 @@ func observationRecordMergeKeyFor(record ObservationRecord) (observationRecordMe
 		ResultCount:             resultCount,
 		Scope:                   strings.TrimSpace(record.Scope),
 		GroundingStatus:         record.GroundingStatus,
+		OwnWorkAccountFact:      record.TraceOwnWorkAccount.Fact(),
 	}, true
 }
 

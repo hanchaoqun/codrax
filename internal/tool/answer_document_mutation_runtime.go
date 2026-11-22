@@ -7890,7 +7890,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		if host == "" {
 			host = dash
 		}
-		rawWallMS := runtimeTraceProjNodeDisplayImpact(span)
+		// HMC377 R-377-11 ③: the wall column reads the record's wall also when
+		// its tree row is valued at an own-work account part's price.
+		rawWallMS := runtimeTraceProjSemanticRecordWallMS(span)
 		rawWallCell := dash
 		if rawWallMS > 0 {
 			rawWallCell = fmt.Sprintf("%.3fms", rawWallMS)

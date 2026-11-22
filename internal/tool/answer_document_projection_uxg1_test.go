@@ -341,6 +341,14 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"ShareClaims", "ChainAnchorFullMS", "ChainAnchoredMS", "EffectiveImpactMS"},
 		Reason:     "「其余=另行计入[E#]的一段+本行计」= 已解析 subset 份(ShareClaims typed 份额)与本行发布值;两数之和恒等于全窗−锚定(引擎同一账,显示面不另算)",
 	},
+	// HMC377 R-377-11 ③: the own-work part's word promises the member
+	// instants outside the thread's on-chain waits; the value carrier is the
+	// row's displayed published effective (行3 链上等待以外), the wait part's
+	// carrier the 链上计入 row's typed intersection.
+	runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait: {
+		Components: []string{"EffectiveImpactMS", "SemanticChainProjectedMS"},
+		Reason:     "「只计…未处于链上等待的时段」——自身部分载体已显示(行3 链上等待以外 = 已发布有效归因),等待部分载体为同批片段的 链上计入 行",
+	},
 	runtimeTraceProjMarkEffectiveBreakdown: {
 		Components: []string{"EffectiveImpactMS"},
 		Reason:     "「有效归因的构成」承诺由 Σ计入==V 机器 pin 背书(§24.1 恒等式)",

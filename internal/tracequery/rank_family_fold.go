@@ -40,7 +40,9 @@ package tracequery
 // rows stay as separate lines.
 
 import (
+	"encoding/binary"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"sort"
 	"strconv"
@@ -715,6 +717,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		}
 		out = append(out, fam)
 	}
+	stampSemanticOwnWorkAccounts(chain, out)
 	// Both consumers read this order under a row cap: an off-chain family
 	// classified only by the platform vocabulary comes after every other one.
 	sort.SliceStable(out, func(i, j int) bool {
@@ -732,6 +735,119 @@ func semanticFamilyYieldsSeat(fam SemanticSpanFamily) bool {
 // until someone else's work ends. Such a span is never own work.
 func semanticSpanRecordsWait(name string) bool {
 	return !semanticSpanAdmitsHostEdgeLane(name)
+}
+
+// Own-work account parts (HMC377 R-377-11 ③). The own-work family of the
+// analysed thread and the wait family of the same spans are two disjoint parts
+// of one account: the own-work part is priced with the member union outside
+// the thread's chain waits, the chain-wait part with the member union inside
+// them, and the account's instants are the own-work family's member union.
+const (
+	SemanticOwnWorkAccountPartOwnWork   = types.TraceOwnWorkAccountPartOwnWork
+	SemanticOwnWorkAccountPartChainWait = types.TraceOwnWorkAccountPartChainWait
+)
+
+// stampSemanticOwnWorkAccounts gives the analysed thread's own-work family and
+// the wait family of the same spans one typed account identity: the thread,
+// the semantic class and subcategory, and the instants of the account (the
+// own-work family's member union in this window, on its physical artifact).
+// Every row and record minted from either family carries it, so the
+// projection and the faces recognise the own-work seat, its own record and
+// the wait part of the same spans by identity, never by value or name. A wait
+// family is a part of the account only when every one of its members is a
+// member of the own-work family (exact member identity); otherwise it keeps
+// no account and stays a plain on-chain family.
+//
+// The identity is minted for an account that the time split divides into two
+// parts (the own-work family's members contain chain waits of the thread:
+// ownWorkSplit). An own-work family without a split is one part whose price
+// IS its record's wall by construction, so its seat and record already form
+// one account on every face; it carries no identity and keeps its bytes.
+func stampSemanticOwnWorkAccounts(chain *ChainResult, families []SemanticSpanFamily) {
+	if chain == nil {
+		return
+	}
+	type accountKey struct {
+		thread, class, subcategory, source string
+	}
+	keyOf := func(fam SemanticSpanFamily) accountKey {
+		return accountKey{thread: threadKey(fam.Thread), class: fam.SemanticClass, subcategory: fam.Members[0].Subcategory, source: fam.SourcePath}
+	}
+	type account struct {
+		id      string
+		members map[semanticSpanMemberIdentity]bool
+	}
+	accounts := map[accountKey]account{}
+	for i := range families {
+		fam := &families[i]
+		if len(fam.Members) == 0 || !fam.OnChain || fam.OnChainBasis != RootCauseOnChainBasisSelfDeterministicSpan ||
+			!fam.ownWorkSplit || !sameThreadRef(fam.Thread, chain.Target) {
+			continue
+		}
+		intervals := make([]foldInterval, 0, len(fam.Members))
+		members := make(map[semanticSpanMemberIdentity]bool, len(fam.Members))
+		for _, member := range fam.Members {
+			intervals = append(intervals, foldInterval{start: member.StartTs, end: member.EndTs})
+			members[semanticSpanMemberIdentityOf(member)] = true
+		}
+		merged, _ := foldIntervalUnionWithDisjoint(intervals)
+		key := keyOf(*fam)
+		fam.ownWorkAccount = semanticOwnWorkAccountID(fam.Thread, key.class, key.subcategory, key.source, merged)
+		fam.ownWorkAccountPart = SemanticOwnWorkAccountPartOwnWork
+		accounts[key] = account{id: fam.ownWorkAccount, members: members}
+	}
+	if len(accounts) == 0 {
+		return
+	}
+	for i := range families {
+		fam := &families[i]
+		// A family whose markers record a wait has no member in the own-work
+		// family (a recorded wait is never own work), so the containment
+		// check below keeps it out of every account.
+		if len(fam.Members) == 0 || !fam.OnChain || fam.OnChainBasis != "" || !sameThreadRef(fam.Thread, chain.Target) {
+			continue
+		}
+		acct, ok := accounts[keyOf(*fam)]
+		if !ok {
+			continue
+		}
+		contained := true
+		for _, member := range fam.Members {
+			if !acct.members[semanticSpanMemberIdentityOf(member)] {
+				contained = false
+				break
+			}
+		}
+		if !contained {
+			continue
+		}
+		fam.ownWorkAccount = acct.id
+		fam.ownWorkAccountPart = SemanticOwnWorkAccountPartChainWait
+	}
+}
+
+// semanticOwnWorkAccountID renders the account identity: thread id, semantic
+// class, subcategory and a digest of the physical artifact and the account's
+// merged instants (integer nanoseconds). Two publications of the same window
+// (any view) mint the same identity; a different window or thread does not.
+func semanticOwnWorkAccountID(thread ThreadRef, class, subcategory, source string, merged []foldInterval) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(source))
+	_, _ = h.Write([]byte{0})
+	var buf [8]byte
+	for _, interval := range merged {
+		binary.LittleEndian.PutUint64(buf[:], uint64(math.Round(interval.start*1e9)))
+		_, _ = h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(math.Round(interval.end*1e9)))
+		_, _ = h.Write(buf[:])
+	}
+	return fmt.Sprintf("%d:%s:%s:%016x", thread.PID, class, subcategory, h.Sum64())
+}
+
+// OwnWorkAccount returns the typed own-work account identity and part of the
+// family ("" when the family belongs to no own-work account).
+func (fam SemanticSpanFamily) OwnWorkAccount() (id, part string) {
+	return fam.ownWorkAccount, fam.ownWorkAccountPart
 }
 
 // semanticSpanIsTargetOwnWork is the typed bar of the own-work lane: the span

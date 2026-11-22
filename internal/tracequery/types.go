@@ -5173,6 +5173,18 @@ type RootCauseRankItem struct {
 	// The rest of the priced value is time the thread waited for a CPU or was
 	// blocked inside its own work. Never a converted value.
 	OwnWorkOnCPUMs float64 `json:"own_work_on_cpu_ms,omitempty"`
+	// OwnWorkAccount / OwnWorkAccountPart (HMC377 R-377-11 ③) are set on the
+	// rows minted from the analysed thread's own-work family and from the
+	// wait family of the same spans: the account identity (thread, semantic
+	// class and subcategory, digest of the account's in-window instants) and
+	// the part of the account the row prices ("own_work" or "chain_wait").
+	// The two parts are disjoint by construction and together are the
+	// account's instants; the record of each part carries the same pair, so
+	// the projection and every face treat a seat and its own record as one
+	// account, and never add a record's wall to the parts it contains. An
+	// in-process carrier only (never serialized, never a model-facing word).
+	OwnWorkAccount     string `json:"-"`
+	OwnWorkAccountPart string `json:"-"`
 	// MemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17): the
 	// COMPLETE per-member trace line ranges ("start..end", member order) of a
 	// SEMANTIC family seat — minted all-or-nothing (any member without a
@@ -5589,6 +5601,13 @@ type SemanticSpanFamily struct {
 	ownWorkMs        float64
 	ownWaitMs        float64
 	ownWorkIntervals []foldInterval
+	// ownWorkAccount / ownWorkAccountPart (HMC377 R-377-11 ③): the typed
+	// own-work account identity of the analysed thread's own-work family and
+	// of the wait family of the same spans, and which part of the account
+	// this family prices (stampSemanticOwnWorkAccounts). Empty on every other
+	// family.
+	ownWorkAccount     string
+	ownWorkAccountPart string
 	// waitShareIntervals (HMC377 E1E6-R1): on the analysed thread's overlap
 	// family (the wait row of its own spans), the exact member∩chain-wait
 	// intersection that row is priced with. It is the row's support

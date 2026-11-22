@@ -10113,6 +10113,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				SupportRefs:  traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:   at,
 				Confidence:   item.Confidence,
+
+				// HMC377 R-377-11 ③: the own-work account identity and part
+				// (nil on every row outside an own-work account).
+				TraceOwnWorkAccount: traceQueryOwnWorkAccountRef(item.OwnWorkAccount, item.OwnWorkAccountPart),
 			})
 		}
 	}
@@ -15190,6 +15194,7 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		// mirror then failed structurally, the ✦/➊ twin seats returned, and
 		// the detail cell surfaced a value the engine never published.
 		ctx := traceQuerySemanticSpanFamilyFoldContext(fam, span, chain)
+		ownWorkAccount, ownWorkAccountPart := fam.OwnWorkAccount()
 		if ctx.chainRelevance != "on_chain" {
 			// F-4 counting: single-span records hold a board position (they
 			// compete on the same board) but carry no stamped field.
@@ -15257,9 +15262,22 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 			SupportRefs: traceQueryObservationSupportRefs(ref, span.StartLine, span.EndLine),
 			ObservedAt:  at,
 			Confidence:  traceQuerySemanticTraceSpanConfidence(ctx.chainRelevance),
+
+			// HMC377 R-377-11 ③: the record of one part of an own-work
+			// account carries the account identity of the rows it records.
+			TraceOwnWorkAccount: traceQueryOwnWorkAccountRef(ownWorkAccount, ownWorkAccountPart),
 		})
 	}
 	return out
+}
+
+// traceQueryOwnWorkAccountRef is the record carrier of an engine own-work
+// account identity (HMC377 R-377-11 ③); nil outside every account.
+func traceQueryOwnWorkAccountRef(account, part string) *types.TraceOwnWorkAccountRef {
+	if types.TraceOwnWorkAccountFact(account, part) == "" {
+		return nil
+	}
+	return &types.TraceOwnWorkAccountRef{Account: account, Part: part}
 }
 
 // traceQuerySemanticSpanFamilyObservation renders the ONE typed record of a
@@ -15289,6 +15307,7 @@ func traceQueryShaderOutcomeQualifiedClass(class, subcategory string) string {
 
 func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, chain *tracequery.ChainResult, stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string, ordinal, backgroundRank int) types.ObservationRecord {
 	rep := fam.Members[0]
+	ownWorkAccount, ownWorkAccountPart := fam.OwnWorkAccount()
 	relevance, causality := "", ""
 	chainDepth := 0
 	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
@@ -15432,6 +15451,10 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		SupportRefs: supportRefs,
 		ObservedAt:  at,
 		Confidence:  traceQuerySemanticTraceSpanConfidence(relevance),
+
+		// HMC377 R-377-11 ③: the record of one part of an own-work account
+		// carries the account identity of the rows it records.
+		TraceOwnWorkAccount: traceQueryOwnWorkAccountRef(ownWorkAccount, ownWorkAccountPart),
 	}
 }
 

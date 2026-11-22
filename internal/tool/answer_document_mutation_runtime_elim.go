@@ -979,6 +979,11 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 		marks.mark(runtimeTraceProjMarkFamilyChainIntersection)
 		return runtimeTraceProjSemanticChainIntersectionWord(node, zh)
 	}
+	// HMC377 R-377-11 ③: the own-work part of a split own-work account.
+	if runtimeTraceProjOwnWorkAccountOwnPart(node) {
+		runtimeTraceProjMarkFamilyCaliber(marks, runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait)
+		return runtimeTraceProjOwnWorkOutsideChainWaitWord(node, zh)
+	}
 	if word, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok && runtimeTraceProjFamilyRow(node) &&
 		!runtimeTraceProjFamilyValueIsGatedComposite(node) {
 		// GATED-CAL 件1② twin (§29.104.16.1 M3, 2026-07-16): a family seat

@@ -110,6 +110,7 @@ func TestB1622ReaderRecordScopeRequiresFamilyMark(t *testing.T) {
 			{"sum_or_union", runtimeTraceProjMarkFamilyTotal, true},
 			{"member_max", runtimeTraceProjMarkFamilyMemberMax, true},
 			{"chain_intersection", runtimeTraceProjMarkFamilyChainIntersection, true},
+			{"own_work_outside_chain_wait", runtimeTraceProjMarkFamilyOwnWorkOutsideChainWait, true},
 			{"physical_span_detail", runtimeTraceProjMarkFamilySpanTop, false},
 			{"count_sum", runtimeTraceProjMarkFamilyCountSum, false},
 			{"unrelated_state", runtimeTraceProjMarkIconRunning, false},

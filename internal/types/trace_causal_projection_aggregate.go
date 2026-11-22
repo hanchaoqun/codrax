@@ -274,6 +274,19 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 		}
 		return "io-request\x00" + key
 	}
+	// HMC377 R-377-11 ③: a row or record of an own-work account is one fact
+	// with every other publication of the same part of the same account (the
+	// own-work seat and its own record; the wait seat and its own record),
+	// by the engine's typed identity. It never joins the value-keyed identity
+	// below: the own-work seat's price is not its record's wall, and two
+	// parts whose walls coincide are still two parts.
+	if fact := TraceCausalProjectionOwnWorkAccountFact(node); fact != "" {
+		subject := traceCausalProjectionCanonicalNode(node.Subject)
+		if subject == "" {
+			return ""
+		}
+		return "own-work-account\x00" + subject + "\x00" + fact
+	}
 	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
 		return ""
 	}
@@ -313,6 +326,79 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 		return ""
 	}
 	return fmt.Sprintf("%s\x00%.3f\x00%d\x00%d%s", subject, impact, node.LineStart, node.LineEnd, remainderHalf)
+}
+
+// TraceCausalProjectionOwnWorkAccountFact is the one typed identity of one
+// part of one own-work account (HMC377 R-377-11 ③): the engine's account id
+// and part, "" for a row outside every account. The compile dedupe, the
+// same-fact pass, the ×N exemption and the tree's seat/record fold all read
+// this function (the observation ledger's record identity reads the
+// record's typed carrier).
+func TraceCausalProjectionOwnWorkAccountFact(node TraceCausalProjectionNode) string {
+	return TraceOwnWorkAccountFact(node.OwnWorkAccount, node.OwnWorkAccountPart)
+}
+
+// Own-work account parts (HMC377 R-377-11 ③), the closed set the engine
+// stamps on own_work_account_part notes: the own-work family of the analysed
+// thread prices the members' instants outside the thread's chain waits; the
+// wait family of the same spans prices the instants inside them.
+const (
+	TraceOwnWorkAccountPartOwnWork   = "own_work"
+	TraceOwnWorkAccountPartChainWait = "chain_wait"
+)
+
+// TraceCausalProjectionOwnWorkAccountPartMS returns the priced instants of the
+// account part a row carries (HMC377 R-377-11 ③): the own-work part's
+// published effective, or the chain-wait part's typed member∩chain-wait union
+// (the record's projected/overlap note, else its published effective). The two
+// parts of one account are disjoint by construction and sum to the account's
+// member union. 0 for a row outside every account.
+func TraceCausalProjectionOwnWorkAccountPartMS(node TraceCausalProjectionNode) float64 {
+	switch strings.TrimSpace(node.OwnWorkAccountPart) {
+	case TraceOwnWorkAccountPartOwnWork:
+		if strings.TrimSpace(node.OwnWorkAccount) != "" {
+			return node.EffectiveImpactMS
+		}
+	case TraceOwnWorkAccountPartChainWait:
+		if strings.TrimSpace(node.OwnWorkAccount) == "" {
+			return 0
+		}
+		if node.SemanticChainProjectedMS > 0 {
+			return node.SemanticChainProjectedMS
+		}
+		return node.EffectiveImpactMS
+	}
+	return 0
+}
+
+// TraceOwnWorkAccountRef is the engine's typed own-work account identity of
+// a row or record (HMC377 R-377-11 ③): the account (thread, semantic class
+// and subcategory, digest of the account's in-window instants) and the part
+// the row prices. It rides only the in-process native observation; restore or
+// model JSON cannot supply it, and it is never a model-facing word.
+type TraceOwnWorkAccountRef struct {
+	Account string
+	Part    string
+}
+
+// Fact is the ref's one identity ("" for a nil ref or an incomplete pair).
+func (ref *TraceOwnWorkAccountRef) Fact() string {
+	if ref == nil {
+		return ""
+	}
+	return TraceOwnWorkAccountFact(ref.Account, ref.Part)
+}
+
+// TraceOwnWorkAccountFact renders the one identity of a part of an own-work
+// account from the engine's account id and part ("" unless both are present).
+// The observation ledger's record identity reads it from the record's typed
+// carrier, the projection from the node fields.
+func TraceOwnWorkAccountFact(account, part string) string {
+	account, part = strings.TrimSpace(account), strings.TrimSpace(part)
+	if account == "" || part == "" {
+		return ""
+	}
+	return account + "\x00" + part
 }
 
 // traceCausalProjectionMergeSameFacts merges R1 duplicates across the
@@ -1664,6 +1750,16 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		// untouched. Precise typed gate — never the word face; basis-less
 		// rows keep the legacy fold byte-identically.
 		if node.BlockingValueBasis == TraceCausalProjectionBlockingBasisWaitSegments {
+			continue
+		}
+		// HMC377 R-377-11 ③: a part of an own-work account is not a repeated
+		// occurrence. The engine already folded the account's members; its
+		// own-work and chain-wait parts carry disjoint instants and each
+		// record's wall carries the instants of the parts it records, so a ×N
+		// SUM over account rows adds the same instants twice (w27w2:
+		// 0.668 + 0.668 + 195.733 = 197.069 ms effective for a 196.401 ms
+		// window). Account rows keep their own seats; precise typed gate.
+		if TraceCausalProjectionOwnWorkAccountFact(node) != "" {
 			continue
 		}
 		key := subject + "\x00" + object

@@ -16938,6 +16938,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		if len(fam.Members) == 1 && !fam.ownWorkSplit {
 			if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, fam.Members[0], hasCausalChain); ok {
 				item.platformVocabularyMinted = fam.platformVocabularyMinted
+				item.OwnWorkAccount, item.OwnWorkAccountPart = fam.OwnWorkAccount()
 				items = append(items, item)
 				// R3-IMPL (§29.88.1) bounded by HMC377 E2: a host-edge span
 				// reaching outside the target's waits its host's wakeup ended
@@ -16954,6 +16955,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		if item, ok := rootCauseItemFromSemanticSpanFamily(q, fam, hasCausalChain); ok {
 			item.platformVocabularyMinted = fam.platformVocabularyMinted
+			item.OwnWorkAccount, item.OwnWorkAccountPart = fam.OwnWorkAccount()
 			items = append(items, item)
 			// R3-IMPL / HMC377 E2: same partition clone at family grain (the
 			// remainder is the family's member union outside those waits).
