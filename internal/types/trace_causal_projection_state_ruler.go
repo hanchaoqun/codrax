@@ -140,8 +140,18 @@ func traceCausalProjectionStateRulerSplit(nodes []TraceCausalProjectionNode, mem
 // merge body, seeded on the first account member (a single account member is
 // the row itself), and each wakeup_chain seat inside that account joins as
 // lossless evidence — its id, its own merged ids and its measurement origins —
-// never as a value. The row keeps its own rank identity, as every absorb
-// survivor does.
+// never as a value. The row carries the seat it absorbed, so the seat's
+// ordinal stays on it (R-377-13 ③ badges follow their seat): a seat with a
+// smaller ordinal supplies the row's Rank and its board/window identity
+// through the ×N merge's one rank-supplier rule
+// (traceCausalProjectionAdoptRankSupplier).
+//
+// EVOLUTION RECORD (HMC377 round 13, R-377-13 ③, review-12 R12P-3): old → new
+// = the row kept the account members' own best ordinal and the absorbed seat's
+// ordinal was published nowhere → the smaller of the two is the row's
+// ordinal, as on every ×N merge. 14 real windows lost a TOP5 badge
+// (n13w #ActionReaper-65009 ➌ absorbed into the #6 census row, n04w..w42w1 ➋,
+// x10w..x14w): ~/hmc-work/hmc377/fix12/review-population/evidence/D3_badges.txt.
 func traceCausalProjectionMergeStateAccountRuler(nodes []TraceCausalProjectionNode, account, subset []int, backgroundLane bool) TraceCausalProjectionNode {
 	aggregate := nodes[account[0]]
 	if len(account) > 1 {
@@ -162,6 +172,7 @@ func traceCausalProjectionMergeStateAccountRuler(nodes []TraceCausalProjectionNo
 	}
 	for _, idx := range subset {
 		member := nodes[idx]
+		traceCausalProjectionAdoptRankSupplier(&aggregate, member)
 		aggregate.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(aggregate.MeasurementOrigins, member.MeasurementOrigins)
 		appendID(member.EvidenceID)
 		for _, id := range member.MergedEvidenceIDs {
