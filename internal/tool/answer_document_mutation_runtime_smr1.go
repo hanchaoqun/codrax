@@ -1664,36 +1664,52 @@ type runtimeTraceProjRestCarrier struct {
 // when the engine resolved its remainder claim to the same thread's
 // CPU-restriction row besides (or instead of) the thread's ◇ remainder seat
 // (the restriction row publishes those instants as its own): each holder by
-// [E#] in claim order, only when each one is drawn here (twin, from
-// runtimeTraceProjResolveShareRef) as its own row of a named kind — the ◇
-// remainder seat or the restriction row. A restriction holder beside one that
-// is drawn only inside another row (a folded overflow row) takes the
-// see-detail form (restSeeDetail), which names no carrier; a rest no
-// restriction row holds keeps the ◇ word's bytes.
+// [E#] in claim order (twin, from runtimeTraceProjResolveShareRef).
+//
+// HMC377 round 13 (R-377-13 ④): a carrier is named only where it is drawn
+// as a row of its own kind — the ◇ remainder seat (ChainAnchorRemainderSeat)
+// or the CPU-restriction seat, the typed kind the engine gave its record. A
+// holder drawn only inside a row of another kind has no row of its own on the
+// board: a fold row (the one fold-row constructor builds the chain overflow
+// fold and the cross-thread stanza fold from several threads' records and
+// gives it no type token and no remainder marker) or a chain row's [E#+E#]
+// bracket. Every such holder turns the rest to the see-detail form
+// (restSeeDetail), which names no carrier and credits nothing to ◇. A rest
+// held only by ◇ remainder seats drawn as their own rows keeps the ◇ word's
+// bytes.
+//
+// EVOLUTION RECORD (R-377-13 ④, review-12 R12P-2): old → new = a holder
+// drawn inside a row of another kind only counted when some other holder was
+// a restriction row, so a rest whose restriction holder sat only in a fold
+// row read as all-◇ and kept the plain 「(◇余段席)」 (w27m binder:465_4-8068 ⛓
+// [E19] 「其余72.958ms(◇余段席)」 while ◇ [E26] counts 72.920 and the
+// restriction's 0.038 sits in 「其余 7 项(折叠)」 [E31(+12)]:
+// ~/hmc-work/hmc377/fix12/review-population/evidence/D1_w27m_rest_carrier.txt)
+// → every holder not drawn as a row of its own kind takes the rest to the
+// see-detail form.
 func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtimeTraceProjShareRef) {
 	row.ChainAnchorRestCarriers, row.ChainAnchorRestSeeDetail = nil, false
 	if twin.state != runtimeTraceProjShareRefRendered || twin.successor || len(twin.rows) == 0 || len(twin.rows) != len(twin.tags) {
 		return
 	}
 	carriers := make([]runtimeTraceProjRestCarrier, 0, len(twin.rows))
-	restriction, named := false, true
+	restriction := false
 	for i, holder := range twin.rows {
 		if holder == nil || strings.TrimSpace(twin.tags[i]) == "" {
 			return
 		}
 		object := runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(holder.Node.TypeToken, holder.Node.Object))
 		isRestriction := object == "cpu_affinity_or_cpuset"
+		if !isRestriction && !holder.Node.ChainAnchorRemainderSeat {
+			row.ChainAnchorRestSeeDetail = true
+			return
+		}
 		restriction = restriction || isRestriction
-		named = named && (isRestriction || holder.Node.ChainAnchorRemainderSeat)
 		carriers = append(carriers, runtimeTraceProjRestCarrier{Ref: strings.TrimSpace(twin.tags[i]),
-			Remainder: holder.Node.ChainAnchorRemainderSeat && !isRestriction, Object: object})
+			Remainder: !isRestriction, Object: object})
 	}
-	switch {
-	case !restriction:
-	case named:
+	if restriction {
 		row.ChainAnchorRestCarriers = carriers
-	default:
-		row.ChainAnchorRestSeeDetail = true
 	}
 }
 

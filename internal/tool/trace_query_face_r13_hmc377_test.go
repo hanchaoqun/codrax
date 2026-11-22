@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -447,4 +448,94 @@ func TestHMC377R13TrunkThreadKeepsItsRestrictionRow(t *testing.T) {
 	if !drawn || strings.Contains(fence, "其中CPU亲和") {
 		t.Fatalf("the trunk thread's restriction row keeps its own row:\n%s", fence)
 	}
+}
+
+// R-377-13 ④ (review-12 R12P-2): the ⛓ row's rest names its carriers from the
+// engine's typed holder kind, never from the drawn host row: a restriction
+// carrier drawn only inside a fold row takes the see-detail form. Real window
+// at 532dc208d (~/hmc-work/hmc377/fix12/review-population/evidence/D1_w27m_rest_carrier.txt):
+// 105 元宝 #2 binder:465_4-8068 (w27m) ⛓ [E19] 「全窗73.085=锚定0.127+其余72.958(◇余段席)」
+// while ◇ [E26] counts 72.920 and the restriction's 0.038 sits only inside
+// 「其余 7 项(折叠)」 [E31(+12)]. The review's red universe
+// (review-population/univ/zz_r12pop_restfold_test.go) is this test.
+func TestHMC377R13RestCarrierFoldedRestriction(t *testing.T) {
+	const subject = "daily_control-26026"
+	adjacent := func(id, typ string, value float64, line int) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: id,
+			Subject: subject, Predicate: "root_cause_adjacent", Object: typ, TypeToken: typ, StateKind: "runnable",
+			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Rank: 2, Tier: "tertiary",
+			ImpactMS: value, CumulativeImpactMS: value, EffectiveImpactMS: value, RunnableMS: value,
+			LineStart: line, LineEnd: line + 9, Confidence: 0.76,
+		}
+	}
+	chain := elimChainNode("r13-chain", subject, "runnable_wait", "runnable", 1, 0.284, 41)
+	chain.ChainAnchorFullMS, chain.ChainAnchoredMS = 196.790, 0.284
+	chain.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 196.506,
+			Resolved: true, HolderEvidenceIDs: []string{"r13-rem", "r13-cpu"}},
+	}
+	rem := adjacent("r13-rem", "runnable_wait", 14.683, 50)
+	rem.ChainAnchorRemainderSeat, rem.ChainAnchoredMS, rem.ChainAnchorFullMS = true, 0.284, 196.790
+	rem.ShareCountedElsewhereMS, rem.ShareCountedHereMS = 181.823, 14.683
+	rem.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderChainSeat), ShareMS: 0.284, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r13-chain"}},
+		{Part: string(tracequery.RootCauseShareClaimSubset), Role: string(tracequery.RootCauseShareHolderSubsetSeat), ShareMS: 181.823, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r13-cpu"}},
+	}
+	// The restriction record is drawn only inside a folded overflow row: as
+	// on w27m E31(+12), the cross-thread max fold of several threads' rows
+	// carries no subject and no type token of its own, and its seed id is
+	// the restriction record's.
+	fold := adjacent("r13-cpu", "runnable_wait", 16.183, 70)
+	fold.Subject, fold.Object, fold.TypeToken = "", "", ""
+	fold.MergedEvidenceIDs = []string{"r13-other"}
+	fold.MergedCount = 2
+	for _, c := range []struct {
+		name string
+		fold types.TraceCausalProjectionNode
+	}{
+		{"subjectless stanza fold", fold},
+	} {
+		projection := types.TraceCausalProjection{
+			RootCauseFamilyObserved: true, WakeupPath: []string{"app-100"}, WindowStartTs: 10.0, WindowEndTs: 11.0,
+			OnChainCauses:  []types.TraceCausalProjectionNode{chain},
+			AdjacentCauses: []types.TraceCausalProjectionNode{rem, c.fold},
+		}
+		for _, zh := range []bool{true, false} {
+			model, fence := hmc377R12Fence(t, projection, zh)
+			if row := xlane2FindRowByEvidenceID(&model, "r13-chain"); row == nil || row.EvidenceTag == "" {
+				t.Fatalf("%s zh=%t: the ⛓ row must be drawn", c.name, zh)
+			}
+			joined := hmc377R12Joined(fence)
+			plain, seeDetail := "其余196.506ms(◇余段席)", "其余196.506ms(◇余段席见明细)"
+			if !zh {
+				plain, seeDetail = "remainder 196.506ms (◇ remainder seat)", "remainder 196.506ms (◇ remainder seat: see the detail index)"
+			}
+			if strings.Contains(joined, plain) {
+				t.Errorf("%s zh=%t: the ⛓ rest credits the whole 196.506ms to ◇ (%q) though ◇ counts 14.683 and the folded restriction row counts 181.823:\n%s", c.name, zh, plain, fence)
+			}
+			if !strings.Contains(joined, seeDetail) {
+				t.Errorf("%s zh=%t: expected the see-detail form %q:\n%s", c.name, zh, seeDetail, fence)
+			}
+		}
+	}
+	// A rest held only by the ◇ remainder seat drawn as its own row keeps
+	// the plain ◇ word's bytes.
+	t.Run("remainder only", func(t *testing.T) {
+		only := chain
+		only.ShareClaims = []types.TraceCausalProjectionShareClaim{
+			{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 196.506,
+				Resolved: true, HolderEvidenceIDs: []string{"r13-rem"}},
+		}
+		plainRem := rem
+		plainRem.ShareCountedElsewhereMS, plainRem.ShareCountedHereMS = 0, 0
+		plainRem.ShareClaims = plainRem.ShareClaims[:1]
+		_, fence := hmc377R12Fence(t, types.TraceCausalProjection{
+			RootCauseFamilyObserved: true, WakeupPath: []string{"app-100"}, WindowStartTs: 10.0, WindowEndTs: 11.0,
+			OnChainCauses: []types.TraceCausalProjectionNode{only}, AdjacentCauses: []types.TraceCausalProjectionNode{plainRem},
+		}, true)
+		if !strings.Contains(hmc377R12Joined(fence), "其余196.506ms(◇余段席)") {
+			t.Fatalf("the plain ◇ rest word keeps its bytes:\n%s", fence)
+		}
+	})
 }
