@@ -749,6 +749,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// share the stem (the en face says "whole-window" so the two-way
 		// "full-window" probe never fires on a three-way-only render).
 		runtimeTraceProjMarkChainAnchorThreeWay: {"同源三分", "three-way split"},
+		// HMC377 round 11 (R-377-11 ②): the ◇ remainder's rest clause that
+		// names the part counted on the same thread's restriction row.
+		runtimeTraceProjMarkChainAnchorSubsetShare: {"另行计入", "counted separately on"},
 		// RNB-1 (§29.88 R2/R4, 2026-07-14): the case-A' downgraded relation
 		// head and the whole-seat demotion disclosure head — both 行2 line
 		// openers, verbatim in the legend entries (bidirectional).
@@ -1994,6 +1997,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"hmc377_r11_remainder_returned", hmc377R11Projection(hmc377R11UR4mixWithdrawn())},
 		{"hmc377_r11_residual_returned", hmc377R11Projection(hmc377R11UR6Withdrawn())},
 		{"hmc377_r11_satellite_carrier", hmc377R11Projection(hmc377R11UR4Withdrawn())},
+		// HMC377 round 11 (R-377-11 ②): the ◇ remainder whose rest is partly
+		// counted on the thread's restriction row (fixture home:
+		// trace_query_subset_seat_hmc377_test.go).
+		{"hmc377_r11_subset_share", hmc377R11SubsetShareProjection()},
 		// SPANTOP-1 (§29.131, 2026-07-18): the semantic family seat's
 		// constituent top-3 sub-rows + counted remainder + legend entry
 		// (fixture home: answer_document_projection_spantop_test.go, the

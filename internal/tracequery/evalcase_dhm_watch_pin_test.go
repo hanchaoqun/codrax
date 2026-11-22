@@ -254,15 +254,29 @@ func TestEvalcaseDHMEPSNaturalSubTenPercentAnchorSpecimen(t *testing.T) {
 	idx := evalcaseIndex(t, evalcaseDonghuFixture)
 	rank := BuildRootCauseRank(idx, Query{PID: 2179, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		TraceFlavorHint: TraceFlavorHarmonyHitrace})
-	seat := evalcaseDHMFindItem(rank.Items, "runnable_wait", 9655)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): specimen JankManager-9655 runnable ◇ remainder (anchored
+	// 0.031 of 31.191, 31.160 published) → the same thread's
+	// cpu_affinity_or_cpuset ◇ seat (anchored 0.031 of 27.507, 27.476
+	// published). The restriction seat now keeps its own instants (27.507ms
+	// of restricted ready time; the 0.031ms inside the walked window stays
+	// with the chain seat) and the runnable remainder leaves them to it, so
+	// that remainder publishes only the 3.684ms segment still open at the
+	// trace end (raw rawpop.py over this window,
+	// ~/hmc-work/hmc377/fix11/r4c/pins/raw/dh.raw.json: ready 27.507ms of
+	// closed segments; the old board priced 31.160 + 27.507 on 31.191) and
+	// sits beyond this board's adjacent cap (pre-truncation pool, disclosed
+	// by the compaction). The natural ≪10% split now lives on the
+	// restriction seat, with the same exact identity.
+	seat := evalcaseDHMFindItem(rank.Items, "cpu_affinity_or_cpuset", 9655)
 	if seat == nil {
-		t.Fatal("DHM-EPS: 9655 runnable remainder seat missing")
+		t.Fatal("DHM-EPS: 9655 restriction ◇ seat missing")
 	}
 	if !seat.ChainAnchorRemainderSeat {
 		t.Fatal("DHM-EPS: specimen lost its ◇ remainder marker")
 	}
-	if !near(seat.ChainAnchoredMs, 0.031, 0.001) || !near(seat.ChainAnchorFullMs, 31.191, 0.001) ||
-		!near(seat.ImpactMs, 31.160, 0.001) {
+	if !near(seat.ChainAnchoredMs, 0.031, 0.001) || !near(seat.ChainAnchorFullMs, 27.507, 0.001) ||
+		!near(seat.ImpactMs, 27.476, 0.001) {
 		t.Fatalf("DHM-EPS: specimen values drifted: anchored=%.3f full=%.3f remainder=%.3f",
 			seat.ChainAnchoredMs, seat.ChainAnchorFullMs, seat.ImpactMs)
 	}
@@ -270,6 +284,11 @@ func TestEvalcaseDHMEPSNaturalSubTenPercentAnchorSpecimen(t *testing.T) {
 	if !near(seat.ChainAnchoredMs+seat.ImpactMs, seat.ChainAnchorFullMs, 0.0011) {
 		t.Fatalf("DHM-EPS: split identity broken: %.6f + %.6f != %.6f",
 			seat.ChainAnchoredMs, seat.ImpactMs, seat.ChainAnchorFullMs)
+	}
+	for _, it := range rank.preTruncationItems {
+		if it.Thread.PID == 9655 && it.Type == "runnable_wait" && it.ChainAnchorRemainderSeat && !near(it.ImpactMs, 3.684, 0.001) && it.rspaCarvedAppliedMs > 0 {
+			t.Fatalf("DHM-EPS: the runnable remainder must leave the restricted instants to the seat: %+v", it)
+		}
 	}
 	// The natural ≪10% fraction (0.10%) — the form §29.104.17 ⑥ waits for.
 	frac := seat.ChainAnchoredMs / seat.ChainAnchorFullMs

@@ -265,6 +265,7 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	// the sole rank-value owner.
 	reconcileRSPAMultiPartitionPeriodicAccounts(pool, absorbed)
 	reconcileInversionAccountsRepresentedOnChain(pool, absorbed)
+	reconcileSubsetDetails(pool, absorbed)
 	// Resolve transitive ownership (for example scheduler_latency ->
 	// window_stats runnable -> causal runnable) onto the terminal active row.
 	// Cycles are impossible in the directed adjudication table; defend anyway.
@@ -450,6 +451,12 @@ func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec cro
 	if candidate.ChainAnchorRemainderSeat && spec.anchorAbsorb {
 		scalar, ok := crossTypeRankSeatStateScalar(candidate)
 		if !ok || scalar > rspaAnchorIdentityTolMs {
+			return false
+		}
+		// HMC377 round 11 (R-377-11 ②): a remainder emptied by handing its
+		// instants to the thread's CPU-restriction seat is that seat's
+		// account, never the chain seat's (reconcileSubsetDetails).
+		if candidate.rspaCarvedAppliedMs > rspaAnchorIdentityTolMs {
 			return false
 		}
 		if absorber.Thread.PID <= 0 || candidate.Thread.PID <= 0 || absorber.Thread.PID != candidate.Thread.PID {

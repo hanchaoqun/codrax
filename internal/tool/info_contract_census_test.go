@@ -217,7 +217,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainCredentialCensus": {Status: "displayed", Ref: "CHAINGUARD-1 ◎ chip 引擎同源映射(runtime_elim)+census=none 板/冕第二席门(runtime_tree valid seat)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
-	"ShareClaims":                       {Status: "displayed", Ref: "HMC377 fix5 share-claim holder references: 行2 同源二分/三分 holder words, pair class (0), represented sentence, ◎ represented exclusion"},
+	"ShareClaims":                       {Status: "displayed", Ref: "HMC377 fix5 share-claim holder references: 行2 同源二分/三分 holder words, pair class (0), represented sentence, ◎ represented exclusion; round 11 subset share 另行计入[E#]"},
 	// HMC377 round 10 (R-377-10 ③): 行2 锚定份部分由链席[E#]代表 披露行(全账与已计入份).
 	"ChainAnchorRepresentedHeldMS": {Status: "displayed", Ref: "HMC377 R-377-10 ③ 行2 锚定份部分由链席[E#]代表:全账=行值+已计入份,其中已计入[E#]"},
 	// HMC377 round 10 (R-377-10 ②): 构成份 ◎ 排除门 / 脚注普查 / 反转席指针同一裁决 + 行2 自计句.

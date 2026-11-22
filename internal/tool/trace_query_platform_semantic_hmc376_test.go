@@ -726,8 +726,35 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 	if publishedMs > 0 && !hmc376Near(publishedMs, repricedMs) {
 		t.Errorf("%s keeps its whole ready account %.3f off the chain, got %.3f", repricedHost, repricedMs, publishedMs)
 	}
+	// EVOLUTION RECORD (HMC377 round 11, R-377-11 ②: one carrier per instant
+	// of a thread's ready time). Whole capture, udk-irq-1-66, pinned to cpu 1
+	// (next_info affinity 2): its ready time in the window is two segments,
+	// 0.034 ms (sched_wakeup 5775.736022, switched in 5775.736056) and 0.028 ms
+	// (5775.736567 → 5775.736595), 0.062 ms in all and every instant under the
+	// restriction. Old: chain seat 0.034 + ◇ remainder 0.028 + restriction
+	// seat 0.062 = 0.124, each instant priced twice. New: the chain seat keeps
+	// its 0.034; the restriction seat publishes the 0.028 no on-chain seat
+	// holds; the remainder, every instant of which the restriction seat now
+	// publishes, rides as that seat's lossless detail (absorbed carrier, value
+	// channels 0, its sentence names where the 0.028 ms is counted). Raw:
+	// ~/hmc-work/hmc377/fix11/r4c/pins/ne376/.
+	carvedRank := map[string]string{
+		"cpu_affinity_or_cpuset|udk-irq-1-66|0.062|0.062|adjacent": "cpu_affinity_or_cpuset|udk-irq-1-66|0.028|0.028|adjacent",
+		"runnable_wait|udk-irq-1-66|0.028|0.028|adjacent":          "",
+	}
+	const carvedRemainderDetail = "runnable_wait|udk-irq-1-66|0.000|0.000|adjacent"
+	carvedProjection := map[string]string{
+		"adjacent|udk-irq-1-66||cpu_affinity_or_cpuset|0.062|0": "adjacent|udk-irq-1-66||cpu_affinity_or_cpuset|0.028|0",
+		"adjacent|udk-irq-1-66||runnable_wait|0.028|0":          "",
+	}
 	for _, row := range baseRank {
 		if strings.HasPrefix(row, "runnable_wait|"+repricedHost+"|") {
+			continue
+		}
+		if now, carved := carvedRank[row]; carved {
+			if (now != "" && !publishedRank[now]) || (now == "" && !absorbedRank[carvedRemainderDetail]) {
+				t.Errorf("one carrier per ready instant: %s must be published as %q (absorbed detail %q):\n%s", row, now, carvedRemainderDetail, hmc376Board(native.RootCauseRank))
+			}
 			continue
 		}
 		if row == "trace_span|"+target+"|247.466|0.000|adjacent" {
@@ -764,6 +791,14 @@ func hmc376AssertNetEaseBaseRowsStayPublished(t *testing.T, path, scope string) 
 		}
 		if fields[1] == repricedHost && fields[3] == "runnable_wait" {
 			continue // re-priced by HMC377 E2 (see above)
+		}
+		if now, carved := carvedProjection[row]; carved {
+			// R-377-11 ② (see above): the restriction row's own share, and the
+			// remainder as the restriction seat's absorbed detail.
+			if (now != "" && !publishedProjection[now]) || (now == "" && (publishedProjection[row] || !absorbedRank[carvedRemainderDetail])) {
+				t.Errorf("one carrier per ready instant: projection row %s must be published as %q", row, now)
+			}
+			continue
 		}
 		if !publishedProjection[row] && !absorbedSubjectType[fields[1]+"|"+fields[3]] {
 			t.Errorf("projection row published before the vocabulary is gone: %s", row)

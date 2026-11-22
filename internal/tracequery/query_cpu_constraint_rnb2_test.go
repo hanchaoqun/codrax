@@ -12,6 +12,7 @@ package tracequery
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func TestRNB2AffinityDonghuRealPayloadAndNarrowedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(pid int, start, end float64, wantSeatPID int, wantDemoted bool) {
+	check := func(pid int, start, end float64, wantSeatPID int, wantDemoted bool) *RootCauseRankItem {
 		t.Helper()
 		q := Query{PID: pid, TimeStart: start, TimeEnd: end, MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
 		rank := BuildRootCauseRank(idx, q)
@@ -129,11 +130,32 @@ func TestRNB2AffinityDonghuRealPayloadAndNarrowedEvidence(t *testing.T) {
 		if seat.LineEnd-seat.LineStart > 100 {
 			t.Fatalf("evidence span must stay on the decisive events (got lines %d-%d)", seat.LineStart, seat.LineEnd)
 		}
+		return seat
 	}
 	// §29.88.8 候选2: the target's own on-chain mask=ffb seat.
 	check(9655, 13762.934161, 13763.024898, 9655, false)
-	// §29.88.5 W5: the logd.writer seat (RNB-1 R4 demoted to ◇).
-	check(2955, 13762.791708, 13763.024898, 9163, true)
+	// §29.88.5 W5: the logd.writer seat on ◇.
+	//
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = the whole row R4-demoted to ◇ with every value
+	// untouched (ChainCredentialLaneDemoted, 48.519ms) → a ◇ remainder of its
+	// own restricted ready time (48.486ms; ChainCredentialLaneDemoted false).
+	// The seat now carries its typed instants (the thread's runnable segments
+	// under the restriction epochs). 0.033ms of them lie inside the chain
+	// seat's walked windows (the chain inversion candidate holds them: one
+	// thread, one object), so the seat publishes the other 48.486ms, and the
+	// thread's ◇ runnable remainder leaves those 48.486ms to it. Raw
+	// (rawpop.py over this fixture window, ~/hmc-work/hmc377/fix11/r4c/pins/
+	// raw/dh.raw.json): logd.writer-9163 ready 48.519ms closed segments plus
+	// a 1.137ms segment still open at the trace end; the old board summed
+	// chain 0.033 + remainder 49.623 + this seat 48.519 = 98.175ms on
+	// 49.656ms of ready time, the new one 0.033 + 1.137 + 48.486 = 49.656ms.
+	seat := check(2955, 13762.791708, 13763.024898, 9163, false)
+	if !seat.ChainAnchorRemainderSeat || seat.ChainRelevance != "adjacent" ||
+		math.Abs(seat.ChainAnchoredMs-0.033) > 0.002 || math.Abs(seat.ChainAnchorFullMs-48.519) > 0.002 ||
+		math.Abs(seat.RunnableMs-48.486) > 0.002 || math.Abs(seat.EffectiveImpactMs-48.486) > 0.002 {
+		t.Fatalf("logd.writer restriction seat split drifted: %+v", seat)
+	}
 }
 
 // (b) evidence narrowing: repeated identical next_info events (volatile load

@@ -501,8 +501,30 @@ func TestRSPADonghuWitnessBoard(t *testing.T) {
 		jankRunnable.ChainRelevance != "on_chain" {
 		t.Fatalf("JankManager ⛓ anchored runnable drifted: %+v", jankRunnable)
 	}
-	if math.Abs(jankRunnableRem.RunnableMs-29.432) > 0.002 || !jankRunnableRem.ChainAnchorRemainderSeat {
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = ◇ remainder 29.432 → 3.684. The thread's
+	// cpu_affinity_or_cpuset seat publishes its ready time under the CPU
+	// restriction (27.507ms of typed instants: 1.759 inside the walked window,
+	// held by the ⛓ inversion candidate; 25.748 outside it) and the remainder
+	// leaves those 25.748ms to it (its share claim names that seat). The old
+	// board priced the same instants twice: ⛓ 1.759 + ◇ 29.432 + restriction
+	// seat 27.507 = 58.698ms on a 31.191ms census account (raw rawpop.py over
+	// this fixture window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/dh.raw.json:
+	// ready 27.507ms of closed segments plus a 3.684ms segment still open at
+	// the trace end, 13763.021214..13763.024898, sched_switch prev_state=R+
+	// with no later switch-in). New: 1.759 + 25.748 + 3.684 = 31.191ms.
+	if math.Abs(jankRunnableRem.RunnableMs-3.684) > 0.002 || !jankRunnableRem.ChainAnchorRemainderSeat {
 		t.Fatalf("JankManager ◇ remainder drifted: %+v", jankRunnableRem)
+	}
+	var jankRestriction *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 9655 && rank.Items[i].Type == "cpu_affinity_or_cpuset" {
+			jankRestriction = &rank.Items[i]
+		}
+	}
+	if jankRestriction == nil || math.Abs(jankRestriction.RunnableMs-25.748) > 0.002 ||
+		math.Abs(jankRestriction.ChainAnchoredMs-1.759) > 0.002 || math.Abs(jankRestriction.ChainAnchorFullMs-27.507) > 0.002 {
+		t.Fatalf("JankManager restriction seat must keep its own instants outside the chain seat's: %+v", jankRestriction)
 	}
 	if math.Abs(jankRunnableRem.ChainAnchorFullMs-31.191) > 0.002 {
 		t.Fatalf("JankManager census-full account drifted: %+v", jankRunnableRem)
@@ -562,14 +584,48 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 				edgeRunnableRem = item
 			}
 		}
-		if item.Type == "priority_inversion_runnable_wait" && item.ChainCredentialLaneDemoted {
-			switch item.Thread.PID {
-			case 59843:
-				cookieInversion = item
-			case 60595:
-				networkInversion = item
-			}
+	}
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = each giant's whole-account inversion row on the
+	// board, R4-demoted beside its several chain-lane inversion candidates →
+	// the same row (every value unchanged) riding as the lossless detail of a
+	// plain ◇ ready-time remainder twin. The demoted row's tree headline was
+	// the whole ready account beside the candidates' runnable parts, which
+	// hold the walked share of the same instants (raw rawpop.py over this
+	// fixture window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/tb.raw.json:
+	// CookieMonsterCl-59843 ready 26.738ms, NetworkService-60595 20.342ms; the
+	// old tree drew 26.738 + 26.001 and 20.342 + 18.979). The chain seats keep
+	// the walked share (26.001 / 18.979), the twin carries the rest (0.529 —
+	// 0.208 more lies inside the unwalked waits, held by the thread's own
+	// seat — and 1.363).
+	remainderTwins := map[int]*RootCauseRankItem{}
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Type == "runnable_wait" && item.ChainAnchorRemainderSeat && item.inversionAccountRepresents != "" &&
+			(item.Thread.PID == 59843 || item.Thread.PID == 60595) {
+			remainderTwins[item.Thread.PID] = item
 		}
+	}
+	for i := range rank.AbsorbedItems {
+		item := &rank.AbsorbedItems[i]
+		if item.Type != "priority_inversion_runnable_wait" || item.inversionAccountRepresentedBy == "" {
+			continue
+		}
+		if twin := remainderTwins[item.Thread.PID]; twin == nil || twin.inversionAccountRepresents != item.inversionAccountRepresentedBy {
+			continue
+		}
+		switch item.Thread.PID {
+		case 59843:
+			cookieInversion = item
+		case 60595:
+			networkInversion = item
+		}
+	}
+	if twin := remainderTwins[59843]; twin == nil || math.Abs(twin.RunnableMs-0.529) > 0.002 || math.Abs(twin.ChainAnchoredMs-26.001) > 0.002 {
+		t.Fatalf("CookieMonster ◇ remainder twin drifted: %+v", twin)
+	}
+	if twin := remainderTwins[60595]; twin == nil || math.Abs(twin.RunnableMs-1.363) > 0.002 || math.Abs(twin.ChainAnchoredMs-18.979) > 0.002 {
+		t.Fatalf("NetworkService ◇ remainder twin drifted: %+v", twin)
 	}
 	// B1260 can move low-valued edge-anchored state seats beyond the fixed
 	// candidate board after qualified scheduling sub-seats enter. Preserve the
@@ -795,9 +851,24 @@ func rspaAssertBoardBipartitionInvariants(t *testing.T, rank RootCauseRankResult
 			published = item.GatedRunnableMs
 		}
 		if item.ChainAnchorRemainderSeat {
-			if math.Abs(item.ChainAnchoredMs+published-item.ChainAnchorFullMs) > 0.002 {
-				t.Fatalf("◇ identity broken: anchored=%.3f + published=%.3f != full=%.3f (%+v)",
-					item.ChainAnchoredMs, published, item.ChainAnchorFullMs, item)
+			// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11
+			// ②, 2026-11-21): old → new = full = anchored + published →
+			// full = anchored + unwalked + carved + published. These boards
+			// now carry a three-way ◇ twin (the share inside the unwalked
+			// waits, ChainAnchorUnwalkedMs, held by the thread's own seat) and
+			// remainders that leave the instants under the thread's CPU
+			// restriction to its restriction seat (their resolved subset
+			// claims, which the one resolver keeps out of the published
+			// value); the census account still splits exactly.
+			carved := 0.0
+			for _, c := range item.ShareClaims {
+				if c.carved && c.Part == RootCauseShareClaimSubset && c.Resolved {
+					carved += c.ShareMs
+				}
+			}
+			if math.Abs(item.ChainAnchoredMs+item.ChainAnchorUnwalkedMs+carved+published-item.ChainAnchorFullMs) > 0.002 {
+				t.Fatalf("◇ identity broken: anchored=%.3f + unwalked=%.3f + carved=%.3f + published=%.3f != full=%.3f (%+v)",
+					item.ChainAnchoredMs, item.ChainAnchorUnwalkedMs, carved, published, item.ChainAnchorFullMs, item)
 			}
 			if !item.AbsorbedByRankFamily && item.ChainRelevance != "adjacent" {
 				t.Fatalf("◇ remainder must ride the adjacent lane: %+v", item)

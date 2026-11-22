@@ -562,6 +562,15 @@ type runtimeTraceProjTreeRow struct {
 	// and the drawn row's own constituent marker — a positive proof); ""
 	// otherwise (the see-detail form). Wording input only.
 	GatedShareSuccessorRef string
+	// ChainAnchorSubsetMS / ChainAnchorSubsetRef / ChainAnchorSubsetType
+	// (HMC377 round 11, R-377-11 ②): the share of a ◇ remainder's rest that
+	// a cause-specific subset row of the same thread (the CPU-restriction
+	// row) counts — the sum of the row's resolved subset claims, which the
+	// engine left out of the row's published value — and that row's [E#] and
+	// type token when it is drawn here (empty: the see-detail form).
+	ChainAnchorSubsetMS   float64
+	ChainAnchorSubsetRef  string
+	ChainAnchorSubsetType string
 	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
 	// fix round 3): the pair sentence's third part (the unwalked seat) when
 	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
@@ -1383,6 +1392,10 @@ const (
 	// value read from the engine's typed parts (Node.ChainAnchoredMS /
 	// ChainAnchorUnwalkedMS / ChainAnchorOutsideMS / ChainAnchorFullMS).
 	runtimeTraceProjMarkChainAnchorThreeWay
+
+	// HMC377 round 11 (R-377-11 ②): a ◇ remainder's rest of which a
+	// cause-specific row of the same thread counts part (另行计入 [E#]).
+	runtimeTraceProjMarkChainAnchorSubsetShare
 
 	// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
 	// suffix 「·供给缺口主导」 — a supply-gap-dominant inversion seat's 行2
@@ -2444,6 +2457,10 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjLegendGroupMark,
 			"- `同源三分` = 一份全窗账拆成三份:⛓锚定席(链已走的依赖窗内,链上席持有)+唤醒锚定席(目标某次等待由本线程自己的唤醒结束、链未走的那几次等待内,本线程自己的链上席持有)+◇余段席(其余时间,目标此时并未在等待本线程,无链上凭证);三份不相交、每份只由一席持有,相加恰还原全窗值;持有某份的席无法在本榜指认时,行内以「见明细」指向明细,不对该席是否在本榜作断言。唤醒锚定席持的是本线程在这些等待内的全部时间;某行的账只含这些时间的一部分时(卫星行、多个统计分组之一),行内写明本行这份的值并指向持有全部时间的唤醒锚定席及其值,此时还原本行全窗值的是本行三份,三席之和不还原。",
 			"- `same-source three-way split` = one whole-window account in three parts: the ⛓ anchored seat (inside the dependency windows the chain walked; held by the chain seat) + the wakeup-anchored seat (inside the analysed thread's waits that this thread's own wakeup ended and the chain did not walk; held by this thread's own on-chain seat) + the ◇ remainder seat (the rest; the analysed thread was not waiting for this thread then; no chain credential). The three parts are disjoint, each is held by exactly one seat, and they sum exactly back to the whole-window value; where the board cannot point at the seat holding a part, the row points to the detail index instead (see the detail index) and asserts nothing about whether that seat is on the board. The wakeup-anchored seat holds all of the thread's time inside those waits; when a row's account holds only part of it (a satellite row, one of several census groups), the row states its own part and names the wakeup-anchored seat with the value it holds — the row's three parts then restore its whole-window value, and the three seats' sum does not."},
+		// HMC377 round 11 (R-377-11 ②): the rest's own carrier split.
+		{runtimeTraceProjMarkChainAnchorSubsetShare, runtimeTraceProjLegendGroupMark,
+			"- `另行计入` = 全窗账的其余时间里,有一段落在同线程成因更具体的那一行(如CPU亲和/cpuset限制)自己的时间内:这一段只由那一行计入,本行只计其余部分;两行不相交,相加还原其余时间,每个时刻只计一次。",
+			"- `counted separately on` = part of the account's remaining time lies inside the time of a more specific cause row of the same thread (such as a CPU affinity/cpuset restriction): that part is counted on that row only and this row counts the rest; the two rows are disjoint, sum back to the remaining time, and every instant is counted once."},
 		// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation entry
 		// — the same-source split's honest form when the chain seat does not
 		// hold the anchored share at the same value.
@@ -2972,7 +2989,8 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if hasAny(runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjMarkAccountRelation,
 		runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjMarkChainAnchorRelation,
-		runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjMarkSameSegMirror) {
+		runtimeTraceProjMarkChainAnchorThreeWay, runtimeTraceProjMarkSameSegMirror,
+		runtimeTraceProjMarkChainAnchorSubsetShare) {
 		if zh {
 			lines = append(lines, "- 同一线程的多项账目保留各自口径；定位包络相交不证明实际分量重叠，关系未证时不能直接相加。只有明确互斥或同源拆分闭合时才按行内说明合计。")
 		} else {
@@ -7090,6 +7108,21 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		unwalked, outside := row.Node.ChainAnchorUnwalkedMS, row.Node.ChainAnchorOutsideMS
 		unwalkedWord, unwalkedWordEN := runtimeTraceProjUnwalkedPartWords(row.ChainAnchorUnwalkedRef, row.ChainAnchorUnwalkedInvisible,
 			row.ChainAnchorUnwalkedUnreferenced, row.ChainAnchorUnwalkedExact, row.ChainAnchorUnwalkedSeatMS)
+		// HMC377 round 11 (R-377-11 ②): part of a remainder's rest is counted
+		// on the same thread's cause-specific row — the rest keeps its
+		// figure (the split stays exact) and says which part this row counts.
+		subsetClause := func(rest float64, word string, zh bool) string { return word }
+		if row.Node.ChainAnchorRemainderSeat && row.ChainAnchorSubsetMS > 0 {
+			row.marks.mark(runtimeTraceProjMarkChainAnchorSubsetShare)
+			subsetClause = func(rest float64, word string, zh bool) string {
+				return runtimeTraceProjSubsetShareClause(rest, row.ChainAnchorSubsetMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType, word, zh)
+			}
+		}
+		restWordZH := "本行其余"
+		restWordEN := "this remainder"
+		if row.Node.ChainAnchorRemainderSeat && row.ChainAnchorSubsetMS > 0 {
+			restWordZH, restWordEN = "其余", "remainder"
+		}
 		var text string
 		switch {
 		case row.Node.ChainAnchorRemainderSeat && row.Node.ChainAnchorOwnershipDivergent:
@@ -7130,19 +7163,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				anchoredNoun, censusNoun = "本席锚定", "pid全窗锚定账Σ"
 				anchoredNounEN, censusNounEN = "anchored by this seat's own account", "the pid-wide anchored-ledger Σ"
 			}
-			text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
-				full, anchoredNoun, anchored, rem, laneMS, censusNoun, censusMS, delta, chainSeatWord)
+			text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+%s%.3fms(%s);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
+				full, anchoredNoun, anchored, restWordZH, rem, subsetClause(rem, "无链上凭证", true), laneMS, censusNoun, censusMS, delta, chainSeatWord)
 			if !zh {
-				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
-					full, anchored, anchoredNounEN, rem, laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
+				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + %s %.3fms (%s); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
+					full, anchored, anchoredNounEN, restWordEN, rem, subsetClause(rem, "no chain credential", false), laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
 			}
 			if threeWay {
 				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
-				text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+唤醒锚定%.3fms%s+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
-					full, anchoredNoun, anchored, unwalked, unwalkedWord, outside, laneMS, censusNoun, censusMS, delta, chainSeatWord)
+				text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+唤醒锚定%.3fms%s+%s%.3fms(%s);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
+					full, anchoredNoun, anchored, unwalked, unwalkedWord, restWordZH, outside, subsetClause(outside, "无链上凭证", true), laneMS, censusNoun, censusMS, delta, chainSeatWord)
 				if !zh {
-					text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + %.3fms wakeup-anchored %s + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
-						full, anchored, anchoredNounEN, unwalked, unwalkedWordEN, outside, laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
+					text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + %.3fms wakeup-anchored %s + %s %.3fms (%s); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
+						full, anchored, anchoredNounEN, unwalked, unwalkedWordEN, restWordEN, outside, subsetClause(outside, "no chain credential", false), laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
 				}
 			}
 		case row.Node.ChainAnchorRemainderSeat:
@@ -7187,19 +7220,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				remainderWord = "目标此时并未在等待本线程,无链上凭证"
 				remainderWordEN = "the analysed thread was not waiting for this thread then; no chain credential"
 			}
-			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms%s+本行其余%.3fms(%s)", full, anchored, anchoredWord, rem, remainderWord)
+			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms%s+%s%.3fms(%s)", full, anchored, anchoredWord, restWordZH, rem, subsetClause(rem, remainderWord, true))
 			if !zh {
-				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + this remainder %.3fms (%s)", full, anchored, anchoredWordEN, rem, remainderWordEN)
+				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + %s %.3fms (%s)", full, anchored, anchoredWordEN, restWordEN, rem, subsetClause(rem, remainderWordEN, false))
 			}
 			if threeWay {
 				// The outside part lies outside every wait of the analysed
 				// thread this thread's wakeup ended — walked or not.
 				row.marks.mark(runtimeTraceProjMarkChainAnchorThreeWay)
-				text = fmt.Sprintf("同源三分:全窗%.3fms=锚定%.3fms%s+唤醒锚定%.3fms%s+本行其余%.3fms(目标此时并未在等待本线程,无链上凭证)",
-					full, anchored, anchoredWord, unwalked, unwalkedWord, outside)
+				text = fmt.Sprintf("同源三分:全窗%.3fms=锚定%.3fms%s+唤醒锚定%.3fms%s+%s%.3fms(%s)",
+					full, anchored, anchoredWord, unwalked, unwalkedWord, restWordZH, outside, subsetClause(outside, "目标此时并未在等待本线程,无链上凭证", true))
 				if !zh {
-					text = fmt.Sprintf("same-source three-way split: whole-window %.3fms=%.3fms anchored %s + %.3fms wakeup-anchored %s + this remainder %.3fms (the analysed thread was not waiting for this thread then; no chain credential)",
-						full, anchored, anchoredWordEN, unwalked, unwalkedWordEN, outside)
+					text = fmt.Sprintf("same-source three-way split: whole-window %.3fms=%.3fms anchored %s + %.3fms wakeup-anchored %s + %s %.3fms (%s)",
+						full, anchored, anchoredWordEN, unwalked, unwalkedWordEN, restWordEN, outside, subsetClause(outside, "the analysed thread was not waiting for this thread then; no chain credential", false))
 				}
 			}
 			if returned := row.Node.ShareReturnedMS; returned > 0 {
@@ -21681,6 +21714,31 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 // does not prove the holder drawn here (no typed reference, a claim that did
 // not resolve, a holder drawn on no surface here): no holder named, no
 // absence claimed.
+// runtimeTraceProjSubsetShareClause (HMC377 round 11, R-377-11 ②) writes a
+// ◇ remainder's rest qualifier when part of the rest is counted on the same
+// thread's cause-specific row: the rest's own word, the part counted there
+// (its [E#] when the row is drawn here, the see-detail form otherwise) and
+// what this row counts. Values are the engine's: the resolved subset claims'
+// share, which the engine left out of this row's published value.
+func runtimeTraceProjSubsetShareClause(rest, subsetMS float64, ref, holderType, word string, zh bool) string {
+	ref = strings.TrimSpace(ref)
+	own := rest - subsetMS
+	if own < 0 {
+		own = 0
+	}
+	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(holderType, zh))
+	if zh {
+		if ref == "" || label == "" {
+			return fmt.Sprintf("%s;其中%.3fms另行计入同线程成因更具体的一行(见明细),本行计%.3fms", word, subsetMS, own)
+		}
+		return fmt.Sprintf("%s;其中%s下%.3fms另行计入[%s],本行计%.3fms", word, label, subsetMS, ref, own)
+	}
+	if ref == "" || label == "" {
+		return fmt.Sprintf("%s; of which %.3fms is counted separately on a more specific cause row of this thread (see the detail index), this row %.3fms", word, subsetMS, own)
+	}
+	return fmt.Sprintf("%s; of which %.3fms under the %s is counted separately on [%s], this row %.3fms", word, subsetMS, label, ref, own)
+}
+
 func runtimeTraceProjUnwalkedPartWords(ref string, invisible, unreferenced, exact bool, seatMS float64) (string, string) {
 	ref = strings.TrimSpace(ref)
 	switch {

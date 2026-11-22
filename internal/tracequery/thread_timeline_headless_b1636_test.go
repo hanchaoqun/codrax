@@ -350,7 +350,12 @@ func TestB1636TiebaCandidateRestoresOnlyClippedHeadlessSlice(t *testing.T) {
 	q.PID, q.TimeStart, q.TimeEnd = 59566, 34579.450627, 34579.520000
 	rank := BuildRootCauseRank(idx, q)
 	cand := evalcaseDHMFindItem(rank.Items, "priority_inversion_candidate", 59843)
-	wait := evalcaseDHMFindItem(rank.Items, "priority_inversion_runnable_wait", 59843)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): the whole-account inversion form now rides as the lossless
+	// detail of the thread's plain ◇ remainder twin (several chain inversion
+	// seats hold its walked share; see TestEvalcaseDHMA3aInversionSeatPairEarlyWindow).
+	// Both forms and every value are unchanged.
+	wait := evalcaseDHMFindItem(rank.AbsorbedItems, "priority_inversion_runnable_wait", 59843)
 	if cand == nil || wait == nil || len(cand.OccurrenceWindows) != 3 {
 		t.Fatal("original two inversion forms and three candidate occurrences must remain")
 	}
@@ -416,8 +421,16 @@ func TestB1636TiebaRestoredOverlapKeepsFamilyMembersAndOtherCauses(t *testing.T)
 		"60559/priority_inversion_candidate": 1, "61238/running": 1,
 		"9388/trace_span": 1, "7640/trace_span": 1, "0/supply_pressure": 1,
 		"918/runnable_wait": 2, "919/runnable_wait": 2,
-		"60595/priority_inversion_runnable_wait": 1,
+		"60595/runnable_wait": 1,
 	}
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): "60595/priority_inversion_runnable_wait" →
+	// "60595/runnable_wait". NetworkService-60595's whole-window inversion
+	// account (ready 20.369ms) stood whole beside its two chain inversion
+	// candidates, which publish the 8.576ms inside the walked windows; its
+	// plain ◇ remainder twin (11.793ms) now carries the rest and the
+	// inversion account (values unchanged) rides as the twin's lossless
+	// detail — the same thread, one object per instant.
 	// EVOLUTION RECORD (HMC377 R-377-4, owner ruling "one physical thread, one
 	// object"): "897/priority_inversion_runnable_wait" leaves the published
 	// population — wlan_bus_rx/sdi-897 holds its own chain seat
@@ -433,7 +446,7 @@ func TestB1636TiebaRestoredOverlapKeepsFamilyMembersAndOtherCauses(t *testing.T)
 	// inversion accounts join the absorbed carrier too. The two extra chain
 	// rows take the 12-seat cap from "474/low_frequency" (background) and
 	// "61238/runnable_wait" — a cap death, disclosed; no cause class is lost.
-	for _, pid := range []int{897, 918, 919} {
+	for _, pid := range []int{897, 918, 919, 60595} {
 		absorbed := false
 		for _, item := range rank.AbsorbedItems {
 			if item.Thread.PID == pid && item.Type == "priority_inversion_runnable_wait" {

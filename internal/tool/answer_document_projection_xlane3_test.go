@@ -336,8 +336,19 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// recorded depth follow them; the pointed rows (logd.writer-9163 chain
 	// seat [E11(+1)] ↔ its adjacent remainder), values and relation
 	// cardinality are unchanged.
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = 「本线程另有链上席 [E11(+1)]」 →
+	// 「本线程另有链上席 [E11]」. On the CompThread_0-2955 board
+	// logd.writer-9163's cpu_affinity_or_cpuset seat now keeps only its own
+	// restricted instants outside that board's walked windows (48.501ms; the
+	// 0.018ms inside them stays with the board's chain seat), so it no longer
+	// coincides with the 9163 board's own self row (48.519ms, the analysed
+	// thread's whole restricted ready time, raw rawpop.py over this window:
+	// 48.519ms) and the two records stop folding into one [E11(+1)] row: E11
+	// is the 9163-board row, [E48] the 2955-board seat. Subjects and the
+	// pointed pair are unchanged.
 	if !strings.Contains(joinedMD, "本线程另有邻近席 [E48]") ||
-		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
+		!strings.Contains(joinedMD, "本线程另有链上席 [E11]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
 	// E45's sentence drops E10 (its cross-channel chain pointer) and keeps

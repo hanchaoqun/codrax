@@ -781,6 +781,13 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		if rn.ChainAnchoredMS <= 0 {
 			continue
 		}
+		// HMC377 round 11 (R-377-11 ②): a remainder whose rest is partly
+		// counted on the same thread's cause-specific row no longer restores
+		// the account with its ⛓ counterpart alone — its 行2 sentence names
+		// all three parts instead (宁漏勿假指).
+		if rem.ChainAnchorSubsetMS > 0 {
+			continue
+		}
 		if rem.AccountRelRef != "" || strings.TrimSpace(rem.EvidenceTag) == "" {
 			continue
 		}
@@ -1610,6 +1617,28 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 	return out
 }
 
+// runtimeTraceProjStampSubsetShare (HMC377 round 11, R-377-11 ②) stamps a
+// ◇ remainder row with the share its resolved subset claims hand to the same
+// thread's cause-specific row (the engine left it out of this row's value),
+// and that row's [E#] and type when the drawn-record lookup proves it drawn
+// in another row here.
+func runtimeTraceProjStampSubsetShare(row *runtimeTraceProjTreeRow, index map[string]runtimeTraceProjDrawnRecord) {
+	row.ChainAnchorSubsetMS, row.ChainAnchorSubsetRef, row.ChainAnchorSubsetType = 0, "", ""
+	for _, c := range row.Node.ShareClaims {
+		if c.Part == string(tracequery.RootCauseShareClaimSubset) && !c.Represented && c.Resolved {
+			row.ChainAnchorSubsetMS += c.ShareMS
+		}
+	}
+	if row.ChainAnchorSubsetMS <= 0 {
+		return
+	}
+	ref := runtimeTraceProjResolveShareRef(row.Node, index, row, false, string(tracequery.RootCauseShareClaimSubset))
+	if ref.state == runtimeTraceProjShareRefRendered && len(ref.rows) == 1 && ref.rows[0] != nil {
+		row.ChainAnchorSubsetRef = strings.Join(ref.tags, ",")
+		row.ChainAnchorSubsetType = strings.TrimSpace(ref.rows[0].Node.Object)
+	}
+}
+
 // runtimeTraceProjResolvedRepresentedHolderTags (HMC377 round 10, R-377-10 ③)
 // names the holders of a partially represented row's resolved claims — the
 // rows that count its ChainAnchorRepresentedHeldMS: their [E#] when every such
@@ -1670,6 +1699,11 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 			}
 			row.ChainAnchorTwinInvisible = twin.state == runtimeTraceProjShareRefCompacted
 			row.ChainAnchorTwinUnreferenced = twin.state == runtimeTraceProjShareRefNone
+			if rn.ChainAnchorRemainderSeat {
+				// HMC377 round 11 (R-377-11 ②): the part of the rest the
+				// same thread's cause-specific row counts.
+				runtimeTraceProjStampSubsetShare(row, index)
+			}
 			if rn.ChainAnchorUnwalkedMS > 0 {
 				unwalked := runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimUnwalked))
 				row.ChainAnchorUnwalkedRef = strings.Join(unwalked.tags, ",")

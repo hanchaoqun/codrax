@@ -295,6 +295,15 @@ func runtimeTraceProjElimEligibleSansRepresented(row runtimeTraceProjTreeRow) bo
 	if !runtimeTraceProjElimRankItemRow(row) {
 		return false
 	}
+	// HMC377 round 11 (R-377-11 ②): a row the engine absorbed into another
+	// row (its account is that row's lossless detail) holds no ◎ seat of its
+	// own, even where the projection keeps it in its bucket because the
+	// absorbing row is not on this board: every instant of its account is
+	// counted by the seats its own claims name (the R-377-4 inversion detail:
+	// the inside seat and the ◇ remainder twin), never beside them.
+	if row.Node.AbsorbedByRankFamily {
+		return false
+	}
 	// 通道臂 — the display channel authority (stanza placement outranks stale
 	// relevance, §29.36.2 三面同一来源).
 	switch runtimeTraceProjRowOrdinalChannel(row) {

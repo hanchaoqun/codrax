@@ -245,10 +245,31 @@ func TestEvalcaseDHMA3aInversionSeatPairEarlyWindow(t *testing.T) {
 	idx := evalcaseIndex(t, evalcaseTiebaFixture)
 	rank := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.520000,
 		TraceFlavorHint: TraceFlavorHarmonyHitrace})
-	wait := evalcaseDHMFindItem(rank.Items, "priority_inversion_runnable_wait", 59843)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = the whole-account runnable-wait inversion row
+	// on the board beside the thread's two chain inversion candidates → the
+	// same row, every value unchanged, published as the lossless detail of
+	// the thread's plain ◇ ready-time remainder twin (5.244ms = 19.372 −
+	// 14.079 inside the walked windows, which the candidates' runnable parts
+	// 12.813 + 1.266 hold, − 0.049 inside the unwalked waits). Its tree
+	// headline was the whole ready account beside those parts (raw rawpop.py
+	// over this window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/tb.raw.json:
+	// CookieMonsterCl-59843 ready 19.372ms; the old tree drew 19.372 +
+	// 14.079). Both registry tokens are still published for the one thread.
+	wait := evalcaseDHMFindItem(rank.AbsorbedItems, "priority_inversion_runnable_wait", 59843)
 	cand := evalcaseDHMFindItem(rank.Items, "priority_inversion_candidate", 59843)
 	if wait == nil || cand == nil {
 		t.Fatalf("DHM-A3a: inversion pair missing: wait=%v cand=%v", wait != nil, cand != nil)
+	}
+	var twin *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 59843 && rank.Items[i].Type == "runnable_wait" && rank.Items[i].ChainAnchorRemainderSeat {
+			twin = &rank.Items[i]
+		}
+	}
+	if twin == nil || twin.inversionAccountRepresents == "" || twin.inversionAccountRepresents != wait.inversionAccountRepresentedBy ||
+		!near(twin.RunnableMs, 5.244, 0.002) {
+		t.Fatalf("DHM-A3a: the inversion row must ride as the ◇ remainder twin's lossless detail: twin=%+v", twin)
 	}
 	if !near(wait.ImpactMs, 19.372, 0.001) || !near(wait.EffectiveImpactMs, 1.847, 0.001) {
 		t.Fatalf("DHM-A3a: runnable-wait inversion values drifted: %.3f/%.3f", wait.ImpactMs, wait.EffectiveImpactMs)
@@ -310,8 +331,16 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 	// now ride as that seat's lossless detail on the absorbed carrier (values
 	// unchanged), and their ready time outside the dependency windows is the
 	// plain ◇ remainder. The 9 candidates are unchanged.
-	if candidates != 9 || waits != 2 {
-		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 9/2), roster=%v", candidates, waits, inversionRoster)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): waits 2 → 1. VOutle2-V15-19050's whole-window inversion
+	// account (ready 7.940ms, gated overlap 2.323ms; raw rawpop.py over this
+	// window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/dh.raw.json: ready
+	// 7.940ms) stood whole beside its chain inversion seats, whose runnable
+	// parts publish the 0.631ms inside the walked windows; it now rides as
+	// the lossless detail of the thread's plain ◇ ready-time remainder twin
+	// (7.309ms), values unchanged. VSyncGenerator-2179's own row stays.
+	if candidates != 9 || waits != 1 {
+		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 9/1), roster=%v", candidates, waits, inversionRoster)
 	}
 	for _, item := range rank.Items {
 		if item.Type == "block_io_by_inode" && item.Thread.PID == 17267 && rootCauseItemIsOnChain(item) {
@@ -335,8 +364,10 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 	if strings.Contains(wire, `"impact_ms":`) || strings.Contains(wire, `"effective_impact_ms":`) {
 		t.Fatalf("DHM-A5a: composite wire leaked an ms-semantic key (假墙钟形):\n%s", wire)
 	}
-	// Control arm: a wall-clock inversion seat keeps its ms keys.
-	inv := evalcaseDHMFindItem(rank.Items, "priority_inversion_runnable_wait", 19050)
+	// Control arm: a wall-clock inversion seat keeps its ms keys. HMC377
+	// round 11 (see the EVOLUTION RECORD above): 19050's inversion account
+	// is published on the absorbed carrier, with the same wire.
+	inv := evalcaseDHMFindItem(rank.AbsorbedItems, "priority_inversion_runnable_wait", 19050)
 	if inv == nil {
 		t.Fatal("DHM-A5a: control inversion seat 19050 missing")
 	}
@@ -420,7 +451,15 @@ func TestEvalcaseDHMA7bSameTraceDualWindowScoping(t *testing.T) {
 	if early.Window == late.Window {
 		t.Fatal("DHM-A7b: the two boards lost their window separation")
 	}
-	earlyInv := evalcaseDHMFindItem(early.Items, "priority_inversion_runnable_wait", 59843)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = the 19.372ms early-window inversion account
+	// on the board beside the thread's two chain inversion candidates → the
+	// same account (values unchanged) as the lossless detail of its plain ◇
+	// remainder twin, which publishes 5.244ms (19.372 − 14.079 walked, held
+	// by the candidates − 0.049 unwalked; raw rawpop.py over this window,
+	// ~/hmc-work/hmc377/fix11/r4c/pins/raw/tb.raw.json: ready 19.372ms). The
+	// window-scoping meaning is unchanged: 19.372 belongs to the early board.
+	earlyInv := evalcaseDHMFindItem(early.AbsorbedItems, "priority_inversion_runnable_wait", 59843)
 	if earlyInv == nil || !near(earlyInv.ImpactMs, 19.372, 0.001) {
 		t.Fatalf("DHM-A7b: early-window inversion seat drifted: %+v", earlyInv)
 	}

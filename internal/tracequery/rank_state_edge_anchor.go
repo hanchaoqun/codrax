@@ -168,6 +168,7 @@ func stateEdgePlainRunnableCopy(item RootCauseRankItem) RootCauseRankItem {
 	plain.PriorityRelationArtifactSources = nil
 	plain.inversionAccountRepresentedBy = ""
 	plain.inversionAccountRepresents = ""
+	plain.subsetDetailRepresentedBy, plain.subsetDetailRepresents = "", nil
 	rspaClearClaims(&plain)
 	return plain
 }

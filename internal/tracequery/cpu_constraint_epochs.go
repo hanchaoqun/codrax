@@ -20,6 +20,11 @@ type cpuConstraintEpochAccounting struct {
 	restrictedRunnableWaitMs float64
 	sourceAuthority          string
 	allowedUniform           bool
+
+	// restrictedIntervals (HMC377 round 11) is the merged union
+	// restrictedRunnableWaitMs sums.
+	restrictedIntervals []foldInterval
+
 	// V-2 (§15.12 批甲 verify): merge results computed on the FULL roster
 	// BEFORE the display cap (the cap never caps accounting) — the overlay
 	// must never re-derive them from the capped epochs slice.
@@ -277,6 +282,7 @@ func computeCPUConstraintEpochAccounting(
 		// retain both evidence views, but the causal value owns the interval
 		// once: union before summing.
 		account.restrictedRunnableWaitMs, _ = foldIntervalUnionMs(restrictedIntervals)
+		account.restrictedIntervals, _ = foldIntervalUnionWithDisjoint(restrictedIntervals)
 		account.measurementSources = types.MergeTraceSchedulerMeasurementSources(restrictedSources...)
 		account.mergedProof = cpuConstraintEpochMergedRestrictionProof(epochs, account.allowedUniform, account.restrictedRunnableWaitMs)
 		if owner := cpuConstraintEpochFirstMaskBearing(epochs); owner != nil {

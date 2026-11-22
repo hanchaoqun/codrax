@@ -398,6 +398,18 @@ func TestRSPAHygReanchorTwoPassByteIdempotent(t *testing.T) {
 // (raw 0.013 walked + 0.042 unwalked = ⛓ 0.055, pool only; ◇ 0.484 on the
 // board). Kept meaning: a published ◇ remainder whose ⛓ counterpart died at
 // the cap is found in the pre-truncation pool with the truncation disclosed.
+//
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+// 2026-11-21): witness udk-irq-1-76 → RenderThread-17597. Every instant of
+// 76's ◇ remainder (0.484ms) lies under the thread's CPU restriction: its
+// cpu_affinity_or_cpuset seat (0.539ms, the thread's whole ready time — raw
+// rawpop.py over this window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/
+// dh.raw.json: ready 0.539ms) now keeps those instants and the emptied
+// remainder rides as that seat's lossless detail, so the old board's
+// 0.484 + 0.539 = 1.023ms on 0.539ms of ready time is gone and 76 carries no
+// published ◇ remainder. RenderThread-17597 has the same shape on this board
+// at the base and here (◇ remainder 1.023ms on the board, ⛓ clipped seat
+// anchored 0.044ms in the pool only; no CPU restriction seat).
 func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu.ftrace")
 	if err != nil {
@@ -409,26 +421,26 @@ func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	// truncated off the board but held by the pool.
 	var remainder *RootCauseRankItem
 	for i := range rank.Items {
-		if rank.Items[i].Thread.PID == 76 && rank.Items[i].ChainAnchorRemainderSeat {
+		if rank.Items[i].Thread.PID == 17597 && rank.Items[i].ChainAnchorRemainderSeat {
 			remainder = &rank.Items[i]
 		}
 	}
 	if remainder == nil {
-		t.Fatalf("donghu witness drifted: udk-irq-1-76 ◇ remainder missing from the board")
+		t.Fatalf("donghu witness drifted: RenderThread-17597 ◇ remainder missing from the board")
 	}
 	onBoard, inPool := false, false
 	for _, peer := range rank.Items {
-		if peer.Thread.PID == 76 && !peer.ChainAnchorRemainderSeat && peer.ChainAnchorFullMs > 0 && rootCauseItemIsOnChain(peer) {
+		if peer.Thread.PID == 17597 && !peer.ChainAnchorRemainderSeat && peer.ChainAnchorFullMs > 0 && rootCauseItemIsOnChain(peer) {
 			onBoard = true
 		}
 	}
 	for _, peer := range rank.preTruncationItems {
-		if peer.Thread.PID == 76 && !peer.ChainAnchorRemainderSeat && peer.ChainAnchorFullMs > 0 && rootCauseItemIsOnChain(peer) {
+		if peer.Thread.PID == 17597 && !peer.ChainAnchorRemainderSeat && peer.ChainAnchorFullMs > 0 && rootCauseItemIsOnChain(peer) {
 			inPool = true
 		}
 	}
 	if onBoard {
-		t.Fatalf("donghu witness drifted: the pid-76 ⛓ counterpart survived the cap (the release arm is no longer exercised) — refresh the witness")
+		t.Fatalf("donghu witness drifted: the pid-17597 ⛓ counterpart survived the cap (the release arm is no longer exercised) — refresh the witness")
 	}
 	if !inPool {
 		t.Fatalf("件⑤: the pre-truncation pool must hold the capacity-truncated ⛓ counterpart")

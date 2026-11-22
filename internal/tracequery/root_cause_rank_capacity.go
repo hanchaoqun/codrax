@@ -438,7 +438,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	remainderSide := make([]RootCauseRankItem, 0, rootCauseRankRemainderSideCap)
 	demotedSide := make([]RootCauseRankItem, 0, rootCauseRankDemotedSideCap)
 	for _, item := range items {
-		if item.ChainAnchorRemainderSeat {
+		if item.ChainAnchorRemainderSeat && !rspaRemainderKeepsDemotedLane(item) {
 			// RSPA ◇ remainder seats: complement halves of on-board anchored
 			// accounts — side lane, never a candidate seat (see cap comment).
 			sideTotal++
@@ -446,7 +446,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			continue
 		}
 		if item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-			item.GatedShareConstituentSeat {
+			item.GatedShareConstituentSeat || rspaRemainderKeepsDemotedLane(item) {
 			// RNB-1 R4 lane-demoted seats (D1 修复轮): ◇-family disclosure
 			// rows — mirrored side lane so「值零动,通道位归位」holds on the
 			// published wire, never a candidate seat. XLANE-1 件1: the
@@ -559,4 +559,17 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	out = append(out, candidates...)
 	out = append(out, side...)
 	return out, capDead, len(selfSide), candidateTotal, candidateEmitted, sideTotal, sideEmitted
+}
+
+// rspaRemainderKeepsDemotedLane — HMC377 round 11 (R-377-11 ②): two seats
+// wear the ◇ remainder form for their split but replace a row that rode the
+// demoted ◇ disclosure lane, and keep that lane (the board's capacity is not
+// redistributed by the split): a cause-specific subset seat (the
+// CPU-restriction seat holding its own instants) and the plain remainder twin
+// of an inversion window account whose several chain seats hold its walked
+// share (the twin represents that account as its lossless detail). Typed
+// signals only: the subset-seat hold and the represented inversion key.
+func rspaRemainderKeepsDemotedLane(item RootCauseRankItem) bool {
+	return item.ChainAnchorRemainderSeat &&
+		(rspaHolds(item, RootCauseShareHolderSubsetSeat, false) || item.inversionAccountRepresents != "")
 }

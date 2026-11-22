@@ -170,6 +170,11 @@ type RootCauseShareClaim struct {
 	// its role on the published board hold (successor holds excluded) — the
 	// segments the publication's successor pass leaves where they are.
 	covered []foldInterval
+	// carved (HMC377 round 11, R-377-11 ②): the claiming row's value is its
+	// account less this share while the share resolves to a holder on the
+	// published board; unresolved, the share returns to the row
+	// (rspaWriteCarvedShares).
+	carved bool
 }
 
 // rspaHeldShare is what one seat holds: recorded where the seat is minted,
@@ -425,6 +430,7 @@ func rspaAppendSentence(item *RootCauseRankItem, s rspaSentence) {
 func rspaClearClaims(item *RootCauseRankItem) {
 	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
 	item.ShareHolderKey = ""
+	item.rspaCarvedAppliedMs, item.rspaCarvedEffective = 0, false
 }
 
 // rspaHold records that a seat holds a share (one entry per role). A D/IO
@@ -638,7 +644,7 @@ func rspaHolds(item RootCauseRankItem, role RootCauseShareHolderRole, dio bool) 
 // rspaHolderOnChainRole: every holder role but the ◇ remainder seat holds its
 // share on the chain tier.
 func rspaHolderOnChainRole(role RootCauseShareHolderRole) bool {
-	return role != RootCauseShareHolderRemainderSeat
+	return role != RootCauseShareHolderRemainderSeat && role != RootCauseShareHolderSubsetSeat
 }
 
 // resolveRankShareClaims is THE resolution pass: it runs once, after the
@@ -671,6 +677,7 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 		}
 		item.ShareClaims = claims
 		rspaWriteClaimSpans(item)
+		rspaWriteCarvedShares(item)
 	}
 	for i := range board {
 		resolveRow(&board[i])
@@ -1209,6 +1216,8 @@ func rspaWithdrawSeat(item *RootCauseRankItem) {
 		// publishes its own account again.
 		item.rspaMintedAccount.write(item, 0, true)
 	}
+	// Likewise a row that handed carved shares to other seats.
+	rspaApplyCarvedShares(item, 0)
 	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
 	item.ShareHolderKey = ""
 	item.ChainAnchoredMs, item.ChainAnchorFullMs, item.ChainAnchorRemainderSeat = 0, 0, false

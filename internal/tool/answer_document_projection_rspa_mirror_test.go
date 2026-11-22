@@ -29,6 +29,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,23 @@ func TestRSPAMirrorRowRelationOnDonghuWitness(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// D1 guard: both ◇ remainder halves render.
-	for _, want := range []string{"其余33.159ms(无链上凭证)", "其余29.432ms(无链上凭证)"} {
+	//
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ②,
+	// 2026-11-21): old → new = 「其余29.432ms(无链上凭证)」 →
+	// 「其余29.432ms(无链上凭证;其中CPU亲和/cpuset限制下25.748ms另行计入[E#],本行计3.684ms)」.
+	// JankManager-9655's rest outside the walked window is 29.432ms; 25.748ms
+	// of it lies under the thread's CPU restriction and is counted on its
+	// cpu_affinity_or_cpuset row, which keeps those instants (raw rawpop.py
+	// over this window, ~/hmc-work/hmc377/fix11/r4c/pins/raw/dh.raw.json:
+	// ready 27.507ms of closed segments, all restricted, plus a 3.684ms
+	// segment open at the trace end; the old board priced 29.432 + 27.507 on
+	// the same instants). The fence may wrap the clause; it is matched on the
+	// line-joined text.
+	joinedFence := strings.Join(strings.Fields(fence), " ")
+	if !regexp.MustCompile(`其余29\.432ms\(无链上凭证;其中CPU亲和/cpuset ?限制下25\.748ms另行计入\[E\d+\],本行计3\.684ms\)`).MatchString(joinedFence) {
+		t.Fatalf("D1: JankManager-9655 ◇ remainder disclosure missing its restricted share:\n%s", fence)
+	}
+	for _, want := range []string{"其余33.159ms(无链上凭证)"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("D1: ◇ remainder disclosure %q missing:\n%s", want, fence)
 		}

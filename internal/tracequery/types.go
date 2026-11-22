@@ -2655,6 +2655,14 @@ type CPUConstraintSummary struct {
 	LineStart                int                  `json:"line_start,omitempty"`
 	LineEnd                  int                  `json:"line_end,omitempty"`
 	Summary                  string               `json:"summary,omitempty"`
+	// restrictedRunnableIntervals (HMC377 round 11, R-377-11 ②;
+	// engine-internal, never serialized) are the instants
+	// RestrictedRunnableWaitMs sums: the union of the thread's runnable
+	// segments under a restriction epoch, the same segments the runnable
+	// census is built from. They ride to the cpu_affinity_or_cpuset seat so
+	// the thread's other ready-time seats can leave exactly these instants
+	// to it.
+	restrictedRunnableIntervals []foldInterval
 }
 
 // Thread CPU-load scope tokens are stable machine-readable calibers. The
@@ -4763,6 +4771,32 @@ type RootCauseRankItem struct {
 	// reconciliation matches the exact key and nothing else.
 	inversionAccountRepresentedBy string
 	inversionAccountRepresents    string
+	// subsetDetailRepresentedBy / subsetDetailRepresents (unexported, HMC377
+	// round 11, R-377-11 ②, never serialized): the same pairing for a
+	// cpu_affinity_or_cpuset seat whose restricted instants all lie inside
+	// one chain-object row of the same thread (carveCPUConstraintReadyInstants
+	// mints both sides; reconcileSubsetDetails absorbs).
+	subsetDetailRepresentedBy string
+	subsetDetailRepresents    []string
+	// cpuConstraintCarveDecided / cpuConstraintBaseSummary(Set) (unexported,
+	// HMC377 round 11): the one-carrier pass decided this restriction seat;
+	// the seat's summary before the RSPA lane arm appended its whole-row
+	// sentence (the pass writes the seat's split on that base instead).
+	cpuConstraintCarveDecided   bool
+	cpuConstraintBaseSummary    string
+	cpuConstraintBaseSummarySet bool
+	// cpuConstraintChainWindowMs: the seat's restricted instants inside the
+	// thread's dependency windows, as the RSPA lane arm measured them.
+	cpuConstraintChainWindowMs float64
+	// rspaCarvedAppliedMs / rspaCarvedEffective (unexported, HMC377 round 11,
+	// R-377-11 ②): the carved shares currently left out of the row's value
+	// channels (the row handed them to other seats), and whether its
+	// effective channel carried them. The one resolver keeps exactly the
+	// shares it resolves on the published board left out
+	// (rspaWriteCarvedShares), so a share whose holder the cap or the gate
+	// cut returns to this row.
+	rspaCarvedAppliedMs float64
+	rspaCarvedEffective bool
 	// rspaUnwalkedHeldMs (unexported, HMC377 fix round 3, never serialized):
 	// on a case-B split (no chain-lane seat) the clipped window seat holds the
 	// thread's walked AND unwalked share as one object; both halves remember
@@ -5239,6 +5273,12 @@ type RootCauseRankItem struct {
 	runnableCPU       int
 	runnableCPUKnown  bool
 	runnableIntervals []foldInterval
+	// cpuConstraintRestrictedIntervals (HMC377 round 11, R-377-11 ②;
+	// engine-internal, never serialized): a cpu_affinity_or_cpuset seat's
+	// own instants — the thread's runnable segments under a restriction
+	// epoch (CPUConstraintSummary.restrictedRunnableIntervals). Nil on every
+	// other row and on a constraint without an epoch roster.
+	cpuConstraintRestrictedIntervals []foldInterval
 	// runnableCPUUnknownReason (§29.104.21 DISPLAY-HYG 件4, 2026-07-17;
 	// engine-internal, never serialized): the census bucket's UNIFORM typed
 	// continuity reason carried onto the runnable rank row (see

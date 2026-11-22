@@ -17317,6 +17317,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// toward the target (RSPA's ◇ remainders and clipped seats are never
 	// re-judged).
 	items = anchorBareCensusEdgeStateSeats(chain, items)
+	// HMC377 round 11 (R-377-11 ②): one carrier per instant of a thread's
+	// ready time — after every pass that mints the thread's ready-time seats
+	// and records what each holds (a no-op on the build board, which has no
+	// CPU-restriction seat yet).
+	carveCPUConstraintReadyInstants(items)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18): the
 	// (pid,runnable) chain aggregate seat splits its account against the same
 	// thread's priority-inversion seat(s) whose gated composite already counts
@@ -18202,6 +18207,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		// from these two ints (zero pair = negative arm, no claim).
 		candidate.CPUConstraintAllowedMaxTierKHz = constraint.AllowedMaxTierKHz
 		candidate.CPUConstraintGlobalMaxTierKHz = constraint.GlobalMaxTierKHz
+		if constraint.EpochTotal > 0 {
+			candidate.cpuConstraintRestrictedIntervals = append([]foldInterval(nil), constraint.restrictedRunnableIntervals...)
+		}
 		rank.Items = append(rank.Items, candidate)
 	}
 	// §21.1 CWD-2 ②: the compute_supply / cpu_constraints additions above are
@@ -18234,6 +18242,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// new formal window state seats, so this is structurally a no-op pass —
 	// kept for the same double-pass discipline as the RSPA line above).
 	rank.Items = anchorBareCensusEdgeStateSeats(chain, rank.Items)
+	// HMC377 round 11 (R-377-11 ②): the restriction seats minted above meet
+	// the thread's other ready-time seats here.
+	carveCPUConstraintReadyInstants(rank.Items)
 	// LEVELMERGE-1 件2: idempotent re-split over the enrich-minted additions —
 	// already-split rows carry GatedShareFullMs / the constituent marker and
 	// pass through untouched; the enrich lane mints no chain aggregates, so
@@ -18341,6 +18352,7 @@ func applyCPUConstraintEpochOverlay(item *CPUConstraintSummary, epoch cpuConstra
 	item.EpochComplete = item.EpochEmitted == item.EpochTotal
 	item.RestrictionEpochCount = epoch.restrictionEpochCount
 	item.RestrictedRunnableWaitMs = epoch.restrictedRunnableWaitMs
+	item.restrictedRunnableIntervals = append([]foldInterval(nil), epoch.restrictedIntervals...)
 	item.AllowedCPUsAuthority = epoch.sourceAuthority
 	if epoch.total == 1 && len(epoch.epochs) == 1 {
 		snapshot := epoch.epochs[0]
