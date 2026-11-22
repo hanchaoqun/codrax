@@ -108,11 +108,17 @@ type hmc377R11Faces struct {
 // population) and the rendered zh/en documents.
 func hmc377R11Query(t *testing.T, path string, start, end float64) hmc377R11Faces {
 	t.Helper()
+	return hmc377R11QueryPID(t, path, 100, start, end)
+}
+
+// hmc377R11QueryPID is hmc377R11Query for any analysed thread.
+func hmc377R11QueryPID(t *testing.T, path string, pid int, start, end float64) hmc377R11Faces {
+	t.Helper()
 	hmc176DisableExternalProviders(t)
 	ctx, _, _ := hmc17NamedPathContext(t)
 	var results []types.ToolResult
 	for _, view := range []string{"wakeup_chain", "root_cause_rank"} {
-		r := hmc17NamedQuery(t, ctx, map[string]any{"source": "path", "path": path, "view": view, "pid": 100,
+		r := hmc17NamedQuery(t, ctx, map[string]any{"source": "path", "path": path, "view": view, "pid": pid,
 			"target_scope": "thread", "time_start": start, "time_end": end})
 		if !r.Success {
 			t.Fatalf("%s: %s", view, r.Summary)

@@ -755,7 +755,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"Confidence":                          {Status: "node_mirror", Ref: "Node.Confidence"},
 	"LineStart":                           {Status: "node_mirror", Ref: "Node.LineStart"},
 	"LineEnd":                             {Status: "node_mirror", Ref: "Node.LineEnd"},
-	"Source":                              {Status: "exempt", Ref: "W-14(收窄已折 IC-A)"},
+	"Source":                              {Status: "exempt", Ref: "W-14(收窄已折 IC-A); not displayed. The compile reads it (note source → the node's typed state ruler, HMC377 R-377-12 ⑤) so the ×N merge never sums a census account and a wakeup_chain seat inside it"},
 	"Causality":                           {Status: "node_mirror", Ref: "Node.Causality"},
 	"ChainRelevance":                      {Status: "node_mirror", Ref: "Node.ChainRelevance"},
 	"OnChainBasis":                        {Status: "node_mirror", Ref: "Node.OnChainBasis(SELF-SEM §29.61.1)"},

@@ -682,7 +682,12 @@ var traceNoteKeyGoldenRows = []string{
 	"significant|causal_rank|soft_consumer",
 	"sleep|state|hard_consumer",
 	"sleep_io_wait|state|hard_consumer",
-	"source|causal_rank|soft_consumer",
+	// EVOLUTION RECORD (HMC377 R-377-12 ⑤, 2026-11-22): soft_consumer →
+	// hard_consumer — the compile reads the rank row's mint source into its
+	// typed state ruler (raw: n20w census 169.059 + 0.934 and wakeup_chain
+	// 100.748 summed to 270.741 for a 200 ms window,
+	// hmc377/fix11/review-population/raw/evidence/twoRuler_n20w.txt).
+	"source|causal_rank|hard_consumer",
 	"span_category|span|hard_consumer",
 	"span_kind|span|hard_consumer",
 	"span_name|span|hard_consumer",

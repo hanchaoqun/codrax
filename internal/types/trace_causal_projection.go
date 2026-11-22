@@ -613,6 +613,11 @@ type TraceCausalProjectionNode struct {
 	// Compile-local eligibility, never restored from a rendered projection.
 	// A native sleep inventory is required before an event may close it.
 	sleepDrilldownNativeRecord bool
+	// stateRuler is a rank-board seat's typed ruler (HMC377 R-377-12 ⑤):
+	// the window_stats census account or a wakeup_chain seat inside it, read
+	// from the record's source note. Compile-local; the ×N merge never sums
+	// the two rulers of one account (traceCausalProjectionStateRulerSplit).
+	stateRuler traceRankStateRuler
 	// Source references are bound after ledger capture/clock qualification.
 	// They describe inputs, not causal authority or additive value identity.
 	MeasurementOrigins []TraceSchedulerMeasurementOrigin `json:"measurement_origins,omitempty"`
@@ -4300,6 +4305,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	if strings.HasPrefix(node.Predicate, "root_cause") {
 		node.Rank = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyRank)
 	}
+	node.stateRuler = traceRankStateRulerOf(node.Predicate, record.RichNotes)
 	// G2 显示半场 (§27.2/§28.1, 2026-07-09): the typed blind-spot criterion —
 	// wording input for the ◇ inline disclosure fork; absent = legacy wording.
 	node.TraceGapKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTraceGapKind))

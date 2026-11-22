@@ -1718,7 +1718,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// the carrier column under-reported.
 	{TraceNoteKeyBackgroundRank, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyType, "causal_rank", TraceNoteCarrierHardConsumer},
-	{TraceNoteKeySource, "causal_rank", TraceNoteCarrierSoftConsumer},
+	// EVOLUTION RECORD (HMC377 R-377-12 ⑤, 2026-11-22): soft→hard — the
+	// projection compile reads a rank row's mint source into its typed state
+	// ruler (node.stateRuler) so the ×N merge never sums a thread's census
+	// account and a wakeup_chain seat inside it (n20w 270.741 ms for a
+	// 200 ms window, hmc377/fix11/review-population/raw/evidence/twoRuler_*).
+	{TraceNoteKeySource, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCausality, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainRelevance, "causal_rank", TraceNoteCarrierHardConsumer},
 	// SELF-SEM (§29.61.1, 2026-07-13): the on-chain proof-basis marker — the

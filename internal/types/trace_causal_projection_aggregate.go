@@ -1960,6 +1960,12 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 // per-board rosters, so one board's own part of a merge can run through exactly
 // the same value calibers.
 func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
+	// HMC377 R-377-12 ⑤: a group holding both rulers of one thread's
+	// same-state account publishes the account ruler; the wakeup_chain seats
+	// inside that account join as evidence, never as an addend.
+	if account, subset := traceCausalProjectionStateRulerSplit(nodes, members); len(subset) > 0 {
+		return traceCausalProjectionMergeStateAccountRuler(nodes, account, subset, backgroundLane)
+	}
 	coverIndex, covered := traceCausalProjectionCompleteStateCover(nodes, members)
 	if covered {
 		// The complete census also owns the surviving summary and state
