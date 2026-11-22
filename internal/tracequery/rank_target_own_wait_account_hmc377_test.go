@@ -5,9 +5,11 @@ package tracequery
 // per cause.
 //
 // Real shape (105 元宝 应用后台销毁后冷启动 #2, TID 58533 bindApplication
-// [10834.099821, 10834.620005)): eight other threads hold larger D groups
-// than any (thread, cpu) D group of the analysed thread, so the thread is
-// absent from the top-8 DStateTop display list; the full pre-cap census holds
+// [10834.099821, 10834.620005)): the top-8 DStateTop display list is eight
+// (thread, cpu) D groups held by six other threads, each larger than the
+// analysed thread's largest D group (3.800 ms on CPU 7), so the thread is
+// absent from the list (round 11 R10T-3 count correction: the engine's own
+// list, fix11/dcause/logs/ybb2_engine_dgroups.out); the full pre-cap census holds
 // its 4.256 ms D account, split by proven wait object into nine partition
 // seats (vfs_path_open_ng 3.435 ms, …). The thread's own chain walked its
 // 1.666 ms vfs_path_open_ng D wait and published it as a RootEvidence row.
@@ -292,6 +294,57 @@ func TestHMC377R9P1TargetOwnWaitKeepsItsSeatWhenNoFamilySeatHoldsIt(t *testing.T
 				if !minted[typ] {
 					t.Fatalf("the walked %s wait is the thread's only account and must keep its seat:%s", typ, r9p1Board(rank))
 				}
+			}
+		})
+	}
+}
+
+// HMC377 round 11 (R10T-1): the ownership predicate answers for the whole
+// D/IO family, across both ledgers. The walked wait's type token and the
+// census ledger that holds the thread's time need not agree: the chain types
+// a walked D wait d_state_or_io_wait unless its own blocked_reason marker
+// says iowait (and io_wait whenever the impact carries io-wait ms), while the
+// census files every fragment by its own marker. A walked wait whose thread's
+// D/IO time sits only in the OTHER ledger is still a subset of the thread's
+// partition seats (one seat per (thread, proven cause) joins D and iowait
+// fragments) and must not mint a second seat. Mutant QM2 (per-ledger arms:
+// d_state_or_io_wait reads only the D ledger, io_wait only the iowait ledger;
+// fix10/review-pins/mutant/QM2__query.go) passed every pin before this one.
+func TestHMC377R9P1TargetOwnWaitCrossLedgerFamilyHoldsIt(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: r9p1Target}
+	held := map[string]ThreadDuration{"pid:100/cpu:1": {Thread: target, CPU: 1, DurationMs: 6, StartTs: 10.010, EndTs: 10.101}}
+	for _, tc := range []struct {
+		name, rootType string
+		stats          WindowStats
+	}{
+		{"walked_d_state_wait_iowait_ledger_only", "d_state_or_io_wait", WindowStats{
+			dstateCensus: map[string]ThreadDuration{}, iowaitCensus: held, IOWaitTop: []ThreadDuration{held["pid:100/cpu:1"]}}},
+		{"walked_io_wait_d_ledger_only", "io_wait", WindowStats{
+			dstateCensus: held, iowaitCensus: map[string]ThreadDuration{}, DStateTop: []ThreadDuration{held["pid:100/cpu:1"]}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chain := ChainResult{
+				Target: target,
+				Nodes:  []ChainNode{{ID: "n1", Thread: target, Window: TimeWindow{StartTs: 10.0, EndTs: 10.3}}},
+				RootEvidence: []RootEvidence{{Type: tc.rootType, Thread: target, DurationMs: 3, LineStart: 6, LineEnd: 7,
+					StartTs: 10.050, EndTs: 10.053, Summary: "thread slept in D state", Confidence: 0.88, DominantState: string(StateDSleep)}},
+			}
+			if !rootEvidenceStateOwnedByWindowStats(chain.RootEvidence[0], tc.stats) {
+				t.Fatalf("the %s wait of a thread whose D/IO time sits in the other ledger is owned by the family", tc.rootType)
+			}
+			rank := buildRootCauseRankFrom(nil, Query{PID: r9p1Target, TimeStart: 10.0, TimeEnd: 10.3, Limit: 12}, chain, tc.stats)
+			family := 0
+			for _, item := range append(append([]RootCauseRankItem(nil), rank.Items...), rank.AbsorbedItems...) {
+				if item.Thread.PID != r9p1Target || !r9p1IsDIO(item) {
+					continue
+				}
+				if strings.HasPrefix(item.Source, "wakeup_chain") {
+					t.Fatalf("the walked %s wait minted a second D/IO seat beside the family seat that holds the thread's D/IO time:%s", tc.rootType, r9p1Board(rank))
+				}
+				family++
+			}
+			if family == 0 {
+				t.Fatalf("the family seat keeps the thread's D/IO account:%s", r9p1Board(rank))
 			}
 		})
 	}

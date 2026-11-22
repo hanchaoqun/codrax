@@ -13,9 +13,12 @@ import (
 // 10834.620005) (HMC377 round 10, R9P-1). The thread's D account is 4.256 ms
 // in nine proven-cause partition seats (vfs_path_open_ng 3.435 ms, …) and its
 // iowait 0.375 ms; raw D+IO 4.631 ms (target_window_states; independent raw
-// parse fix9/review-holders/out/rawall_ybb2.json 4.248 + 0.383). Eight other
-// threads hold larger D groups, so the thread is absent from the top-8 D
-// display list. Its own chain walked its 1.666 ms vfs_path_open_ng D wait;
+// parse fix9/review-holders/out/rawall_ybb2.json 4.248 + 0.383). The top-8 D
+// display list is eight (thread, cpu) groups held by six other threads, each
+// larger than the thread's largest D group (3.800 ms on CPU 7), so the thread
+// is absent from it (round 11 R10T-3 count correction:
+// fix11/dcause/logs/ybb2_engine_dgroups.out). Its own chain walked its
+// 1.666 ms vfs_path_open_ng D wait;
 // before round 10 that RootEvidence row minted a second D seat (rank 10,
 // source wakeup_chain) for instants the 3.435 ms partition seat holds, and
 // the delivered ◎ and tree showed 5.922 ms
