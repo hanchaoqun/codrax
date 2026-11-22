@@ -189,3 +189,80 @@ func TestHMC377R10P4CauseWordsAndAdoption(t *testing.T) {
 		}
 	})
 }
+
+// HMC377 round 12 (R11T-7, R-377-12 ⑧): on a Σ-caliber merge the unproven ms
+// of the merged row is the Σ of every member's unproven ms, exactly as each
+// named cause is the Σ of its members. Only a union / MAX / mirror merge
+// keeps the largest member instead. Mutant MF (report the MAX on a Σ-caliber
+// merge, hmc377/fix11/review-population/mutant/MF_unproven_max_on_sum.diff)
+// survived every suite: no pin had two unproven contributions of different
+// size on a Σ-caliber merge. The shape is reachable whenever one thread's
+// D/IO partition seats come from two disjoint query windows (each window's
+// engine mints its own honest-remainder seat; disjoint windows measured
+// disjoint wall clock and the merge keeps the Σ).
+func TestHMC377R12UnprovenMsSumsOnASumCaliberMerge(t *testing.T) {
+	windowed := func(node TraceCausalProjectionNode, start, end, occStart, occEnd float64) TraceCausalProjectionNode {
+		node.QueryWindowStartTs, node.QueryWindowEndTs = start, end
+		node.StartTs, node.EndTs = occStart, occEnd
+		return node
+	}
+	remainder := func(id string, ms float64) TraceCausalProjectionNode {
+		node := r10p4Seat(id, "", ms)
+		node.DStateCauseUnprovenRemainder = true
+		return node
+	}
+	t.Run("disjoint_windows_merge", func(t *testing.T) {
+		nodes := []TraceCausalProjectionNode{
+			windowed(r10p4Seat("a", "alpha_wait", 3), 1.0, 1.1, 1.01, 1.04),
+			windowed(remainder("ra", 0.8), 1.0, 1.1, 1.05, 1.06),
+			windowed(remainder("rb", 1.2), 2.0, 2.1, 2.01, 2.03),
+		}
+		out := traceCausalProjectionAggregateSameKind(nodes)
+		if len(out) != 1 || out[0].MergedCount != 3 {
+			t.Fatalf("one thread's three D partition seats form one ×3 row, got %d rows (%+v)", len(out), out)
+		}
+		merged := out[0]
+		if merged.MergedIntervalUnion || merged.MergedCrossWindowMax || merged.MergedSameSegmentMirror {
+			t.Fatalf("disjoint windows keep the Σ caliber: union=%t max=%t mirror=%t",
+				merged.MergedIntervalUnion, merged.MergedCrossWindowMax, merged.MergedSameSegmentMirror)
+		}
+		if math.Abs(merged.ImpactMS-5) > 1e-9 {
+			t.Fatalf("the merged row's value is the Σ 5.000, got %.3f", merged.ImpactMS)
+		}
+		r10p4AssertShares(t, merged.BlockedReasonCallerShares, []TraceBlockedReasonCallerShare{{"alpha_wait", 3}})
+		if math.Abs(merged.BlockedReasonUnprovenMS-2) > 1e-9 {
+			t.Fatalf("unproven ms on a Σ merge = 0.800 + 1.200 = 2.000 (named 3.000 + unproven 2.000 = the row's 5.000), got %.3f",
+				merged.BlockedReasonUnprovenMS)
+		}
+		if got, want := TraceBlockedReasonUnprovenText(merged.BlockedReasonUnprovenMS, true), "原因未证 2.000ms"; got != want {
+			t.Fatalf("zh unproven words %q, want %q", got, want)
+		}
+	})
+	t.Run("pre_merged_member_unproven_part", func(t *testing.T) {
+		// A member that is itself a merged cause row brings its own
+		// unproven part; a Σ merge adds it to the remainder member's.
+		inner := []TraceCausalProjectionNode{r10p4Seat("a", "alpha_wait", 3), r10p4Seat("b", "beta_wait", 2), remainder("ri", 0.6)}
+		pre := traceCausalProjectionMergeSameKindMembers(inner, 0, r10p4Members(len(inner)))
+		nodes := []TraceCausalProjectionNode{pre, remainder("ro", 0.9), r10p4Seat("c", "alpha_wait", 1)}
+		merged := traceCausalProjectionMergeSameKindMembers(nodes, 0, r10p4Members(len(nodes)))
+		if math.Abs(merged.BlockedReasonUnprovenMS-1.5) > 1e-9 {
+			t.Fatalf("unproven ms = 0.600 (pre-merged member) + 0.900 (remainder member) = 1.500, got %.3f", merged.BlockedReasonUnprovenMS)
+		}
+	})
+	t.Run("display_fold", func(t *testing.T) {
+		// The display micro-fold is always Σ caliber (TraceCausalProjectionFoldBlockedReasonCauses).
+		shares, unproven := TraceCausalProjectionFoldBlockedReasonCauses([]TraceCausalProjectionNode{
+			r10p4Seat("a", "alpha_wait", 3), remainder("r1", 0.4), remainder("r2", 1.1)})
+		r10p4AssertShares(t, shares, []TraceBlockedReasonCallerShare{{"alpha_wait", 3}})
+		if math.Abs(unproven-1.5) > 1e-9 {
+			t.Fatalf("the fold's unproven ms = 0.400 + 1.100 = 1.500, got %.3f", unproven)
+		}
+	})
+	t.Run("overlapping_caliber_keeps_the_largest", func(t *testing.T) {
+		nodes := []TraceCausalProjectionNode{r10p4Seat("a", "alpha_wait", 3), remainder("r1", 0.4), remainder("r2", 1.1)}
+		_, unproven := traceCausalProjectionMergedBlockedReasonCauses(nodes, r10p4Members(len(nodes)), traceCausalProjectionDisplayValue, false)
+		if math.Abs(unproven-1.1) > 1e-9 {
+			t.Fatalf("a union / MAX / mirror merge keeps the largest unproven member 1.100, got %.3f", unproven)
+		}
+	})
+}
