@@ -539,3 +539,48 @@ func TestHMC377R13RestCarrierFoldedRestriction(t *testing.T) {
 		}
 	})
 }
+
+// R-377-12 ③ (review-12 R12N-5 survivor U06): a CPU-restriction row lists
+// the parts rows on the published board count — its RESOLVED carved claims
+// only. A claim the engine cap left unresolved is counted on this row (the
+// engine's ShareCountedHereMS), so it is never said to be counted elsewhere:
+// the parts sum to the engine's counted-elsewhere number. The U06 mutant
+// listed the unresolved 2.000ms part as well — 「其中7.413ms另行计入[E1]、
+// 2.000ms另行计入本线程链上席(见明细),本行计31.555ms」, 40.968 against the
+// 38.968 account (~/hmc-work/hmc377/fix12/review-pins/toolprobe/{GREEN,U06}.out;
+// engine shape: three-way split with one holder cut, account 38.968,
+// elsewhere 7.413, here 31.555).
+func TestHMC377R13RestrictedPartsAreTheResolvedClaims(t *testing.T) {
+	projection := hmc377R11SubsetShareProjection()
+	for i := range projection.AdjacentCauses {
+		n := &projection.AdjacentCauses[i]
+		if n.EvidenceID != "r11-cpu" {
+			continue
+		}
+		n.RestrictedReadyAccountMS, n.ShareCountedElsewhereMS, n.ShareCountedHereMS = 38.968, 7.413, 31.555
+		n.ShareClaims = append(n.ShareClaims, types.TraceCausalProjectionShareClaim{Part: string(tracequery.RootCauseShareClaimUnwalked),
+			Role: string(tracequery.RootCauseShareHolderUnwalkedSeat), ShareMS: 2.0})
+	}
+	for _, zh := range []bool{true, false} {
+		model, fence := hmc377R12Fence(t, projection, zh)
+		chain := xlane2FindRowByEvidenceID(&model, "r11-chain")
+		cpu := xlane2FindRowByEvidenceID(&model, "r11-cpu")
+		if chain == nil || cpu == nil || chain.EvidenceTag == "" {
+			t.Fatalf("zh=%t: the chain and restriction rows must be drawn", zh)
+		}
+		parts := 0.0
+		for _, p := range cpu.RestrictedParts {
+			parts += p.MS
+		}
+		if len(cpu.RestrictedParts) != 1 || !runtimeTraceProjRound3Equal(parts, 7.413) {
+			t.Fatalf("zh=%t: the parts are the resolved claims only (7.413 = counted elsewhere), got %+v", zh, cpu.RestrictedParts)
+		}
+		want := "CPU亲和/cpuset限制下合计38.968ms:其中7.413ms另行计入[" + chain.EvidenceTag + "],本行计31.555ms(无链上凭证)"
+		if !zh {
+			want = "38.968ms under the CPU affinity/cpuset restriction in all: of which 7.413ms is counted separately on [" + chain.EvidenceTag + "]; this row 31.555ms (no chain credential)"
+		}
+		if joined := hmc377R12Joined(fence); !strings.Contains(joined, want) {
+			t.Fatalf("zh=%t: %q missing:\n%s", zh, want, fence)
+		}
+	}
+}
