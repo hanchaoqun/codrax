@@ -900,7 +900,7 @@ func rspaRemainderSummaryThreeWay(thread ThreadRef, family string, remainder, wa
 	var s rspaSentence
 	owner := rspaSummaryNoAnchoredShare
 	if walked > 0 {
-		owner = s.spanContext(rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, rspaSummaryOwnedByChainSeatContext, claims.anchored)
+		owner = s.ownerSpan(claims.anchored)
 	}
 	held, compact := scope.ownSeatPhrases()
 	claim := s.span(held, compact, claims.unwalked)
@@ -935,7 +935,7 @@ func rspaRemainderSummaryWalkedOnly(thread ThreadRef, family string, remainder, 
 	var s rspaSentence
 	owner := rspaSummaryNoAnchoredShare
 	if anchored > 0 {
-		owner = s.spanContext(rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, rspaSummaryOwnedByChainSeatContext, claims.anchored)
+		owner = s.ownerSpan(claims.anchored)
 	}
 	s.text = fmt.Sprintf("%s %s remainder %.3fms outside the dependency windows the chain walked for this thread (no chain credential on this row for these segments); %s; full-window account %.3fms = %.3fms anchored inside the walked dependency windows %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
 		threadLabel(thread), family, remainder, rspaUnpricedDetail(inside, clause), full, anchored, owner)
@@ -975,12 +975,13 @@ func rspaRepresentedDemotionSummaryThreeWay(walked, unwalked, full float64, clau
 // ended and its own seat holds it.
 func rspaInversionRepresentedSummaryUnwalked(walked, inside, outside, full float64, clause string, scope rspaRowScope, claims rspaRowClaims) rspaSentence {
 	var s rspaSentence
-	published := s.spanContext(rspaInversionChainSeatPublishes, rspaInversionChainSeatCompacted, rspaInversionChainSeatContext, claims.anchored)
+	head, published, at := s.inversionDetailHead(claims.anchored)
 	held, compact := scope.ownSeatPhrases()
 	claim := s.span(held, compact, claims.unwalked)
 	remainder := s.span(rspaInversionRemainderPublished, rspaInversionRemainderCompacted, claims.remainder)
-	s.text = fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, %.3fms lies inside %s %s, and %.3fms lies outside every dependency window of this thread (%s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
-		walked, full, published, inside, clause, claim, outside, remainder)
+	tail := s.inversionDetailTail(at)
+	s.text = fmt.Sprintf("%s%.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, %.3fms lies inside %s %s, and %.3fms lies outside every dependency window of this thread (%s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) %s",
+		head, walked, full, published, inside, clause, claim, outside, remainder, tail)
 	return s
 }
 
@@ -1306,10 +1307,11 @@ func rspaUnpricedDetail(inside float64, clause string) string {
 // when the ready account keeps time inside the unwalked waits.
 func rspaInversionRepresentedSummaryWalkedOnly(walked, full, inside float64, clause string, claims rspaRowClaims) rspaSentence {
 	var s rspaSentence
-	published := s.spanContext(rspaInversionChainSeatPublishes, rspaInversionChainSeatCompacted, rspaInversionChainSeatContext, claims.anchored)
+	head, published, at := s.inversionDetailHead(claims.anchored)
 	remainder := s.span(rspaInversionRemainderPublished, rspaInversionRemainderCompacted, claims.remainder)
-	s.text = fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, and %.3fms lies outside them (%s; %s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
-		walked, full, published, full-walked, remainder, rspaUnpricedDetail(inside, clause))
+	tail := s.inversionDetailTail(at)
+	s.text = fmt.Sprintf("%s%.3fms of this %.3fms ready-time account lies inside the dependency windows the chain walked for this thread, %s, and %.3fms lies outside them (%s; %s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) %s",
+		head, walked, full, published, full-walked, remainder, rspaUnpricedDetail(inside, clause), tail)
 	return s
 }
 

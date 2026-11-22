@@ -142,7 +142,10 @@ func TestHMC377R10WithdrawnHolderLeavesTheRemainingHolderResolved(t *testing.T) 
 func TestHMC377R10PartlyResolvedRepresentedSentencePublishesTheRestOnly(t *testing.T) {
 	const partialWithdrawn = "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows: 1.000ms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other 1.903ms is published only as context, tier context_only — this diagnostic projection rides the adjacent lane and its published values count only those 1.903ms"
 	const partialCut = "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows: 1.000ms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other 1.903ms is not on the published board (see the compaction disclosure) — this diagnostic projection rides the adjacent lane and its published values count only those 1.903ms"
-	check := func(name string, sat RootCauseRankItem, want string) {
+	// HMC377 round 11 (register R10T-4): check reports on the subtest's own t
+	// (the round-10 closure captured the parent t, so a failing subtest was
+	// reported as passing — review-pins/mutant/tq_RM5.log).
+	check := func(t *testing.T, name string, sat RootCauseRankItem, want string) {
 		t.Helper()
 		if sat.ChainAnchorRepresentedByChainSeat {
 			t.Errorf("%s: a partly resolved sentence does not represent the row whole", name)
@@ -170,7 +173,7 @@ func TestHMC377R10PartlyResolvedRepresentedSentencePublishesTheRestOnly(t *testi
 		}
 		published := hmc377R10Copy(board)
 		hmc377R10Withdraw(published, nil, []bool{false, true, false, false}, nil)
-		check("withdrawn", published[3], partialWithdrawn)
+		check(t, "withdrawn", published[3], partialWithdrawn)
 		if board[3].EffectiveImpactMs != 2.903 || !board[3].ChainAnchorRepresentedByChainSeat {
 			t.Errorf("publication mutated the engine row")
 		}
@@ -182,7 +185,7 @@ func TestHMC377R10PartlyResolvedRepresentedSentencePublishesTheRestOnly(t *testi
 	})
 	t.Run("engine cap cut", func(t *testing.T) {
 		board := hmc377R10U2Board(true)
-		check("cut", board[2], partialCut)
+		check(t, "cut", board[2], partialCut)
 	})
 	t.Run("nothing resolves: own value and the unchanged compaction form", func(t *testing.T) {
 		board := hmc377R10U2Board(true)
@@ -236,24 +239,43 @@ func TestHMC377R10WithdrawnSeatHoldsNothingAndClaimsNothing(t *testing.T) {
 		t.Errorf("F5: the withdrawn seat still claims or prints its split: claims=%+v anchored=%.3f full=%.3f key=%q",
 			pInv.ShareClaims, pInv.ChainAnchoredMs, pInv.ChainAnchorFullMs, pInv.ShareHolderKey)
 	}
-	if pRem.ShareHolderKey != "" {
-		t.Errorf("F5: the withdrawn seat's twin keeps a held partner key %q", pRem.ShareHolderKey)
+	// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+	// 2026-11-21): old → new. Old (round 10): both claimants of the withdrawn
+	// seat's walked 1.903 ms kept their own value unresolved — the satellite
+	// 1.903 on ◎, the ◇ remainder 5.000 — and the remainder held no key.
+	// New: the withdrawn segments pass to ONE published successor in typed
+	// order, and the ◇ row's anchored claim precedes the claimant itself: the
+	// remainder carries its whole 6.903 (its span says it counts the share),
+	// the satellite's claim resolves to the remainder (represented whole by a
+	// row that is not a chain seat — the successor form) and the remainder's
+	// key now names it as that claim's holder, not as the withdrawn seat's
+	// twin. Σ = raw 6.903 with one carrier either way; the order is the
+	// ruling's (review 10 R10H-3, ~/hmc-work/hmc377/fix10/review-holders/univ/
+	// faces/head_UR4rem_w.zh.f shows the round-10 Σ5.000 of raw 6.903 for the
+	// remainder-only shape).
+	if pRem.ShareHolderKey != "seat-4" || pInv.ShareHolderKey != "" {
+		t.Errorf("F5: keys: remainder %q (want seat-4, the satellite claim's successor holder), withdrawn %q", pRem.ShareHolderKey, pInv.ShareHolderKey)
 	}
-	for name, row := range map[string]RootCauseRankItem{"satellite": pSat, "remainder": pRem} {
-		if c := row.ShareClaims[0]; c.Resolved || len(c.HolderKeys) != 0 {
-			t.Errorf("U5 %s: a claim on the withdrawn holder resolves: %+v", name, c)
-		}
+	if c := pRem.ShareClaims[0]; c.Resolved || len(c.HolderKeys) != 0 || !near(c.ReturnedMs, 1.903, 0.0005) {
+		t.Errorf("U5 remainder: the withdrawn seat's segments pass back to it: %+v", c)
 	}
-	if pSat.ChainAnchorRepresentedByChainSeat || pSat.EffectiveImpactMs != 1.903 {
-		t.Errorf("U5: the satellite keeps its own value: marker=%t eff=%.3f", pSat.ChainAnchorRepresentedByChainSeat, pSat.EffectiveImpactMs)
+	if !near(pRem.RunnableMs, 6.903, 0.0005) || !near(pRem.EffectiveImpactMs, 6.903, 0.0005) || !near(pRem.ShareReturnedMs, 1.903, 0.0005) {
+		t.Errorf("U5: the remainder carries its whole account: run=%.3f eff=%.3f returned=%.3f", pRem.RunnableMs, pRem.EffectiveImpactMs, pRem.ShareReturnedMs)
+	}
+	if c := pSat.ShareClaims[0]; !c.Resolved || !c.Successor || !reflect.DeepEqual(c.HolderKeys, []string{"seat-4"}) {
+		t.Errorf("U5 satellite: the claim resolves to the successor: %+v", c)
+	}
+	if !pSat.ChainAnchorRepresentedByChainSeat || pSat.EffectiveImpactMs != 1.903 {
+		t.Errorf("U5: the satellite is represented whole by the remainder: marker=%t eff=%.3f", pSat.ChainAnchorRepresentedByChainSeat, pSat.EffectiveImpactMs)
 	}
 	// F4 (R-377-10 ④): the holding row is published only as context — not
-	// absent, not owned by the chain seat.
-	if !strings.Contains(pRem.Summary, "anchored inside typed dependency windows (the owning row is published only as context, tier context_only) + this remainder") ||
+	// absent, not owned by the chain seat; round 11 names who counts it.
+	if !strings.Contains(pRem.Summary, "anchored inside typed dependency windows (the owning row is published only as context, tier context_only, so this row counts that share with its own value) + this remainder") ||
 		strings.Contains(pRem.Summary, "not on the published board") || strings.Contains(pRem.Summary, "(owned by the chain seat)") {
 		t.Errorf("F4: remainder summary %q", pRem.Summary)
 	}
-	if !strings.Contains(pSat.Summary, "lies inside the thread's dependency windows, but the row holding that time is published only as context, tier context_only — this diagnostic projection keeps its own value on the adjacent lane") {
+	if !strings.Contains(pSat.Summary, "; anchored share counted by another row of this thread: this satellite's whole account (1.903ms of 1.903ms) lies inside the thread's dependency windows; the row that held that time is published only as context, tier context_only, and another row of this thread on the published board counts it") ||
+		strings.Contains(pSat.Summary, "represented by the chain seat") {
 		t.Errorf("F4: satellite summary %q", pSat.Summary)
 	}
 	if c := pOtherRem.ShareClaims[0]; !c.Resolved || !reflect.DeepEqual(c.HolderKeys, []string{"seat-1"}) || published[0].ShareHolderKey != "seat-1" {
@@ -267,44 +289,72 @@ func TestHMC377R10WithdrawnSeatHoldsNothingAndClaimsNothing(t *testing.T) {
 	}
 }
 
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+// 2026-11-21): old → new. Old (round 10): the pair was hand-built (summary
+// strings, GatedShare* fields, no claim) and the withdrawal was decided by
+// line span (levelMergeWithdrawClaimSeats). New: the LEVELMERGE-1 relation is
+// a typed claim of the one resolver, so the pair is built by the engine split
+// itself; the constituent takes back the carved share as the withdrawn seat's
+// first successor and the residual's claim resolves to it — the residual's
+// sentence now names "another row of this thread on the published board"
+// (round 10: "this thread's split constituent row", which the one resolver
+// cannot prove for every successor, e.g. a ◇ remainder when the constituent is
+// cut). The constituent bytes are unchanged.
 func TestHMC377R10GatedShareSplitWithdrawnClaimSeat(t *testing.T) {
-	mk := func(spans []string) []RootCauseRankItem {
+	mk := func(second bool) []RootCauseRankItem {
 		inv := hmc377R10Inversion()
-		inv2 := hmc377R10Inversion()
-		inv2.Rank, inv2.LineStart, inv2.LineEnd = 3, 70, 80
-		b := RootCauseRankItem{Rank: 4, Tier: "secondary", Type: "runnable_wait", Source: "wakeup_chain.aggregated_impacts", Thread: hmc377R10Dep,
-			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", DominantState: string(StateRunnable),
-			RunnableMs: 1.097, EffectiveImpactMs: 1.097, GatedShareClaimedMs: 1.903, GatedShareFullMs: 3.0, GatedShareClaimSeats: spans, LineStart: 50, LineEnd: 60}
-		b.Summary = levelMergeResidualSentenceForTest(b)
-		a := b
-		a.Rank, a.RunnableMs, a.EffectiveImpactMs = 0, 1.903, 1.903
-		a.ChainRelevance, a.Causality, a.GatedShareConstituentSeat = "adjacent", "adjacent_to_wakeup_chain", true
-		a.Summary = "binder:458_5-6326 runnable share 1.903ms of the 3.000ms aggregate account already attributed through the same thread's priority-inversion seat gated composite (branch-window overlap measure) (the claiming inversion seat is published on this board) — constituent share only: it rides the adjacent lane and never competes, the inversion seat carries the value"
-		return []RootCauseRankItem{hmc377R10OtherSeat(), inv, inv2, b, a}
+		agg := RootCauseRankItem{Rank: 4, Tier: "secondary", Type: "runnable_wait", Source: "wakeup_chain.aggregated_impacts", Thread: hmc377R10Dep,
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", DominantState: string(StateRunnable), ChainDepth: 2, Confidence: 0.8,
+			RunnableMs: 3.0, ImpactMs: 3.0, ProjectedImpactMs: 3.0, CumulativeImpactMs: 3.0, EffectiveImpactMs: 3.0, LineStart: 50, LineEnd: 60,
+			StartTs: 10.2, EndTs: 10.401097,
+			OccurrenceWindows: []WakeupCausalOccurrence{{Window: TimeWindow{StartTs: 10.2, EndTs: 10.201903}}, {Window: TimeWindow{StartTs: 10.4, EndTs: 10.401097}}}}
+		inv.StartTs, inv.EndTs = 10.2, 10.201903
+		items := []RootCauseRankItem{hmc377R10OtherSeat(), inv}
+		if second {
+			inv2 := inv
+			inv2.Rank, inv2.LineStart, inv2.LineEnd = 3, 70, 80
+			items = append(items, inv2)
+		}
+		items = splitAggregateGatedRunnableShare(ChainResult{Target: ThreadRef{PID: 100}}, append(items, agg))
+		resolveRankShareClaims(items, nil)
+		return items
 	}
-	board := mk([]string{"10..20"})
+	board := mk(false)
+	pb, pa := board[2], board[3]
+	if !pa.GatedShareConstituentSeat || pb.GatedShareFullMs != 3.0 || !pa.ShareClaims[0].Resolved || !pb.ShareClaims[0].Resolved {
+		t.Fatalf("precondition: the engine split resolves both claims to the inversion seat: %+v / %+v", pb.ShareClaims, pa.ShareClaims)
+	}
+	if pb.Summary != levelMergeResidualSentenceForTest(pb) {
+		t.Errorf("the residual's mint sentence changed: %q", pb.Summary)
+	}
 	published := hmc377R10Copy(board)
-	hmc377R10Withdraw(published, nil, []bool{false, true, false, false, false}, nil)
-	pb, pa := published[3], published[4]
+	hmc377R10Withdraw(published, nil, []bool{false, true, false, false}, nil)
+	pb, pa = published[2], published[3]
 	if !hmc377R10ClaimWithdrawn(pb) || !hmc377R10ClaimWithdrawn(pa) {
 		t.Errorf("the split whose claim seat is withdrawn must carry the typed decision on both rows")
 	}
 	if pa.Summary != "binder:458_5-6326 runnable share 1.903ms of the 3.000ms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure) (the claiming inversion seat is published only as context, tier context_only) — constituent share: it rides the adjacent lane and counts this share with its own value" {
 		t.Errorf("constituent summary %q", pa.Summary)
 	}
-	if pb.Summary != "binder:458_5-6326 runnable aggregate residual 1.097ms after the interval-accounting split: 1.903ms of the 3.000ms scheduling-demand account lies inside the same thread's priority-inversion seat branch window(s) and is counted by this thread's split constituent row (the claiming inversion seat is published only as context, tier context_only) — claimed + residual = full account (one segment set, two disjoint shares, additive back)" {
+	if pb.Summary != "binder:458_5-6326 runnable aggregate residual 1.097ms after the interval-accounting split: 1.903ms of the 3.000ms scheduling-demand account lies inside the same thread's priority-inversion seat branch window(s) and is counted by another row of this thread on the published board (the claiming inversion seat is published only as context, tier context_only) — claimed + residual = full account (one segment set, two disjoint shares, additive back)" {
 		t.Errorf("residual summary %q", pb.Summary)
 	}
-	if hmc377R10ClaimWithdrawn(board[3]) || board[3].Summary != levelMergeResidualSentenceForTest(board[3]) {
+	if c := pb.ShareClaims[0]; !c.Resolved || !c.Successor || len(c.HolderKeys) != 1 || c.HolderKeys[0] != pa.ShareHolderKey {
+		t.Errorf("the residual's claim resolves to the constituent (successor): %+v key=%q", c, pa.ShareHolderKey)
+	}
+	if !near(pa.EffectiveImpactMs, 1.903, 0.0005) || !near(pb.EffectiveImpactMs, 1.097, 0.0005) {
+		t.Errorf("values: constituent %.3f residual %.3f (Σ = raw 3.000)", pa.EffectiveImpactMs, pb.EffectiveImpactMs)
+	}
+	if hmc377R10ClaimWithdrawn(board[2]) || board[2].Summary != levelMergeResidualSentenceForTest(board[2]) {
 		t.Errorf("publication mutated the engine rows")
 	}
-	// One of two claim seats withdrawn: the other still counts part of the
+	// One of two claim seats withdrawn: the other still holds the carved
 	// share — the split keeps its form (no typed decision).
-	partial := mk([]string{"10..20", "70..80"})
+	partial := mk(true)
 	pp := hmc377R10Copy(partial)
 	hmc377R10Withdraw(pp, nil, []bool{false, true, false, false, false}, nil)
-	if hmc377R10ClaimWithdrawn(pp[3]) || hmc377R10ClaimWithdrawn(pp[4]) || pp[4].Summary != partial[4].Summary {
-		t.Errorf("a split with a published claim seat keeps its form")
+	if hmc377R10ClaimWithdrawn(pp[3]) || hmc377R10ClaimWithdrawn(pp[4]) || pp[4].Summary != partial[4].Summary || pp[3].Summary != partial[3].Summary {
+		t.Errorf("a split with a published claim seat keeps its form:\n%q\n%q", pp[3].Summary, pp[4].Summary)
 	}
 }
 

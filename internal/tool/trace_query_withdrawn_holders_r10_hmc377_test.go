@@ -32,28 +32,59 @@ import (
 // constituent row A, lines 50..60) + 1.097 ms residual seat B. withdraw=true:
 // the inversion seat's proven lower (1.2) is below its effective impact
 // (2.409), so the gate publishes it as context only.
+//
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+// 2026-11-21): old → new. Old: the pair was hand-built without claims and the
+// withdrawal was decided by the claim-seat line span
+// (levelMergeWithdrawClaimSeats, removed). New: the LEVELMERGE-1 relation is a
+// typed claim of the one resolver, which a tool-package hand row cannot carry
+// (no engine instants — register R10H-9), so the universe is the published
+// state the resolver leaves (engine pin: TestHMC377R10GatedShareSplitWithdrawnClaimSeat
+// and TestHMC377R11LevelMergeIsAClaimOfTheOneResolver): withdraw=false — both
+// claims resolved to the published inversion seat (seat-2); withdraw=true — the
+// inversion seat published as context only, the constituent (seat-4) its
+// successor that took the share back, the residual's claim resolved to it.
+// The hand oracle and every pinned word face are unchanged.
 func hmc377R10U4Universe(withdraw bool) tracequery.Result {
-	provenLower := 3.0
-	if withdraw {
-		provenLower = 1.2
-	}
 	inv := tracequery.RootCauseRankItem{Rank: 2, Tier: "secondary", Type: "priority_inversion_candidate", Source: "wakeup_chain.causal_impacts", Thread: hmc377R9Dep,
 		ImpactMs: 2.409, CumulativeImpactMs: 2.409, EffectiveImpactMs: 2.409, RunnableMs: 1.903, RunningMs: 0.506, DominantState: "runnable",
 		GatedRunnableMs: 1.903, GatedRunningDeficitMs: 0.506,
-		PriorityRelationCaliber: "closed_range_stable", PriorityRelationProvenLowerMs: provenLower,
+		PriorityRelationCaliber: "closed_range_stable", PriorityRelationProvenLowerMs: 3.0,
 		PriorityRelationArtifactSources: []string{"artifact:0"},
-		ChainRelevance:                  "on_chain", Causality: "on_wakeup_chain", Confidence: 0.8, StartTs: 10.2, EndTs: 10.2019, LineStart: 10, LineEnd: 20}
+		ChainRelevance:                  "on_chain", Causality: "on_wakeup_chain", Confidence: 0.8, StartTs: 10.2, EndTs: 10.2019, LineStart: 10, LineEnd: 20,
+		ShareHolderKey: "seat-2"}
+	gated := func(resolved bool, holders ...string) []tracequery.RootCauseShareClaim {
+		return []tracequery.RootCauseShareClaim{{Part: hmc377R11GatedPart(), Role: hmc377R11GatedRole(),
+			ShareMs: 1.903, Resolved: resolved, Exact: resolved, HolderKeys: holders}}
+	}
 	b := tracequery.RootCauseRankItem{Rank: 3, Tier: "secondary", Type: "runnable_wait", Source: "wakeup_chain.aggregated_impacts", Thread: hmc377R9Dep,
 		ImpactMs: 1.097, CumulativeImpactMs: 1.097, EffectiveImpactMs: 1.097, RunnableMs: 1.097, DominantState: "runnable", ChainDepth: 2,
 		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Confidence: 0.8, StartTs: 10.2, EndTs: 10.4, LineStart: 50, LineEnd: 60,
 		GatedShareClaimedMs: 1.903, GatedShareFullMs: 3.0, GatedShareClaimSeats: []string{"10..20"},
-		Summary: "binder:458_5-6326 runnable aggregate residual 1.097ms after the interval-accounting split"}
+		ShareClaims: gated(true, "seat-2"),
+		Summary:     "binder:458_5-6326 runnable aggregate residual 1.097ms after the interval-accounting split"}
 	a := b
 	a.Rank, a.Tier = 0, "adjacent"
 	a.ImpactMs, a.CumulativeImpactMs, a.EffectiveImpactMs, a.RunnableMs, a.ProjectedImpactMs = 1.903, 1.903, 1.903, 1.903, 1.903
 	a.ChainRelevance, a.Causality = "adjacent", "adjacent_to_wakeup_chain"
 	a.GatedShareConstituentSeat = true
 	a.Summary = "binder:458_5-6326 runnable share 1.903ms of the 3.000ms aggregate account (constituent share)"
+	if withdraw {
+		// The published copy: the gate's context row; the constituent took
+		// the carved share back and the residual's claim resolves to it.
+		inv.Rank, inv.Tier, inv.Type, inv.EffectiveImpactMs, inv.GatedRunnableMs, inv.GatedRunningDeficitMs = 0, tracequery.RootCauseTierContextOnly, "unknown_state", 0, 0, 0
+		inv.ShareHolderKey = ""
+		inv.Summary = "scheduler state retained as context: priority relation caliber \"closed_range_stable\" does not authorize a finite positive inversion root"
+		b.GatedShareClaimWithdrawn, a.GatedShareClaimWithdrawn = true, true
+		b.ShareClaims = gated(true, "seat-4")
+		hmc377R11SetClaim(&b.ShareClaims[0], 1.903, 0, true)
+		a.ShareClaims = gated(false)
+		hmc377R11SetClaim(&a.ShareClaims[0], 0, 1.903, false)
+		a.ShareHolderKey = "seat-4"
+		hmc377R11SetReturned(&a, 1.903)
+	} else {
+		a.ShareClaims = gated(true, "seat-2")
+	}
 	return tracequery.Result{
 		TraceArtifacts: []tracequery.TraceArtifactSource{{SourcePath: "capture.ftrace", Kind: "ftrace", CausalCompatible: true}},
 		WakeupChain: &tracequery.ChainResult{

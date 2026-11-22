@@ -648,6 +648,12 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.ChainAnchorRepresentedHeldMS = loser.ChainAnchorRepresentedHeldMS
 		survivor.ShareClaims = loser.ShareClaims
 	}
+	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's successor
+	// took back travels with the claims that took it.
+	if survivor.ShareReturnedMS == 0 && loser.ShareReturnedMS > 0 && len(survivor.ShareClaims) == 0 {
+		survivor.ShareReturnedMS = loser.ShareReturnedMS
+		survivor.ShareClaims = loser.ShareClaims
+	}
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record travels as ONE
 	// disclosure the same way (all four fields together — a survivor with
 	// its own record keeps it; the 行2 sub-line re-validates X+Y against the
@@ -1554,6 +1560,11 @@ func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionN
 // signals only; "" on every plain row.
 func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 	switch {
+	case node.ChainAnchorRemainderSeat && node.ShareReturnedMS > 0:
+		// HMC377 round 11 (R-377-11 ①): a ◇ remainder that took back the
+		// anchored share of a withdrawn holder publishes its account plus
+		// that share — never re-Σ with a plain remainder.
+		return "anchor_remainder_returned"
 	case node.ChainAnchorRemainderSeat:
 		return "anchor_remainder"
 	case node.ChainAnchorUnwalkedSeat:
@@ -1580,10 +1591,19 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		// LEVELMERGE-1 件2: the demoted A constituent row is its own account
 		// form — never re-Σ with plain rows or with its residual twin.
 		return "gated_share_constituent"
+	case node.GatedShareFullMS > 0 && node.ShareReturnedMS > 0:
+		// HMC377 round 11 (R-377-11 ①): a residual seat that took back its
+		// carved share publishes its residual plus that share.
+		return "gated_share_residual_returned"
 	case node.GatedShareFullMS > 0:
 		// LEVELMERGE-1 件2: the residual seat (B) publishes a carved account
 		// — a plain-row re-Σ would mix residual and full calibers.
 		return "gated_share_residual"
+	case node.ShareReturnedMS > 0:
+		// HMC377 round 11 (R-377-11 ①): any other row that counts a share a
+		// withdrawn holder held says so on its own face — its own account
+		// story, never re-Σ with a plain row.
+		return "share_returned"
 	case node.AbsorbedWholeSeatDemotedView:
 		// XLANE-2 件3: a chain-face survivor that absorbed a whole-seat
 		// demoted view — the account-identity fork the inherited marker used
@@ -2165,6 +2185,17 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 	for _, idx := range members {
 		if nodes[idx].ChainAnchorRepresentedHeldMS > 0 {
 			aggregate.ChainAnchorRepresentedHeldMS = 0
+			aggregate.ShareClaims = nil
+			break
+		}
+	}
+	// HMC377 round 11 (R-377-11 ①): same discipline for a share a member took
+	// back from a withdrawn holder — the members' value channels already
+	// include it, so the Σ row keeps the Σ; the per-member returned share and
+	// its claims have no single referent on a member Σ.
+	for _, idx := range members {
+		if nodes[idx].ShareReturnedMS > 0 {
+			aggregate.ShareReturnedMS = 0
 			aggregate.ShareClaims = nil
 			break
 		}

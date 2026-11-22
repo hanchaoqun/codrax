@@ -387,6 +387,20 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"GatedShareClaimedMS", "GatedShareFullMS"},
 		Reason:     "「构成份+残余份仍==修前全账」= 引擎 A+B 恒等(同分账条目);反转席撤回只改归属词,不改分量",
 	},
+	// HMC377 round 11 (R-377-11 ①): 「同段物理时间改由本线程另一席([E#])以自身
+	// 数值计入…每份时间只计一次」 = the typed successor claim (ShareClaims:
+	// resolved, its holder the successor record) — no value split is
+	// claimed; 「该份额由本行以自身数值计入(◇ 余段席的数值含此份额)」 = the
+	// typed share the row took back (ShareReturnedMS, displayed in the 行2
+	// sentence: 本行共计 = 行值).
+	runtimeTraceProjMarkShareCountedBySuccessor: {
+		Components: []string{"ShareClaims"},
+		Reason:     "「同段物理时间改由本线程另一席[E#]以自身数值计入」= 引擎 typed 继承认领(Successor)的转录,数值零动",
+	},
+	runtimeTraceProjMarkShareCountedHere: {
+		Components: []string{"ShareReturnedMS"},
+		Reason:     "「该份额由本行以自身数值计入(◇ 余段席的数值含此份额)」= 引擎 typed 收回份(ShareReturnedMS)的逐字转录,行值即发布值",
+	},
 	runtimeTraceProjMarkGatedShareOverlap: {
 		Components: []string{"GatedShareOverlapDisclosureMS"},
 		Reason:     "「其中 X ms 与反转席[E#]重叠」= 引擎 typed 真段重叠测度的逐字转录(下界),主值零动、无拆分承诺",

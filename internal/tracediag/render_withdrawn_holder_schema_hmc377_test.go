@@ -33,6 +33,8 @@ func rankItemSchemaBeforeWithdrawnHolder(t *testing.T, typ reflect.Type, schema 
 	if typ != reflect.TypeOf(tracequery.RootCauseRankItem{}) {
 		return schema
 	}
+	// HMC377 round 11: the later reviewed field is stripped first.
+	schema = rankItemSchemaBeforeReturnedShare(t, typ, schema)
 	counts := map[string]int{}
 	var previous []string
 	for _, field := range strings.Split(schema, ";") {
@@ -57,12 +59,19 @@ func rankItemSchemaBeforeWithdrawnHolder(t *testing.T, typ reflect.Type, schema 
 
 func TestHMC377WithdrawnHolderRankItemSchemaAddsOnlyReviewedOptionalFields(t *testing.T) {
 	typ := reflect.TypeOf(tracequery.RootCauseRankItem{})
-	current, schema := detailSchemaFingerprint(typ)
+	// EVOLUTION RECORD (HMC377 round 11): old → new. Old: the full current
+	// schema was pinned here. New: the round-11 reviewed field
+	// (ShareReturnedMs, render_returned_share_schema_hmc377_test.go) is
+	// stripped first, so this pin keeps the round-10 schema hash unchanged.
+	_, full := detailSchemaFingerprint(typ)
+	schema := rankItemSchemaBeforeReturnedShare(t, typ, full)
+	sum10 := sha256.Sum256([]byte(schema))
+	current := hex.EncodeToString(sum10[:])
 	const currentFullRankItem = "fec3e6a561492f5d1a8fe672bee86c3dc09f1bea1966f4e15232b452a1e4a425"
 	if current != currentFullRankItem {
 		t.Fatalf("RootCauseRankItem schema drift after the round-10 review: got=%s want=%s\nschema=%s", current, currentFullRankItem, schema)
 	}
-	previous := rankItemSchemaBeforeWithdrawnHolder(t, typ, schema)
+	previous := rankItemSchemaBeforeWithdrawnHolder(t, typ, full)
 	sum := sha256.Sum256([]byte(previous))
 	// The complete RootCauseRankItem schema of the unwalked-split review
 	// (TestHMC377UnwalkedSplitRankItemSchemaAddsOnlyReviewedOptionalFields).

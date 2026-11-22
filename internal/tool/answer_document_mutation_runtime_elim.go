@@ -1732,7 +1732,11 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 	var tags []string
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
 		for i := range rows {
-			if !runtimeTraceProjElimRepresentedExcluded(rows[i]) {
+			// HMC377 round 11 (R-377-11 ①): a row represented by a withdrawn
+			// holder's published successor is counted under its own label
+			// (runtimeTraceProjElimSuccessorFootnote) — that holder is not a
+			// chain seat.
+			if !runtimeTraceProjElimRepresentedExcluded(rows[i]) || rows[i].RepresentedBySuccessor {
 				continue
 			}
 			count++
@@ -1755,6 +1759,42 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 	}
 	return runtimeTraceProjElimAuxRow{label: "represented",
 		content: fmt.Sprintf("%d row(s) (whole seat off the on-chain board) — see the detail blocks%s", count, tagList)}, true
+}
+
+// runtimeTraceProjElimSuccessorFootnote (HMC377 round 11, R-377-11 ①) is the
+// represented exclusion's disclosure row for the rows whose share the
+// published successor of a gate-withdrawn holder counts (排除≠消失): same
+// census predicate as the represented footnote, its own label — the holder is
+// another seat of this thread, not a chain seat. ok=false when no row is
+// excluded that way.
+func runtimeTraceProjElimSuccessorFootnote(model runtimeTraceProjTreeModel, zh bool) (runtimeTraceProjElimAuxRow, bool) {
+	count := 0
+	var tags []string
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if !runtimeTraceProjElimRepresentedExcluded(rows[i]) || !rows[i].RepresentedBySuccessor {
+				continue
+			}
+			count++
+			if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" {
+				tags = append(tags, "["+tag+"]")
+			}
+		}
+	}
+	if count == 0 {
+		return runtimeTraceProjElimAuxRow{}, false
+	}
+	model.Marks.mark(runtimeTraceProjMarkShareCountedBySuccessor)
+	tagList := ""
+	if len(tags) > 0 {
+		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
+	}
+	if zh {
+		return runtimeTraceProjElimAuxRow{label: "已由本线程另一席计入",
+			content: fmt.Sprintf("%d 行(不重复参赛),见明细%s", count, tagList)}, true
+	}
+	return runtimeTraceProjElimAuxRow{label: "counted at another seat",
+		content: fmt.Sprintf("%d row(s) (never competing again) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimMemberSubsetFootnote (XLANE-2 件1, §29.104.1/.2 定谳④,
@@ -2048,6 +2088,9 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
 			aux = append(aux, row)
 		}
+		if row, ok := runtimeTraceProjElimSuccessorFootnote(model, zh); ok {
+			aux = append(aux, row)
+		}
 		if row, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
 			aux = append(aux, row)
 		}
@@ -2193,6 +2236,11 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// "unmeasurable" from "no loss"; no seat, no ordinal, no census).
 	aux = append(aux, runtimeTraceProjElimSelfFoldUnmeasuredRows(model, zh)...)
 	if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+		aux = append(aux, row)
+	}
+	// HMC377 round 11 (R-377-11 ①): the rows a withdrawn holder's successor
+	// represents.
+	if row, ok := runtimeTraceProjElimSuccessorFootnote(model, zh); ok {
 		aux = append(aux, row)
 	}
 	// XLANE-2 件1: the member-subset exclusion's dedicated disclosure row

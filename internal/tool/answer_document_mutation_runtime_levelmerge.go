@@ -5,12 +5,12 @@ package tool
 // 2026-07-18; ledger real_trace_campaign_20260705.md §29.104 residual lane,
 // scout report levelkey_verify §2.4/§3.4).
 //
-// 件2: the engine's gated-share split rows arrive with the typed claim-seat
-// line intervals (Node.GatedShareClaimSeats — the claiming priority-inversion
-// seats' own LineStart..LineEnd). The stamp resolves each interval to the
-// rendered inversion row's [E#] tag ALL-OR-NOTHING (any span unresolvable or
-// ambiguous → zero refs, the 行2 sentence keeps the generic 本线程反转席
-// noun — 宁漏勿假指). Values never move here; wording input only.
+// 件2: the engine's gated-share split rows arrive with their typed
+// gated-share claim (HMC377 round 11: resolved by the engine's one resolver;
+// Node.ShareClaims). The stamp names the claiming inversion seats' [E#] tags
+// from the claim's holder records ALL-OR-NOTHING (any holder undrawn → zero
+// refs, the 行2 sentence keeps the generic 本线程反转席 noun — 宁漏勿假指).
+// Values never move here; wording input only.
 //
 // 件3: the aggregate-seat ↔ member-occurrence two-way cross-reference (the
 // census §1.3-1 missing pair). Typed identity only, reproducing the engine's
@@ -27,92 +27,70 @@ package tool
 // index (XLANE-3 让位红线 — cross-board rows never cross-point).
 
 import (
-	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// runtimeTraceProjParseClaimSeatSpan parses one typed "start..end" claim-seat
-// line interval. Strict form only — anything else reports ok=false.
-func runtimeTraceProjParseClaimSeatSpan(span string) (int, int, bool) {
-	head, tail, ok := strings.Cut(strings.TrimSpace(span), "..")
-	if !ok {
-		return 0, 0, false
-	}
-	start, err := strconv.Atoi(strings.TrimSpace(head))
-	if err != nil {
-		return 0, 0, false
-	}
-	end, err := strconv.Atoi(strings.TrimSpace(tail))
-	if err != nil {
-		return 0, 0, false
-	}
-	return start, end, true
-}
-
 // runtimeTraceProjStampGatedShareSplit resolves the 件2 claim-seat pointers.
+//
+// HMC377 round 11 (batch-owner ruling R-377-11 ①): the split's carved share is
+// a typed claim the engine's one resolver decides (rank_share_claims.go), so
+// the pointer reads that claim — the claiming seat is named only while the
+// claim resolves whole to it (its holder records drawn here, all-or-nothing),
+// never by matching the claim-seat line intervals against drawn rows (the
+// former lookup decided the relation a second time). A residual whose carved
+// share resolved to the published successor of its withdrawn claim seat names
+// that successor when it is drawn as this thread's split constituent row (its
+// own typed marker — a positive proof); otherwise no row is named.
 func runtimeTraceProjStampGatedShareSplit(model *runtimeTraceProjTreeModel) {
 	all := runtimeTraceProjSMR1AllRows(model)
+	index := runtimeTraceProjDrawnRecordIndex(model, all)
 	boardIndex := runtimeTraceProjRankBoardIndexFor(all)
 	for _, row := range all {
-		if row.Node.GatedShareFullMS <= 0 && row.Node.GatedShareOverlapDisclosureMS <= 0 {
+		if !row.HasData || (row.Node.GatedShareFullMS <= 0 && row.Node.GatedShareOverlapDisclosureMS <= 0 && !row.Node.GatedShareConstituentSeat) {
 			continue
 		}
-		if len(row.Node.GatedShareClaimSeats) == 0 {
-			continue
-		}
-		if row.Node.GatedShareClaimWithdrawn {
-			// HMC377 round 10 (R-377-10 ②): the publication gate published
-			// every claim seat as context only — the same typed decision the
-			// ◎ constituent exclusion reads; the pointer names no seat.
-			continue
-		}
-		refs := make([]string, 0, len(row.Node.GatedShareClaimSeats))
-		complete := true
-		for _, span := range row.Node.GatedShareClaimSeats {
-			start, end, ok := runtimeTraceProjParseClaimSeatSpan(span)
-			if !ok {
-				complete = false
+		var claim *types.TraceCausalProjectionShareClaim
+		for i := range row.Node.ShareClaims {
+			if row.Node.ShareClaims[i].Part == string(tracequery.RootCauseShareClaimGatedShare) {
+				claim = &row.Node.ShareClaims[i]
 				break
 			}
-			var partner *runtimeTraceProjTreeRow
-			ambiguous := false
-			for _, cand := range all {
-				if cand == row || !cand.HasData {
-					continue
-				}
-				if strings.TrimSpace(cand.Node.TypeToken) != "priority_inversion_candidate" {
-					continue
-				}
-				if cand.Node.LineStart != start || cand.Node.LineEnd != end {
-					continue
-				}
-				if runtimeTraceCausalProjectionCanonicalNode(cand.Node.Subject) !=
-					runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject) {
-					continue
-				}
-				// 修补轮 件4 (2026-07-18): same-board gate through the ONE
-				// shared board index — symmetric with the 件3 crossref pass
-				// below (XLANE-3 让位红线: cross-board rows never cross-
-				// point). A cross-named-board row with the same line interval
-				// never resolves the claim pointer; when no same-board
-				// partner remains the sentence keeps the generic noun.
-				if !runtimeTraceProjSemanticSubsetSameBoard(boardIndex, cand, row) {
-					continue
-				}
-				if partner != nil {
-					ambiguous = true
-					break
-				}
-				partner = cand
-			}
-			if partner == nil || ambiguous || strings.TrimSpace(partner.EvidenceTag) == "" {
-				complete = false
+		}
+		if claim == nil || !claim.Resolved || len(claim.HolderEvidenceIDs) == 0 {
+			continue
+		}
+		var holders []runtimeTraceProjDrawnRecord
+		for _, id := range claim.HolderEvidenceIDs {
+			drawn, ok := index[strings.TrimSpace(id)]
+			// 修补轮 件4 (2026-07-18), kept: same-board gate through the ONE
+			// shared board index (XLANE-3 让位红线: cross-board rows never
+			// cross-point).
+			if !ok || drawn.row == nil || drawn.row == row || strings.TrimSpace(drawn.tag) == "" ||
+				!runtimeTraceProjSemanticSubsetSameBoard(boardIndex, drawn.row, row) {
+				holders = nil
 				break
 			}
-			refs = append(refs, strings.TrimSpace(partner.EvidenceTag))
+			holders = append(holders, drawn)
 		}
-		if !complete || len(refs) == 0 {
+		if len(holders) == 0 {
 			continue // all-or-nothing: generic noun instead of a partial list
+		}
+		if claim.Successor {
+			if len(holders) == 1 && holders[0].own && holders[0].row.Node.GatedShareConstituentSeat {
+				row.GatedShareSuccessorRef = strings.TrimSpace(holders[0].tag)
+			}
+			continue
+		}
+		refs := make([]string, 0, len(holders))
+		seen := map[string]bool{}
+		for _, h := range holders {
+			if tag := strings.TrimSpace(h.tag); !seen[tag] {
+				seen[tag] = true
+				refs = append(refs, tag)
+			}
 		}
 		row.GatedShareClaimRefs = refs
 	}

@@ -1601,6 +1601,24 @@ func traceNoteKeysEmitRepresentedFixtureResult() tracequery.Result {
 				{Part: tracequery.RootCauseShareClaimAnchored, Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 2.0, Represented: true},
 				{Part: tracequery.RootCauseShareClaimUnwalked, Role: tracequery.RootCauseShareHolderUnwalkedSeat, ShareMs: 1.0, Resolved: true, Represented: true}},
 			Summary: "satellite partly represented: 1.000ms of it is held by a seat of this thread on the published board",
+		}, {
+			// HMC377 round 11 (R-377-11 ①): a ◇ remainder that took back the
+			// anchored share whose holder the publication gate withdrew —
+			// exercises the share_returned_ms contract key (its 2.000
+			// remainder plus the 1.000 it took back).
+			Rank: 0, Tier: "tertiary", Type: "runnable_wait",
+			Thread:   tracequery.ThreadRef{Comm: "dep-returned", PID: 120},
+			ImpactMs: 3.0, ProjectedImpactMs: 3.0, CumulativeImpactMs: 3.0,
+			EffectiveImpactMs: 3.0, Score: 0.1, Confidence: 0.76,
+			LineStart: 118, LineEnd: 119,
+			Source:    "window_stats",
+			Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+			DominantState: string(tracequery.StateRunnable), RunnableMs: 3.0,
+			ChainAnchoredMs: 1.0, ChainAnchorFullMs: 3.0, ChainAnchorRemainderSeat: true,
+			ShareReturnedMs: 1.0,
+			ShareClaims: []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored,
+				Role: tracequery.RootCauseShareHolderChainSeat, ShareMs: 1.0, ReturnedMs: 1.0}},
+			Summary: "runnable remainder 2.000ms; full-window account 3.000ms = 1.000ms anchored (the owning row is published only as context, tier context_only, so this row counts that share with its own value) + this remainder",
 		}}},
 	}
 }

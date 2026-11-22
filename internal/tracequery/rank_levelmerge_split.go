@@ -70,100 +70,112 @@ import (
 const levelMergeGatedShareTolMs = rspaAnchorIdentityTolMs
 
 // levelMergeSummaryClaimSeatOnBoard / levelMergeSummaryClaimSeatUnpublished
-// are the verbatim co-publication anchors of the split sentences —
-// patchGatedShareSummariesForClaimVisibility rewrites the claim when the
-// named inversion seat did not survive truncation (RNB-1 D1 修复轮 discipline:
-// a board sentence must never point at a row nobody can see). Idempotent by
-// verbatim-anchor construction.
+// are the claim-seat clauses of the split sentences: the held form (the
+// claiming inversion seat holds the carved share on the published board) and
+// the compaction-disclosure form (it did not survive truncation — RNB-1 D1
+// discipline: a board sentence must never point at a row nobody can see).
+// HMC377 round 11 (R-377-11 ①): each clause is the span of the split's typed
+// gated-share claim, written by the one resolver (resolveRankShareClaims);
+// the former verbatim-anchor patch (patchGatedShareSummariesForClaimVisibility,
+// pid-keyed) and the span-keyed withdrawal rewrite are removed.
 const levelMergeSummaryClaimSeatOnBoard = "(the claiming inversion seat is published on this board)"
 const levelMergeSummaryClaimSeatUnpublished = "(the claiming inversion seat is not on the published board; see the compaction disclosure)"
 
 // levelMergeSummaryClaimSeatContext (HMC377 round 10, R-377-10 ②④): the
 // claiming seats were published by the trace_query publication gate as
 // context only. The split's sentences then say so and no longer say that seat
-// counts the share (levelMergeWithdrawClaimSeats).
+// counts the share.
 const levelMergeSummaryClaimSeatContext = "(the claiming inversion seat " + rspaHolderContextOnly + ")"
 
+// levelMergeGatedShareClaim is the split's typed claim (HMC377 round 11,
+// R-377-11 ①): the carved share's instants (the claiming inversion seats'
+// branch windows ∩ the aggregate's occurrence windows), held by those seats
+// in the gated-share role. The constituent row and the residual seat make it;
+// the fail-open overlap disclosure makes it value-free.
+func levelMergeGatedShareClaim(pid int, ms float64, carved []foldInterval, disclosure bool) RootCauseShareClaim {
+	c := rspaClaim(RootCauseShareClaimGatedShare, RootCauseShareHolderGatedShareSeat, pid, false, ms, carved)
+	c.disclosure = disclosure
+	return c
+}
+
 // levelMergeResidualSentence / levelMergeConstituentSentence /
-// levelMergeOverlapSentence compose the split's engine sentences (one source
-// for the mint and for the publication gate's withdrawal rewrite).
-// withdrawn=false: the claiming seat counts the share (anchor names whether
-// it is on the published board); withdrawn=true: it is published only as
-// context and the constituent row counts the share itself.
-func levelMergeResidualSentence(thread ThreadRef, residual, claimed, full float64, anchor string, withdrawn bool) string {
-	counted := "and is already counted by that seat's gated composite"
-	if withdrawn {
-		counted, anchor = "and is counted by this thread's split constituent row", levelMergeSummaryClaimSeatContext
-	}
-	return fmt.Sprintf("%s runnable aggregate residual %.3fms after the interval-accounting split: %.3fms of the %.3fms scheduling-demand account lies inside the same thread's priority-inversion seat branch window(s) %s %s — claimed + residual = full account (one segment set, two disjoint shares, additive back)",
-		threadLabel(thread), residual, claimed, full, counted, anchor)
+// levelMergeOverlapSentence compose the split's engine sentences, each with
+// its gated-share claim span (one composer per sentence; the resolver writes
+// the form the claim's resolution allows — held, compaction disclosure,
+// withdrawn claim seat with its successor or with the share taken back).
+func levelMergeResidualSentence(thread ThreadRef, residual, claimed, full float64, claim RootCauseShareClaim) rspaSentence {
+	var s rspaSentence
+	counted := s.spanForms(rspaSpanForms{
+		held:      "and is already counted by that seat's gated composite " + levelMergeSummaryClaimSeatOnBoard,
+		compact:   "and is already counted by that seat's gated composite " + levelMergeSummaryClaimSeatUnpublished,
+		context:   "and is not counted by that seat " + levelMergeSummaryClaimSeatContext,
+		successor: "and is counted by another row of this thread on the published board " + levelMergeSummaryClaimSeatContext,
+		returned:  "and this seat counts it with its own value " + levelMergeSummaryClaimSeatContext,
+	}, claim)
+	s.text = fmt.Sprintf("%s runnable aggregate residual %.3fms after the interval-accounting split: %.3fms of the %.3fms scheduling-demand account lies inside the same thread's priority-inversion seat branch window(s) %s — claimed + residual = full account (one segment set, two disjoint shares, additive back)",
+		threadLabel(thread), residual, claimed, full, counted)
+	return s
 }
 
-func levelMergeConstituentSentence(thread ThreadRef, claimed, full float64, anchor string, withdrawn bool) string {
-	if withdrawn {
-		return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure) %s — constituent share: it rides the adjacent lane and counts this share with its own value",
-			threadLabel(thread), claimed, full, levelMergeSummaryClaimSeatContext)
+func levelMergeConstituentSentence(thread ThreadRef, claimed, full float64, claim RootCauseShareClaim) rspaSentence {
+	label := threadLabel(thread)
+	attributed := func(anchor string) string {
+		return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account already attributed through the same thread's priority-inversion seat gated composite (branch-window overlap measure) %s — constituent share only: it rides the adjacent lane and never competes, the inversion seat carries the value",
+			label, claimed, full, anchor)
 	}
-	return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account already attributed through the same thread's priority-inversion seat gated composite (branch-window overlap measure) %s — constituent share only: it rides the adjacent lane and never competes, the inversion seat carries the value",
-		threadLabel(thread), claimed, full, anchor)
+	overlapping := func(tail string) string {
+		return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure) %s — %s",
+			label, claimed, full, levelMergeSummaryClaimSeatContext, tail)
+	}
+	var s rspaSentence
+	s.text = s.spanForms(rspaSpanForms{
+		held:      attributed(levelMergeSummaryClaimSeatOnBoard),
+		compact:   attributed(levelMergeSummaryClaimSeatUnpublished),
+		context:   overlapping("constituent share only: it rides the adjacent lane and never competes"),
+		successor: overlapping("constituent share only: it rides the adjacent lane and never competes; another row of this thread on the published board counts this share"),
+		returned:  overlapping("constituent share: it rides the adjacent lane and counts this share with its own value"),
+		kind:      rspaSpanKindConstituent, label: label, inside: claimed, full: full,
+	}, claim)
+	return s
 }
 
-func levelMergeOverlapSentence(overlap float64, periodic bool, anchor string, withdrawn bool) string {
-	counts := "whose gated composite already counts that runnable share"
-	if withdrawn {
-		counts, anchor = "whose gated composite is not published", levelMergeSummaryClaimSeatContext
+// levelMergeConstituentMixedForm is a constituent row's sentence when its
+// carved share ends split (HMC377 round 11, R-377-11 ①): part counted by a
+// claiming inversion seat on the board (or by a withdrawn seat's successor),
+// part taken back by this row because its claiming seat is context only,
+// part held by a seat the cap cut.
+func levelMergeConstituentMixedForm(label string, claimed, full float64, st rspaSpanState) string {
+	var parts []string
+	if st.resolvedMs > rspaAnchorIdentityTolMs {
+		if st.successor {
+			parts = append(parts, fmt.Sprintf("%.3fms of it is counted by another row of this thread on the published board", st.resolvedMs))
+		} else {
+			parts = append(parts, fmt.Sprintf("%.3fms of it is already attributed through a claiming inversion seat's gated composite on this board", st.resolvedMs))
+		}
 	}
+	parts = append(parts, fmt.Sprintf("the claiming inversion seat of %.3fms of it %s", st.returnedMs, rspaHolderContextOnly))
+	if st.restMs > rspaAnchorIdentityTolMs {
+		parts = append(parts, fmt.Sprintf("the claiming inversion seat of the other %.3fms is not on the published board (see the compaction disclosure)", st.restMs))
+	}
+	return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure): %s — constituent share: it rides the adjacent lane and counts those %.3fms with its own value",
+		label, claimed, full, strings.Join(parts, "; "), st.returnedMs)
+}
+
+func levelMergeOverlapSentence(overlap float64, periodic bool, claim RootCauseShareClaim) rspaSentence {
+	var s rspaSentence
+	counts := s.spanForms(rspaSpanForms{
+		held:    "whose gated composite already counts that runnable share " + levelMergeSummaryClaimSeatOnBoard,
+		compact: "whose gated composite already counts that runnable share " + levelMergeSummaryClaimSeatUnpublished,
+		context: "whose gated composite is not published " + levelMergeSummaryClaimSeatContext,
+	}, claim)
 	if periodic {
-		return fmt.Sprintf("; %.3fms of this scheduling-demand account physically overlaps the same thread's priority-inversion seat branch window(s), %s %s — this seat's published attribution is the VS-1 periodic discounted composite (runnable + lateness), not the pure runnable account an interval split re-partitions, so no value split is performed and every published value is unchanged (the true overlap is at least this figure, measured over the available real segments)",
-			overlap, counts, anchor)
+		s.text = fmt.Sprintf("; %.3fms of this scheduling-demand account physically overlaps the same thread's priority-inversion seat branch window(s), %s — this seat's published attribution is the VS-1 periodic discounted composite (runnable + lateness), not the pure runnable account an interval split re-partitions, so no value split is performed and every published value is unchanged (the true overlap is at least this figure, measured over the available real segments)",
+			overlap, counts)
+		return s
 	}
-	return fmt.Sprintf("; %.3fms of this scheduling-demand account physically overlaps the same thread's priority-inversion seat branch window(s), %s %s — the typed interval inventory is incomplete on at least one side, so no value split is performed and every published value is unchanged (the true overlap is at least this figure, measured over the available real segments)",
-		overlap, counts, anchor)
-}
-
-// levelMergeWithdrawClaimSeats applies the publication gate's withdrawal
-// decision to one published split row (HMC377 round 10, R-377-10 ②):
-// withdrawnSpans are the line intervals of the same thread's board rows the
-// gate published as context only. When every claim seat the split names is
-// among them, no published seat counts the claimed share: the row is marked
-// GatedShareClaimWithdrawn (its constituent counts its own value) and its
-// sentence is rewritten by the same composer into its withdrawn form. A
-// split some of whose claim seats stay published keeps its form.
-func levelMergeWithdrawClaimSeats(item *RootCauseRankItem, withdrawnSpans map[string]bool) {
-	if len(item.GatedShareClaimSeats) == 0 || len(withdrawnSpans) == 0 || item.GatedShareClaimWithdrawn {
-		return
-	}
-	if item.GatedShareFullMs <= 0 && item.GatedShareOverlapDisclosureMs <= 0 {
-		return
-	}
-	for _, span := range item.GatedShareClaimSeats {
-		if !withdrawnSpans[strings.TrimSpace(span)] {
-			return
-		}
-	}
-	item.GatedShareClaimWithdrawn = true
-	replace := func(composed func(anchor string, withdrawn bool) string) {
-		for _, anchor := range []string{levelMergeSummaryClaimSeatOnBoard, levelMergeSummaryClaimSeatUnpublished} {
-			if from := composed(anchor, false); strings.Contains(item.Summary, from) {
-				item.Summary = strings.Replace(item.Summary, from, composed("", true), 1)
-				return
-			}
-		}
-	}
-	switch {
-	case item.GatedShareOverlapDisclosureMs > 0:
-		replace(func(anchor string, withdrawn bool) string {
-			return levelMergeOverlapSentence(item.GatedShareOverlapDisclosureMs, item.PeriodicSource, anchor, withdrawn)
-		})
-	case item.GatedShareConstituentSeat:
-		replace(func(anchor string, withdrawn bool) string {
-			return levelMergeConstituentSentence(item.Thread, item.GatedShareClaimedMs, item.GatedShareFullMs, anchor, withdrawn)
-		})
-	default:
-		replace(func(anchor string, withdrawn bool) string {
-			return levelMergeResidualSentence(item.Thread, item.RunnableMs, item.GatedShareClaimedMs, item.GatedShareFullMs, anchor, withdrawn)
-		})
-	}
+	s.text = fmt.Sprintf("; %.3fms of this scheduling-demand account physically overlaps the same thread's priority-inversion seat branch window(s), %s — the typed interval inventory is incomplete on at least one side, so no value split is performed and every published value is unchanged (the true overlap is at least this figure, measured over the available real segments)",
+		overlap, counts)
+	return s
 }
 
 // levelMergeSegmentWindows resolves a rank row's REAL segment inventory for
@@ -223,6 +235,9 @@ type levelMergeClaimant struct {
 	windows  []TimeWindow
 	complete bool
 	lineSpan string
+	// idx: the claimant's row (HMC377 round 11: the split stamps the
+	// gated-share hold on it).
+	idx int
 }
 
 // levelMergeClaimantsByPID collects the priority-inversion chain seats whose
@@ -264,6 +279,7 @@ func levelMergeClaimantsByPID(target ThreadRef, items []RootCauseRankItem) map[i
 			windows:  windows,
 			complete: complete,
 			lineSpan: fmt.Sprintf("%d..%d", item.LineStart, item.LineEnd),
+			idx:      i,
 		})
 	}
 	return out
@@ -319,6 +335,58 @@ func levelMergeClaimSeatSpans(claimants []levelMergeClaimant) []string {
 		spans = append(spans, claimant.lineSpan)
 	}
 	return spans
+}
+
+// levelMergeTimeFold converts typed windows to a merged instant union.
+func levelMergeTimeFold(windows []TimeWindow) []foldInterval {
+	out := make([]foldInterval, 0, len(windows))
+	for _, w := range windows {
+		if w.EndTs > w.StartTs {
+			out = append(out, foldInterval{start: w.StartTs, end: w.EndTs})
+		}
+	}
+	return rspaFoldCopy(out)
+}
+
+// levelMergeStampClaimSeatHolds records what each claiming inversion seat
+// holds for the split (HMC377 round 11, R-377-11 ①): the runnable time inside
+// its own branch windows, which its gated composite counts — the gated-share
+// role the split's claims name.
+func levelMergeStampClaimSeatHolds(items []RootCauseRankItem, claimants []levelMergeClaimant) {
+	for _, claimant := range claimants {
+		if claimant.idx < 0 || claimant.idx >= len(items) {
+			continue
+		}
+		seat := &items[claimant.idx]
+		rspaHold(seat, RootCauseShareHolderGatedShareSeat, false, levelMergeTimeFold(claimant.windows), seat.GatedRunnableMs)
+	}
+}
+
+// levelMergeRestampResidualHolds keeps the residual seat's holds off the
+// carved share (HMC377 round 11, R-377-11 ①): a hold the pre-split aggregate
+// recorded (its segments inside the walked windows, at its pre-split
+// account) holds only what the residual still counts — the carved instants
+// are the constituent's, counted at the claiming seat.
+func levelMergeRestampResidualHolds(item *RootCauseRankItem, carved []foldInterval, claimed float64) {
+	if len(item.rspaHeld) == 0 {
+		return
+	}
+	held := make([]rspaHeldShare, 0, len(item.rspaHeld))
+	for _, h := range item.rspaHeld {
+		if len(h.windows) > 0 {
+			rest := foldIntervalSubtract(h.windows, carved)
+			if rspaFoldLengthMs(rest) <= levelMergeGatedShareTolMs {
+				continue
+			}
+			h.windows = rest
+		}
+		h.ms = rspaClampNonNegative(h.ms - claimed)
+		if h.ms <= levelMergeGatedShareTolMs {
+			continue
+		}
+		held = append(held, h)
+	}
+	item.rspaHeld = held
 }
 
 // splitAggregateGatedRunnableShare is the Plan-P pass. It runs in BOTH rank
@@ -397,6 +465,9 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			continue
 		}
 		spans := levelMergeClaimSeatSpans(claimants)
+		// HMC377 round 11: the carved instants and the claiming seats' holds.
+		carved := rspaFoldIntersect(levelMergeTimeFold(claimUnion), levelMergeTimeFold(occUnion))
+		levelMergeStampClaimSeatHolds(items, claimants)
 		if item.PeriodicSource {
 			// 修补轮 件1 (P1, 2026-07-18): a VS-1 periodic-source seat's
 			// published attribution is the DISCOUNTED composite runnable (in
@@ -414,7 +485,7 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			// invariant independent of that structural argument either way.
 			item.GatedShareOverlapDisclosureMs = overlap
 			item.GatedShareClaimSeats = spans
-			item.Summary += levelMergeOverlapSentence(overlap, true, levelMergeSummaryClaimSeatOnBoard, false)
+			rspaAppendSentence(item, levelMergeOverlapSentence(overlap, true, levelMergeGatedShareClaim(item.Thread.PID, overlap, carved, true)))
 			continue
 		}
 		if !occComplete || !claimComplete {
@@ -424,7 +495,7 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			// Published value untouched.
 			item.GatedShareOverlapDisclosureMs = overlap
 			item.GatedShareClaimSeats = spans
-			item.Summary += levelMergeOverlapSentence(overlap, false, levelMergeSummaryClaimSeatOnBoard, false)
+			rspaAppendSentence(item, levelMergeOverlapSentence(overlap, false, levelMergeGatedShareClaim(item.Thread.PID, overlap, carved, true)))
 			continue
 		}
 		claimed := overlap
@@ -445,14 +516,15 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			// demoted constituent row (A with B==0) — the inversion seat
 			// carries the value, this row keeps the lossless account visible
 			// on the adjacent lane. Identity: claimed==full, residual==0.
-			levelMergeRewriteToConstituentRow(item, full, full, spans)
+			levelMergeRewriteToConstituentRow(item, full, full, spans, carved)
 			continue
 		}
 		// Ordinary split: the surviving seat publishes the residual (B) and
 		// the constituent twin (A) mints beside it on the adjacent lane.
 		clone := *item
-		levelMergeRewriteToConstituentRow(&clone, claimed, full, spans)
+		levelMergeRewriteToConstituentRow(&clone, claimed, full, spans, carved)
 		appended = append(appended, clone)
+		levelMergeRestampResidualHolds(item, carved, claimed)
 		item.GatedShareClaimedMs = claimed
 		item.GatedShareFullMs = full
 		item.GatedShareClaimSeats = spans
@@ -466,7 +538,8 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 		// rewrites take the same track; Score is a tie-breaker face, never a
 		// published value.
 		item.Score = residual * item.Confidence * rootCauseItemScoreWeight(*item)
-		summary := levelMergeResidualSentence(item.Thread, residual, claimed, full, levelMergeSummaryClaimSeatOnBoard, false)
+		rspaSetSentence(item, levelMergeResidualSentence(item.Thread, residual, claimed, full,
+			levelMergeGatedShareClaim(item.Thread.PID, claimed, carved, false)))
 		if len(residualSegments) == 0 {
 			// 链上纪律③ mechanical gate: B keeps the chain lane ONLY on its
 			// own residual segments. REACHABLE (修补轮件3, 对抗官探针 + 冷读
@@ -487,9 +560,8 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			item.ChainCredentialLaneDemoted = true
 			item.Causality = "adjacent_to_wakeup_chain"
 			item.ChainRelevance = "adjacent"
-			summary += "; no residual credential segment survives the claim subtraction, so this residual seat rides the adjacent lane (its chain credential is not inherited from the pre-split aggregate)"
+			item.Summary += "; no residual credential segment survives the claim subtraction, so this residual seat rides the adjacent lane (its chain credential is not inherited from the pre-split aggregate)"
 		}
-		item.Summary = summary
 	}
 	return append(items, appended...)
 }
@@ -499,7 +571,7 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 // seat's gated composite. Adjacent lane, zero on-chain full-seat markers, all
 // participating value channels = the claimed share, physical evidence
 // identity (lines / occurrence windows) untouched.
-func levelMergeRewriteToConstituentRow(item *RootCauseRankItem, claimed, full float64, spans []string) {
+func levelMergeRewriteToConstituentRow(item *RootCauseRankItem, claimed, full float64, spans []string, carved []foldInterval) {
 	item.GatedShareConstituentSeat = true
 	item.GatedShareClaimedMs = claimed
 	item.GatedShareFullMs = full
@@ -515,38 +587,9 @@ func levelMergeRewriteToConstituentRow(item *RootCauseRankItem, claimed, full fl
 	item.ChainRelevance = "adjacent"
 	// Same Score weight-track filing as the residual site (修补轮件7).
 	item.Score = claimed * item.Confidence * rootCauseItemScoreWeight(*item)
-	item.Summary = levelMergeConstituentSentence(item.Thread, claimed, full, levelMergeSummaryClaimSeatOnBoard, false)
-}
-
-// patchGatedShareSummariesForClaimVisibility runs AFTER each candidate/side
-// truncation (build + enrich): every split/disclosure sentence claims its
-// inversion seat is on the published board — when truncation killed that
-// seat, the claim downgrades to the honest unpublished form (RNB-1 D1
-// discipline; verbatim-anchor rewrite, idempotent).
-func patchGatedShareSummariesForClaimVisibility(items []RootCauseRankItem) {
-	var publishedClaimants map[int]bool
-	for i := range items {
-		if items[i].Type != "priority_inversion_candidate" ||
-			!strings.HasPrefix(strings.TrimSpace(items[i].Source), "wakeup_chain") {
-			continue
-		}
-		if items[i].EffectiveImpactMs <= 0 {
-			continue
-		}
-		if publishedClaimants == nil {
-			publishedClaimants = map[int]bool{}
-		}
-		publishedClaimants[items[i].Thread.PID] = true
-	}
-	for i := range items {
-		item := &items[i]
-		if item.GatedShareFullMs <= 0 && item.GatedShareOverlapDisclosureMs <= 0 {
-			continue
-		}
-		if publishedClaimants[item.Thread.PID] {
-			continue
-		}
-		item.Summary = strings.ReplaceAll(item.Summary,
-			levelMergeSummaryClaimSeatOnBoard, levelMergeSummaryClaimSeatUnpublished)
-	}
+	// HMC377 round 11: the constituent speaks and holds for itself only — its
+	// one claim is the carved share (held by the claiming seats).
+	rspaClearClaims(item)
+	rspaSetSentence(item, levelMergeConstituentSentence(item.Thread, claimed, full,
+		levelMergeGatedShareClaim(item.Thread.PID, claimed, carved, false)))
 }

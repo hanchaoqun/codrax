@@ -787,6 +787,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// and the split whose claiming seats are context only.
 		runtimeTraceProjMarkChainAnchorRepresentedPartial: {"锚定份部分由", "anchored share partly"},
 		runtimeTraceProjMarkGatedShareClaimWithdrawn:      {"自计", "with its own value"},
+		// HMC377 round 11 (R-377-11 ①): the successor of a withdrawn holder and
+		// the row that took a withdrawn holder's share back.
+		runtimeTraceProjMarkShareCountedBySuccessor: {"计入锚定份:本席账目全额", "another seat of this thread: this seat's"},
+		runtimeTraceProjMarkShareCountedHere:        {"本行以自身数值计入", "so this row counts it in its own account"},
 		// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less
 		// blocking_span basis-form glyphs (dedicated, one-per-form).
 		runtimeTraceProjMarkIconBlockingWait: {"⊖", "⊖"},
@@ -1983,6 +1987,13 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// trace_query_withdrawn_holders_r10_hmc377_test.go).
 		{"hmc377_r10_partly_represented", hmc377R10PartialRepresentedProjection(true)},
 		{"hmc377_r10_withdrawn_split", hmc377R10WithdrawnSplitProjection()},
+		// HMC377 round 11 (R-377-11 ①): the withdrawn claim seat's successor
+		// and the rows that took a withdrawn holder's share back (fixture
+		// home: trace_query_withdrawn_segments_r11_hmc377_test.go).
+		{"hmc377_r11_successor", hmc377R11Projection(hmc377R11UR3cWithdrawn())},
+		{"hmc377_r11_remainder_returned", hmc377R11Projection(hmc377R11UR4mixWithdrawn())},
+		{"hmc377_r11_residual_returned", hmc377R11Projection(hmc377R11UR6Withdrawn())},
+		{"hmc377_r11_satellite_carrier", hmc377R11Projection(hmc377R11UR4Withdrawn())},
 		// SPANTOP-1 (§29.131, 2026-07-18): the semantic family seat's
 		// constituent top-3 sub-rows + counted remainder + legend entry
 		// (fixture home: answer_document_projection_spantop_test.go, the

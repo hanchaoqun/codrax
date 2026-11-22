@@ -17355,9 +17355,8 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// represented sentences are NOT resolved here — this board is not the
 	// published one (the enrich pass re-truncates it); they resolve once, at
 	// the end of enrichRootCauseRankWithScheduler.
-	// LEVELMERGE-1 件2: published-twin re-verification for the gated split
-	// sentences (the claiming inversion seat may die at the cap).
-	patchGatedShareSummariesForClaimVisibility(items)
+	// LEVELMERGE-1 件2: the gated split sentences are claim spans too (HMC377
+	// round 11) — written by the one resolution pass with the others.
 	if candidateTotal > candidateEmitted {
 		last := items[candidateEmitted-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
@@ -18262,9 +18261,6 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	var capDead []RootCauseRankItem
 	var capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted int
 	rank.Items, capDead, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
-	// LEVELMERGE-1 件2: same claim-visibility re-verification after the
-	// enrich truncation (idempotent — verbatim anchors).
-	patchGatedShareSummariesForClaimVisibility(rank.Items)
 	if candidateTotal > candidateEmitted {
 		last := rank.Items[candidateEmitted-1]
 		rank.Compactions = append(rank.Compactions, ViewCompaction{

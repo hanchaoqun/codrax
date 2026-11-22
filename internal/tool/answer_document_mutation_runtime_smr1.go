@@ -1427,6 +1427,14 @@ type runtimeTraceProjShareRef struct {
 	exact  bool
 	own    bool
 	seatMS float64
+	// successor (HMC377 round 11, R-377-11 ①): some holder is the published
+	// successor of a seat the publication gate withdrew — another row of the
+	// thread that counts the share, not a seat of the claim's role.
+	successor bool
+	// carriedHere (HMC377 round 11): every claim resolved to such a successor
+	// and that successor is drawn as this very row (its record folded into
+	// it) — this row carries the share itself.
+	carriedHere bool
 }
 
 const (
@@ -1570,11 +1578,13 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 		tag string
 	}
 	seen := map[drawnAt]bool{}
-	selfDrawn := false
+	selfDrawn, allSuccessor := false, true
 	for _, c := range claims {
 		if !c.Resolved || len(c.HolderEvidenceIDs) == 0 {
 			return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefCompacted}
 		}
+		out.successor = out.successor || c.Successor
+		allSuccessor = allSuccessor && c.Successor
 		for _, id := range c.HolderEvidenceIDs {
 			drawn, ok := index[strings.TrimSpace(id)]
 			if !ok || drawn.row == nil {
@@ -1594,7 +1604,7 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 		}
 	}
 	if selfDrawn {
-		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
+		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone, carriedHere: allSuccessor && len(out.rows) == 0}
 	}
 	out.exact = len(claims) == 1 && claims[0].Exact && len(out.rows) == 1
 	return out
@@ -1605,14 +1615,17 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 // rows that count its ChainAnchorRepresentedHeldMS: their [E#] when every such
 // holder record is drawn on this projection in another row, nil otherwise (the
 // see-detail form, which names no holder and claims nothing about the board).
+// HMC377 round 11 (R-377-11 ①): a claim resolves per held segment, so a claim
+// resolved in part names the holders of its resolved part; a holder that is a
+// withdrawn seat's successor is not a chain seat — the form names none.
 func runtimeTraceProjResolvedRepresentedHolderTags(node types.TraceCausalProjectionNode, index map[string]runtimeTraceProjDrawnRecord, self *runtimeTraceProjTreeRow) []string {
 	var tags []string
 	seen := map[string]bool{}
 	for _, c := range node.ShareClaims {
-		if !c.Represented || !c.Resolved {
+		if !c.Represented || (!c.Resolved && c.ResolvedMS <= 0) {
 			continue
 		}
-		if len(c.HolderEvidenceIDs) == 0 {
+		if len(c.HolderEvidenceIDs) == 0 || c.Successor {
 			return nil
 		}
 		for _, id := range c.HolderEvidenceIDs {
@@ -1674,6 +1687,11 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 		if represented := runtimeTraceProjResolveShareRef(rn, index, row, true); represented.state != runtimeTraceProjShareRefNone || rn.ChainAnchorRepresentedByChainSeat {
 			row.RepresentedState = represented.state
 			row.RepresentedRefs = represented.tags
+			// HMC377 round 11 (R-377-11 ①): the holder is a withdrawn seat's
+			// published successor — named as the row of this thread that
+			// counts the share, never as a chain seat.
+			row.RepresentedBySuccessor = represented.state == runtimeTraceProjShareRefRendered && represented.successor
+			row.RepresentedCarriedHere = represented.carriedHere
 		}
 	}
 	return anchored

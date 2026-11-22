@@ -11584,6 +11584,9 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	// HMC377 round 10 (R-377-10 ③): the share a partially represented
 	// satellite's resolved claims hand to holders on the published board.
 	representedHeld := traceQueryObservationMSValue(item.ChainAnchorRepresentedHeldMs)
+	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's published
+	// successor took back.
+	shareReturned := traceQueryObservationMSValue(item.ShareReturnedMs)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family — emitted only when the engine minted it (GatedShareFullMs > 0
 	// ⇔ the split ran on this seat pair; the overlap key rides the fail-open
@@ -11670,6 +11673,7 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
 		{types.TraceNoteKeyChainAnchorRepresentedByChainSeat, representedBySeat},
 		{types.TraceNoteKeyChainAnchorRepresentedHeld, representedHeld},
+		{types.TraceNoteKeyShareReturned, shareReturned},
 		{types.TraceNoteKeyGatedShareClaimed, gatedShareClaimed},
 		{types.TraceNoteKeyGatedShareFull, gatedShareFull},
 		{types.TraceNoteKeyGatedShareConstituentSeat, gatedShareConstituent},
@@ -11727,9 +11731,20 @@ func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map
 	claims := make([]types.TraceShareClaimNote, 0, len(item.ShareClaims))
 	for _, c := range item.ShareClaims {
 		note := types.TraceShareClaimNote{Part: string(c.Part), Role: string(c.Role), ShareMS: c.ShareMs, Resolved: c.Resolved, Exact: c.Exact, Represented: c.Represented}
-		for _, key := range c.HolderKeys {
-			if pos, ok := positions[key]; ok {
-				note.HolderPositions = append(note.HolderPositions, pos)
+		// HMC377 round 11 (R-377-11 ①): a claim resolved per held segment
+		// carries its resolved / returned / successor reading when a reader
+		// acts on it — a represented claim resolved in part, or a claim the
+		// publication's successor rule touched. Every other claim keeps the
+		// seven-field entry (holders named only when it resolves whole).
+		note.Extended = c.ReturnedMs > 0 || c.Successor || (c.Represented && !c.Resolved && c.ResolvedMs > 0)
+		if note.Extended {
+			note.ResolvedMS, note.ReturnedMS, note.Successor = c.ResolvedMs, c.ReturnedMs, c.Successor
+		}
+		if c.Resolved || note.Extended {
+			for _, key := range c.HolderKeys {
+				if pos, ok := positions[key]; ok {
+					note.HolderPositions = append(note.HolderPositions, pos)
+				}
 			}
 		}
 		claims = append(claims, note)
@@ -16572,11 +16587,6 @@ func traceQueryRootCauseForPublication(item tracequery.RootCauseRankItem) traceq
 
 func traceQueryRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
 	return traceQueryPriorityRootCauseForPublicationInUniverse(item, universe)
-}
-
-func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
-	published, _ := traceQueryRootCauseRankWireItemPublicationInUniverse(item, universe)
-	return published
 }
 
 // traceQueryRootCauseRankWireItemPublicationInUniverse publishes one rank row

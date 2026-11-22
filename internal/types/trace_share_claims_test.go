@@ -36,4 +36,23 @@ func TestTraceShareClaimsNoteRoundTrip(t *testing.T) {
 	if ParseTraceShareClaimsNote("", "trace_query:win#root_cause_rank:5") != nil {
 		t.Fatalf("an absent note parses to nothing")
 	}
+	// HMC377 round 11 (R-377-11 ①): an Extended entry carries the per-segment
+	// resolution in an eighth field; every other entry keeps seven fields.
+	t.Run("extended entry", func(t *testing.T) {
+		value := EncodeTraceShareClaimsNote([]TraceShareClaimNote{
+			{Part: "anchored", Role: "chain_seat", ShareMS: 1.903, HolderPositions: []int{3}, Extended: true, ResolvedMS: 0.853, ReturnedMS: 1.05},
+			{Part: "gated_share", Role: "gated_share_seat", ShareMS: 1.903, Resolved: true, Exact: true, HolderPositions: []int{5}, Extended: true, ResolvedMS: 1.903, Successor: true},
+		})
+		if value != "anchored/chain_seat/0/0/0/1.903/3/r=0.853,t=1.050,s=0;gated_share/gated_share_seat/1/1/0/1.903/5/r=1.903,t=0.000,s=1" {
+			t.Fatalf("extended note value drifted: %q", value)
+		}
+		got := ParseTraceShareClaimsNote(value+";anchored/chain_seat/0/0/0/1.000//r=x,t=0,s=0;anchored/chain_seat/0/0/0/1.000//r=1,s=0", "trace_query:win#root_cause_rank:5")
+		want := []TraceCausalProjectionShareClaim{
+			{Part: "anchored", Role: "chain_seat", ShareMS: 1.903, HolderEvidenceIDs: []string{"trace_query:win#root_cause_rank:3"}, ResolvedMS: 0.853, ReturnedMS: 1.05},
+			{Part: "gated_share", Role: "gated_share_seat", ShareMS: 1.903, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"trace_query:win#root_cause_rank:5"}, ResolvedMS: 1.903, Successor: true},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("extended parse drifted (malformed extensions are dropped whole):\n got %+v\nwant %+v", got, want)
+		}
+	})
 }

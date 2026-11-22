@@ -379,6 +379,17 @@ func TestGatedShareConstituentRidesSideLane(t *testing.T) {
 
 // The claim-visibility patch: when truncation killed the claiming inversion
 // seat, the split sentences downgrade their co-publication claim.
+//
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+// 2026-11-21): old → new. Old: patchGatedShareSummariesForClaimVisibility
+// rewrote the verbatim anchor of every split sentence of a pid when no
+// priority-inversion seat of that pid was on the board (a second, pid-keyed
+// share-relation decision beside the span-keyed withdrawal rewrite — review 10
+// R10H-1/2, ~/hmc-work/hmc377/fix10/review-holders/univ/faces/head_UR3{b,c,d}_*).
+// New: the split's carved share is a typed claim held by the claiming seats
+// in the gated-share role, and the one resolver (resolveRankShareClaims)
+// writes the compaction-disclosure form when they are not on the board. The
+// pinned bytes are unchanged; the call is the resolver.
 func TestGatedShareClaimVisibilityPatch(t *testing.T) {
 	chain := ChainResult{Target: ThreadRef{PID: 100}}
 	agg := levelMergeTestAggregateSeat(200, 15,
@@ -393,7 +404,7 @@ func TestGatedShareClaimVisibilityPatch(t *testing.T) {
 		}
 		withoutClaimant = append(withoutClaimant, item)
 	}
-	patchGatedShareSummariesForClaimVisibility(withoutClaimant)
+	resolveRankShareClaims(withoutClaimant, nil)
 	for _, item := range withoutClaimant {
 		if item.GatedShareFullMs > 0 && !strings.Contains(item.Summary, levelMergeSummaryClaimSeatUnpublished) {
 			t.Fatalf("unpublished claimant must downgrade the sentence: %q", item.Summary)
@@ -403,7 +414,7 @@ func TestGatedShareClaimVisibilityPatch(t *testing.T) {
 		}
 	}
 	// Published claimant → sentences untouched (idempotent negative).
-	patchGatedShareSummariesForClaimVisibility(items)
+	resolveRankShareClaims(items, nil)
 	for _, item := range items {
 		if item.GatedShareFullMs > 0 && !strings.Contains(item.Summary, levelMergeSummaryClaimSeatOnBoard) {
 			t.Fatalf("published claimant must keep the on-board claim: %q", item.Summary)

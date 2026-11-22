@@ -900,6 +900,13 @@ const (
 	// are its own account less this share; the display names the holders and
 	// says the share is counted there. Absent on every other row.
 	TraceNoteKeyChainAnchorRepresentedHeld = "chain_anchor_represented_held_ms"
+	// TraceNoteKeyShareReturned (HMC377 round 11, R-377-11 ①): on a row that
+	// is the published successor of a holder the trace_query publication gate
+	// withdrew, the part of its claimed shares that passed back to it — the
+	// row counts that share with its own value (a ◇ remainder or a
+	// LEVELMERGE-1 residual publishes its own account plus it, a constituent
+	// publishes it). Absent on every other row.
+	TraceNoteKeyShareReturned = "share_returned_ms"
 	// TraceNoteKeyShareClaims (HMC377 fix round 5): the typed holder
 	// references of every claim a rank row's sentences make that a share of
 	// its account is held by another seat of the same board — part, holder
@@ -1986,6 +1993,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// HMC377 round 10 (R-377-10 ③): the partially represented satellite's
 	// share counted at its resolved holders.
 	{TraceNoteKeyChainAnchorRepresentedHeld, "state", TraceNoteCarrierHardConsumer},
+	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's published
+	// successor took back.
+	{TraceNoteKeyShareReturned, "state", TraceNoteCarrierHardConsumer},
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	{TraceNoteKeyShareClaims, "state", TraceNoteCarrierHardConsumer},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split

@@ -30,6 +30,19 @@ package tracequery
 //     published only as context), no longer the compaction form "the owning
 //     seat is not on the published board" (register R9H-4, same perturb.txt
 //     PB[18]/PB[19] SUMMARY).
+//
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+// 2026-11-21): old → new. Old (round 10): a ◇ remainder whose anchored
+// holder the gate withdrew kept only its remainder value (20.000) and said the
+// owning row is context only — the anchored 7.000 had no ◎ carrier (review 10
+// R10H-3: NetEase injection 11098 Σ0.310 of raw 1.130, 6934 0.075 of 0.106;
+// Douyin 11317 92.594 of 94.225, 10879 247.364 of 248.214 —
+// ~/hmc-work/hmc377/fix10/review-holders/perturb/out/{ne_w11098,dy_w11317}.perturb.txt,
+// raw/rawall_{ne11077,dy11105}.json). New: each segment the withdrawn seat
+// held for a claim no other published seat covers passes to one published
+// successor — the ◇ row's anchored claim comes first — so the remainder
+// carries its whole account 27.000 (ShareReturnedMs 7.000) and its span says
+// it counts that share with its own value.
 
 import (
 	"reflect"
@@ -90,12 +103,15 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		published := append([]RootCauseRankItem(nil), board...)
 		WithdrawRankShareHolders(published, nil, []bool{false, true}, nil)
 		rem, seat := published[0], published[1]
-		if c := rem.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 {
-			t.Errorf("the claim on a withdrawn holder stays resolved: %+v", c)
+		if c := rem.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 || !near(c.ReturnedMs, 7.0, 0.0005) {
+			t.Errorf("the claim on a withdrawn holder must pass its segments back to the remainder: %+v", c)
 		}
-		if !strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeatContext) || strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat+" ") ||
+		if !strings.Contains(rem.Summary, rspaSummaryOwnedReturned) || strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeat+" ") ||
 			strings.Contains(rem.Summary, rspaSummaryOwnedByChainSeatUnpublished) {
-			t.Errorf("the remainder's span must say the holding row is published only as context: %q", rem.Summary)
+			t.Errorf("the remainder's span must say the holding row is context only and this row counts the share: %q", rem.Summary)
+		}
+		if !near(rem.RunnableMs, 27.0, 0.0005) || !near(rem.ShareReturnedMs, 7.0, 0.0005) {
+			t.Errorf("the remainder carries its whole account (one carrier): runnable=%.3f returned=%.3f", rem.RunnableMs, rem.ShareReturnedMs)
 		}
 		if seat.ShareHolderKey != "" {
 			t.Errorf("the withdrawn seat keeps the holder key %q", seat.ShareHolderKey)

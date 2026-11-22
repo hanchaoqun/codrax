@@ -222,11 +222,19 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorRepresentedHeldMS": {Status: "displayed", Ref: "HMC377 R-377-10 ③ 行2 锚定份部分由链席[E#]代表:全账=行值+已计入份,其中已计入[E#]"},
 	// HMC377 round 10 (R-377-10 ②): 构成份 ◎ 排除门 / 脚注普查 / 反转席指针同一裁决 + 行2 自计句.
 	"GatedShareClaimWithdrawn": {Status: "displayed", Ref: "HMC377 R-377-10 ② 构成份 ◎ 排除门+脚注普查+[E#] 指针跳过+行2 由本行自计句(构成/残余)"},
+	// HMC377 round 11 (R-377-11 ①): 行2 ◇ 余段席「锚定份中 X ms 的持有行仅作上下文,本行以自身数值计入,本行共计 Y」/
+	// 卫星行承载句 / 残余席收回句 + 构成份部分收回句.
+	"ShareReturnedMS": {Status: "displayed", Ref: "HMC377 R-377-11 ① 行2 继承份(撤回持有行的段由本行计入):◇余段席共计句、卫星行承载句、残余席本席计句、构成份部分收回句"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
-	"GatedShareClaimedMS":           {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
-	"GatedShareFullMS":              {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
-	"GatedShareConstituentSeat":     {Status: "displayed", Ref: "LEVELMERGE-1 件2 A 构成行降道词面门(归因已由反转席计入)"},
-	"GatedShareClaimSeats":          {Status: "displayed", Ref: "LEVELMERGE-1 件2 [E#] 反转席互指指针(all-or-nothing 解析)"},
+	"GatedShareClaimedMS":       {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
+	"GatedShareFullMS":          {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
+	"GatedShareConstituentSeat": {Status: "displayed", Ref: "LEVELMERGE-1 件2 A 构成行降道词面门(归因已由反转席计入)"},
+	// EVOLUTION RECORD (HMC377 round 11, R-377-11 ①): displayed →
+	// projection_gate. The [E#] claim-seat pointer reads the split's typed
+	// gated-share claim (ShareClaims, one resolver); the line intervals ride
+	// the projection merges only (same-fact absorb / ×N Σ clear), the
+	// ChainAnchorUnwalkedSeat precedent.
+	"GatedShareClaimSeats":          {Status: "projection_gate", Ref: "HMC377 R-377-11 ①: the claim seats' line identity rides the projection merges only; the [E#] pointer reads the typed gated-share claim (ShareClaims), never these intervals"},
 	"GatedShareOverlapDisclosureMS": {Status: "displayed", Ref: "LEVELMERGE-1 件2 裁定④ 其中X ms与[E#](反转席)重叠 fail-open 披露句"},
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record quartet — the 行2
 	// 分账 sub-line (runtimeTraceProjGatedCompositeEdgeShareTagText) + the ◎
@@ -659,6 +667,8 @@ var rankItemContract = map[string]fieldDisposition{
 	// HMC377 round 10 (R-377-10 ③②).
 	"ChainAnchorRepresentedHeldMs": {Status: "note_consumed", Ref: "chain_anchor_represented_held_ms → Node.ChainAnchorRepresentedHeldMS(R-377-10 ③ 部分代表份)"},
 	"GatedShareClaimWithdrawn":     {Status: "note_consumed", Ref: "gated_share_claim_withdrawn → Node.GatedShareClaimWithdrawn(R-377-10 ② 反转席仅作上下文)"},
+	// HMC377 round 11 (R-377-11 ①).
+	"ShareReturnedMs": {Status: "note_consumed", Ref: "share_returned_ms → Node.ShareReturnedMS(R-377-11 ① 撤回持有行的段由继承行计入)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
 	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},

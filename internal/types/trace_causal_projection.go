@@ -879,6 +879,14 @@ type TraceCausalProjectionNode struct {
 	// share); the display adds it back only to state the whole account and
 	// names the holders where the share is counted. 0 on every other row.
 	ChainAnchorRepresentedHeldMS float64 `json:"chain_anchor_represented_held_ms,omitempty"`
+	// ShareReturnedMS (HMC377 round 11, R-377-11 ①; compiled from the
+	// share_returned_ms note): on a row that is the published successor of a
+	// holder the publication gate withdrew, the part of its claimed shares
+	// that passed back to it — it counts that share with its own value (a ◇
+	// remainder or a LEVELMERGE-1 residual's value channels include it; a
+	// constituent's value is it; a satellite's own account already did). The
+	// display names this row as the one counting it. 0 on every other row.
+	ShareReturnedMS float64 `json:"share_returned_ms,omitempty"`
 	// ShareClaims (HMC377 fix round 5; compiled from the share_claims note,
 	// never serialized): every claim this row makes that a share of its
 	// account is held by another seat, as the engine resolved it against the
@@ -4342,6 +4350,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
 	// HMC377 round 10 (R-377-10 ③): the partially represented share.
 	node.ChainAnchorRepresentedHeldMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorRepresentedHeld)
+	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's successor
+	// took back.
+	node.ShareReturnedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyShareReturned)
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	node.ShareClaims = ParseTraceShareClaimsNote(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyShareClaims), record.ID)
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.

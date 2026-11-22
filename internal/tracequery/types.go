@@ -4558,6 +4558,18 @@ type RootCauseRankItem struct {
 	// (the row is not represented whole). Written by the one resolver
 	// (resolveRankShareClaims), never from text; 0 on every other row.
 	ChainAnchorRepresentedHeldMs float64 `json:"chain_anchor_represented_held_ms,omitempty"`
+	// ShareReturnedMs (HMC377 round 11, batch-owner ruling R-377-11 ①,
+	// 2026-11-21): set only on a published copy, on a row that is the
+	// published successor of a holder the trace_query publication gate
+	// withdrew — the part of this row's claimed shares whose instants that
+	// holder held and that passed back to this row, which counts it with its
+	// own value. A ◇ remainder or a LEVELMERGE-1 residual seat publishes its
+	// own account plus this share; a LEVELMERGE-1 constituent row publishes
+	// this share; a represented row or an R-377-4 inversion detail already
+	// publishes its whole account (it says it counts the share). Written by
+	// the one resolver (resolveRankShareClaims), never from text; 0 on every
+	// other row and on every engine result.
+	ShareReturnedMs float64 `json:"share_returned_ms,omitempty"`
 	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
 	// the (pid, runnable) chain AGGREGATE seat's interval-accounting split
 	// against the same thread's priority-inversion chain seat(s), whose R5d
@@ -4777,12 +4789,13 @@ type RootCauseRankItem struct {
 	ShareHolderKey string                `json:"-"`
 	rspaClaimSpans []rspaClaimSpan
 	rspaHeld       []rspaHeldShare
-	// rspaRepresentedAccount (unexported, HMC377 round 10, never serialized):
-	// the row's own value channels as minted, kept while its represented
-	// sentence resolves in part, so the resolver writes the carried-elsewhere
-	// share off the same account on every run (idempotent) and restores it
-	// when the sentence resolves whole or not at all.
-	rspaRepresentedAccount *rspaValueChannels
+	// rspaMintedAccount (unexported, HMC377 rounds 10–11, never serialized):
+	// the row's own value channels as minted, kept while the resolver writes
+	// an adjustment from its claims (a represented sentence that resolves in
+	// part; a share a ◇ remainder, a LEVELMERGE-1 residual or constituent row
+	// took back from a gate-withdrawn holder), so every run writes off the
+	// same account (idempotent) and restores it when no adjustment applies.
+	rspaMintedAccount *rspaValueChannels
 	// dioCausePartition / dioPartitionInstants (HMC377 fix round 6, never
 	// serialized): a formal D/IO window seat is one proof partition of its
 	// thread's D/IO account (§29.50.5) — the partition's typed identity rides

@@ -668,6 +668,9 @@ var traceNoteKeyGoldenRows = []string{
 	"seqno|dma_fence|display_only",
 	// HMC377 fix round 5: the resolved share-claim holder references.
 	"share_claims|state|hard_consumer",
+	// HMC377 round 11 (R-377-11 ①): the share a gate-withdrawn holder's
+	// published successor took back.
+	"share_returned_ms|state|hard_consumer",
 	"signal|io|display_only",
 	"significant|causal_rank|soft_consumer",
 	"sleep|state|hard_consumer",

@@ -7,8 +7,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// levelmergeGatedClaim is the split's typed gated-share claim as the
+// projection compiles it from the share_claims note (HMC377 round 11): the
+// carved share, resolved to the claiming inversion seat's record when holders
+// are given.
+func levelmergeGatedClaim(ms float64, holders ...string) []types.TraceCausalProjectionShareClaim {
+	c := types.TraceCausalProjectionShareClaim{Part: string(tracequery.RootCauseShareClaimGatedShare),
+		Role: string(tracequery.RootCauseShareHolderGatedShareSeat), ShareMS: ms}
+	if len(holders) > 0 {
+		c.Resolved, c.Exact, c.ResolvedMS, c.HolderEvidenceIDs = true, true, ms, holders
+	}
+	return []types.TraceCausalProjectionShareClaim{c}
+}
 
 // levelmergeGatedShareProjection is the representative shape: the residual
 // (B) aggregate seat + its demoted A constituent clone + the claiming
@@ -16,6 +30,16 @@ import (
 // lines), two member occurrence VIEW rows of the same (subject, runnable)
 // family, and a second thread wearing the fail-open 裁定④ overlap disclosure
 // (its claim seat deliberately unresolvable → generic noun form).
+//
+// EVOLUTION RECORD (HMC377 round 11, batch-owner ruling R-377-11 ①,
+// 2026-11-21): old → new. Old: the claim-seat pointer matched the typed
+// GatedShareClaimSeats line intervals against drawn priority-inversion rows —
+// a second path deciding the split's share relation beside the engine. New:
+// the split's carved share is a typed claim of the one resolver; the pointer
+// reads the claim's holder records (Node.ShareClaims, compiled from the
+// share_claims note). The fixture rows therefore carry the claims the engine
+// writes for this shape (B and A resolved to lm-inv; the fail-open row's claim
+// resolved to no drawn row); every pinned word face is unchanged.
 func levelmergeGatedShareProjection() types.TraceCausalProjection {
 	inv := elimChainNode("lm-inv", "dep_worker-200", "priority_inversion_candidate", "running", 2, 8.0, 300)
 	inv.ChainDepth = 2
@@ -26,6 +50,7 @@ func levelmergeGatedShareProjection() types.TraceCausalProjection {
 	b.GatedShareClaimedMS = 10
 	b.GatedShareFullMS = 15
 	b.GatedShareClaimSeats = []string{"300..305"}
+	b.ShareClaims = levelmergeGatedClaim(10, "lm-inv")
 
 	a := elimChainNode("lm-a", "dep_worker-200", "runnable_wait", "runnable", 0, 10.0, 100)
 	a.Rank = 0
@@ -35,6 +60,7 @@ func levelmergeGatedShareProjection() types.TraceCausalProjection {
 	a.GatedShareFullMS = 15
 	a.GatedShareConstituentSeat = true
 	a.GatedShareClaimSeats = []string{"300..305"}
+	a.ShareClaims = levelmergeGatedClaim(10, "lm-inv")
 
 	// Two member occurrence VIEW rows of the (dep_worker-200, runnable)
 	// family — the ORD-A membership predicate shape (wakeup_causal_impact,
@@ -56,6 +82,7 @@ func levelmergeGatedShareProjection() types.TraceCausalProjection {
 	partial := elimChainNode("lm-partial", "dep_partial-201", "runnable_wait", "runnable", 4, 8.0, 400)
 	partial.GatedShareOverlapDisclosureMS = 2.5
 	partial.GatedShareClaimSeats = []string{"900..910"} // unresolvable → generic noun
+	partial.ShareClaims = levelmergeGatedClaim(2.5, "lm-undrawn")
 
 	// A D-state chain row keeps the ⛓ glyph's icon legend lit beside the ◎
 	// channel word (the representative-fixture convention — xlane2 同款).
@@ -273,6 +300,7 @@ func levelmergeTrunkFoldProjection(gated bool) types.TraceCausalProjection {
 		b.GatedShareClaimedMS = 10
 		b.GatedShareFullMS = 15
 		b.GatedShareClaimSeats = []string{"300..305"}
+		b.ShareClaims = levelmergeGatedClaim(10)
 	}
 	plain := elimChainNode("lmtf-plain", "dep_worker-200", "runnable_wait", "runnable", 3, 2.0, 500)
 	return types.TraceCausalProjection{
@@ -346,20 +374,25 @@ func TestLevelMergeCrossRefSameBoardGate(t *testing.T) {
 // unresolvable or malformed claim span zeroes the whole [E#] list and the
 // sentence keeps the generic noun (宁漏勿假指); the untouched sibling row
 // still resolves (per-row precision).
+// EVOLUTION RECORD (HMC377 round 11, R-377-11 ①): old → new. Old: the cases
+// were a claim-seat line-interval roster with an unmatched / malformed span.
+// New: the pointer reads the typed claim, so the all-or-nothing cases are a
+// holder record drawn nowhere here and a claim that did not resolve; the
+// untouched sibling and the generic-noun fallback are pinned as before.
 func TestLevelMergeClaimRefAllOrNothing(t *testing.T) {
 	cases := []struct {
-		name string
-		span string
+		name   string
+		claims []types.TraceCausalProjectionShareClaim
 	}{
-		{"unmatched span zeroes the list", "900..910"},
-		{"malformed span zeroes the list", "not_a_span"},
+		{"a holder drawn nowhere zeroes the list", levelmergeGatedClaim(10, "lm-inv", "lm-undrawn")},
+		{"an unresolved claim names no seat", levelmergeGatedClaim(10)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			projection := levelmergeGatedShareProjection()
 			for i := range projection.OnChainCauses {
 				if projection.OnChainCauses[i].EvidenceID == "lm-b" {
-					projection.OnChainCauses[i].GatedShareClaimSeats = []string{"300..305", tc.span}
+					projection.OnChainCauses[i].ShareClaims = tc.claims
 				}
 			}
 			model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
@@ -370,7 +403,7 @@ func TestLevelMergeClaimRefAllOrNothing(t *testing.T) {
 				t.Fatalf("fixture drifted")
 			}
 			if b.GatedShareClaimRefs != nil {
-				t.Fatalf("a partial span roster must zero the refs, got %v", b.GatedShareClaimRefs)
+				t.Fatalf("a partial holder roster must zero the refs, got %v", b.GatedShareClaimRefs)
 			}
 			invTag := strings.TrimSpace(inv.EvidenceTag)
 			if len(a.GatedShareClaimRefs) != 1 || a.GatedShareClaimRefs[0] != invTag {

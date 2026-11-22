@@ -408,7 +408,7 @@ func rspaRemainderSentence(thread ThreadRef, family string, remainder, anchored,
 	var s rspaSentence
 	ownerPhrase := rspaSummaryNoAnchoredShare
 	if anchored > 0 {
-		ownerPhrase = s.spanContext(rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, rspaSummaryOwnedByChainSeatContext, owner)
+		ownerPhrase = s.ownerSpan(owner)
 	}
 	s.text = fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
 		threadLabel(thread), family, remainder, full, anchored, ownerPhrase)
@@ -479,11 +479,47 @@ func rspaLaneDemotionSummary(anchored, full float64, detail string) string {
 // whole account.
 func rspaInversionRepresentedSummary(anchored, full float64, anchoredClaim, remainderClaim RootCauseShareClaim) rspaSentence {
 	var s rspaSentence
-	published := s.spanContext(rspaInversionChainSeatPublishes, rspaInversionChainSeatCompacted, rspaInversionChainSeatContext, anchoredClaim)
+	head, published, at := s.inversionDetailHead(anchoredClaim)
 	remainder := s.span(rspaInversionRemainderPublished, rspaInversionRemainderCompacted, remainderClaim)
-	s.text = fmt.Sprintf("; represented by this thread's chain seat: %.3fms of this %.3fms ready-time account lies inside the thread's typed wakeup-dependency windows, %s, and %.3fms lies outside them (%s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) rides as that seat's lossless detail, not as a second object for the same thread",
-		anchored, full, published, full-anchored, remainder)
+	tail := s.inversionDetailTail(at)
+	s.text = fmt.Sprintf("%s%.3fms of this %.3fms ready-time account lies inside the thread's typed wakeup-dependency windows, %s, and %.3fms lies outside them (%s) — this whole-account row (its same-CPU lower-priority overlap is measured over the whole ready account and is never split) %s",
+		head, anchored, full, published, full-anchored, remainder, tail)
 	return s
+}
+
+// rspaInversionDetailHead / rspaInversionDetailTail are the phrases of every
+// R-377-4 detail sentence that name the chain seat the detail rides under
+// (held form; the compaction form is the same words — the engine cap cut a
+// holder, the seat is still the row's family). HMC377 round 11 (R-377-11 ①):
+// when the publication gate withdrew that seat they say it is published only
+// as context, and the detail no longer claims to be that seat's detail.
+const (
+	rspaInversionDetailHeadHeld    = "; represented by this thread's chain seat: "
+	rspaInversionDetailHeadContext = "; this thread's chain seat " + rspaHolderContextOnly + ": "
+	rspaInversionDetailTailHeld    = "rides as that seat's lossless detail, not as a second object for the same thread"
+	rspaInversionDetailTailContext = "rides as lossless detail, not as a second object for the same thread"
+)
+
+// inversionDetailHead registers the head phrase and the chain-seat phrase of
+// an R-377-4 detail sentence on the anchored claim (registered once); at is
+// that claim's index for the tail.
+func (s *rspaSentence) inversionDetailHead(anchored RootCauseShareClaim) (head, published string, at int) {
+	before := len(s.claims)
+	head = s.spanForms(rspaSpanForms{held: rspaInversionDetailHeadHeld, compact: rspaInversionDetailHeadHeld,
+		context: rspaInversionDetailHeadContext, successor: rspaInversionDetailHeadContext, returned: rspaInversionDetailHeadContext}, anchored)
+	at = s.lastClaim(before)
+	published = s.spanOnClaim(rspaSpanForms{held: rspaInversionChainSeatPublishes, compact: rspaInversionChainSeatCompacted,
+		context: rspaInversionChainSeatContext, successor: rspaInversionChainSeatSuccessor}, at)
+	if at < 0 {
+		published = rspaInversionChainSeatPublishes
+	}
+	return head, published, at
+}
+
+// inversionDetailTail registers the tail phrase on the same anchored claim.
+func (s *rspaSentence) inversionDetailTail(at int) string {
+	return s.spanOnClaim(rspaSpanForms{held: rspaInversionDetailTailHeld, compact: rspaInversionDetailTailHeld,
+		context: rspaInversionDetailTailContext, successor: rspaInversionDetailTailContext, returned: rspaInversionDetailTailContext}, at)
 }
 
 // rspaInversionChainSeatPublishes / rspaInversionRemainderPublished are the
@@ -497,6 +533,10 @@ const (
 	rspaInversionChainSeatContext   = "which the row holding it publishes only as context, tier context_only"
 	rspaInversionRemainderPublished = "published as the thread's adjacent ready-time remainder"
 	rspaInversionRemainderCompacted = "the thread's adjacent ready-time remainder seat is not on the published board; see the compaction disclosure"
+	// rspaInversionChainSeatSuccessor (HMC377 round 11, R-377-11 ①): the
+	// chain seat was withdrawn by the publication gate and its segments passed
+	// to a published successor (the ◇ remainder or another row of this thread).
+	rspaInversionChainSeatSuccessor = "which another row of this thread on the published board counts (the row that held it is published only as context, tier context_only)"
 )
 
 // inversionAccountKey is the paired identity minted on an indivisible
@@ -579,6 +619,16 @@ func rspaRepresentedPartial(inside, full, heldMs, restMs float64, restContext bo
 	}
 	return fmt.Sprintf("; this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows: %.3fms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other %.3fms %s — this diagnostic projection rides the adjacent lane and its published values count only those %.3fms",
 		inside, full, heldMs, restMs, rest, restMs)
+}
+
+// rspaRepresentedSuccessor is the form of a represented sentence whose every
+// claim resolves while some of its share is held by the published successor
+// of a seat the publication gate withdrew (HMC377 round 11, R-377-11 ①): the
+// row is represented whole by another row of this thread, which is not a
+// chain seat.
+func rspaRepresentedSuccessor(inside, full float64) string {
+	return fmt.Sprintf("; anchored share counted by another row of this thread: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's dependency windows; the row that held that time %s, and another row of this thread on the published board counts it — this diagnostic projection rides the adjacent lane whole with every published value unchanged",
+		inside, full, rspaHolderContextOnly)
 }
 
 // rspaHolderContextOnly is the one clause every claim phrase takes when the
@@ -1668,6 +1718,38 @@ func rspaResurrectPeriodicChainSeat(chain ChainResult, pid int) (RootCauseRankIt
 const rspaSummaryOwnedByChainSeat = "(owned by the chain seat)"
 const rspaSummaryOwnedByChainSeatUnpublished = "(the owning seat is not on the published board; see the compaction disclosure)"
 const rspaSummaryOwnedByChainSeatContext = "(the owning row " + rspaHolderContextOnly + ")"
+
+// rspaSummaryOwnedBySuccessor / rspaSummaryOwnedReturned (HMC377 round 11,
+// R-377-11 ①): the owner phrase when the publication gate withdrew the
+// owning seat and the anchored share passed to its published successor —
+// another row of this thread, or this ◇ row itself, which then counts it with
+// its own value. rspaOwnerMixedForm is the phrase when the share ends split.
+const rspaSummaryOwnedBySuccessor = "(the owning row " + rspaHolderContextOnly + "; another row of this thread on the published board counts that share)"
+const rspaSummaryOwnedReturned = "(the owning row " + rspaHolderContextOnly + ", so this row counts that share with its own value)"
+
+// rspaOwnerMixedForm names each part of an anchored share that ended split
+// (HMC377 round 11): the part a chain seat on the board owns (or that another
+// row of this thread counts as a withdrawn seat's successor), the part that
+// passed back to this row, and the part whose owner is not on the board.
+func rspaOwnerMixedForm(st rspaSpanState) string {
+	var parts []string
+	if st.resolvedMs > rspaAnchorIdentityTolMs {
+		if st.successor {
+			parts = append(parts, fmt.Sprintf("%.3fms of it counted by another row of this thread on the published board", st.resolvedMs))
+		} else {
+			parts = append(parts, fmt.Sprintf("%.3fms of it owned by the chain seat", st.resolvedMs))
+		}
+	}
+	parts = append(parts, fmt.Sprintf("%.3fms whose owning row %s, so this row counts them with its own value", st.returnedMs, rspaHolderContextOnly))
+	if st.restMs > rspaAnchorIdentityTolMs {
+		if st.restWithdrawn {
+			parts = append(parts, fmt.Sprintf("%.3fms whose owning row %s", st.restMs, rspaHolderContextOnly))
+		} else {
+			parts = append(parts, fmt.Sprintf("%.3fms whose owning seat is not on the published board (see the compaction disclosure)", st.restMs))
+		}
+	}
+	return "(" + strings.Join(parts, "; ") + ")"
+}
 
 // rspaSummaryNoAnchoredShare — RNB-2 件3 (§29.88 W3 病③, 2026-07-15): the
 // zero-anchored remainder form. No seat holds any anchored share, so neither
