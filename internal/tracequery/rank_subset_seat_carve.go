@@ -75,9 +75,15 @@ func cpuConstraintSeatInstants(item RootCauseRankItem) ([]foldInterval, bool) {
 	return merged, true
 }
 
-// rspaCarvedHolderPhrases are the held and unpublished forms of the clause a
-// restriction seat writes for the share one chain-object role holds.
-func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) (held, compact string) {
+// rspaCarvedHolderPhrases are the forms of the clause a restriction seat
+// writes for the share one chain-object role holds: held, and its holder not
+// on the published board (compact, the cap's form). HMC377 round-11 merge
+// (R-377-11 ① × ②, R-377-8): the holder published only as context by the
+// gate (context), the share then counted by another row of this thread as
+// that holder's successor (successor), or passed back to this seat, which
+// counts it with its own value (returned) — a holder the gate published as
+// context is never called absent.
+func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) rspaSpanForms {
 	seat := "this thread's on-chain seat"
 	switch role {
 	case RootCauseShareHolderChainSeat:
@@ -87,9 +93,13 @@ func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) (held, c
 	case RootCauseShareHolderUnwalkedSeat:
 		seat = "this thread's own on-chain seat for the waits the chain did not walk"
 	}
-	held = fmt.Sprintf("; %.3fms of it lies inside instants %s already publishes (one thread, one object: counted there, not here)", ms, seat)
-	compact = fmt.Sprintf("; %.3fms of it lies inside instants of %s, which is not on the published board (counted here)", ms, seat)
-	return held, compact
+	return rspaSpanForms{
+		held:      fmt.Sprintf("; %.3fms of it lies inside instants %s already publishes (one thread, one object: counted there, not here)", ms, seat),
+		compact:   fmt.Sprintf("; %.3fms of it lies inside instants of %s, which is not on the published board (counted here)", ms, seat),
+		context:   fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s (counted here)", ms, seat, rspaHolderContextOnly),
+		successor: fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s; another row of this thread on the published board counts them (not here)", ms, seat, rspaHolderContextOnly),
+		returned:  fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s, so this row counts them with its own value", ms, seat, rspaHolderContextOnly),
+	}
 }
 
 // carveCPUConstraintReadyInstants is the one-carrier pass over a board's
@@ -191,8 +201,7 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 				}
 				claim := rspaClaim(claimPart, role, x.Thread.PID, false, ms, part)
 				claim.carved = true
-				held, compact := rspaCarvedHolderPhrases(role, ms)
-				text += s.spanContext(held, compact, compact, claim)
+				text += s.spanForms(rspaCarvedHolderPhrases(role, ms), claim)
 			}
 			// Case A' (the thread's chain seat publishes its own account,
 			// which diverges from the anchored ledger): the remainder of the

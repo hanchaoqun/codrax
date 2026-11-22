@@ -827,14 +827,26 @@ func rspaWriteClaimSpans(item *RootCauseRankItem) {
 //
 // The row's minted value channels are kept aside while any adjustment
 // applies, so every run of the resolver writes from the same account.
+//
+// A carved claim (R-377-11 ②: a CPU-restriction seat's instants inside the
+// chain object's windows, a ◇ remainder's instants under the restriction) is
+// value-written by the carve accounting alone (rspaWriteCarvedShares): a
+// share that passed back to its claimant does not resolve, so the carve
+// writer already returns it. ShareReturnedMs still names it (the face's
+// "this row counts it" clause), but this writer never adds it a second time
+// (HMC377 round-11 merge: the naive merge published a restriction seat at its
+// account plus the returned share).
 func rspaWriteShareAccounts(item *RootCauseRankItem, claims []RootCauseShareClaim) {
 	tol := rspaAnchorIdentityTolMs
 	represented, sawRepresented, anyResolved := true, false, false
-	heldElsewhere, returned := 0.0, 0.0
+	heldElsewhere, returned, carvedReturned := 0.0, 0.0, 0.0
 	var gated *RootCauseShareClaim
 	for i := range claims {
 		c := claims[i]
 		returned += c.ReturnedMs
+		if c.carved {
+			carvedReturned += c.ReturnedMs
+		}
 		if c.Part == RootCauseShareClaimGatedShare && gated == nil {
 			gated = &claims[i]
 		}
@@ -858,6 +870,11 @@ func rspaWriteShareAccounts(item *RootCauseRankItem, claims []RootCauseShareClai
 		returned = 0
 	}
 	item.ShareReturnedMs = returned
+	// valueReturned: the returned share this writer adds to the row's value.
+	valueReturned := rspaClampNonNegative(returned - carvedReturned)
+	if valueReturned <= tol {
+		valueReturned = 0
+	}
 	less := 0.0
 	switch {
 	case sawRepresented:
@@ -888,10 +905,10 @@ func rspaWriteShareAccounts(item *RootCauseRankItem, claims []RootCauseShareClai
 		// its cumulative channel keeps the pre-split full account — so the
 		// share taken back returns to those channels alone.
 		item.GatedShareClaimWithdrawn = gated.Successor || gated.ReturnedMs > tol
-		rspaWriteMintedLess(item, -returned, false)
+		rspaWriteMintedLess(item, -valueReturned, false)
 		return
 	case item.ChainAnchorRemainderSeat:
-		less = -returned
+		less = -valueReturned
 	}
 	rspaWriteMintedLess(item, less, true)
 }
@@ -1036,29 +1053,39 @@ type rspaWithdrawnHold struct {
 // rspaSuccessorTier is the typed order in which the published claimants of a
 // withdrawn seat's segments take them (HMC377 round 11, R-377-11 ①): first a
 // claimant whose claim covers those instants as its own carved share — the
-// LEVELMERGE-1 constituent row (1), the ◇ remainder's anchored claim (2), the
-// residual seat taking back its carved share (3) — else the claimant itself:
-// a represented row (4) or an R-377-4 inversion detail (5, published as
+// LEVELMERGE-1 constituent row (1), a cause-specific subset seat's carved
+// anchored claim (2), the ◇ remainder's anchored claim (3), the residual
+// seat taking back its carved share (4) — else the claimant itself: a
+// represented row (5) or an R-377-4 inversion detail (6, published as
 // lossless detail: it keeps its whole account and holds nothing on the
 // board). 0: never a successor (a value-free disclosure, a chain seat's own
 // account, a part no withdrawn seat holds).
+//
+// Tier 2 (HMC377 round-11 merge, R-377-11 ②: the cause-specific seat keeps
+// its instants): a CPU-restriction seat's carved claim on its own restricted
+// instants inside the withdrawn row's windows comes before the thread's ◇
+// remainder, whose anchored claim covers the same instants — so the seat
+// carries them whatever the two rows' board order (a value order), and the
+// remainder takes the rest of the withdrawn row's segments.
 func rspaSuccessorTier(row RootCauseRankItem, c RootCauseShareClaim, isDetail bool) int {
 	switch {
 	case c.disclosure || c.Part == RootCauseShareClaimChainAccount:
 		return 0
 	case isDetail:
 		if c.Part == RootCauseShareClaimAnchored {
-			return 5
+			return 6
 		}
 		return 0
 	case c.Part == RootCauseShareClaimGatedShare && row.GatedShareConstituentSeat:
 		return 1
-	case c.Part == RootCauseShareClaimAnchored && row.ChainAnchorRemainderSeat:
+	case c.Part == RootCauseShareClaimAnchored && row.ChainAnchorRemainderSeat && c.carved:
 		return 2
-	case c.Part == RootCauseShareClaimGatedShare:
+	case c.Part == RootCauseShareClaimAnchored && row.ChainAnchorRemainderSeat:
 		return 3
-	case c.Represented:
+	case c.Part == RootCauseShareClaimGatedShare:
 		return 4
+	case c.Represented:
+		return 5
 	}
 	return 0
 }
