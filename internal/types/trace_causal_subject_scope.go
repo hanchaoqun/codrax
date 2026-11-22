@@ -32,6 +32,15 @@ type TraceRankSubjects struct {
 	Member TraceThreadCoordinate `json:"member"`
 }
 
+// MemberIsTarget reports whether the ranked member is the thread its rank
+// board analyses (HMC377 round 13, R-377-13 ②): the typed analysed-thread
+// identity every face that draws the thread reads. The engine's tid-first
+// identity (sameThreadRef) decides — the two coordinates carry one TID. A nil
+// carrier or an unknown TID never matches; a comm label is never compared.
+func (s *TraceRankSubjects) MemberIsTarget() bool {
+	return s != nil && s.Target.TID > 0 && s.Target.TID == s.Member.TID
+}
+
 type TraceRankRequestBinding string
 
 const (

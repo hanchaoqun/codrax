@@ -10390,10 +10390,8 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		for _, line := range runtimeTraceProjSelfRowLines(row, selfWindowMS, zh) {
 			body.WriteString(line + "\n")
 		}
-		for _, j := range hosted[i] {
-			for _, line := range runtimeTraceProjSubordinateLines("│       ", runtimeTraceProjSelfReadySubsetText(model.SelfRows[j], zh)) {
-				body.WriteString(line + "\n")
-			}
+		for _, line := range runtimeTraceProjSelfReadySubsetLines(model.SelfRows, hosted[i], "│       ", model.Marks, zh) {
+			body.WriteString(line + "\n")
 		}
 	}
 	// GAP-B G11 (§27.5): the bounded self-wait relocation's overflow
@@ -10421,11 +10419,21 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	// marks collector (family-free renders compute the legacy 11 and stay
 	// byte-identical).
 	valueSlot := runtimeTraceProjTreeValueSlot(model, zh)
-	for _, row := range model.TreeRows {
+	// HMC377 round 13 (R-377-13 ②): on the flat board the analysed thread's
+	// restriction row is the same non-additive 「其中」 line under its ready
+	// account.
+	treeRows, treeHosted, treeFolded := runtimeTraceProjFlatBoardSubsetRows(model)
+	for i, row := range treeRows {
+		if treeFolded[i] {
+			continue
+		}
 		row.marks = model.Marks
 		row.ValueSlot = valueSlot
 		body.WriteString(runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh))
 		body.WriteString("\n")
+		for _, line := range runtimeTraceProjSelfReadySubsetLines(treeRows, treeHosted[i], runtimeTraceProjRowContinuationIndent(row), model.Marks, zh) {
+			body.WriteString(line + "\n")
+		}
 	}
 	if len(model.Adjacent) > 0 {
 		model.Marks.mark(runtimeTraceProjMarkAdjacentStanza)
@@ -11467,61 +11475,154 @@ func runtimeTraceProjSeatSelfComponentRows(model *runtimeTraceProjTreeModel) {
 }
 
 // runtimeTraceProjSelfReadySubsetHosts (HMC377 round 12, batch-owner ruling
-// R-377-12 ④) pairs each of the analysed thread's CPU-restriction self rows
-// with the self row that draws its ready account: the restriction row
-// publishes a subset of the thread's ready time, and the whole account
-// contains every ready-subset seat of the same thread by construction, so the
-// tree never draws the two as additive rows. Typed by family and thread
-// identity (every self row is the analysed thread's; the host is a census
-// ready-account row — runnable_wait / priority_inversion_runnable_wait, the
-// thread's own unsplit account — and the folded row a cpu_affinity_or_cpuset
-// row); no instants or values decide. The host is the first such row in the
-// stanza; with no host on the stanza the restriction row keeps its own row.
-// ◎ and the native board are untouched (the rows stay in the model).
+// R-377-12 ④; round 13, R-377-13 ②) pairs each of the analysed thread's
+// CPU-restriction rows with the thread's ready account drawn on the same
+// stanza: the restriction row publishes a subset of the thread's ready time,
+// and the whole account contains every ready-subset seat of the same thread by
+// construction, so the tree never draws the two as additive rows.
+//
+// The analysed thread is typed on every face that draws it — the self stanza
+// and the flat board alike: a rank row whose ranked member is its board's own
+// target (TraceRankSubjects.MemberIsTarget), on that board. The account is the
+// thread's census ready rows (runnable_wait / priority_inversion_runnable_wait;
+// a wakeup_chain seat of the same account is another ruler, never one of its
+// rows — WakeupChainStateSeat, the typed mint source); the restriction row is
+// a cpu_affinity_or_cpuset row. When the account spans several rows, the
+// 「其中」 line hangs on the account block after its last row (rows are in
+// drawing order), so it never claims containment in one particular row. No
+// instants or values decide. With no account row on the stanza the restriction
+// row keeps its own row. ◎ and the native board are untouched (the rows stay
+// in the model).
+//
+// EVOLUTION RECORD (R-377-13 ②, review-12 R12P-1/R12P-5/R12N-3): old → new =
+// self stanza only, the host the FIRST census row by order, identity by the
+// stanza (path label) → every stanza that draws the analysed thread, the host
+// the account block's LAST row, identity typed. The first-candidate host was
+// correct on n07w by accident (mutants M4b/U16/M4c moved the line and passed
+// every test). Deleted, as no reachable shape distinguished them: the
+// split-row guard (ChainAnchorRemainderSeat / ChainAnchorFullMS, mutant
+// M4a/U15), the runnable-state guard, the data-row guard (a transit row
+// carries no rank subjects) and the empty-[E#] guard (every rank row is
+// indexed). Evidence:
+// ~/hmc-work/hmc377/fix12/review-population/evidence/{D2_flatboard_restriction,D4_host_mutants}.txt.
 func runtimeTraceProjSelfReadySubsetHosts(rows []runtimeTraceProjTreeRow) (hosted map[int][]int, folded map[int]bool) {
-	host := -1
+	type account struct {
+		tid   int
+		board runtimeTraceProjRankBoardRef
+		last  int
+	}
+	var accounts []*account
+	// accountOf reads the row's typed analysed-thread identity: the account
+	// of its board's analysed thread, nil for a row of any other thread.
+	accountOf := func(row runtimeTraceProjTreeRow, open bool) *account {
+		if !row.Node.RankSubjects.MemberIsTarget() {
+			return nil
+		}
+		tid, board := row.Node.RankSubjects.Member.TID, runtimeTraceProjRankBoardRefOfNode(row.Node)
+		for _, a := range accounts {
+			if a.tid == tid && a.board.same(board) {
+				return a
+			}
+		}
+		if !open {
+			return nil
+		}
+		accounts = append(accounts, &account{tid: tid, board: board})
+		return accounts[len(accounts)-1]
+	}
 	for i, row := range rows {
-		n := row.Node
-		if !row.HasData || strings.TrimSpace(n.StateKind) != "runnable" || n.ChainAnchorRemainderSeat || n.ChainAnchorFullMS > 0 {
+		if row.Node.WakeupChainStateSeat() {
+			continue // another ruler of the account, never a part of it
+		}
+		switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(row.Node.TypeToken, row.Node.Object)) {
+		case "runnable_wait", "priority_inversion_runnable_wait":
+			if a := accountOf(row, true); a != nil {
+				a.last = i
+			}
+		}
+	}
+	for i, row := range rows {
+		if runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(row.Node.TypeToken, row.Node.Object)) != "cpu_affinity_or_cpuset" {
 			continue
 		}
-		switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(n.TypeToken, n.Object)) {
-		case "runnable_wait", "priority_inversion_runnable_wait":
-			host = i
-		}
-		if host >= 0 {
-			break
-		}
-	}
-	if host < 0 {
-		return nil, nil
-	}
-	for i, row := range rows {
-		if i == host || !row.HasData || strings.TrimSpace(row.EvidenceTag) == "" ||
-			runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(row.Node.TypeToken, row.Node.Object)) != "cpu_affinity_or_cpuset" {
+		a := accountOf(row, false)
+		if a == nil {
 			continue
 		}
 		if hosted == nil {
 			hosted, folded = map[int][]int{}, map[int]bool{}
 		}
-		hosted[host] = append(hosted[host], i)
+		hosted[a.last] = append(hosted[a.last], i)
 		folded[i] = true
 	}
 	return hosted, folded
 }
 
+// runtimeTraceProjFlatBoardSubsetRows (HMC377 round 13, R-377-13 ②) is the
+// flat board's (no self stanza: the wakeup path did not resolve, every row is
+// a flat sibling) render copy of its tree rows with the analysed thread's
+// restriction rows drawn as 「其中」 lines: the hosts and folded rows of
+// runtimeTraceProjSelfReadySubsetHosts, and the rows with the last drawn
+// sibling closing the lane (└─) when a folded row was the last one. On a
+// chain tree the analysed thread is the tree's root, drawn only in the self
+// stanza (its rows are consumed there); the trunk's threads are chain threads,
+// so their rows keep their seats.
+func runtimeTraceProjFlatBoardSubsetRows(model runtimeTraceProjTreeModel) ([]runtimeTraceProjTreeRow, map[int][]int, map[int]bool) {
+	rows := model.TreeRows
+	if strings.TrimSpace(model.Target) != "" {
+		return rows, nil, nil
+	}
+	hosted, folded := runtimeTraceProjSelfReadySubsetHosts(rows)
+	if len(folded) == 0 {
+		return rows, nil, nil
+	}
+	out := append([]runtimeTraceProjTreeRow(nil), rows...)
+	for i := len(out) - 1; i >= 0; i-- {
+		if folded[i] {
+			continue
+		}
+		if i < len(out)-1 && out[len(out)-1].Last {
+			out[i].Last = true
+		}
+		break
+	}
+	return out, hosted, folded
+}
+
 // runtimeTraceProjSelfReadySubsetText is the 「其中」 line of an analysed
 // thread's CPU-restriction row under its self ready account (R-377-12 ④): the
 // row's own value and [E#], said to be part of the thread's runnable time and
-// never added again.
+// never added again. The line carries the row's seat, so it wears the seat's
+// ➊..➎ badge (R-377-13 ③) in the existing pointer placement — the glyph
+// before the [E#] the sentence ends on (runtimeTraceProjProsePointer). The
+// caller records the badge mark at emission.
+//
+// EVOLUTION RECORD (R-377-13 ③, review-12 R12P-4): old → new = 「…不另计
+// [E6]」 → 「…不另计 ➌ [E6]」 when the row holds a TOP5 seat; the detail index
+// assigned ➌ to the row while no tree line carried it (y41c, y54c:
+// ~/hmc-work/hmc377/fix12/review-population/evidence/D3_badges.txt).
 func runtimeTraceProjSelfReadySubsetText(row runtimeTraceProjTreeRow, zh bool) string {
 	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(row.Node.Object, zh))
 	value := runtimeTraceProjNodeDisplayImpact(row.Node)
-	tag := strings.TrimSpace(row.EvidenceTag)
+	pointer := runtimeTraceProjProsePointer(row.Badge, strings.TrimSpace(row.EvidenceTag))
 	if zh {
-		return fmt.Sprintf("其中%s下%.3fms是本线程runnable时间里受限的那一部分,已含在上述自身runnable账内,不另计 [%s]", label, value, tag)
+		return fmt.Sprintf("其中%s下%.3fms是本线程runnable时间里受限的那一部分,已含在上述自身runnable账内,不另计%s", label, value, pointer)
 	}
-	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of this thread's runnable time, already inside its own runnable account above, never added again [%s]", value, label, tag)
+	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of this thread's runnable time, already inside its own runnable account above, never added again%s", value, label, pointer)
+}
+
+// runtimeTraceProjSelfReadySubsetLines renders the 「其中」 lines hosted by
+// one row under the given rails, recording the badge mark of every seat they
+// carry.
+func runtimeTraceProjSelfReadySubsetLines(rows []runtimeTraceProjTreeRow, hosted []int, indent string, marks *runtimeTraceProjMarkSet, zh bool) []string {
+	var out []string
+	for _, j := range hosted {
+		if runtimeTraceProjBadgeGlyph(rows[j].Badge) != "" {
+			marks.mark(runtimeTraceProjMarkBadge)
+		}
+		out = append(out, runtimeTraceProjSubordinateLines(indent, runtimeTraceProjSelfReadySubsetText(rows[j], zh))...)
+	}
+	return out
 }
 
 // runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1 →

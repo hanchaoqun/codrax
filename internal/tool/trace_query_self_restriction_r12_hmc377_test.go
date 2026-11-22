@@ -23,10 +23,19 @@ import (
 // it stays a ◎ member (◎ is unchanged).
 func TestHMC377R12SelfRestrictionIsAnOfWhichLine(t *testing.T) {
 	const target = "unyuan.app.chat-60814"
+	// EVOLUTION RECORD (HMC377 round 13, R-377-13 ②): old → new = the self
+	// rows carried no typed rank subjects → they carry the coordinates the
+	// trace_query rank wire mints on every rank row (TraceRankSubjects: the
+	// board target and the ranked member, here the same thread). The
+	// analysed-thread identity is now typed on every face that draws the
+	// thread (the self stanza and the flat board), so a fixture without it is
+	// no rank row of the analysed thread. The expectations are unchanged.
 	self := func(id, typ string, impact, eff float64, rank, line int) types.TraceCausalProjectionNode {
 		node := elimChainNode(id, target, typ, "runnable", rank, eff, line)
 		node.ImpactMS, node.CumulativeImpactMS, node.RunnableMS = impact, impact, impact
 		node.Causality, node.OnChainBasis = "self_wall_clock", "self_wall_clock_interval"
+		node.RankSubjects = &types.TraceRankSubjects{Target: types.TraceThreadCoordinate{TID: 60814, TGID: 60600},
+			Member: types.TraceThreadCoordinate{TID: 60814, TGID: 60600}}
 		return node
 	}
 	ready := self("r12-self-ready", "priority_inversion_runnable_wait", 5.905, 1.734, 13, 47110)

@@ -43,6 +43,15 @@ const (
 	traceRankSourceWakeupChain = "wakeup_chain"
 )
 
+// WakeupChainStateSeat reports a rank-board seat minted on the wakeup_chain
+// ruler of its thread's state account (HMC377 round 13, R-377-13 ②): its
+// instants lie inside the window_stats census account of the same thread and
+// state, so it is another ruler of that account, never a part of it. The
+// typed mint source the ×N merge reads (traceRankStateRulerOf) decides.
+func (n TraceCausalProjectionNode) WakeupChainStateSeat() bool {
+	return n.stateRuler == traceRankStateRulerWakeupChain
+}
+
 // traceRankStateRulerOf reads a rank-board record's ruler from its typed
 // source note. Records outside the rank-board family carry no ruler.
 func traceRankStateRulerOf(predicate string, notes []string) traceRankStateRuler {
