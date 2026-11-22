@@ -228,7 +228,9 @@ func hmc377R11Publish(u hmc377R11Universe, withdraw bool) ([]RootCauseRankItem, 
 	board := append([]RootCauseRankItem(nil), u.board...)
 	detail := append([]RootCauseRankItem(nil), u.detail...)
 	if withdraw {
-		WithdrawRankShareHolders(board, detail, u.withdrawn, u.withdrawnDetail)
+		// HMC377 round 12 (R-377-12 ①): the publication returns the rows —
+		// a lossless-detail row can return to the board.
+		board, detail = hmc377R12Withdraw(board, detail, u.withdrawn, u.withdrawnDetail)
 	}
 	return board, detail
 }
@@ -294,7 +296,16 @@ func TestHMC377R11ClaimResolvesPerHeldSegment(t *testing.T) {
 		if sat.ChainAnchorRepresentedByChainSeat || math.Abs(sat.ChainAnchorRepresentedHeldMs-0.853) > 0.0005 || math.Abs(sat.EffectiveImpactMs-1.05) > 0.0005 {
 			t.Errorf("the satellite counts only the rest: marker=%t held=%.3f eff=%.3f", sat.ChainAnchorRepresentedByChainSeat, sat.ChainAnchorRepresentedHeldMs, sat.EffectiveImpactMs)
 		}
-		if want := "0.853ms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other 1.050ms is published only as context, tier context_only"; !strings.Contains(sat.Summary, want) {
+		// EVOLUTION RECORD (HMC377 round 12, R-377-12 ②): the share has two
+		// dispositions (0.853 held by the chain seat on the board, 1.050
+		// passed back here), so the sentence takes the see-detail form.
+		//   old: "0.853ms of it is held by a seat of this thread on the
+		//        published board, which counts it, and the seat holding the
+		//        other 1.050ms is published only as context, tier context_only"
+		//   new: "its parts are counted by different rows; see the detail
+		//        index for each part — … count only the 1.050ms no other row on
+		//        the published board holds" (values unchanged)
+		if want := "and its parts are counted by different rows; see the detail index for each part — this diagnostic projection rides the adjacent lane and its published values count only the 1.050ms no other row on the published board holds"; !strings.Contains(sat.Summary, want) {
 			t.Errorf("summary %q\nwant %q", sat.Summary, want)
 		}
 	})
@@ -418,7 +429,15 @@ func TestHMC377R11RemainderCarriesTheWithdrawnHoldersShare(t *testing.T) {
 		if math.Abs(rem.EffectiveImpactMs-6.05) > 0.0005 || math.Abs(hmc377R11Returned(rem)-1.05) > 0.0005 {
 			t.Errorf("remainder eff=%.3f returned=%.3f, want 5.000 + the withdrawn holder's 1.050", rem.EffectiveImpactMs, hmc377R11Returned(rem))
 		}
-		if want := "(0.853ms of it owned by the chain seat; 1.050ms whose owning row is published only as context, tier context_only, so this row counts them with its own value)"; !strings.Contains(rem.Summary, want) {
+		// EVOLUTION RECORD (HMC377 round 12, R-377-12 ②): the computed mixed
+		// owner form (rspaOwnerMixedForm) is removed — a share with two
+		// dispositions takes the see-detail form; the value is unchanged.
+		//   old: "(0.853ms of it owned by the chain seat; 1.050ms whose owning
+		//        row is published only as context, tier context_only, so this
+		//        row counts them with its own value)"
+		//   new: "(its parts are counted by different rows; see the detail
+		//        index for each part)"
+		if want := "(its parts are counted by different rows; see the detail index for each part)"; !strings.Contains(rem.Summary, want) {
 			t.Errorf("remainder summary %q\nwant %q", rem.Summary, want)
 		}
 	})

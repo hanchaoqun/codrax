@@ -17002,7 +17002,11 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 	// positions, the projection's represented marker and partial share, the
 	// gated-share split's withdrawal marker, the renderer's holder words and
 	// the ◎ exclusions). A board with no withdrawn row is untouched.
-	tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn, withdrawnDetail)
+	// HMC377 round 12 (R-377-12 ①): the same re-run decides every
+	// lossless-detail pairing again — a detail row whose absorber the gate
+	// withdrew, or that the re-run leaves with instants of its own, returns
+	// to the published board.
+	published.Items, published.AbsorbedItems = tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn, withdrawnDetail)
 	return &published
 }
 

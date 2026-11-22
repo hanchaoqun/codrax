@@ -17,6 +17,12 @@ import (
 )
 
 // TraceCausalProjectionShareClaim is one resolved share claim of a node.
+// TraceShareClaimPartGatedShare (HMC377 round 12) is the claim part of the
+// LEVELMERGE-1 split's carved share — the one source of the token the engine
+// mints (tracequery.RootCauseShareClaimGatedShare) and the projection merges
+// read.
+const TraceShareClaimPartGatedShare = "gated_share"
+
 type TraceCausalProjectionShareClaim struct {
 	// Part: anchored / unwalked / remainder / chain_account.
 	Part string

@@ -163,9 +163,18 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		}
 		pd := append([]RootCauseRankItem(nil), detail...)
 		pb := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(pb, pd, []bool{true}, nil)
-		if c := pd[0].ShareClaims[0]; c.Resolved || pd[0].ChainAnchorRepresentedByChainSeat || pb[0].ShareHolderKey != "" {
-			t.Errorf("the detail row's claim on a withdrawn holder: %+v marker=%t key=%q", c, pd[0].ChainAnchorRepresentedByChainSeat, pb[0].ShareHolderKey)
+		// EVOLUTION RECORD (HMC377 round 12, R-377-12 ①): the publication
+		// returns its rows — a detail row whose claim names the withdrawn
+		// holder (and that no published successor takes) owns those instants
+		// and returns to the board; it is read from the returned slices.
+		//   old: the detail row is read in place from pd[0];
+		//   new: the row is the released board row after the withdrawn seat.
+		pb, pd = hmc377R12Withdraw(pb, pd, []bool{true}, nil)
+		if len(pb) != 2 || len(pd) != 0 {
+			t.Fatalf("the detail row owning the withdrawn holder's instants returns to the board: board %d detail %d", len(pb), len(pd))
+		}
+		if c := pb[1].ShareClaims[0]; c.Resolved || pb[1].ChainAnchorRepresentedByChainSeat || pb[0].ShareHolderKey != "" || pb[1].AbsorbedByRankFamily {
+			t.Errorf("the detail row's claim on a withdrawn holder: %+v marker=%t key=%q absorbed=%t", c, pb[1].ChainAnchorRepresentedByChainSeat, pb[0].ShareHolderKey, pb[1].AbsorbedByRankFamily)
 		}
 	})
 }

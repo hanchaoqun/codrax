@@ -111,6 +111,7 @@ func levelMergeResidualSentence(thread ThreadRef, residual, claimed, full float6
 		context:   "and is not counted by that seat " + levelMergeSummaryClaimSeatContext,
 		successor: "and is counted by another row of this thread on the published board " + levelMergeSummaryClaimSeatContext,
 		returned:  "and this seat counts it with its own value " + levelMergeSummaryClaimSeatContext,
+		detail:    "and " + rspaSharePartsSeeDetail,
 	}, claim)
 	s.text = fmt.Sprintf("%s runnable aggregate residual %.3fms after the interval-accounting split: %.3fms of the %.3fms scheduling-demand account lies inside the same thread's priority-inversion seat branch window(s) %s — claimed + residual = full account (one segment set, two disjoint shares, additive back)",
 		threadLabel(thread), residual, claimed, full, counted)
@@ -129,36 +130,14 @@ func levelMergeConstituentSentence(thread ThreadRef, claimed, full float64, clai
 	}
 	var s rspaSentence
 	s.text = s.spanForms(rspaSpanForms{
-		held:      attributed(levelMergeSummaryClaimSeatOnBoard),
-		compact:   attributed(levelMergeSummaryClaimSeatUnpublished),
-		context:   overlapping("constituent share only: it rides the adjacent lane and never competes"),
-		successor: overlapping("constituent share only: it rides the adjacent lane and never competes; another row of this thread on the published board counts this share"),
-		returned:  overlapping("constituent share: it rides the adjacent lane and counts this share with its own value"),
-		kind:      rspaSpanKindConstituent, label: label, inside: claimed, full: full,
+		held:     attributed(levelMergeSummaryClaimSeatOnBoard),
+		compact:  attributed(levelMergeSummaryClaimSeatUnpublished),
+		context:  overlapping("constituent share only: it rides the adjacent lane and never competes"),
+		returned: overlapping("constituent share: it rides the adjacent lane and counts this share with its own value"),
+		detail: fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure): %s — constituent share: it rides the adjacent lane and counts only the part no other row on the published board holds",
+			label, claimed, full, rspaSharePartsSeeDetail),
 	}, claim)
 	return s
-}
-
-// levelMergeConstituentMixedForm is a constituent row's sentence when its
-// carved share ends split (HMC377 round 11, R-377-11 ①): part counted by a
-// claiming inversion seat on the board (or by a withdrawn seat's successor),
-// part taken back by this row because its claiming seat is context only,
-// part held by a seat the cap cut.
-func levelMergeConstituentMixedForm(label string, claimed, full float64, st rspaSpanState) string {
-	var parts []string
-	if st.resolvedMs > rspaAnchorIdentityTolMs {
-		if st.successor {
-			parts = append(parts, fmt.Sprintf("%.3fms of it is counted by another row of this thread on the published board", st.resolvedMs))
-		} else {
-			parts = append(parts, fmt.Sprintf("%.3fms of it is already attributed through a claiming inversion seat's gated composite on this board", st.resolvedMs))
-		}
-	}
-	parts = append(parts, fmt.Sprintf("the claiming inversion seat of %.3fms of it %s", st.returnedMs, rspaHolderContextOnly))
-	if st.restMs > rspaAnchorIdentityTolMs {
-		parts = append(parts, fmt.Sprintf("the claiming inversion seat of the other %.3fms is not on the published board (see the compaction disclosure)", st.restMs))
-	}
-	return fmt.Sprintf("%s runnable share %.3fms of the %.3fms aggregate account overlapping the same thread's priority-inversion seat branch window(s) (branch-window overlap measure): %s — constituent share: it rides the adjacent lane and counts those %.3fms with its own value",
-		label, claimed, full, strings.Join(parts, "; "), st.returnedMs)
 }
 
 func levelMergeOverlapSentence(overlap float64, periodic bool, claim RootCauseShareClaim) rspaSentence {

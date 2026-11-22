@@ -4599,9 +4599,13 @@ type RootCauseRankItem struct {
 	//                         its published channels (链上面与降道面不得同行
 	//                         共存 — this row carries no on-chain marker);
 	//   GatedShareClaimSeats — the claiming inversion seat(s)' own line
-	//                         intervals ("start..end"), the display's typed
-	//                         pointer input for the [E#] cross-reference
-	//                         (all-or-nothing at render, 宁漏勿假指);
+	//                         intervals ("start..end"), carried on the wire
+	//                         and through the projection merges for audit
+	//                         only. HMC377 round 11 (R-377-11 ①): the [E#]
+	//                         cross-reference, the withdrawal wording and
+	//                         the successor reading come from the split's
+	//                         typed gated-share claim (ShareClaims, part
+	//                         gated_share), never from these intervals;
 	//   GatedShareOverlapDisclosureMs — the fail-open arm (裁定④ sentence
 	//                         form 「其中 X ms 与[E#]重叠」): a partial typed
 	//                         inventory witnesses the overlap over the REAL
@@ -4778,6 +4782,19 @@ type RootCauseRankItem struct {
 	// mints both sides; reconcileSubsetDetails absorbs).
 	subsetDetailRepresentedBy string
 	subsetDetailRepresents    []string
+	// rspaReleasedDetail (unexported, HMC377 round 12, R-377-12 ①, never
+	// serialized): a former lossless-detail row the publication's re-run of
+	// the one resolver returned to the board — its absorber was withdrawn by
+	// the gate, or its claims resolve to instants of its own. Its value is its
+	// resolved account and its pairing phrases take their released form.
+	// Written only on a published copy (WithdrawRankShareHolders).
+	rspaReleasedDetail bool
+	// rspaReleasedFrom: the B4 family key the released row rode under (the
+	// key it rides under again when it owns no instant after all).
+	rspaReleasedFrom string
+	// rspaDetailPos: the 1-based position a lossless-detail row holds among
+	// the published detail rows when the publication's re-run starts.
+	rspaDetailPos int
 	// cpuConstraintCarveDecided / cpuConstraintBaseSummary(Set) (unexported,
 	// HMC377 round 11): the one-carrier pass decided this restriction seat;
 	// the seat's summary before the RSPA lane arm appended its whole-row

@@ -233,11 +233,25 @@ func TestHMC377R11RowThatTookBackAWithdrawnHoldersShareCountsIt(t *testing.T) {
 		if got := hmc377R11DepSum(f.depCarriers); math.Abs(got-6.903) > 0.0015 {
 			t.Errorf("◎ carriers %v Σ %.3f, hand oracle [chain seat 0.853, remainder 6.050] Σ = raw 6.903\n%s", f.depCarriers, got, f.dump())
 		}
-		if want := "同源二分:全窗6.903ms=锚定1.903ms(锚定席见明细)+本行其余5.000ms(无链上凭证);锚定份中 1.050ms 的持有行仅作上下文,本行以自身数值计入,本行共计 6.050ms"; !strings.Contains(hmc377R7Squash(f.zh), hmc377R7Squash(want)) {
-			t.Errorf("zh face missing %q\n%s", want, f.zh)
+		// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ②):
+		// the anchored share has two dispositions here (0.853 held by the
+		// chain seat on the board, 1.050 passed back to this row), so the
+		// split line keeps its see-detail word and the clause that worded a
+		// share returned in part as one disposition is removed (values
+		// unchanged: the row still counts 6.050).
+		//   old zh: "…+本行其余5.000ms(无链上凭证);锚定份中 1.050ms 的持有行仅作上下文,
+		//           本行以自身数值计入,本行共计 6.050ms"
+		//   old en: "1.050ms of the anchored share is held by a row that is
+		//           context only, so this row counts it in its own account:
+		//           6.050ms in all"
+		//   new: the split line alone (evidence review-holders/evidence/F3_*.txt,
+		//        E2remMix_w; fix12/hold/univ/faces_e4).
+		if want := "同源二分:全窗6.903ms=锚定1.903ms(锚定席见明细)+本行其余5.000ms(无链上凭证)"; !strings.Contains(hmc377R7Squash(f.zh), hmc377R7Squash(want)) ||
+			strings.Contains(hmc377R7Squash(f.zh), hmc377R7Squash("本行以自身数值计入")) {
+			t.Errorf("zh face: want %q and no returned clause\n%s", want, f.zh)
 		}
-		if want := "1.050ms of the anchored share is held by a row that is context only, so this row counts it in its own account: 6.050ms in all"; !strings.Contains(hmc377R7Squash(f.en), hmc377R7Squash(want)) {
-			t.Errorf("en face missing %q\n%s", want, f.en)
+		if strings.Contains(hmc377R7Squash(f.en), hmc377R7Squash("so this row counts it in its own account")) {
+			t.Errorf("en face words a share returned in part as returned whole\n%s", f.en)
 		}
 		var returned []string
 		for _, n := range hmc377R10Notes(t, hmc377R11UR4mixWithdrawn(), hmc377R11ShareReturnedNoteKey) {

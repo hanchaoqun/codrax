@@ -551,10 +551,11 @@ type runtimeTraceProjTreeRow struct {
 	// the holder is named as the row of this thread that counts the share,
 	// and the ◎ exclusion footnote counts the row under its own label.
 	RepresentedBySuccessor bool
-	// RepresentedCarriedHere (HMC377 round 11): the represented claims
-	// resolved to a withdrawn seat's published successor whose record is
-	// folded into this very row — this row carries the share itself.
-	RepresentedCarriedHere bool
+	// RepresentedOneSuccessor (HMC377 round 12, R-377-12 ②): the whole
+	// represented share is held by one drawn successor row — the only case
+	// the successor holder form names it; any other share a successor holds
+	// part of takes the see-detail form.
+	RepresentedOneSuccessor bool
 	// GatedShareSuccessorRef (HMC377 round 11, R-377-11 ①): on a LEVELMERGE-1
 	// residual whose carved share resolved to the published successor of its
 	// withdrawn claim seat, that successor's [E#] when it is drawn here as
@@ -5703,6 +5704,42 @@ func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	return rank, true
 }
 
+// runtimeTraceProjAnchoredShareAllReturned (HMC377 round 12, R-377-12 ②):
+// the whole anchored share of a ◇ remainder passed back to it because the
+// publication gate withdrew its holder — the one disposition the 「本行以自身
+// 数值计入」 clause states. A share returned only in part is a mixed
+// disposition: the split line's see-detail word carries it.
+func runtimeTraceProjAnchoredShareAllReturned(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjClaimsAllReturned(node, false, string(tracequery.RootCauseShareClaimAnchored))
+}
+
+// runtimeTraceProjRepresentedShareAllReturned is the same reading over a
+// represented sentence's claims.
+func runtimeTraceProjRepresentedShareAllReturned(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjClaimsAllReturned(node, true)
+}
+
+func runtimeTraceProjClaimsAllReturned(node types.TraceCausalProjectionNode, represented bool, parts ...string) bool {
+	share, returned := 0.0, 0.0
+	for _, c := range node.ShareClaims {
+		if c.Represented != represented {
+			continue
+		}
+		if !represented {
+			match := false
+			for _, part := range parts {
+				match = match || c.Part == part
+			}
+			if !match {
+				continue
+			}
+		}
+		share += c.ShareMS
+		returned += c.ReturnedMS
+	}
+	return returned > 0 && returned >= share-runtimeTraceProjSMR1ValueTieMS
+}
+
 // runtimeTraceProjRowSharedSeatArm is the SHARED first arm of the §29.30.1
 // valid-seat gate, extracted per ELIM-1 B1 (rank_order_v2_design_20260712.md
 // §2.2 共享臂抽取, GREENLIT 2026-07-12; RANK-U Stage 2 commit C): the typed
@@ -7244,7 +7281,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 						full, anchored, anchoredWordEN, unwalked, unwalkedWordEN, restWordEN, outside, subsetClause(outside, "the analysed thread was not waiting for this thread then; no chain credential", false))
 				}
 			}
-			if returned := row.Node.ShareReturnedMS; returned > 0 {
+			if returned := row.Node.ShareReturnedMS; returned > 0 && runtimeTraceProjAnchoredShareAllReturned(row.Node) {
 				// HMC377 round 11 (R-377-11 ①, register R10H-3): the publication
 				// gate published the holder of (part of) the anchored share only
 				// as context, and that share passed back to this ◇ row — its
@@ -7418,6 +7455,16 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				}
 			}
 		case runtimeTraceProjShareRefRendered:
+			if row.RepresentedBySuccessor && !row.RepresentedOneSuccessor {
+				// HMC377 round 12 (R-377-12 ②): the share is held in parts —
+				// by a successor and by another holder — a mixed disposition:
+				// the see-detail form names no holder.
+				text = "锚定份由本线程另一席持有(见明细):本席账目全额锚定于 typed 唤醒依赖窗内(有凭证),本席为诊断投影记 ◇ 邻近,数值不变"
+				if !zh {
+					text = "anchored share held by another seat of this thread (see the detail index): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) — this diagnostic projection rides the ◇ adjacent channel, values unchanged"
+				}
+				break
+			}
 			if row.RepresentedBySuccessor {
 				// HMC377 round 11 (R-377-11 ①): the holder is the published
 				// successor of a seat the publication gate withdrew — another
@@ -7447,7 +7494,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			if !zh {
 				text = "anchored share held by another seat of this thread (see the detail index): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) — this diagnostic projection rides the ◇ adjacent channel, values unchanged"
 			}
-			if row.Node.ShareReturnedMS > 0 || row.RepresentedCarriedHere {
+			if runtimeTraceProjRepresentedShareAllReturned(row.Node) {
 				// HMC377 round 11 (R-377-11 ①, register R10H-5): the share's
 				// holder was published only as context and the share passed
 				// back to this row (or to a record folded into it), which
@@ -7481,17 +7528,16 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		switch {
 		case row.Node.GatedShareClaimWithdrawn && row.Node.GatedShareFullMS > 0 && row.Node.ShareReturnedMS > 0 &&
 			row.Node.ShareReturnedMS < row.Node.GatedShareClaimedMS-runtimeTraceProjSMR1ValueTieMS:
-			// HMC377 round 11 (R-377-11 ①): the carved share resolved per
-			// segment — part is still counted at a published claim seat, the
-			// rest passed back to this row (its value) because its claim seat
-			// is context only.
-			row.marks.mark(runtimeTraceProjMarkGatedShareClaimWithdrawn)
-			held := row.Node.GatedShareClaimedMS - row.Node.ShareReturnedMS
-			text := fmt.Sprintf("分账构成份:本行原份 %.3fms 为全账 %.3fms 中与本线程反转席分支窗重叠的份额;其中 %.3fms 已由本线程另一反转席计入,其余 %.3fms 的反转席仅作上下文(不参与%s),由本行自计",
-				row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS, held, row.Node.ShareReturnedMS, tracefence.SeatChannelChainZH)
+			// HMC377 round 12 (R-377-12 ②): the carved share ended with more
+			// than one disposition (part counted at a published claim seat or
+			// by a successor, part counted here) — the see-detail form names no
+			// seat; the row's value is the part it counts. (The round-11
+			// computed partial arm that named each part is removed.)
+			text := fmt.Sprintf("分账构成份:本行原份 %.3fms 为全账 %.3fms 中与本线程反转席分支窗重叠的份额;各部分计入行见明细",
+				row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
 			if !zh {
-				text = fmt.Sprintf("split-account constituent share: this row's %.3fms share of the %.3fms account overlaps the branch windows of this thread's priority-inversion seats; %.3fms of it is counted at another of those seats, and the seat of the other %.3fms is context only (not ranked), so this row counts those with its own value",
-					row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS, held, row.Node.ShareReturnedMS)
+				text = fmt.Sprintf("split-account constituent share: this row's %.3fms share of the %.3fms account overlaps the branch windows of this thread's priority-inversion seats; for the row that counts each part, see the detail index",
+					row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
 			}
 			out = append(out, text)
 		case row.Node.GatedShareClaimWithdrawn && row.Node.GatedShareFullMS > 0:
@@ -7547,7 +7593,8 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, invWordEN, residual)
 		}
 		switch {
-		case row.Node.GatedShareClaimWithdrawn && row.Node.ShareReturnedMS > 0:
+		case row.Node.GatedShareClaimWithdrawn && row.Node.ShareReturnedMS > 0 &&
+			row.Node.ShareReturnedMS >= row.Node.GatedShareClaimedMS-runtimeTraceProjSMR1ValueTieMS:
 			// HMC377 round 11 (R-377-11 ①, register R10H-4): neither the
 			// claim seat (context only) nor the constituent row is published
 			// to count the carved share, so this seat took it back — its
@@ -7559,7 +7606,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				text = fmt.Sprintf("split-account residual seat: full account %.3fms = %.3fms constituent share (overlapping the branch windows of this thread's priority-inversion seat, which is context only; this seat counts it with its own value) + this seat's residual %.3fms (one segment set, two disjoint shares, additive back); this seat counts %.3fms",
 					row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, residual, residual+row.Node.ShareReturnedMS)
 			}
-		case row.Node.GatedShareClaimWithdrawn && row.GatedShareSuccessorRef != "":
+		case row.Node.GatedShareClaimWithdrawn && row.GatedShareSuccessorRef != "" && row.Node.ShareReturnedMS <= 0:
 			// HMC377 round 10 (R-377-10 ②): the claimed share is counted by
 			// this thread's constituent row, not by the context-only seat.
 			// HMC377 round 11: only when the typed claim resolved to that

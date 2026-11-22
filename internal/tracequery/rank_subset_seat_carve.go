@@ -99,6 +99,24 @@ func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) rspaSpan
 		context:   fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s (counted here)", ms, seat, rspaHolderContextOnly),
 		successor: fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s; another row of this thread on the published board counts them (not here)", ms, seat, rspaHolderContextOnly),
 		returned:  fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s, so this row counts them with its own value", ms, seat, rspaHolderContextOnly),
+		detail:    fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s, and %s", ms, seat, rspaHolderContextOnly, rspaSharePartsSeeDetail),
+	}
+}
+
+// rspaCarvedWholePhrases (HMC377 round 12, R-377-12 ①) are the forms of the
+// sentence a restriction seat writes when every restricted instant lies
+// inside one chain-object row: held, the seat rides as that row's lossless
+// detail (the compaction form keeps the same words: the engine cap's form is
+// unchanged, register N17); once the publication gate withdrew that row, the
+// seat is published as its own row again — it counts the instants no other
+// published row holds with its own value.
+func rspaCarvedWholePhrases(ms float64) rspaSpanForms {
+	held := fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants this thread's on-chain seat already publishes — one thread, one object: this row rides as that seat's lossless detail", ms)
+	counted := fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s, so this row counts them with its own value", ms, rspaHolderContextOnly)
+	return rspaSpanForms{
+		held: held, compact: held, context: counted, returned: counted,
+		successor: fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s; another row of this thread on the published board counts them (not here)", ms, rspaHolderContextOnly),
+		detail:    fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s, and %s", ms, rspaHolderContextOnly, rspaSharePartsSeeDetail),
 	}
 }
 
@@ -181,7 +199,22 @@ func carveCPUConstraintReadyInstants(items []RootCauseRankItem) {
 			x.ChainCredentialLaneDemoted = false
 			x.Causality = "adjacent_to_wakeup_chain"
 			x.ChainRelevance = "adjacent"
-			rspaSetSentence(x, rspaPlainSentence(base+fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants this thread's on-chain seat already publishes — one thread, one object: this row rides as that seat's lossless detail", fullMs)))
+			// HMC377 round 12 (R-377-12 ①): the pairing is a share relation
+			// of the one resolver — one claim per holding role on those
+			// instants (not carved: a lossless detail keeps every value), so
+			// the publication's re-run decides it again when the gate
+			// withdraws that row.
+			var claims []RootCauseShareClaim
+			for _, role := range roles {
+				part := RootCauseShareClaimAnchored
+				if role == RootCauseShareHolderUnwalkedSeat {
+					part = RootCauseShareClaimUnwalked
+				}
+				claims = append(claims, rspaClaim(part, role, x.Thread.PID, false, rspaFoldLengthMs(insideByRole[role]), insideByRole[role]))
+			}
+			var s rspaSentence
+			s.text = base + s.spanForms(rspaCarvedWholePhrases(fullMs), claims...)
+			rspaSetSentence(x, s)
 			continue
 		case insideMs > rspaAnchorIdentityTolMs:
 			// The restriction seat keeps the instants the chain object does

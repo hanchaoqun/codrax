@@ -923,8 +923,11 @@ type TraceCausalProjectionNode struct {
 	// adjacent lane, value = claimed) while the surviving seat publishes the
 	// residual B with claimed + residual == GatedShareFullMS (the pinned
 	// identity). GatedShareClaimSeats carries the claiming inversion seats'
-	// own line intervals ("start..end") — the display resolves each to its
-	// [E#] all-or-nothing. GatedShareOverlapDisclosureMS is the fail-open
+	// own line intervals ("start..end") through the merges for audit only —
+	// HMC377 round 11 (R-377-11 ①): the display's [E#] pointer reads the
+	// split's typed gated-share claim (ShareClaims, part gated_share), which
+	// travels with the split family on every merge (round 12, R11T-5).
+	// GatedShareOverlapDisclosureMS is the fail-open
 	// arm (裁定④ 「其中 X ms 与[E#](反转席)重叠」 clause; published values
 	// untouched). Wording/relation inputs only — never a gate/score/sort
 	// lane.

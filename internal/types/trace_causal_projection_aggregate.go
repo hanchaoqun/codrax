@@ -621,6 +621,25 @@ func traceCausalProjectionIdleCadence(node TraceCausalProjectionNode) (float64, 
 	return 0, ""
 }
 
+// traceCausalProjectionWithGatedShareClaims (HMC377 round 12, R11T-5)
+// returns own plus the LEVELMERGE-1 gated-share claims of from, unless own
+// already carries a gated-share claim of its own (a survivor with its own
+// split keeps it).
+func traceCausalProjectionWithGatedShareClaims(own, from []TraceCausalProjectionShareClaim) []TraceCausalProjectionShareClaim {
+	for _, c := range own {
+		if c.Part == TraceShareClaimPartGatedShare {
+			return own
+		}
+	}
+	out := own
+	for _, c := range from {
+		if c.Part == TraceShareClaimPartGatedShare {
+			out = append(append([]TraceCausalProjectionShareClaim(nil), out...), c)
+		}
+	}
+	return out
+}
+
 func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool, foldBackfill *traceCausalProjectionSupplyFoldBackfill) {
 	original := *survivor
 	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, loser.MeasurementOrigins)
@@ -712,11 +731,18 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// roster + fail-open overlap together; a survivor with its own split
 	// keeps it — the two halves of one split never R1-merge because their
 	// published values differ by construction).
+	//
+	// HMC377 round 12 (register R11T-5): the split's [E#] pointer, its
+	// withdrawal wording and its successor reading come from the split's
+	// typed gated-share claim (ShareClaims), so the claim travels with the
+	// family — the claim-seat line intervals alone left an absorbed split
+	// survivor without its [E#].
 	if survivor.GatedShareFullMS == 0 && loser.GatedShareFullMS > 0 {
 		survivor.GatedShareClaimedMS = loser.GatedShareClaimedMS
 		survivor.GatedShareFullMS = loser.GatedShareFullMS
 		survivor.GatedShareConstituentSeat = loser.GatedShareConstituentSeat
 		survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+		survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
 		// HMC377 round 10: the gate's withdrawal of the claim seats is part
 		// of the same disclosure.
 		survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
@@ -725,6 +751,7 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.GatedShareOverlapDisclosureMS = loser.GatedShareOverlapDisclosureMS
 		if len(survivor.GatedShareClaimSeats) == 0 {
 			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+			survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
 			survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
 		}
 	}

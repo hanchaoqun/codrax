@@ -1438,10 +1438,11 @@ type runtimeTraceProjShareRef struct {
 	// successor of a seat the publication gate withdrew — another row of the
 	// thread that counts the share, not a seat of the claim's role.
 	successor bool
-	// carriedHere (HMC377 round 11): every claim resolved to such a successor
-	// and that successor is drawn as this very row (its record folded into
-	// it) — this row carries the share itself.
-	carriedHere bool
+	// oneSuccessor (HMC377 round 12, R-377-12 ②): every claim resolved to a
+	// withdrawn seat's successor and one drawn row holds the whole share —
+	// the only successor disposition with a specific holder form. Any other
+	// share a successor holds part of is a mixed disposition (see-detail).
+	oneSuccessor bool
 }
 
 const (
@@ -1611,9 +1612,14 @@ func runtimeTraceProjResolveShareRef(node types.TraceCausalProjectionNode, index
 		}
 	}
 	if selfDrawn {
-		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone, carriedHere: allSuccessor && len(out.rows) == 0}
+		// HMC377 round 12 (R-377-12 ②): a holder drawn inside the claimant's
+		// own row names no other seat — the see-detail form (the round-11
+		// carried-here variant, which no reachable shape distinguished from
+		// it, is removed).
+		return runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
 	}
 	out.exact = len(claims) == 1 && claims[0].Exact && len(out.rows) == 1
+	out.oneSuccessor = allSuccessor && len(out.rows) == 1
 	return out
 }
 
@@ -1693,6 +1699,13 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimChainAccount))
 			case rn.ChainAnchorRemainderSeat:
 				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimAnchored))
+				if twin.successor {
+					// HMC377 round 12 (R-377-12 ②): a holder that is a
+					// withdrawn seat's successor is no chain seat — the
+					// 「(⛓链上席)」 word and the pair class never name it; the
+					// see-detail form names no holder.
+					twin = runtimeTraceProjShareRef{state: runtimeTraceProjShareRefNone}
+				}
 				anchored[row] = twin
 			default:
 				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimRemainder))
@@ -1725,7 +1738,7 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 			// published successor — named as the row of this thread that
 			// counts the share, never as a chain seat.
 			row.RepresentedBySuccessor = represented.state == runtimeTraceProjShareRefRendered && represented.successor
-			row.RepresentedCarriedHere = represented.carriedHere
+			row.RepresentedOneSuccessor = row.RepresentedBySuccessor && represented.oneSuccessor
 		}
 	}
 	return anchored

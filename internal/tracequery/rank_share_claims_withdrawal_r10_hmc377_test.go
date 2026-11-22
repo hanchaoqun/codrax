@@ -139,8 +139,27 @@ func TestHMC377R10WithdrawnHolderLeavesTheRemainingHolderResolved(t *testing.T) 
 	}
 }
 
+// EVOLUTION RECORD (HMC377 round 12, batch-owner ruling R-377-12 ②, 2026-11-22):
+// a share the publication gate touched takes a specific holder form only when
+// its whole share has one disposition. Here 1.000 ms is held by the published
+// unwalked seat and the other 1.903 ms passed back to the satellite (its
+// holder the gate withdrew): two dispositions, so the sentence takes the
+// see-detail form (values unchanged: the row still counts only 1.903 ms).
+//
+//	old (withdrawn): "…: 1.000ms of it is held by a seat of this thread on the
+//	     published board, which counts it, and the seat holding the other
+//	     1.903ms is published only as context, tier context_only — … count
+//	     only those 1.903ms"
+//	new (withdrawn): "… and its parts are counted by different rows; see the
+//	     detail index for each part — … count only the 1.903ms no other row
+//	     on the published board holds"
+//	old (nothing resolves): the compaction form — the 1.903 ms passed back
+//	     and the 1.000 ms whose holder the engine cap cut were worded as one
+//	     cap-cut share (register R11H-3: review-holders/evidence/F3_*.txt).
+//	new (nothing resolves): the see-detail form; the engine-cap-only partial
+//	     form (subtest "engine cap cut") is unchanged (register N17).
 func TestHMC377R10PartlyResolvedRepresentedSentencePublishesTheRestOnly(t *testing.T) {
-	const partialWithdrawn = "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows: 1.000ms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other 1.903ms is published only as context, tier context_only — this diagnostic projection rides the adjacent lane and its published values count only those 1.903ms"
+	const partialWithdrawn = "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows and its parts are counted by different rows; see the detail index for each part — this diagnostic projection rides the adjacent lane and its published values count only the 1.903ms no other row on the published board holds"
 	const partialCut = "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows: 1.000ms of it is held by a seat of this thread on the published board, which counts it, and the seat holding the other 1.903ms is not on the published board (see the compaction disclosure) — this diagnostic projection rides the adjacent lane and its published values count only those 1.903ms"
 	// HMC377 round 11 (register R10T-4): check reports on the subtest's own t
 	// (the round-10 closure captured the parent t, so a failing subtest was
@@ -196,8 +215,8 @@ func TestHMC377R10PartlyResolvedRepresentedSentencePublishesTheRestOnly(t *testi
 			t.Errorf("an unresolved sentence keeps the satellite's own account: marker=%t held=%.3f eff=%.3f run=%.3f",
 				sat.ChainAnchorRepresentedByChainSeat, hmc377R10Held(sat), sat.EffectiveImpactMs, sat.RunnableMs)
 		}
-		if !strings.Contains(sat.Summary, "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows, but the seat holding that time is not on the published board (see the compaction disclosure) — this diagnostic projection keeps its own value on the adjacent lane") {
-			t.Errorf("the cap-cut compaction wording changed: %q", sat.Summary)
+		if !strings.Contains(sat.Summary, "; this satellite's whole account (2.903ms of 2.903ms) lies inside the thread's dependency windows and its parts are counted by different rows; see the detail index for each part — this diagnostic projection rides the adjacent lane and its published values count only the 2.903ms no other row on the published board holds") {
+			t.Errorf("a share passed back in part and cap-cut in part takes the see-detail form: %q", sat.Summary)
 		}
 	})
 }

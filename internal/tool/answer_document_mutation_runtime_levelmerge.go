@@ -79,7 +79,12 @@ func runtimeTraceProjStampGatedShareSplit(model *runtimeTraceProjTreeModel) {
 			continue // all-or-nothing: generic noun instead of a partial list
 		}
 		if claim.Successor {
-			if len(holders) == 1 && holders[0].own && holders[0].row.Node.GatedShareConstituentSeat {
+			// HMC377 round 12 (register R11T-3, mutant T13): the drawn row's
+			// own constituent marker is the proof — a record drawn folded
+			// into a row that wears the split's constituent family is drawn
+			// as that row, so a separate "drawn as its own row" check
+			// distinguished no reachable shape and is removed.
+			if len(holders) == 1 && holders[0].row.Node.GatedShareConstituentSeat {
 				row.GatedShareSuccessorRef = strings.TrimSpace(holders[0].tag)
 			}
 			continue
