@@ -47,12 +47,17 @@ type retainedNativeFact struct {
 	generation *traceSourceReadGeneration
 }
 
+// nativeFactWire carries every typed in-process identity a live row carries:
+// OwnWorkAccounts (HMC377 R-377-12 ⑥) is carried exactly as RankSubjects and
+// PriorityOverlaps are, so a retained copy names the same own-work account
+// parts as its live publication and every consumer decides the same way.
 type nativeFactWire struct {
 	Result                 ToolResult
 	IOEndpoints            []*TraceIORequestEndpoints
 	IOTargets              []traceIOProjectionTarget
 	RankSubjects           map[int]TraceRankSubjects            `json:",omitempty"`
 	PriorityOverlaps       map[int]TraceRunnablePriorityOverlap `json:",omitempty"`
+	OwnWorkAccounts        map[int]TraceOwnWorkAccountRef       `json:",omitempty"`
 	BusinessSpans          []TraceBusinessSpanCandidate
 	BusinessRefData        []TraceBusinessSpanCandidate
 	BusinessSources        []nativeFactSourceVersion
@@ -151,6 +156,12 @@ func nativeFactWireValue(result ToolResult) nativeFactWire {
 				wire.PriorityOverlaps = make(map[int]TraceRunnablePriorityOverlap)
 			}
 			wire.PriorityOverlaps[i] = *row.TracePriorityOverlap
+		}
+		if row.TraceOwnWorkAccount != nil {
+			if wire.OwnWorkAccounts == nil {
+				wire.OwnWorkAccounts = make(map[int]TraceOwnWorkAccountRef)
+			}
+			wire.OwnWorkAccounts[i] = *row.TraceOwnWorkAccount
 		}
 	}
 	return wire
@@ -265,6 +276,9 @@ func (f *retainedNativeFact) result() (ToolResult, bool) {
 		}
 		if overlap, ok := wire.PriorityOverlaps[i]; ok {
 			row.TracePriorityOverlap = &overlap
+		}
+		if account, ok := wire.OwnWorkAccounts[i]; ok {
+			row.TraceOwnWorkAccount = &account
 		}
 	}
 	return r, true
