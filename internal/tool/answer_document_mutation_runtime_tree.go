@@ -10088,10 +10088,22 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	if windowMode {
 		selfWindowMS = denom
 	}
-	for _, row := range model.SelfRows {
+	// HMC377 round 12 (batch-owner ruling R-377-12 ④): the analysed
+	// thread's restriction row is a non-additive 「其中」 line under its self
+	// ready account, never a second additive row beside it.
+	hosted, folded := runtimeTraceProjSelfReadySubsetHosts(model.SelfRows)
+	for i, row := range model.SelfRows {
+		if folded[i] {
+			continue
+		}
 		row.marks = model.Marks // NEW-7: record at the emission site of this pass
 		for _, line := range runtimeTraceProjSelfRowLines(row, selfWindowMS, zh) {
 			body.WriteString(line + "\n")
+		}
+		for _, j := range hosted[i] {
+			for _, line := range runtimeTraceProjSubordinateLines("│       ", runtimeTraceProjSelfReadySubsetText(model.SelfRows[j], zh)) {
+				body.WriteString(line + "\n")
+			}
 		}
 	}
 	// GAP-B G11 (§27.5): the bounded self-wait relocation's overflow
@@ -11162,6 +11174,64 @@ func runtimeTraceProjSeatSelfComponentRows(model *runtimeTraceProjTreeModel) {
 		}
 	}
 	model.SelfRows = out
+}
+
+// runtimeTraceProjSelfReadySubsetHosts (HMC377 round 12, batch-owner ruling
+// R-377-12 ④) pairs each of the analysed thread's CPU-restriction self rows
+// with the self row that draws its ready account: the restriction row
+// publishes a subset of the thread's ready time, and the whole account
+// contains every ready-subset seat of the same thread by construction, so the
+// tree never draws the two as additive rows. Typed by family and thread
+// identity (every self row is the analysed thread's; the host is a census
+// ready-account row — runnable_wait / priority_inversion_runnable_wait, the
+// thread's own unsplit account — and the folded row a cpu_affinity_or_cpuset
+// row); no instants or values decide. The host is the first such row in the
+// stanza; with no host on the stanza the restriction row keeps its own row.
+// ◎ and the native board are untouched (the rows stay in the model).
+func runtimeTraceProjSelfReadySubsetHosts(rows []runtimeTraceProjTreeRow) (hosted map[int][]int, folded map[int]bool) {
+	host := -1
+	for i, row := range rows {
+		n := row.Node
+		if !row.HasData || strings.TrimSpace(n.StateKind) != "runnable" || n.ChainAnchorRemainderSeat || n.ChainAnchorFullMS > 0 {
+			continue
+		}
+		switch runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(n.TypeToken, n.Object)) {
+		case "runnable_wait", "priority_inversion_runnable_wait":
+			host = i
+		}
+		if host >= 0 {
+			break
+		}
+	}
+	if host < 0 {
+		return nil, nil
+	}
+	for i, row := range rows {
+		if i == host || !row.HasData || strings.TrimSpace(row.EvidenceTag) == "" ||
+			runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(row.Node.TypeToken, row.Node.Object)) != "cpu_affinity_or_cpuset" {
+			continue
+		}
+		if hosted == nil {
+			hosted, folded = map[int][]int{}, map[int]bool{}
+		}
+		hosted[host] = append(hosted[host], i)
+		folded[i] = true
+	}
+	return hosted, folded
+}
+
+// runtimeTraceProjSelfReadySubsetText is the 「其中」 line of an analysed
+// thread's CPU-restriction row under its self ready account (R-377-12 ④): the
+// row's own value and [E#], said to be part of the thread's runnable time and
+// never added again.
+func runtimeTraceProjSelfReadySubsetText(row runtimeTraceProjTreeRow, zh bool) string {
+	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(row.Node.Object, zh))
+	value := runtimeTraceProjNodeDisplayImpact(row.Node)
+	tag := strings.TrimSpace(row.EvidenceTag)
+	if zh {
+		return fmt.Sprintf("其中%s下%.3fms是本线程runnable时间里受限的那一部分,已含在上述自身runnable账内,不另计 [%s]", label, value, tag)
+	}
+	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of this thread's runnable time, already inside its own runnable account above, never added again [%s]", value, label, tag)
 }
 
 // runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1 →
