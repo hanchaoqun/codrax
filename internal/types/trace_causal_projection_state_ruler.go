@@ -60,9 +60,12 @@ func traceRankStateRulerOf(predicate string, notes []string) traceRankStateRuler
 
 // traceCausalProjectionSameStateAccount reports two seats of one thread's
 // one state account inside one merge group (whose key already fixes the
-// state family, the seat's type token): the same rank board (target,
-// parameters and window) and the same ranked thread (TID and TGID of the rank
-// member).
+// state family, the seat's type token): one rank board (target, parameters
+// and window) published both, and they rank the same thread (TID and TGID of
+// the rank member). A seat's boards are the one it wears and every board the
+// same-fact merge recorded as a co-publisher, so the decision does not depend
+// on which board's copy survived that merge (the order the boards were asked
+// in).
 func traceCausalProjectionSameStateAccount(a, b TraceCausalProjectionNode) bool {
 	if a.RankSubjects == nil || b.RankSubjects == nil {
 		return false
@@ -71,9 +74,25 @@ func traceCausalProjectionSameStateAccount(a, b TraceCausalProjectionNode) bool 
 	if am.TID <= 0 || am.TID != bm.TID || am.TGID != bm.TGID {
 		return false
 	}
-	boardA, okA := traceSameFactRankBoardOf(a)
-	boardB, okB := traceSameFactRankBoardOf(b)
-	return okA && okB && boardA.sameBoard(boardB)
+	for _, boardA := range traceCausalProjectionPublishingRankBoards(a) {
+		for _, boardB := range traceCausalProjectionPublishingRankBoards(b) {
+			if boardA.sameBoard(boardB) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// traceCausalProjectionPublishingRankBoards is every rank board that published
+// the account a row displays: the board it wears and its recorded
+// co-publishers.
+func traceCausalProjectionPublishingRankBoards(node TraceCausalProjectionNode) []TraceSameFactRankBoard {
+	var boards []TraceSameFactRankBoard
+	if own, ok := traceSameFactRankBoardOf(node); ok {
+		boards = append(boards, own)
+	}
+	return append(boards, node.CoPublishedRankBoards()...)
 }
 
 // traceCausalProjectionStateRulerSplit separates the members of one merge

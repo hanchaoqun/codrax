@@ -96,16 +96,31 @@ func TestB1638B3RootEvidenceActualTiebaPublication(t *testing.T) {
 	}
 	// The existing full-seat scanner keeps its nonempty merged arm. These are
 	// unchanged physical values, not a new expected count chosen to force green.
+	//
+	// EVOLUTION RECORD (HMC377 R-377-12 ⑤, R11P-2): old → new = the ×3 row
+	// 12.773 ms (window_stats 4.067 + 0.399, wakeup_chain 8.307) → the ×2
+	// census account 4.466 ms (4.067 + 0.399) with the wakeup_chain seat
+	// (#root_cause_rank:4) riding as its evidence. The 8.307 ms is the raw ready
+	// segment 34579.514990..34579.523297 of TID 59843 (rawstate.py over this
+	// fixture, hmc377/fix12/own/evidence/tieba/raw.json; raw ready 26.022 ms),
+	// which the window_stats priority-inversion seat already carries in its
+	// runnable account (cpu=3 16.985 ms = 8.282 + 8.307 + 0.396), so the old
+	// row counted it twice: two rulers of one thread's ready account.
 	projection := types.CompileTraceCausalProjection(ledger)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
 		for _, row := range rows {
-			if row.Node.Subject == "CookieMonsterCl-59843" && row.Node.MergedCount == 3 && math.Abs(row.Node.ImpactMS-12.773) < .001 {
-				return
+			if row.Node.Subject != "CookieMonsterCl-59843" || row.Node.MergedCount != 2 || math.Abs(row.Node.ImpactMS-4.466) >= .001 {
+				continue
+			}
+			for _, id := range row.Node.MergedEvidenceIDs {
+				if strings.HasSuffix(id, "#root_cause_rank:4") {
+					return
+				}
 			}
 		}
 	}
-	t.Error("the original three-member 12.773 ms seat did not survive the real publication chain")
+	t.Error("the census account ×2 4.466 ms seat carrying the wakeup_chain seat's evidence did not survive the real publication chain")
 }
 
 func TestB1638B3RootEvidencePublicationPreservesOldFieldsAndUnknown(t *testing.T) {

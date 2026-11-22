@@ -181,6 +181,25 @@ func TestHMC377R12TwoRulersAreNeverSummed(t *testing.T) {
 			})
 		}
 	})
+	t.Run("co_published_board", func(t *testing.T) {
+		// Two boards (two rank parameter sets) over one window: the same-fact
+		// merge kept board f1's copy of the census seat and recorded f2 as its
+		// co-publisher, while the wakeup_chain seat survived with f2's identity.
+		// Which copy survives follows the order the boards were asked in; the
+		// account identity must not (TestHMC376CrossBoardMergeKeepsTheLargest-
+		// BoardsOwnAccountPublic, tieba boards asked as [2, 0.5]).
+		nodes := r12Nodes(
+			r12RankRecord(2, "window_stats", 60, 100, 100, "f1"),
+			r12RankRecord(3, "wakeup_chain", 40, 100, 100, "f2"),
+			r12RankRecord(8, "window_stats", 10, 100, 100, "f1"),
+		)
+		nodes[0].SameFactRankBoards = []TraceSameFactRankBoard{{Target: "app-100", ParamsFingerprint: "f2",
+			QueryWindowStartTs: 10.0, QueryWindowEndTs: 10.1, AccountMS: 60}}
+		out := traceCausalProjectionAggregateSameKind(nodes)
+		if len(out) != 1 || !r12Near(out[0].ImpactMS, 70) || out[0].MergedCount != 2 || !r12HasEvidence(out[0], "#root_cause_rank:3") {
+			t.Fatalf("a board that co-published the census seat is the wakeup_chain seat's board: want 70.000 ×2 with the seat as evidence, got %+v", out)
+		}
+	})
 	t.Run("board_parts_read_the_same_account", func(t *testing.T) {
 		nodes := r12Nodes(
 			r12RankRecord(2, "window_stats", 60, 100, 100, "f1"),

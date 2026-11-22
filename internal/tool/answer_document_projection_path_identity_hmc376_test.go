@@ -405,8 +405,16 @@ func TestHMC376CrossBoardMergeKeepsTheLargestBoardsOwnAccountPublic(t *testing.T
 		// Row 91.375 ms ×3 = 40.071 + 33.489 + 17.815, one member per board.
 		{"donghu three boards", hmc376DonghuRecipe, []float64{0.5, 2, 5}, "220.887"},
 		// Row 44.544 ms ×4 carries members of both boards.
-		{"tieba two boards", hmc376TiebaRecipe, []float64{0.5, 2}, "116.784"},
-		{"tieba three boards", hmc376TiebaRecipe, []float64{0.05, 0.5, 2}, "117.523"},
+		// EVOLUTION RECORD (HMC377 R-377-12 ⑤, R11P-2): old → new = 116.784 →
+		// 108.477 and 117.523 → 109.216 (−8.307 each). The analysed thread's
+		// self runnable row no longer adds its wakeup_chain seat 8.307 ms to
+		// its window_stats census seats: the seat is the raw ready segment
+		// 34579.514990..34579.523297 of TID 59843 (rawstate.py,
+		// hmc377/fix12/own/evidence/tieba/raw.json), which the window_stats
+		// priority-inversion seat already carries in its runnable account, so
+		// the self-row total counted it twice.
+		{"tieba two boards", hmc376TiebaRecipe, []float64{0.5, 2}, "108.477"},
+		{"tieba three boards", hmc376TiebaRecipe, []float64{0.05, 0.5, 2}, "109.216"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
