@@ -457,3 +457,32 @@ func TestHMC377R12PublicationReRunIsStable(t *testing.T) {
 		}
 	})
 }
+
+// The several-seat twin's whole-account detail (R-377-11 ② severalOwners arm):
+// the whole-account inversion row rides as the ◇ twin's lossless detail. When
+// the gate withdraws one of the chain seats holding its anchored share, the
+// twin (successor tier 3) takes that seat's segments, the detail owns no
+// instant and its absorber is published — it keeps riding as detail; its
+// anchored share is now held in parts (the other chain seat, the twin), so
+// that phrase takes the see-detail form.
+func TestHMC377R12SeveralSeatTwinDetailStaysWhileItsAbsorberCarriesIt(t *testing.T) {
+	inv := hmc377R11Inv(1.05, hmc377R11W1(), 10, 20)
+	run := hmc377R11ChainRun(0.853, hmc377R11W2(), 21, 25)
+	twin := hmc377R11Remainder(1.0, 1.903, 2.903, 10.5, 70, 80)
+	det := hmc377R12InversionDetail(&twin, 2.903, []foldInterval{{start: 10.5, end: 10.501}})
+	rank := RootCauseRankResult{Window: TimeWindow{StartTs: 10, EndTs: 11}, Items: []RootCauseRankItem{hmc377R11OtherSeat(), inv, run, twin}, AbsorbedItems: []RootCauseRankItem{det}}
+	resolveRankShareClaims(rank.Items, rank.AbsorbedItems)
+	if !rank.AbsorbedItems[0].ShareClaims[0].Resolved {
+		t.Fatalf("precondition: the detail's anchored share is held by the two chain seats")
+	}
+	board, detail, withdrawn := hmc377R12Publish(rank)
+	if len(detail) != 1 || !detail[0].AbsorbedByRankFamily || detail[0].AbsorbedIntoFamily != board[3].RankFamilyKey {
+		t.Fatalf("the detail rides under its published twin: detail %d into=%q twin key=%q", len(detail), detail[0].AbsorbedIntoFamily, board[3].RankFamilyKey)
+	}
+	if _, sum := hmc377R12Carriers(board, withdrawn); math.Abs(sum-2.903) > 0.0015 {
+		t.Errorf("Σ carriers %.3f, want 2.903 (chain seat 0.853 + twin 1.000 + the withdrawn seat's 1.050)", sum)
+	}
+	if !strings.Contains(detail[0].Summary, "of which "+hmc377R12SharePartsSeeDetail()) || !strings.Contains(detail[0].Summary, rspaInversionDetailTailContext) {
+		t.Errorf("detail words: %q", detail[0].Summary)
+	}
+}
