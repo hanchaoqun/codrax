@@ -287,6 +287,35 @@ func TestHMC377R13TwoRulersOnOneAccountWearTheMirrorTag(t *testing.T) {
 	})
 }
 
+// R-377-13 ①: an occurrence row whose occurrence-group identity is the
+// measured account of the thread's aggregate seat is that seat's constituent,
+// even when the sibling occurrence is drawn only inside an overflow fold.
+func TestHMC377R13OccurrenceRowPointsAtItsAggregateSeat(t *testing.T) {
+	const group = "state_account:v2:r13-7973-aggregate"
+	seat := elimChainNode("r13-agg", "android.bg-7973", "priority_inversion_candidate", "runnable", 2, 40.804, 161482)
+	seat.LineEnd = 217955
+	seat.MeasuredStateAccountKey = group
+	hop := r13Hop("r13-occ", "state_account:v2:r13-7973-occurrence")
+	hop.Subject = "android.bg-7973"
+	hop.LineStart, hop.LineEnd = 161482, 162432
+	hop.ImpactMS, hop.CumulativeImpactMS, hop.EffectiveImpactMS = 5.938, 5.938, 5.938
+	hop.MeasuredOccurrenceGroupKey = group
+	model, fence := hmc377R12Fence(t, r13Projection(seat, hop), true)
+	occ, agg := xlane2FindRowByEvidenceID(&model, "r13-occ"), xlane2FindRowByEvidenceID(&model, "r13-agg")
+	if occ == nil || agg == nil || occ.AggregateSeatRef != agg.EvidenceTag {
+		t.Fatalf("the occurrence row points at its aggregate seat: %+v\n%s", occ, fence)
+	}
+	if !strings.Contains(hmc377R12Joined(fence), "归因已计入["+agg.EvidenceTag+"](聚合席),本行为构成段,不另计") {
+		t.Fatalf("the occurrence row wears the constituent pointer:\n%s", fence)
+	}
+	other := hop
+	other.MeasuredOccurrenceGroupKey = "state_account:v2:other"
+	model, _ = hmc377R12Fence(t, r13Projection(seat, other), true)
+	if row := xlane2FindRowByEvidenceID(&model, "r13-occ"); row == nil || row.AggregateSeatRef != "" {
+		t.Fatalf("an occurrence of another account points nowhere: %+v", row)
+	}
+}
+
 // The seat's family key travels with it: the lossless detail rows the engine
 // absorbed into the seat (the R-377-4 inversion window row) stay hosted by
 // the one row.

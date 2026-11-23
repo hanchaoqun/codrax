@@ -103,8 +103,19 @@ func runtimeTraceProjStampGatedShareSplit(model *runtimeTraceProjTreeModel) {
 
 // runtimeTraceProjStampAggregateMemberCrossRefs stamps the 件3 two-way
 // pointers.
+//
+// HMC377 R-377-13 ① (batch-owner ruling 2026-11-22): an occurrence row whose
+// producer-minted occurrence-group identity (MeasuredOccurrenceGroup) is
+// the measured account of exactly one drawn aggregate seat of the same thread
+// is that seat's constituent by typed proof, however many of the seat's other
+// occurrences render as their own rows (a sibling occurrence drawn only inside
+// an overflow fold row left the subject/state census below with a single
+// member, and the occurrence stood beside its aggregate as a second additive
+// line on the same instants). It wears the member pointer on that proof; the
+// seat's constituent list keeps its all-or-nothing census below.
 func runtimeTraceProjStampAggregateMemberCrossRefs(model *runtimeTraceProjTreeModel) {
 	all := runtimeTraceProjSMR1AllRows(model)
+	runtimeTraceProjStampAggregateMemberIdentityRefs(all)
 	type family struct {
 		members []*runtimeTraceProjTreeRow
 		seats   []*runtimeTraceProjTreeRow
@@ -195,5 +206,46 @@ func runtimeTraceProjStampAggregateMemberCrossRefs(model *runtimeTraceProjTreeMo
 		for _, member := range fam.members {
 			member.AggregateSeatRef = seatRef
 		}
+	}
+}
+
+// runtimeTraceProjStampAggregateMemberIdentityRefs is the typed member arm of
+// runtimeTraceProjStampAggregateMemberCrossRefs (R-377-13 ①): the occurrence
+// row's group identity equals the seat's measured account identity, the seat
+// is the only drawn row of the thread that shows that account, and both sit
+// on one rank board. The member pointer only; values never decide.
+func runtimeTraceProjStampAggregateMemberIdentityRefs(all []*runtimeTraceProjTreeRow) {
+	seats := map[string][]*runtimeTraceProjTreeRow{}
+	for _, row := range all {
+		if !row.HasData || row.Node.GatedShareConstituentSeat ||
+			!strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
+			continue
+		}
+		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
+		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
+		if key == "" || subject == "" || strings.TrimSpace(row.EvidenceTag) == "" {
+			continue
+		}
+		seats[subject+"\x00"+key] = append(seats[subject+"\x00"+key], row)
+	}
+	if len(seats) == 0 {
+		return
+	}
+	boardIndex := runtimeTraceProjRankBoardIndexFor(all)
+	for _, row := range all {
+		if !row.HasData || row.Node.ChainDepth <= 0 || row.Node.MergedCount > 1 || row.AggregateSeatRef != "" ||
+			strings.TrimSpace(row.Node.Predicate) != "wakeup_causal_impact" || strings.TrimSpace(row.EvidenceTag) == "" {
+			continue
+		}
+		group := row.Node.MeasuredOccurrenceGroup()
+		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
+		if group == "" || subject == "" {
+			continue
+		}
+		owners := seats[subject+"\x00"+group]
+		if len(owners) != 1 || owners[0] == row || !runtimeTraceProjSemanticSubsetSameBoard(boardIndex, row, owners[0]) {
+			continue // ambiguity fails open
+		}
+		row.AggregateSeatRef = strings.TrimSpace(owners[0].EvidenceTag)
 	}
 }

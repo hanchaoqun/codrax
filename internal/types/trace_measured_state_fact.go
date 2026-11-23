@@ -42,6 +42,20 @@ func (n TraceCausalProjectionNode) MeasuredStateFactKey() string {
 	return strings.TrimSpace(n.MeasuredStateAccountKey)
 }
 
+// MeasuredOccurrenceGroup returns the native identity of the multi-occurrence
+// account this one occurrence row belongs to (its aggregate's measured
+// account), or "" when the producer named none. It answers only "which drawn
+// seat shows the account this occurrence is part of?" for display faces (the
+// tree's constituent pointer, HMC377 R-377-13 ①); a ×N fold answers with
+// MeasuredStateFactKey instead. It is not a rank, seat, merge or causal
+// credential.
+func (n TraceCausalProjectionNode) MeasuredOccurrenceGroup() string {
+	if n.MergedCount > 1 {
+		return ""
+	}
+	return strings.TrimSpace(n.MeasuredOccurrenceGroupKey)
+}
+
 // measuredStateFactValue is the occupancy a row shows for its measured account.
 // A fold publishes no state partition of its own; when all its occurrences name
 // one account, its folded value is that account's occupancy.
