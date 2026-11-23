@@ -4561,6 +4561,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					if strings.TrimSpace(rows[i].Node.FixDirection) == "" {
 						rows[i].Node.FixDirection = peer.FixDirection
 					}
+					drawn := runtimeTraceProjRankFoldPeerDrawn(peer, rankIdentityAdopted && rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)].AccountAdopted)
+					var ownSeat *types.TraceCausalProjectionNode
+					if drawn.own {
+						seat := peer
+						ownSeat = &seat
+					}
 					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
 						RankIdentityAdopted: rankIdentityAdopted,
 						RelationMemberRef:   memberRef,
@@ -4571,7 +4577,8 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						CumulativeImpactMS:  peer.CumulativeImpactMS,
 						DisplayImpactMS:     runtimeTraceProjNodeDisplayImpact(peer),
 						TargetImpactMS:      peer.TargetImpactMS,
-						drawn:               runtimeTraceProjRankFoldPeerDrawn(peer, rankIdentityAdopted && rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)].AccountAdopted),
+						drawn:               drawn,
+						ownSeat:             ownSeat,
 					})
 				}
 			}
@@ -6208,6 +6215,23 @@ func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow
 	if node.IsContextOnlyRow() {
 		return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
 	}
+	// HMC377 R-377-13 ①: the lead row that draws a rank seat's account as its
+	// own (the seat folded into its hop row on their typed account identity;
+	// the conclusion consumes the one row, or the seat itself) speaks the
+	// seat's own causal position, as the seat's block did.
+	if leadKey != "" {
+		for _, peer := range row.RankFoldPeers {
+			if peer.ownSeat == nil {
+				continue
+			}
+			seatKey := runtimeTraceCausalProjectionNodeKey(*peer.ownSeat)
+			if runtimeTraceCausalProjectionNodeKey(node) == leadKey || seatKey == leadKey {
+				seatRow := row
+				seatRow.Node, seatRow.RankFoldPeers = *peer.ownSeat, nil
+				return runtimeTraceProjDetailPositionCellWithAuthority(seatRow, seatKey, zh, frameCausalityUnproven)
+			}
+		}
+	}
 	if (row.Kind == runtimeTraceProjTreeRowBackground || row.Kind == runtimeTraceProjTreeRowAdjacent) &&
 		runtimeTraceProjPrimaryTierNode(node) &&
 		(leadKey == "" || runtimeTraceCausalProjectionNodeKey(node) != leadKey) {
@@ -6731,6 +6755,10 @@ type runtimeTraceProjRankFoldPeer struct {
 	TargetImpactMS float64
 	// drawn (HMC377 fix round 6): the drawn-record index input.
 	drawn runtimeTraceProjPeerDrawn
+	// ownSeat (HMC377 R-377-13 ①): the folded seat itself when the host
+	// draws its account as its own; nil for every other peer. The detail
+	// block's causal position of the lead seat reads it.
+	ownSeat *types.TraceCausalProjectionNode
 }
 
 type runtimeTraceProjSelfSymptomFoldPeer struct {
@@ -8456,11 +8484,9 @@ func runtimeTraceProjRankFoldWindow(node types.TraceCausalProjectionNode) (float
 // segment-inventory hash of the measured scheduler-state account (a hop row's
 // priced state account, a rank seat's measured account). The hash already
 // names the physical thread (types.TraceSchedulerStateAccountIdentity hashes
-// the pid), so no display name joins it. "" when the producer proved none.
+// the pid), so no display name joins it; both lane arms already refuse a ×N
+// aggregate. "" when the producer proved none.
 func runtimeTraceProjRankFoldAccountKey(node types.TraceCausalProjectionNode) string {
-	if node.MergedCount > 1 {
-		return ""
-	}
 	return strings.TrimSpace(node.MeasuredStateFactKey())
 }
 
@@ -8698,6 +8724,11 @@ func runtimeTraceProjFoldRankLaneTwins(nodes []types.TraceCausalProjectionNode, 
 				}
 				if strings.TrimSpace(node.TypeToken) == "" {
 					node.TypeToken = rankTwin.TypeToken
+				}
+				// The seat's engine-minted process attribution names the one
+				// thread's process: the one row's detail block keeps it.
+				if node.ProcessTGID <= 0 && rankTwin.ProcessTGID > 0 {
+					node.ProcessTGID, node.ProcessComm = rankTwin.ProcessTGID, rankTwin.ProcessComm
 				}
 				adoptedRef.AccountAdopted = true
 			}

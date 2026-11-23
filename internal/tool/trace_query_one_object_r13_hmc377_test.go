@@ -416,3 +416,64 @@ func TestHMC377R13MirrorNeedsTheSameShownOccupancy(t *testing.T) {
 		t.Fatalf("another shown occupancy is not a mirror:\n%s", fence)
 	}
 }
+
+// R-377-13 ①: the one row that draws the lead seat's account as its own keeps
+// what the seat's detail block said about the thread — its process
+// attribution and its causal position as the primary root cause (dio w21
+// binder:14799_3-57612 at 532dc208d: seat [E8] 「进程: tgid=57534
+// comm=unyuan.app.chat」「因果位置: 主根因(优先处理)」 beside its hop [E11(+1)]).
+func TestHMC377R13FoldedLeadSeatKeepsItsPositionAndProcess(t *testing.T) {
+	const key = "state_account:v2:r13-57612"
+	seat := r13Seat("r13-seat", key)
+	seat.Rank, seat.Predicate, seat.Tier, seat.Role = 1, "root_cause_primary", "primary", types.TraceCausalRolePrimaryRootCause
+	seat.ProcessTGID, seat.ProcessComm = 57534, "unyuan.app.chat"
+	projection := r13Projection(r13Hop("r13-hop", key), r13Remainder())
+	projection.PrimaryRootCauses = []types.TraceCausalProjectionNode{seat}
+	for _, zh := range []bool{true, false} {
+		name := map[bool]string{true: "zh", false: "en"}[zh]
+		t.Run(name, func(t *testing.T) {
+			model, fence := hmc377R12Fence(t, projection, zh)
+			host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+			if host == nil || len(host.RankFoldPeers) != 1 || host.Node.Rank != 1 || xlane2FindRowByEvidenceID(&model, "r13-seat") != nil {
+				t.Fatalf("the lead seat rides its hop row: %+v\n%s", host, fence)
+			}
+			detail := runtimeTraceProjDetailFullText(model, zh)
+			block := r13DetailBlock(detail, host.EvidenceTag)
+			process, position := "- 进程: tgid=57534 comm=unyuan.app.chat", "- 因果位置: 主根因(优先处理)"
+			if !zh {
+				process, position = "- process: tgid=57534 comm=unyuan.app.chat", "- causal position: primary (handle first)"
+			}
+			if !strings.Contains(block, process) || !strings.Contains(block, position) {
+				t.Fatalf("the one row's detail block keeps the seat's process and position:\n%s", block)
+			}
+		})
+	}
+	// When the conclusion consumes another thread's seat, the one row is not
+	// the lead and keeps its on-chain position (RN-3(b)).
+	lead := elimChainNode("r13-lead", "surfaceflinger-700", "runnable_wait", "runnable", 1, 40.5, 90000)
+	lead.Predicate, lead.Role = "root_cause_primary", types.TraceCausalRolePrimaryRootCause
+	projection.PrimaryRootCauses = []types.TraceCausalProjectionNode{lead, seat}
+	model, fence := hmc377R12Fence(t, projection, true)
+	host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+	if host == nil || len(host.RankFoldPeers) != 1 || model.LeadKey == runtimeTraceCausalProjectionNodeKey(host.Node) {
+		t.Fatalf("the other thread's seat is the lead: lead=%q host=%+v\n%s", model.LeadKey, host, fence)
+	}
+	if block := r13DetailBlock(runtimeTraceProjDetailFullText(model, true), host.EvidenceTag); !strings.Contains(block, "- 因果位置: 链上(重点)") {
+		t.Fatalf("a fold that is not the lead keeps its on-chain position:\n%s", block)
+	}
+}
+
+// r13DetailBlock returns the detail block headed by [tag].
+func r13DetailBlock(detail, tag string) string {
+	var out []string
+	in := false
+	for _, l := range strings.Split(detail, "\n") {
+		if strings.HasPrefix(l, "**[") {
+			in = strings.HasPrefix(l, "**["+tag+"]")
+		}
+		if in {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
