@@ -231,10 +231,27 @@ func TestGatedCalDegenerateArmCompositeNeverWearsFull(t *testing.T) {
 	}
 	// OMGCLEAN-1 件8: the ◎ short mark is the bare 构成; the detail-table cell
 	// annotation keeps the full 构成,见明细 word (two faces, one legend).
+	//
+	// EVOLUTION RECORD (HMC377 round 13, batch-owner ruling R-377-13 ①,
+	// 2026-11-22): old → new = the A2 witness keva-1-17437's inversion seat
+	// [E27] (its composite 3.514ms on its own tree row and its own table row
+	// 「| keva-1-17437 / 优先级反转候选 [E27] | 3.514ms(构成,见明细) |…」) beside
+	// its chain hop [E21(+1)] (runnable 2.266ms) → one row: the seat shows
+	// exactly the hop's measured runnable account (seat
+	// measured_state_account_key == hop state_account_key), so it is the
+	// hop row's evidence — 「⇅ keva-1-17437 · runnable 2.266ms [E21(+1)+E#]」
+	// with the composite equation on its 行3 and in its detail block, and one
+	// table row naming the seat's cause 「| keva-1-17437 / 优先级反转候选
+	// [E21(+1)] | 2.266ms | 4.795ms | 3.514ms |…」. Raw (this fixture, the
+	// RSPA bipartition B1636 record above): 2.266ms of ready time on that
+	// wait, so the two rows drew it twice. The composite cell word stays
+	// pinned by the stale/synthetic arms below.
 	if (!strings.Contains(donghu, "优先级反转候选 ·构成") &&
 		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成")) ||
-		!strings.Contains(donghu, "3.514ms(构成,见明细)") {
-		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and cell annotation:\n%s", donghu)
+		!strings.Contains(donghu, "| keva-1-17437 / 优先级反转候选 [E21(+1)] | 2.266ms | 4.795ms | 3.514ms |") ||
+		strings.Count(donghu, "| keva-1-17437 / ") != 1 ||
+		!regexp.MustCompile(`⇅ keva-1-17437 · runnable .*\[E21\(\+1\)\+E\d+\]`).MatchString(donghu) {
+		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and its one row:\n%s", donghu)
 	}
 	gatedCalAssertCompositeWordSplitReachable(t, donghu)
 	// 宁缺勿造 defense arm (engine-unmintable stale form, unit probe): neither

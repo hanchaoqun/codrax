@@ -795,11 +795,25 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 type runtimeTraceProjPeerDrawn struct {
 	recordIDs []string
 	displayMS float64
+	// own (HMC377 R-377-13 ①): the host row draws this peer's account as its
+	// own — a rank seat folded into its hop row on their typed account
+	// identity. Every other peer is drawn inside a host that publishes the
+	// host's account.
+	own bool
 }
 
 // runtimeTraceProjPeerDrawnOf records what a folded node draws.
 func runtimeTraceProjPeerDrawnOf(node types.TraceCausalProjectionNode) runtimeTraceProjPeerDrawn {
 	return runtimeTraceProjPeerDrawn{recordIDs: runtimeTraceProjNodeRecordIDs(node), displayMS: runtimeTraceProjNodeDisplayImpact(node)}
+}
+
+// runtimeTraceProjRankFoldPeerDrawn records what a folded rank seat draws
+// inside its host: the host's own account when the host took the seat's
+// account disclosure on their typed account identity (R-377-13 ①).
+func runtimeTraceProjRankFoldPeerDrawn(peer types.TraceCausalProjectionNode, accountAdopted bool) runtimeTraceProjPeerDrawn {
+	drawn := runtimeTraceProjPeerDrawnOf(peer)
+	drawn.own = accountAdopted
+	return drawn
 }
 
 // runtimeTraceProjNodeRecordIDs is every record id one drawn node stands for:
@@ -3764,7 +3778,19 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// twin never mints a sibling/cause tree row (成因形与兄弟形 both covered by
 	// construction — the fold precedes tree-position assignment). The peers
 	// are re-attached to the surviving row after flatten (evidence + note).
-	chainNodes, rankFoldPeers, rankDonorRefs := runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(chainNodes)
+	trunkSubjects := map[string]bool{}
+	for i := 0; i+1 < len(path); i++ {
+		trunkSubjects[runtimeTraceCausalProjectionCanonicalNode(path[i])] = true
+	}
+	// The trunk builder below consumes a trunk thread's row of the elected
+	// trunk domain as its trunk head (the same gate it applies).
+	trunkHead := func(node types.TraceCausalProjectionNode) bool {
+		windowed := projection.WakeupPathQueryWindowStartTs > 0 && projection.WakeupPathQueryWindowEndTs > projection.WakeupPathQueryWindowStartTs
+		return trunkSubjects[runtimeTraceCausalProjectionCanonicalNode(node.Subject)] &&
+			runtimeTraceProjTrunkDomainAdmit(node, projection.WakeupPathBranch, windowed,
+				projection.WakeupPathQueryWindowStartTs, projection.WakeupPathQueryWindowEndTs)
+	}
+	chainNodes, rankFoldPeers, rankDonorRefs := runtimeTraceProjFoldRankLaneTwins(chainNodes, trunkHead)
 	// CR-2 组② P5 member arm (WO-D1①; the equality arm retired to the engine
 	// one-seat mint in v5 P1 件①, 2026-07-13): a legacy raw root_evidence
 	// member re-issue folds into its ×N seat BEFORE the subject buckets. The
@@ -4541,7 +4567,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						CumulativeImpactMS:  peer.CumulativeImpactMS,
 						DisplayImpactMS:     runtimeTraceProjNodeDisplayImpact(peer),
 						TargetImpactMS:      peer.TargetImpactMS,
-						drawn:               runtimeTraceProjPeerDrawnOf(peer),
+						drawn:               runtimeTraceProjRankFoldPeerDrawn(peer, rankIdentityAdopted && rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)].AccountAdopted),
 					})
 				}
 			}
@@ -8365,6 +8391,20 @@ func runtimeTraceProjRankFoldWindow(node types.TraceCausalProjectionNode) (float
 	return 0, 0, false
 }
 
+// runtimeTraceProjRankFoldAccountKey is the typed identity one lane row of an
+// inversion candidate shows (HMC377 R-377-13 ①): the producer's exact
+// segment-inventory hash of the measured scheduler-state account (a hop row's
+// priced state account, a rank seat's measured account), with the canonical
+// subject. "" when the producer proved none.
+func runtimeTraceProjRankFoldAccountKey(node types.TraceCausalProjectionNode) string {
+	key := strings.TrimSpace(node.MeasuredStateFactKey())
+	subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+	if key == "" || subject == "" || node.MergedCount > 1 {
+		return ""
+	}
+	return subject + "\x00" + key
+}
+
 // runtimeTraceProjFoldSameSegmentLaneTwins folds the rank-lane twin of a
 // same-segment pair into its chain-lane row (RNB R2). Runs on the chain-node
 // universe BEFORE the subject buckets are built (NEW-3 position), so the rank
@@ -8403,27 +8443,30 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 type runtimeTraceProjRankDonorRef struct {
 	PeerKey   string
 	MemberRef string
+	// AccountAdopted (HMC377 R-377-13 ①): the host took the donor's account
+	// disclosure on their typed account identity, so it draws the donor's
+	// account as its own.
+	AccountAdopted bool
 }
 
 // The third result preserves relation identity at the SAME adoption point as
 // the rank tuple. A host that already owns a rank never adopts a donor ref.
 // Existing consumers of the two-result fold keep their lossless node payloads.
 func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode, map[string]runtimeTraceProjRankDonorRef) {
+	return runtimeTraceProjFoldRankLaneTwins(nodes, nil)
+}
+
+// runtimeTraceProjFoldRankLaneTwins is the RNB R2 fold with the trunk-head
+// predicate of the tree it builds (HMC377 R-377-13 ①: the typed join below
+// leaves a row the trunk builder takes as a trunk head to that builder, which
+// draws one thread's same-subject rows of the trunk domain under the head —
+// its main row and its state-makeup children). nil: no trunk.
+func runtimeTraceProjFoldRankLaneTwins(nodes []types.TraceCausalProjectionNode, trunkHead func(types.TraceCausalProjectionNode) bool) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode, map[string]runtimeTraceProjRankDonorRef) {
 	type group struct {
 		rankIdx  []int
 		chainIdx []int
 	}
-	groups := map[string]*group{}
-	for i, node := range nodes {
-		rankArm := runtimeTraceProjRankFoldRankArm(node)
-		chainArm := runtimeTraceProjRankFoldChainArm(node)
-		if !rankArm && !chainArm {
-			continue
-		}
-		key := runtimeTraceProjSameSegmentTwinKey(node)
-		if key == "" {
-			continue
-		}
+	add := func(groups map[string]*group, key string, i int, rankArm bool) {
 		g := groups[key]
 		if g == nil {
 			g = &group{}
@@ -8435,20 +8478,48 @@ func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalP
 			g.chainIdx = append(g.chainIdx, i)
 		}
 	}
+	accountGroups := map[string]*group{}
+	groups := map[string]*group{}
+	for i, node := range nodes {
+		rankArm := runtimeTraceProjRankFoldRankArm(node)
+		chainArm := runtimeTraceProjRankFoldChainArm(node)
+		if !rankArm && !chainArm {
+			continue
+		}
+		if key := runtimeTraceProjRankFoldAccountKey(node); key != "" {
+			add(accountGroups, key, i, rankArm)
+		}
+		if key := runtimeTraceProjSameSegmentTwinKey(node); key != "" {
+			add(groups, key, i, rankArm)
+		}
+	}
+	// Typed vetoes shared by both joins: known board conflicts, the host's
+	// symptom exclusion and a cross-window re-measurement.
+	vetoed := func(rank, chain types.TraceCausalProjectionNode) bool {
+		if (strings.TrimSpace(rank.RankBoardTarget) != "" && strings.TrimSpace(chain.RankBoardTarget) != "" &&
+			strings.TrimSpace(rank.RankBoardTarget) != strings.TrimSpace(chain.RankBoardTarget)) ||
+			(strings.TrimSpace(rank.RankBoardParamsFingerprint) != "" && strings.TrimSpace(chain.RankBoardParamsFingerprint) != "" &&
+				strings.TrimSpace(rank.RankBoardParamsFingerprint) != strings.TrimSpace(chain.RankBoardParamsFingerprint)) {
+			return true // different known rank boards — preserve both receipts
+		}
+		if chain.IsTargetSelfStateRow() && !rank.IsTargetSelfStateRow() {
+			return true // adopting a rank must not erase the host's symptom exclusion
+		}
+		rankStart, rankEnd, rankWindow := runtimeTraceProjRankFoldWindow(rank)
+		chainStart, chainEnd, chainWindow := runtimeTraceProjRankFoldWindow(chain)
+		return rankWindow && chainWindow &&
+			(math.Abs(rankStart-chainStart) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(rankEnd-chainEnd) > types.TraceCausalProjectionSameWindowToleranceS)
+	}
 	foldInto := map[int]int{} // rank node index -> chain node index
+	used := map[int]bool{}
 	for _, g := range groups {
 		if len(g.rankIdx) != 1 || len(g.chainIdx) != 1 {
 			continue // ambiguity fails open (SFD donor-conflict rule)
 		}
 		rank, chain := nodes[g.rankIdx[0]], nodes[g.chainIdx[0]]
-		if (strings.TrimSpace(rank.RankBoardTarget) != "" && strings.TrimSpace(chain.RankBoardTarget) != "" &&
-			strings.TrimSpace(rank.RankBoardTarget) != strings.TrimSpace(chain.RankBoardTarget)) ||
-			(strings.TrimSpace(rank.RankBoardParamsFingerprint) != "" && strings.TrimSpace(chain.RankBoardParamsFingerprint) != "" &&
-				strings.TrimSpace(rank.RankBoardParamsFingerprint) != strings.TrimSpace(chain.RankBoardParamsFingerprint)) {
-			continue // different known rank boards — preserve both receipts
-		}
-		if chain.IsTargetSelfStateRow() && !rank.IsTargetSelfStateRow() {
-			continue // adopting a rank must not erase the host's symptom exclusion
+		if vetoed(rank, chain) {
+			continue
 		}
 		if rank.EffectiveImpactMS <= 0 || rank.EffectiveImpactMS != chain.EffectiveImpactMS {
 			continue // not the engine's same-segment mirror — never fold
@@ -8469,14 +8540,33 @@ func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalP
 			rank.CumulativeImpactMS != chain.CumulativeImpactMS {
 			continue // diverging cumulative accounts (W-A) — never fold
 		}
-		rankStart, rankEnd, rankWindow := runtimeTraceProjRankFoldWindow(rank)
-		chainStart, chainEnd, chainWindow := runtimeTraceProjRankFoldWindow(chain)
-		if rankWindow && chainWindow &&
-			(math.Abs(rankStart-chainStart) > types.TraceCausalProjectionSameWindowToleranceS ||
-				math.Abs(rankEnd-chainEnd) > types.TraceCausalProjectionSameWindowToleranceS) {
-			continue // cross-window re-measurement (SFD F1 mirror) — never fold
-		}
 		foldInto[g.rankIdx[0]] = g.chainIdx[0]
+		used[g.rankIdx[0]], used[g.chainIdx[0]] = true, true
+	}
+	// HMC377 R-377-13 ① (batch-owner ruling 2026-11-22): one object per
+	// physical thread on the tree. A rank seat that shows exactly the
+	// scheduler-state account its chain hop row is priced at — the
+	// producer's exact segment-inventory identity, the seat's measured
+	// account equal to the hop's state account — is that hop's own rank
+	// publication, and the pair the value mirrors above refused (the RSPA
+	// chain-seat split gives the seat a decomposition and a chain-scope
+	// cumulative of its own) folds on that typed identity alone: two rows on
+	// one set of instants are one object. The host keeps the hop's tree
+	// position and accounts; the seat's rank, its account disclosure (split
+	// sentence and claims) and its [E#] travel with it. A seated host (its own
+	// rank) and a trunk head (its thread drawn under it) are left alone.
+	accountFold := map[int]bool{}
+	for _, g := range accountGroups {
+		if len(g.rankIdx) != 1 || len(g.chainIdx) != 1 {
+			continue // ambiguity fails open (SFD donor-conflict rule)
+		}
+		r, c := g.rankIdx[0], g.chainIdx[0]
+		if used[r] || used[c] || nodes[c].Rank > 0 || (trunkHead != nil && trunkHead(nodes[c])) || vetoed(nodes[r], nodes[c]) {
+			continue
+		}
+		foldInto[r] = c
+		accountFold[r] = true
+		used[r], used[c] = true, true
 	}
 	if len(foldInto) == 0 {
 		return nodes, nil, nil
@@ -8524,6 +8614,33 @@ func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalP
 			if node.BlockedReasonWindowCount == 0 && rankTwin.BlockedReasonWindowCount > 0 {
 				node.BlockedReasonWindowCount = rankTwin.BlockedReasonWindowCount
 				node.BlockedReasonWindowCaller = rankTwin.BlockedReasonWindowCaller
+			}
+			// HMC377 R-377-13 ①: a seat folded on its typed account identity
+			// is the host's own account — its disclosure (the RSPA split
+			// sentence, the claims its sentences make) and its family key
+			// (the lossless detail rows it represents) travel with it, so the
+			// one row says what the seat said.
+			if accountFold[rankIdx] {
+				types.TraceCausalProjectionAdoptAccountDisclosure(&node, rankTwin)
+				if strings.TrimSpace(node.RankFamilyKey) == "" {
+					node.RankFamilyKey = rankTwin.RankFamilyKey
+				}
+				// The seat's own chain cumulative is the larger scope of the
+				// one fact (the R1 one-fact MAX): its 链上累计 line stays.
+				if rankTwin.CumulativeImpactMS > node.CumulativeImpactMS {
+					node.CumulativeImpactMS = rankTwin.CumulativeImpactMS
+				}
+				// The one object is the seat's cause: its typed cause token
+				// names the row on every face that names a cause (the crown,
+				// ◎, the detail type line); the hop's state stays its
+				// StateKind.
+				if object := strings.TrimSpace(rankTwin.Object); object != "" {
+					node.Object = object
+				}
+				if strings.TrimSpace(node.TypeToken) == "" {
+					node.TypeToken = rankTwin.TypeToken
+				}
+				adoptedRef.AccountAdopted = true
 			}
 			if adopted {
 				// Store alongside the peer map only after host mutations are

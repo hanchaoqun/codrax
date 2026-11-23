@@ -1,0 +1,256 @@
+package tool
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// HMC377 round 13 (batch-owner ruling R-377-13 ①, 2026-11-22): one object per
+// physical thread on the tree. Real windows at 532dc208d (review-population
+// logs/final/mainclass.txt, evidence/D6_preexisting_batch_tree.txt; lane
+// evidence fix13/mirror/evidence/pairs_532.txt):
+//   - a chain hop row and the inversion rank seat that shows exactly the
+//     hop's measured account were two additive rows, e.g. w07
+//     binder:11043_3-59698 ⇅ 8.294 [E13(+1)] beside ➋ ⇅ 8.327 [E30]
+//     (runnable 8.294 + 8.294 + ◇ 118.784 against raw 127.078);
+//   - a case-B clipped ready-time seat priced on its hop's segments stood
+//     beside the hop with no disclosure, e.g. w19 dtmp.dispatch-59777
+//     ⇅ 4.692 [E19(+1)] beside ⧖ 4.692 [E32] (raw 5.074);
+//   - an occurrence row of a multi-occurrence inversion account stood beside
+//     its aggregate seat when the sibling occurrence was drawn only inside an
+//     overflow fold row (w42 android.bg-7973 5.938 beside 40.804);
+//   - the ◇ remainder half of a semantic span's 同源二分 stood beside the
+//     span's own ✦ record and repeated the anchored part (w22m
+//     tbs_basemodule_-58968 ✦ 1.202 beside ◇ 0.292).
+
+const r13Thread = "binder:11043_3-59698"
+
+func r13Hop(id, key string) types.TraceCausalProjectionNode {
+	return types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleCausalHop, EvidenceID: id, Subject: r13Thread,
+		Predicate: "wakeup_causal_impact", Object: "runnable", StateKind: "runnable",
+		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", ChainDepth: 1, ChainBranch: 3,
+		ImpactMS: 8.294, CumulativeImpactMS: 8.294, EffectiveImpactMS: 8.327, EffectiveImpactPublished: true,
+		PriorityInversionCandidate: true, GatedRunnableMS: 8.294, GatedRunningDeficitMS: 0.033,
+		RunnableMS: 8.294, RunningMS: 0.166, StateAccountKey: key, StateAccountComplete: true,
+		LineStart: 113278, LineEnd: 115050, StartTs: 236715.517319, EndTs: 236715.525779,
+		Confidence: 0.78, Unit: "ms", Value: "8.294",
+	}
+}
+
+func r13Seat(id, key string) types.TraceCausalProjectionNode {
+	node := elimChainNode(id, r13Thread, "priority_inversion_candidate", "runnable", 2, 8.327, 113278)
+	node.LineEnd = 115050
+	node.ImpactMS, node.CumulativeImpactMS = 8.327, 8.46
+	node.ChainBranch, node.StartTs, node.EndTs = 3, 236715.517319, 236715.525779
+	node.GatedRunnableMS, node.GatedRunningDeficitMS, node.RunnableMS, node.RunningMS = 8.294, 0.033, 8.294, 0.166
+	node.ChainAnchoredMS, node.ChainAnchorFullMS = 8.294, 127.078
+	node.MeasuredStateAccountKey = key
+	node.FixDirection, node.Confidence = "lock_priority", 0.91
+	node.ShareClaims = []types.TraceCausalProjectionShareClaim{{Part: "remainder", Role: "remainder_seat", ShareMS: 118.784, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r13-rem"}}}
+	return node
+}
+
+func r13Remainder() types.TraceCausalProjectionNode {
+	node := elimChainNode("r13-rem", r13Thread, "runnable_wait", "runnable", 1, 118.784, 89488)
+	node.Predicate, node.Tier, node.LineEnd = "root_cause_adjacent", "tertiary", 145810
+	node.ChainRelevance, node.Causality, node.ChainDepth = "adjacent", "adjacent_to_wakeup_chain", 0
+	node.ChainAnchorRemainderSeat, node.ChainAnchoredMS, node.ChainAnchorFullMS = true, 8.294, 127.078
+	node.RunnableMS = 118.784
+	node.ShareClaims = []types.TraceCausalProjectionShareClaim{{Part: "anchored", Role: "chain_seat", ShareMS: 8.294, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r13-seat"}}}
+	return node
+}
+
+func r13Projection(nodes ...types.TraceCausalProjectionNode) types.TraceCausalProjection {
+	projection := types.TraceCausalProjection{
+		RootCauseFamilyObserved: true, WakeupPath: []string{"surfaceflinger-700", ".ugc.aweme.lite-59591"},
+		WindowStartTs: 236715.408787, WindowEndTs: 236716.010733,
+	}
+	for _, node := range nodes {
+		if node.ChainRelevance == "adjacent" {
+			projection.AdjacentCauses = append(projection.AdjacentCauses, node)
+			continue
+		}
+		projection.OnChainCauses = append(projection.OnChainCauses, node)
+	}
+	return projection
+}
+
+// r13HeadLines returns the tree headlines of subject's thread (matched by its
+// tid suffix: a long name is mid-truncated on the row).
+func r13HeadLines(fence, subject string) []string {
+	tid := subject[strings.LastIndex(subject, "-"):]
+	var out []string
+	for _, l := range strings.Split(fence, "\n") {
+		if strings.Contains(l, tid+" ·") && regexp.MustCompile(`[0-9]+\.[0-9]{3}ms`).MatchString(l) && strings.Contains(l, "[E") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// R-377-13 ①: the chain hop row and the rank seat that shows exactly the
+// hop's measured account are one row on the tree — the hop row keeps its tree
+// position and its accounts, the seat's rank (and badge), its split sentence
+// and its [E#] travel with it, and its ◇ remainder names the one row.
+func TestHMC377R13HopAndItsRankSeatAreOneRow(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	projection := r13Projection(r13Hop("r13-hop", key), r13Seat("r13-seat", key), r13Remainder())
+	for _, zh := range []bool{true, false} {
+		name := map[bool]string{true: "zh", false: "en"}[zh]
+		model, fence := hmc377R12Fence(t, projection, zh)
+		t.Run(name+"/one chain row", func(t *testing.T) {
+			if row := xlane2FindRowByEvidenceID(&model, "r13-seat"); row != nil {
+				t.Fatalf("the rank seat must not be a second tree row:\n%s", fence)
+			}
+			host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+			if host == nil || len(host.RankFoldPeers) != 1 || host.Node.Rank != 2 || host.Badge != 2 {
+				t.Fatalf("the hop row hosts the seat with its rank and badge: %+v\n%s", host, fence)
+			}
+			if host.Node.Object != "priority_inversion_candidate" || host.Node.StateKind != "runnable" {
+				t.Fatalf("the one row names the seat's cause and keeps the hop's state: %q %q", host.Node.Object, host.Node.StateKind)
+			}
+			heads := r13HeadLines(fence, r13Thread)
+			if len(heads) != 2 { // the chain row and the ◇ remainder
+				t.Fatalf("one chain row and one ◇ remainder expected, got %d:\n%s", len(heads), fence)
+			}
+			seatTag := host.RankFoldPeers[0].EvidenceTag
+			if !strings.Contains(heads[0], "➋") || !strings.Contains(heads[0], "["+host.EvidenceTag+"+"+seatTag+"]") {
+				t.Fatalf("the one row wears the seat's badge and its [E#]: %q", heads[0])
+			}
+			want := "同源二分:全窗127.078ms=本行锚定8.294ms+其余118.784ms"
+			if !zh {
+				want = "same-source split: full-window 127.078ms=this row 8.294ms anchored + remainder 118.784ms"
+			}
+			if !strings.Contains(hmc377R12Joined(fence), want) {
+				t.Fatalf("the seat's split sentence stays on the one row (%q):\n%s", want, fence)
+			}
+			cum := "链上累计8.460ms"
+			if !zh {
+				cum = "chain cum 8.460ms"
+			}
+			if !strings.Contains(hmc377R12Joined(fence), cum) {
+				t.Fatalf("the seat's chain cumulative stays on the one row (%q):\n%s", cum, fence)
+			}
+		})
+		t.Run(name+"/the remainder names the one row", func(t *testing.T) {
+			rem := xlane2FindRowByEvidenceID(&model, "r13-rem")
+			host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+			if rem == nil || host == nil || rem.AccountRelRef == "" || host.AccountRelRef != strings.TrimSpace(rem.EvidenceTag) {
+				t.Fatalf("the ◇ remainder pairs with the one row: rem=%+v host=%+v", rem, host)
+			}
+		})
+		t.Run(name+"/◎ keeps one seat at its value", func(t *testing.T) {
+			var seats []runtimeTraceProjElimEntry
+			for _, entry := range runtimeTraceProjElimBoard(model) {
+				if entry.row.Node.Subject == r13Thread && entry.row.Node.ChainRelevance == "on_chain" {
+					seats = append(seats, entry)
+				}
+			}
+			if len(seats) != 1 || seats[0].row.Node.EffectiveImpactMS != 8.327 {
+				t.Fatalf("◎ keeps exactly the one chain seat at 8.327: %+v", seats)
+			}
+		})
+	}
+}
+
+// The typed fold needs the typed identity: a seat that shows another account
+// of the same thread stays its own row.
+func TestHMC377R13RankSeatOfAnotherAccountStaysItsOwnRow(t *testing.T) {
+	projection := r13Projection(r13Hop("r13-hop", "state_account:v2:a"), r13Seat("r13-seat", "state_account:v2:b"), r13Remainder())
+	model, fence := hmc377R12Fence(t, projection, true)
+	if xlane2FindRowByEvidenceID(&model, "r13-seat") == nil {
+		t.Fatalf("a seat of another account keeps its own row:\n%s", fence)
+	}
+}
+
+// A trunk thread's rows stay under the trunk head that draws them (the
+// protected Honeybird [11343.248,11343.310) TID 64156 face: the drill row of
+// Signal Catcher-64176 and its 构成 child); a seated host keeps its own seat.
+func TestHMC377R13TypedFoldLeavesTrunkThreadsAndSeatedHosts(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	t.Run("trunk thread", func(t *testing.T) {
+		projection := r13Projection(r13Hop("r13-hop", key), r13Seat("r13-seat", key), r13Remainder())
+		projection.WakeupPath, projection.WakeupPathBranch = []string{r13Thread, ".ugc.aweme.lite-59591"}, 3
+		model, fence := hmc377R12Fence(t, projection, true)
+		if xlane2FindRowByEvidenceID(&model, "r13-seat") == nil {
+			t.Fatalf("a trunk thread's seat stays under its trunk head:\n%s", fence)
+		}
+		// The same thread off the elected trunk domain is a flat row: one row.
+		projection.WakeupPathBranch = 4
+		model, fence = hmc377R12Fence(t, projection, true)
+		if xlane2FindRowByEvidenceID(&model, "r13-seat") != nil {
+			t.Fatalf("off the trunk domain the pair is one row:\n%s", fence)
+		}
+	})
+	t.Run("seated host", func(t *testing.T) {
+		hop := r13Hop("r13-hop", key)
+		hop.Rank, hop.Tier = 5, "tertiary"
+		model, fence := hmc377R12Fence(t, r13Projection(hop, r13Seat("r13-seat", key), r13Remainder()), true)
+		if xlane2FindRowByEvidenceID(&model, "r13-seat") == nil {
+			t.Fatalf("a seated host keeps the other seat as its own row:\n%s", fence)
+		}
+	})
+}
+
+// The legacy same-span fold (equal effective and cumulative accounts) keeps
+// its 532dc208d form: the host does not take the seat's account disclosure.
+// Taking it is the R-377-13 ① form, but it moves the protected NetEase reboot5
+// [153.763595,153.887340) TID 11077 face (HeapTaskDaemon-11098 E4(+1),
+// wk:1/1/0/8-6934 E5(+3)+E26 grow their 同源二分 sentences) — stopped and
+// reported (fix13/mirror/evidence/stopped_protected/).
+func TestHMC377R13LegacyFoldKeepsItsForm(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	seat := r13Seat("r13-seat", key)
+	seat.CumulativeImpactMS = 8.294
+	hop := r13Hop("r13-hop", key)
+	hop.EffectiveImpactMS = seat.EffectiveImpactMS
+	model, fence := hmc377R12Fence(t, r13Projection(hop, seat, r13Remainder()), true)
+	host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+	if host == nil || len(host.RankFoldPeers) != 1 {
+		t.Fatalf("the legacy pair folds:\n%s", fence)
+	}
+	if host.Node.ChainAnchorFullMS != 0 || strings.Contains(hmc377R12Joined(fence), "本行锚定8.294ms") {
+		t.Fatalf("the legacy fold keeps its form (no adopted split sentence):\n%s", fence)
+	}
+}
+
+func r13CensusSeat(id, key string) types.TraceCausalProjectionNode {
+	node := elimChainNode(id, "dtmp.dispatch-59777", "runnable_wait", "runnable", 11, 4.692, 105378)
+	node.LineEnd = 112045
+	node.ChainDepth, node.RunnableMS = 0, 4.692
+	node.ChainAnchoredMS, node.ChainAnchorFullMS = 4.692, 5.074
+	node.MeasuredStateAccountKey = key
+	node.FixDirection = "scheduling_supply"
+	return node
+}
+
+func r13PricedHop(id, key string) types.TraceCausalProjectionNode {
+	hop := r13Hop(id, key)
+	hop.Subject = "dtmp.dispatch-59777"
+	hop.ImpactMS, hop.CumulativeImpactMS, hop.EffectiveImpactMS = 4.692, 4.692, 0.343
+	hop.GatedRunnableMS, hop.GatedRunningDeficitMS, hop.RunnableMS, hop.RunningMS = 0, 0.343, 4.692, 0.493
+	hop.LineStart, hop.LineEnd = 105378, 105679
+	return hop
+}
+
+// The seat's family key travels with it: the lossless detail rows the engine
+// absorbed into the seat (the R-377-4 inversion window row) stay hosted by
+// the one row.
+func TestHMC377R13FoldedSeatKeepsItsAbsorbedDetailRows(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	seat := r13Seat("r13-seat", key)
+	seat.RankFamilyKey = "rank_pair:priority_inversion_candidate>priority_inversion_runnable_wait|pid:59698"
+	detail := elimChainNode("r13-detail", r13Thread, "priority_inversion_runnable_wait", "runnable", 0, 0.388, 89488)
+	detail.AbsorbedByRankFamily, detail.AbsorbedInto = true, seat.RankFamilyKey
+	projection := r13Projection(r13Hop("r13-hop", key), seat, r13Remainder())
+	projection.AbsorbedChainRows = []types.TraceCausalProjectionNode{detail}
+	model, fence := hmc377R12Fence(t, projection, true)
+	host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+	if host == nil || len(host.RankFoldPeers) != 1 || len(host.AbsorbedChainPeers) != 1 {
+		t.Fatalf("the one row hosts the seat's absorbed detail: %+v\n%s", host, fence)
+	}
+}

@@ -1,0 +1,53 @@
+package tool
+
+import (
+	"strings"
+	"testing"
+)
+
+// HMC377 round 13 (batch-owner ruling R-377-13 ①): one object per physical
+// thread on the tree, on complete original captures (opt-in; the review
+// windows of fix12/review-population/win/all_windows265.txt). Raw: the
+// review's own parse (review-population raw/raw_all.json).
+
+func r13WholeRows(faces hmc377R11Faces, tid string) []*runtimeTraceProjTreeRow {
+	var out []*runtimeTraceProjTreeRow
+	for _, row := range runtimeTraceProjSMR1AllRows(&faces.model) {
+		if row.HasData && strings.HasSuffix(strings.TrimSpace(row.Node.Subject), "-"+tid) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// 100 抖音极速版 容器重启 #1 (CODRAX_HMC376_GALLERY_FULLGC), review window w01
+// [2493.173005, 2494.208465) TID 56888: binder 57014's chain hop (runnable
+// 6.484 on [2494.05334, 2494.066535]) and its inversion rank seat (8.966 =
+// runnable 6.484 + running deficit 2.482, the same measured account) were two
+// additive rows beside the ◇ census remainder 136.853 (6.484 + 6.484 + 136.853
+// = 149.821 against raw ready 147.902). They are one row now, carrying the
+// seat's rank, its badge, its [E#] and its chain cumulative.
+func TestHMC377R13WholeOriginalHopAndInversionSeatAreOneRow(t *testing.T) {
+	path := hmc376Original(t, "CODRAX_HMC376_GALLERY_FULLGC", "d27ff641787dfa0768928e0ce3d11a7d2a6caa0f2910c941fae3e97f2256e22e", 245420208)
+	faces := hmc377R11QueryPID(t, path, 56888, 2493.173005, 2494.208465)
+	var host *runtimeTraceProjTreeRow
+	for _, row := range r13WholeRows(faces, "57014") {
+		if strings.HasPrefix(row.Node.Predicate, "root_cause_") && runtimeTraceCausalProjectionInversionRow(row.Node) {
+			t.Fatalf("the inversion seat must not be a second row of 57014: %s %s", row.EvidenceTag, row.Node.EvidenceID)
+		}
+		if row.Node.Predicate == "wakeup_causal_impact" && len(row.RankFoldPeers) == 1 {
+			host = row
+		}
+	}
+	if host == nil || host.Node.Rank <= 0 || host.Badge != host.Node.Rank {
+		t.Fatalf("57014's hop row hosts its seat with the seat's rank and badge: %+v", host)
+	}
+	joined := hmc377R12Joined(faces.zh)
+	if !strings.Contains(joined, "["+host.EvidenceTag+"+"+host.RankFoldPeers[0].EvidenceTag+"]") {
+		t.Fatal("the one row's bracket names both records")
+	}
+	// The seat's own chain cumulative stays on the one row.
+	if !strings.Contains(joined, "链上累计13.195ms") {
+		t.Fatal("the seat's 链上累计13.195ms stays on the one row")
+	}
+}

@@ -1521,7 +1521,7 @@ func runtimeTraceProjDrawnRecordIndex(model *runtimeTraceProjTreeModel, all []*r
 			displayMS: runtimeTraceProjNodeDisplayImpact(row.Node)})
 	}
 	peer := func(row *runtimeTraceProjTreeRow, tag string, drawn runtimeTraceProjPeerDrawn) {
-		put(drawn.recordIDs, runtimeTraceProjDrawnRecord{row: row, tag: strings.TrimSpace(tag), displayMS: drawn.displayMS})
+		put(drawn.recordIDs, runtimeTraceProjDrawnRecord{row: row, tag: strings.TrimSpace(tag), own: drawn.own, displayMS: drawn.displayMS})
 	}
 	for _, row := range all {
 		if !row.HasData {

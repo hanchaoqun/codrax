@@ -703,81 +703,7 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// as a pair (count+symbols are one disclosure).
 	survivor.DStateRefinedNonIO = survivor.DStateRefinedNonIO || loser.DStateRefinedNonIO
 	survivor.DStateCauseUnprovenRemainder = survivor.DStateCauseUnprovenRemainder || loser.DStateCauseUnprovenRemainder
-	// RSPA (§29.61.10): the bipartition trio travels as ONE disclosure —
-	// values + remainder marker move together (a survivor with its own
-	// decomposition keeps it; the two halves of one bipartition can never R1
-	// same-fact merge because their published values differ by construction).
-	tookLoserClaims := false
-	if survivor.ChainAnchorFullMS == 0 && loser.ChainAnchorFullMS > 0 {
-		tookLoserClaims = true
-		survivor.ChainAnchoredMS = loser.ChainAnchoredMS
-		survivor.ChainAnchorFullMS = loser.ChainAnchorFullMS
-		survivor.ChainAnchorRemainderSeat = loser.ChainAnchorRemainderSeat
-		// RNB-1 (§29.88 R2): the case-A' divergence disclosure is part of the
-		// same bipartition disclosure — it travels with the trio (never
-		// mixed with a survivor's own decomposition).
-		survivor.ChainAnchorOwnershipDivergent = loser.ChainAnchorOwnershipDivergent
-		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
-		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
-		// HMC377 fix round 3: the typed three-way parts are part of the same
-		// disclosure.
-		survivor.ChainAnchorUnwalkedMS = loser.ChainAnchorUnwalkedMS
-		survivor.ChainAnchorOutsideMS = loser.ChainAnchorOutsideMS
-		// HMC377 fix round 5: the claims the disclosure's sentences make
-		// travel with it.
-		survivor.ShareClaims = loser.ShareClaims
-	}
-	survivor.ChainAnchorUnwalkedSeat = survivor.ChainAnchorUnwalkedSeat || loser.ChainAnchorUnwalkedSeat
-	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split family
-	// travels as ONE disclosure the same way (values + marker + pointer
-	// roster + fail-open overlap together; a survivor with its own split
-	// keeps it — the two halves of one split never R1-merge because their
-	// published values differ by construction).
-	//
-	// HMC377 round 12 (register R11T-5): the split's [E#] pointer, its
-	// withdrawal wording and its successor reading come from the split's
-	// typed gated-share claim (ShareClaims), so the claim travels with the
-	// family — the claim-seat line intervals alone left an absorbed split
-	// survivor without its [E#].
-	if survivor.GatedShareFullMS == 0 && loser.GatedShareFullMS > 0 {
-		survivor.GatedShareClaimedMS = loser.GatedShareClaimedMS
-		survivor.GatedShareFullMS = loser.GatedShareFullMS
-		survivor.GatedShareConstituentSeat = loser.GatedShareConstituentSeat
-		survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
-		survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
-		// HMC377 round 10: the gate's withdrawal of the claim seats is part
-		// of the same disclosure.
-		survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
-	}
-	if survivor.GatedShareOverlapDisclosureMS == 0 && loser.GatedShareOverlapDisclosureMS > 0 {
-		survivor.GatedShareOverlapDisclosureMS = loser.GatedShareOverlapDisclosureMS
-		if len(survivor.GatedShareClaimSeats) == 0 {
-			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
-			survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
-			survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
-		}
-	}
-	// HMC377 round 10 (R-377-10 ③): the partially represented share travels
-	// with the claims of the sentence that makes it.
-	if survivor.ChainAnchorRepresentedHeldMS == 0 && loser.ChainAnchorRepresentedHeldMS > 0 && len(survivor.ShareClaims) == 0 {
-		survivor.ChainAnchorRepresentedHeldMS = loser.ChainAnchorRepresentedHeldMS
-		survivor.ShareClaims = loser.ShareClaims
-	}
-	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's successor
-	// took back travels with the claims that took it.
-	if survivor.ShareReturnedMS == 0 && loser.ShareReturnedMS > 0 && len(survivor.ShareClaims) == 0 {
-		survivor.ShareReturnedMS = loser.ShareReturnedMS
-		survivor.ShareClaims = loser.ShareClaims
-		tookLoserClaims = true
-	}
-	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields
-	// travel as one disclosure with the claims whose resolution wrote them.
-	if survivor.ShareCountedElsewhereMS == 0 && loser.ShareCountedElsewhereMS > 0 && (len(survivor.ShareClaims) == 0 || tookLoserClaims) {
-		survivor.RestrictedReadyAccountMS = loser.RestrictedReadyAccountMS
-		survivor.ShareCountedElsewhereMS = loser.ShareCountedElsewhereMS
-		survivor.ShareCountedHereMS = loser.ShareCountedHereMS
-		survivor.ShareClaims = loser.ShareClaims
-	}
+	TraceCausalProjectionAdoptAccountDisclosure(survivor, loser)
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record travels as ONE
 	// disclosure the same way (all four fields together — a survivor with
 	// its own record keeps it; the 行2 sub-line re-validates X+Y against the
@@ -987,6 +913,96 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// this account (runs last, after any seat/board adoption above, so a
 	// board the survivor just adopted as its own is never listed twice).
 	traceCausalProjectionAbsorbSameFactRankBoards(survivor, loser)
+}
+
+// TraceCausalProjectionAdoptAccountDisclosure moves the typed account
+// disclosure of one fact's view onto the row that keeps the fact: the RSPA
+// bipartition trio with its three-way parts and divergence record, the
+// gated-share split family, the represented, returned and restriction-subset
+// shares, and the claims each of those sentences makes. Empty-slot fill: a
+// survivor with its own disclosure keeps it. It is the one carrier of that
+// set for the R1 same-fact absorb and for the tree's one-object fold of a
+// chain hop row and its rank seat (HMC377 R-377-13 ①), so the two can never
+// move different parts of one disclosure.
+func TraceCausalProjectionAdoptAccountDisclosure(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode) {
+	if survivor == nil {
+		return
+	}
+	// RSPA (§29.61.10): the bipartition trio travels as ONE disclosure —
+	// values + remainder marker move together (a survivor with its own
+	// decomposition keeps it; the two halves of one bipartition can never R1
+	// same-fact merge because their published values differ by construction).
+	tookLoserClaims := false
+	if survivor.ChainAnchorFullMS == 0 && loser.ChainAnchorFullMS > 0 {
+		tookLoserClaims = true
+		survivor.ChainAnchoredMS = loser.ChainAnchoredMS
+		survivor.ChainAnchorFullMS = loser.ChainAnchorFullMS
+		survivor.ChainAnchorRemainderSeat = loser.ChainAnchorRemainderSeat
+		// RNB-1 (§29.88 R2): the case-A' divergence disclosure is part of the
+		// same bipartition disclosure — it travels with the trio (never
+		// mixed with a survivor's own decomposition).
+		survivor.ChainAnchorOwnershipDivergent = loser.ChainAnchorOwnershipDivergent
+		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
+		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
+		// HMC377 fix round 3: the typed three-way parts are part of the same
+		// disclosure.
+		survivor.ChainAnchorUnwalkedMS = loser.ChainAnchorUnwalkedMS
+		survivor.ChainAnchorOutsideMS = loser.ChainAnchorOutsideMS
+		// HMC377 fix round 5: the claims the disclosure's sentences make
+		// travel with it.
+		survivor.ShareClaims = loser.ShareClaims
+	}
+	survivor.ChainAnchorUnwalkedSeat = survivor.ChainAnchorUnwalkedSeat || loser.ChainAnchorUnwalkedSeat
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split family
+	// travels as ONE disclosure the same way (values + marker + pointer
+	// roster + fail-open overlap together; a survivor with its own split
+	// keeps it — the two halves of one split never R1-merge because their
+	// published values differ by construction).
+	//
+	// HMC377 round 12 (register R11T-5): the split's [E#] pointer, its
+	// withdrawal wording and its successor reading come from the split's
+	// typed gated-share claim (ShareClaims), so the claim travels with the
+	// family — the claim-seat line intervals alone left an absorbed split
+	// survivor without its [E#].
+	if survivor.GatedShareFullMS == 0 && loser.GatedShareFullMS > 0 {
+		survivor.GatedShareClaimedMS = loser.GatedShareClaimedMS
+		survivor.GatedShareFullMS = loser.GatedShareFullMS
+		survivor.GatedShareConstituentSeat = loser.GatedShareConstituentSeat
+		survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+		survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
+		// HMC377 round 10: the gate's withdrawal of the claim seats is part
+		// of the same disclosure.
+		survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
+	}
+	if survivor.GatedShareOverlapDisclosureMS == 0 && loser.GatedShareOverlapDisclosureMS > 0 {
+		survivor.GatedShareOverlapDisclosureMS = loser.GatedShareOverlapDisclosureMS
+		if len(survivor.GatedShareClaimSeats) == 0 {
+			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+			survivor.ShareClaims = traceCausalProjectionWithGatedShareClaims(survivor.ShareClaims, loser.ShareClaims)
+			survivor.GatedShareClaimWithdrawn = loser.GatedShareClaimWithdrawn
+		}
+	}
+	// HMC377 round 10 (R-377-10 ③): the partially represented share travels
+	// with the claims of the sentence that makes it.
+	if survivor.ChainAnchorRepresentedHeldMS == 0 && loser.ChainAnchorRepresentedHeldMS > 0 && len(survivor.ShareClaims) == 0 {
+		survivor.ChainAnchorRepresentedHeldMS = loser.ChainAnchorRepresentedHeldMS
+		survivor.ShareClaims = loser.ShareClaims
+	}
+	// HMC377 round 11 (R-377-11 ①): the share a withdrawn holder's successor
+	// took back travels with the claims that took it.
+	if survivor.ShareReturnedMS == 0 && loser.ShareReturnedMS > 0 && len(survivor.ShareClaims) == 0 {
+		survivor.ShareReturnedMS = loser.ShareReturnedMS
+		survivor.ShareClaims = loser.ShareClaims
+		tookLoserClaims = true
+	}
+	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields
+	// travel as one disclosure with the claims whose resolution wrote them.
+	if survivor.ShareCountedElsewhereMS == 0 && loser.ShareCountedElsewhereMS > 0 && (len(survivor.ShareClaims) == 0 || tookLoserClaims) {
+		survivor.RestrictedReadyAccountMS = loser.RestrictedReadyAccountMS
+		survivor.ShareCountedElsewhereMS = loser.ShareCountedElsewhereMS
+		survivor.ShareCountedHereMS = loser.ShareCountedHereMS
+		survivor.ShareClaims = loser.ShareClaims
+	}
 }
 
 // traceCausalProjectionAppendMergedSubject records one merged member's thread

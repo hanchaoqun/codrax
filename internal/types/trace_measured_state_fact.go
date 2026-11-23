@@ -21,7 +21,10 @@ import (
 // The two fields answer different questions. StateAccountKey alone decides
 // one-seat convergence, so an estimate is never folded into a measurement.
 // MeasuredStateFactKey answers only "do these rows show the same measured
-// account?" for tables and fact lists.
+// account?" for tables, fact lists and the tree's one-object display rule
+// (HMC377 R-377-13 ①: two tree lines of one thread on one measured account are
+// drawn as one row or wear the non-additive tag; no account, price or seat
+// moves).
 
 // MeasuredStateFactKey returns the native identity of the measured state
 // account this row shows, or "" when the producer proved none. A ×N fold shows
