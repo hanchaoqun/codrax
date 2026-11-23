@@ -244,7 +244,11 @@ func hmc377R13FamilyFaults(pub RootCauseRankResult, withdrawn []bool) []string {
 		riding[d.AbsorbedIntoFamily]++
 	}
 	for _, it := range pub.Items {
-		if it.RankFamilyKey != "" && it.AbsorbedRankRows != riding[it.RankFamilyKey] && it.AbsorbedRankRows > 0 {
+		// A family key with no absorbed-row count and no riding detail is
+		// another reconciliation lane's key; every other key counts exactly
+		// the detail rows riding under it (a host that gained its first detail
+		// on the re-run included).
+		if it.RankFamilyKey != "" && it.AbsorbedRankRows != riding[it.RankFamilyKey] {
 			faults = append(faults, "absorbed-row count differs from the riding details on "+it.Type)
 		}
 	}

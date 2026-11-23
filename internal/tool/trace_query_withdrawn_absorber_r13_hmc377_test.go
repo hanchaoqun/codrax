@@ -91,15 +91,23 @@ func TestHMC377R13ReaderPartialFormNamesNoHolderForHeldAndReturned(t *testing.T)
 	for _, tc := range []struct {
 		name     string
 		returned float64
-		seeAll   bool
+		// otherReturned: a share of another sentence of the row (no part of
+		// the represented share) that passed back to it.
+		otherReturned float64
+		seeAll        bool
 	}{
-		{"held + passed back (UR1_w): see-detail", 1.05, true},
-		{"held + cap-cut (UR1cut_c): the engine's partial form names the holder", 0, false},
+		{"held + passed back (UR1_w): see-detail", 1.05, 0, true},
+		{"held + cap-cut (UR1cut_c): the engine's partial form names the holder", 0, 0, false},
+		{"held + cap-cut beside another share of the row that passed back: the represented share's holder is still named", 0, 0.2, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sat := hmc377R12Satellite(1.903, 1.05, 0.853, false, hmc377R11Claim(anchored, chainSeat, 1.903, false, true, 0.853, tc.returned, false, "seat-3"))
-			if tc.returned > 0 {
-				hmc377R11SetReturned(&sat, tc.returned)
+			claims := []tracequery.RootCauseShareClaim{hmc377R11Claim(anchored, chainSeat, 1.903, false, true, 0.853, tc.returned, false, "seat-3")}
+			if tc.otherReturned > 0 {
+				claims = append(claims, hmc377R11Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, tc.otherReturned, false, false, 0, tc.otherReturned, false))
+			}
+			sat := hmc377R12Satellite(1.903, 1.05, 0.853, false, claims...)
+			if tc.returned+tc.otherReturned > 0 {
+				hmc377R11SetReturned(&sat, tc.returned+tc.otherReturned)
 			}
 			f := hmc377R9Run(t, hmc377R11Result(hmc377R11Context(1.05, 10, 20), run, sat))
 			zh, en := hmc377R7Squash(f.zh), hmc377R7Squash(f.en)
@@ -125,13 +133,32 @@ func TestHMC377R13RestrictionRowStatesItsReturnedShare(t *testing.T) {
 		return it
 	}
 	t.Run("the whole carved share passed back", func(t *testing.T) {
-		f := hmc377R9Run(t, hmc377R11Result(hmc377R11Context(0.606, 10, 20), cpu(0.606, 0)))
+		result := hmc377R11Result(hmc377R11Context(0.606, 10, 20), cpu(0.606, 0))
+		f := hmc377R9Run(t, result)
 		if !strings.Contains(hmc377R7Squash(f.zh), hmc377R7Squash("锚定份中 0.606ms 的持有行仅作上下文,本行以自身数值计入,本行共计 15.422ms")) ||
 			!strings.Contains(hmc377R7Squash(f.en), hmc377R7Squash("0.606ms of the anchored share is held by a row that is context only, so this row counts it in its own account: 15.422ms in all")) {
 			t.Errorf("returned-share words missing\n%s", f.dump())
 		}
 		if strings.Contains(f.zh, "全窗15.422") {
 			t.Errorf("the restriction row states a whole-window account\n%s", f.zh)
+		}
+		// The words are explained: the row lights their legend entry (it is
+		// the only row of this board that speaks them).
+		if zh, en := hmc377R13Legend(t, result, true), hmc377R13Legend(t, result, false); !strings.Contains(zh, "`持有行仅作上下文,本行以自身数值计入` =") ||
+			!strings.Contains(en, "`the row holding it is context only, so this row counts it in its own account` =") {
+			t.Errorf("the returned-share words have no legend entry:\n%s\n%s", zh, en)
+		}
+	})
+	t.Run("a share inside the thread's unwalked seat that passed back whole is stated the same way", func(t *testing.T) {
+		// The restriction seat's successor claim covers its own restricted
+		// instants in either on-chain seat of its thread (anchored or
+		// unwalked part).
+		it := cpu(0, 0)
+		it.ShareClaims = []tracequery.RootCauseShareClaim{hmc377R11Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 0.606, false, false, 0, 0.606, false)}
+		hmc377R11SetReturned(&it, 0.606)
+		f := hmc377R9Run(t, hmc377R11Result(hmc377R11Context(0.606, 10, 20), it))
+		if !strings.Contains(hmc377R7Squash(f.zh), hmc377R7Squash("0.606ms 的持有行仅作上下文,本行以自身数值计入,本行共计 15.422ms")) {
+			t.Errorf("returned-share words missing\n%s", f.dump())
 		}
 	})
 	t.Run("a ◇ remainder states its returned share once, on its split line", func(t *testing.T) {
@@ -182,4 +209,71 @@ func hmc377R13HasNote(notes []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// hmc377R13Legend renders result's tree and returns the legend entries its
+// marks light.
+func hmc377R13Legend(t *testing.T, result tracequery.Result, zh bool) string {
+	t.Helper()
+	records := traceQueryTypedObservations(result, "capture.ftrace", "payload", "raw", "", time.Unix(0, 0).UTC())
+	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
+	if len(set.Projections) != 1 {
+		t.Fatalf("projections %d", len(set.Projections))
+	}
+	model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+	_ = runtimeTraceProjTreeFence(model, zh)
+	return strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, zh), "\n")
+}
+
+// hmc377R13WithdrawnDetailResult: 6326's chain inversion seat owns the
+// R-377-4 inversion ready account as its B4 lossless detail, and the priority
+// proof of both fails at the gate (proven lower 0.5 < effective 1.903); no
+// other row of the thread is published.
+func hmc377R13WithdrawnDetailResult() tracequery.Result {
+	result := hmc377R13WithdrawnAbsorberResult()
+	const key = "rank_pair:priority_inversion_candidate>priority_inversion_runnable_wait|pid:6326|on_chain|window:10.000000..11.000000|interval:10.200000..10.201903|lines:10-20"
+	rank := *result.RootCauseRank
+	inv := rank.Items[1]
+	inv.RankFamilyKey = key
+	det := tracequery.RootCauseRankItem{Tier: tracequery.RootCauseTierAbsorbed, Type: "priority_inversion_runnable_wait", Source: "window_stats", Thread: hmc377R9Dep,
+		ImpactMs: 1.903, CumulativeImpactMs: 1.903, EffectiveImpactMs: 1.903, ProjectedImpactMs: 1.903, RunnableMs: 1.903, DominantState: "runnable",
+		PriorityRelationCaliber: "closed_range_stable", PriorityRelationProvenLowerMs: 0.5, PriorityRelationArtifactSources: []string{"artifact:0"},
+		ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Confidence: 0.6, StatsWindowStartTs: 10, StatsWindowEndTs: 11,
+		StartTs: 10.2, EndTs: 10.201903, LineStart: 30, LineEnd: 40, AbsorbedByRankFamily: true, AbsorbedIntoFamily: key,
+		Summary: "binder:458_5-6326 same-CPU lower-priority overlap over the ready account"}
+	rank.Items = []tracequery.RootCauseRankItem{rank.Items[0], inv}
+	rank.AbsorbedItems = []tracequery.RootCauseRankItem{det}
+	result.RootCauseRank = &rank
+	return result
+}
+
+// R-377-13 ⑤, continuation: a lossless detail the gate itself withdrew is a
+// withdrawn row too. Its withdrawn absorber hosts nothing, so it is published
+// on its own — as the context row the gate wrote, never as a seat carrying its
+// ready account (commit a6be6a95e published it as an adjacent ◎ carrier of
+// 1.903ms: ~/hmc-work/hmc377/fix13/hold/cont/exp/tool_head.out).
+func TestHMC377R13GateWithdrawnDetailIsPublishedAsContext(t *testing.T) {
+	result := hmc377R13WithdrawnDetailResult()
+	rank := traceQueryPriorityRankForPublication(result.RootCauseRank)
+	if len(rank.AbsorbedItems) != 0 || len(rank.Items) != 3 {
+		t.Fatalf("published board %d detail %d, want the withdrawn detail on the board (a withdrawn row absorbs nothing)", len(rank.Items), len(rank.AbsorbedItems))
+	}
+	for _, it := range rank.Items[1:] {
+		if it.Type == "priority_inversion_candidate" || it.Type == "priority_inversion_runnable_wait" || it.Tier != tracequery.RootCauseTierContextOnly || it.Rank != 0 {
+			t.Errorf("row %d-%d is published as type %s tier %q rank %d, want the context row the gate wrote", it.LineStart, it.LineEnd, it.Type, it.Tier, it.Rank)
+		}
+		if it.RankFamilyKey != "" || it.AbsorbedRankRows != 0 || it.AbsorbedByRankFamily {
+			t.Errorf("row %d-%d wears a family: key=%q rows=%d absorbed=%t", it.LineStart, it.LineEnd, it.RankFamilyKey, it.AbsorbedRankRows, it.AbsorbedByRankFamily)
+		}
+	}
+	f := hmc377R9Run(t, result)
+	if len(f.depCarriers) != 0 {
+		t.Errorf("a row the gate published as context carries the thread's ready time: %v\n%s", f.depCarriers, f.dump())
+	}
+	if n := strings.Count(f.zh, "上下文·不参与根因排序"); n != 2 {
+		t.Errorf("%d context rows drawn, want the withdrawn seat and its withdrawn detail\n%s", n, f.zh)
+	}
+	if strings.Contains(f.zh, "链上并入") || strings.Contains(f.en, "chain-lane absorbed") {
+		t.Errorf("the face hosts an absorbed row under a context-only row:\n%s", f.dump())
+	}
 }

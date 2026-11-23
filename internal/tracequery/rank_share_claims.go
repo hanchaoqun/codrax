@@ -1056,7 +1056,11 @@ func rspaWriteMintedLess(item *RootCauseRankItem, lessMs float64, cumulative boo
 // the lossless detail of the published row holding the largest part of its
 // account (rspaReleasedDetailHost) — never a zero-valued second object. Every
 // family's absorbed-row count is read from the final detail rows
-// (rspaRecountDetailFamilies), so no two rows wear one family key.
+// (rspaRecountDetailFamilies), so no two rows wear one family key. A detail
+// the gate itself withdrew (withdrawnDetail) is a withdrawn row too: it makes
+// no claim, so it is placed with the claimless details, it keeps the context
+// tier the gate wrote wherever it lands (under a host, or on the board when no
+// published row holds its withdrawn owner's account) and it hosts nothing.
 //
 // A board with no withdrawn row is untouched (byte-identical, same slices).
 // The rows are published copies: claims, spans and holds are replaced, never
@@ -1169,6 +1173,12 @@ func WithdrawRankShareHolders(published *RootCauseRankResult, withdrawnBoard, wi
 	for i := range detail {
 		detail[i].rspaDetailPos = i + 1
 	}
+	// gateWithdrew: the gate's own decision for a row that came from the
+	// published detail rows, read at the position it held there.
+	gateWithdrew := func(item RootCauseRankItem) bool {
+		p := item.rspaDetailPos - 1
+		return p >= 0 && p < len(withdrawnDetail) && withdrawnDetail[p]
+	}
 	var keep, moved, claimless []RootCauseRankItem
 	for _, d := range detail {
 		if _, gone := accounts[strings.TrimSpace(d.AbsorbedIntoFamily)]; gone {
@@ -1235,10 +1245,15 @@ func WithdrawRankShareHolders(published *RootCauseRankResult, withdrawnBoard, wi
 			break
 		}
 	}
-	board, detail = rspaPlaceClaimlessDetails(board, detail, claimless, accounts, nb, published.Window)
+	board, detail = rspaPlaceClaimlessDetails(board, detail, claimless, accounts, nb, published.Window, gateWithdrew)
 	rspaRecountDetailFamilies(board, detail)
 	sort.SliceStable(detail, func(a, b int) bool { return detail[a].rspaDetailPos < detail[b].rspaDetailPos })
 	for i := nb; i < len(board); i++ {
+		if gateWithdrew(board[i]) {
+			// The gate published this row only as context: on the board it
+			// is a context row still, never a seat with a value.
+			continue
+		}
 		board[i].Rank, board[i].BackgroundRank, board[i].Tier = 0, 0, "tertiary"
 	}
 	published.Items, published.AbsorbedItems = board, detail
@@ -1319,7 +1334,9 @@ func rspaLargestHolder(parts map[int]float64) (int, bool) {
 // key of the pair (host, item) (the key the reconciliation mints for an
 // absorber and its detail: one key per host row, so no two rows wear one key).
 // The row's minted values come back with the resolver's next run (it no
-// longer rides as a released row).
+// longer rides as a released row). It keeps the tier it carries: the absorbed
+// tier of a lossless detail, or the context tier of a detail the gate
+// withdrew.
 func rspaReattachDetail(item, host *RootCauseRankItem, window TimeWindow) {
 	key := strings.TrimSpace(host.RankFamilyKey)
 	if key == "" {
@@ -1327,7 +1344,6 @@ func rspaReattachDetail(item, host *RootCauseRankItem, window TimeWindow) {
 		host.RankFamilyKey = key
 	}
 	host.AbsorbedRankRows++
-	item.Rank, item.BackgroundRank, item.Tier = 0, 0, RootCauseTierAbsorbed
 	item.AbsorbedByRankFamily, item.AbsorbedIntoFamily, item.rspaReleasedDetail = true, key, false
 }
 
@@ -1399,9 +1415,12 @@ func (a rspaWithdrawnAccount) heldBy(row RootCauseRankItem) float64 {
 // row's account: it rides as the lossless detail of the published row holding
 // the largest part of the instants the withdrawn row held and claimed; when no
 // published row holds any of them it is published as its own row with its own
-// value (the instants keep one carrier). nb is the board's length before any
-// row returned to it.
-func rspaPlaceClaimlessDetails(board, detail, claimless []RootCauseRankItem, accounts map[string]rspaWithdrawnAccount, nb int, window TimeWindow) ([]RootCauseRankItem, []RootCauseRankItem) {
+// value (the instants keep one carrier). A detail the gate itself withdrew
+// (gateWithdrew) is placed the same way and hosts nothing: a detail it owns
+// rides beside it under its host, or follows the withdrawn row's account when
+// it stands on the board. nb is the board's length before any row returned to
+// it.
+func rspaPlaceClaimlessDetails(board, detail, claimless []RootCauseRankItem, accounts map[string]rspaWithdrawnAccount, nb int, window TimeWindow, gateWithdrew func(RootCauseRankItem) bool) ([]RootCauseRankItem, []RootCauseRankItem) {
 	ownerOf := func(identity string) (onBoard int, inDetail int) {
 		onBoard, inDetail = -1, -1
 		if identity == "" {
@@ -1426,7 +1445,7 @@ func rspaPlaceClaimlessDetails(board, detail, claimless []RootCauseRankItem, acc
 			from := strings.TrimSpace(t.AbsorbedIntoFamily)
 			onBoard, inDetail := ownerOf(t.b4DirectOwner)
 			switch {
-			case onBoard >= 0:
+			case onBoard >= 0 && !gateWithdrew(board[onBoard]):
 				rspaReattachDetail(&t, &board[onBoard], window)
 				detail = append(detail, t)
 				continue
