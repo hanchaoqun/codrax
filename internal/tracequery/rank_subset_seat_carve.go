@@ -94,7 +94,9 @@ func cpuConstraintSeatInstants(item RootCauseRankItem) ([]foldInterval, bool) {
 // gate (context), the share then counted by another row of this thread as
 // that holder's successor (successor), or passed back to this seat, which
 // counts it with its own value (returned) — a holder the gate published as
-// context is never called absent.
+// context is never called absent. HMC377 round 13 (R-377-13 ⑥): the
+// see-detail form (a share held in parts — say, by a published chain seat and
+// passed back here) names no holder's tier.
 func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) rspaSpanForms {
 	seat := "this thread's on-chain seat"
 	switch role {
@@ -111,7 +113,7 @@ func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) rspaSpan
 		context:   fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s (counted here)", ms, seat, rspaHolderContextOnly),
 		successor: fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s; another row of this thread on the published board counts them (not here)", ms, seat, rspaHolderContextOnly),
 		returned:  fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s, so this row counts them with its own value", ms, seat, rspaHolderContextOnly),
-		detail:    fmt.Sprintf("; %.3fms of it lies inside instants of %s, which %s, and %s", ms, seat, rspaHolderContextOnly, rspaSharePartsSeeDetail),
+		detail:    fmt.Sprintf("; %.3fms of it lies inside instants of %s, and %s", ms, seat, rspaSharePartsSeeDetail),
 	}
 }
 
@@ -125,8 +127,11 @@ func rspaCarvedHolderPhrases(role RootCauseShareHolderRole, ms float64) rspaSpan
 func rspaCarvedWholePhrases(ms float64) rspaSpanForms {
 	held := fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants this thread's on-chain seat already publishes — one thread, one object: this row rides as that seat's lossless detail", ms)
 	counted := fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s, so this row counts them with its own value", ms, rspaHolderContextOnly)
+	// HMC377 round 13: the returned form is the context form (the span's
+	// fallback) — the seat is a successor of its own instants, so a share its
+	// withdrawn holder left always passes back to it.
 	return rspaSpanForms{
-		held: held, compact: held, context: counted, returned: counted,
+		held: held, compact: held, context: counted,
 		successor: fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s; another row of this thread on the published board counts them (not here)", ms, rspaHolderContextOnly),
 		detail:    fmt.Sprintf("; all %.3fms of this ready time under the CPU restriction lies inside instants of this thread's on-chain seat, which %s, and %s", ms, rspaHolderContextOnly, rspaSharePartsSeeDetail),
 	}

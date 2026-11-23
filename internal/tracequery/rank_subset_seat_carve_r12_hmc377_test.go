@@ -293,7 +293,7 @@ func TestHMC377R12CountedElsewhereFollowsTheResolution(t *testing.T) {
 		board := append([]RootCauseRankItem(nil), rank.Items...)
 		withdrawn := make([]bool, len(board))
 		withdrawn[chainIdx] = true
-		WithdrawRankShareHolders(board, nil, withdrawn, nil)
+		hmc377R10Withdraw(board, nil, withdrawn, nil)
 		account, elsewhere, here := hmc377R12Restricted(board[seatIdx])
 		if !hmc377R12Near(board[seatIdx].RunnableMs, 27.507) || !hmc377R12Near(account, 27.507) || elsewhere != 0 || here != 0 {
 			t.Fatalf("restriction seat: value=%.3f account=%.3f elsewhere=%.3f here=%.3f", board[seatIdx].RunnableMs, account, elsewhere, here)

@@ -266,7 +266,7 @@ func TestHMC377R11CarvedShareReturnsWhenItsHolderLeavesTheBoard(t *testing.T) {
 		board := append([]RootCauseRankItem(nil), rank.Items...)
 		withdrawn := make([]bool, len(board))
 		withdrawn[seatIdx] = true
-		WithdrawRankShareHolders(board, nil, withdrawn, nil)
+		hmc377R10Withdraw(board, nil, withdrawn, nil)
 		if got := board[remIdx].RunnableMs; math.Abs(got-29.432) > 0.002 {
 			t.Fatalf("the share returns to the remainder: %.3f", got)
 		}

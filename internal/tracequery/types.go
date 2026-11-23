@@ -4816,12 +4816,20 @@ type RootCauseRankItem struct {
 	// resolved account and its pairing phrases take their released form.
 	// Written only on a published copy (WithdrawRankShareHolders).
 	rspaReleasedDetail bool
-	// rspaReleasedFrom: the B4 family key the released row rode under (the
-	// key it rides under again when it owns no instant after all).
-	rspaReleasedFrom string
 	// rspaDetailPos: the 1-based position a lossless-detail row holds among
 	// the published detail rows when the publication's re-run starts.
 	rspaDetailPos int
+	// b4Identity / b4DirectOwner (unexported, HMC377 round 13, R-377-13 ⑤,
+	// never serialized): the B4 reconciliation's direct owner of a lossless
+	// detail before transitive ownership lands it on the active row (the
+	// state-churn twin of an R-377-4 inversion detail is owned by that detail,
+	// which the chain seat owns). b4Identity is the owner row's typed identity
+	// (crossTypeRankSeatOwnerIdentity), stamped on every row that directly owns
+	// a detail; b4DirectOwner is that identity on the detail it owns, stamped
+	// only when the owner is itself a detail. When the publication gate
+	// withdraws the active row, a claimless detail follows its direct owner.
+	b4Identity    string
+	b4DirectOwner string
 	// cpuConstraintCarveDecided / cpuConstraintBaseSummary(Set) (unexported,
 	// HMC377 round 11): the one-carrier pass decided this restriction seat;
 	// the seat's summary before the RSPA lane arm appended its whole-row

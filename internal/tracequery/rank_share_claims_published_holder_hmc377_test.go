@@ -88,7 +88,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 	t.Run("no withdrawn holder: unchanged", func(t *testing.T) {
 		for _, board := range [][]RootCauseRankItem{hmc377R9PairBoard(), hmc377R9RepresentedBoard()} {
 			published := append([]RootCauseRankItem(nil), board...)
-			WithdrawRankShareHolders(published, nil, []bool{false, false}, nil)
+			hmc377R10Withdraw(published, nil, []bool{false, false}, nil)
 			if !reflect.DeepEqual(published, board) {
 				t.Fatalf("a board without a withdrawn holder changed:\n%+v\n%+v", published, board)
 			}
@@ -101,7 +101,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 		}
 		engineSummary := board[0].Summary
 		published := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(published, nil, []bool{false, true}, nil)
+		hmc377R10Withdraw(published, nil, []bool{false, true}, nil)
 		rem, seat := published[0], published[1]
 		if c := rem.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 || !near(c.ReturnedMs, 7.0, 0.0005) {
 			t.Errorf("the claim on a withdrawn holder must pass its segments back to the remainder: %+v", c)
@@ -126,7 +126,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 			t.Errorf("the engine rows were mutated: %+v %q key=%q", c, board[0].Summary, board[1].ShareHolderKey)
 		}
 		again := append([]RootCauseRankItem(nil), published...)
-		WithdrawRankShareHolders(again, nil, []bool{false, true}, nil)
+		hmc377R10Withdraw(again, nil, []bool{false, true}, nil)
 		if !reflect.DeepEqual(again, published) {
 			t.Errorf("re-validation is not idempotent")
 		}
@@ -138,7 +138,7 @@ func TestHMC377R9WithdrawnHolderUnresolvesTheEngineClaim(t *testing.T) {
 			t.Fatalf("precondition: the engine resolved the represented claim: %+v marker=%t", c, sat.ChainAnchorRepresentedByChainSeat)
 		}
 		published := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(published, nil, []bool{true, false}, nil)
+		hmc377R10Withdraw(published, nil, []bool{true, false}, nil)
 		got := published[1]
 		if c := got.ShareClaims[0]; c.Resolved || c.Exact || len(c.HolderKeys) != 0 || !c.Represented {
 			t.Errorf("the represented claim on a withdrawn holder: %+v", c)

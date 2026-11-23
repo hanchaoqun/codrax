@@ -498,12 +498,18 @@ func rspaInversionRepresentedSummary(anchored, full float64, anchoredClaim, rema
 // disposition takes the see-detail phrase, and a detail row the resolver
 // returned to the board says it counts on its own row the part no other row
 // on the published board holds (rspaInversionDetailTailReleased).
+//
+// HMC377 round 13 (R-377-13 ⑥): the head names the chain seat's tier only
+// for one disposition; a share held in parts by different rows (one of them a
+// published chain seat, review 12 Q5b_w / Q5c_w) takes the see-detail head,
+// which names no seat (rspaInversionDetailHeadSeeDetail).
 const (
-	rspaInversionDetailHeadHeld     = "; represented by this thread's chain seat: "
-	rspaInversionDetailHeadContext  = "; this thread's chain seat " + rspaHolderContextOnly + ": "
-	rspaInversionDetailTailHeld     = "rides as that seat's lossless detail, not as a second object for the same thread"
-	rspaInversionDetailTailContext  = "rides as lossless detail, not as a second object for the same thread"
-	rspaInversionDetailTailReleased = "is published as its own row and counts with its own value only the part of this ready-time account no other row on the published board holds"
+	rspaInversionDetailHeadHeld      = "; represented by this thread's chain seat: "
+	rspaInversionDetailHeadContext   = "; this thread's chain seat " + rspaHolderContextOnly + ": "
+	rspaInversionDetailHeadSeeDetail = "; this ready-time account is counted by different rows: "
+	rspaInversionDetailTailHeld      = "rides as that seat's lossless detail, not as a second object for the same thread"
+	rspaInversionDetailTailContext   = "rides as lossless detail, not as a second object for the same thread"
+	rspaInversionDetailTailReleased  = "is published as its own row and counts with its own value only the part of this ready-time account no other row on the published board holds"
 )
 
 // inversionDetailHead registers the head phrase and the chain-seat phrase of
@@ -513,7 +519,7 @@ func (s *rspaSentence) inversionDetailHead(anchored RootCauseShareClaim) (head, 
 	before := len(s.claims)
 	head = s.spanForms(rspaSpanForms{held: rspaInversionDetailHeadHeld, compact: rspaInversionDetailHeadHeld,
 		context: rspaInversionDetailHeadContext, successor: rspaInversionDetailHeadContext, returned: rspaInversionDetailHeadContext,
-		detail: rspaInversionDetailHeadContext}, anchored)
+		detail: rspaInversionDetailHeadSeeDetail}, anchored)
 	at = s.lastClaim(before)
 	published = s.spanOnClaim(rspaSpanForms{held: rspaInversionChainSeatPublishes, compact: rspaInversionChainSeatCompacted,
 		context: rspaInversionChainSeatContext, successor: rspaInversionChainSeatSuccessor, detail: "of which " + rspaSharePartsSeeDetail}, at)

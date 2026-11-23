@@ -5,9 +5,14 @@ package tracequery
 // return to the board). The red run on fa2f01465 replaces this file through a
 // build overlay with that commit's signature (no return value: the rows are
 // published in place and a detail row never leaves the detail slice).
-
+//
+// HMC377 round 13 (R-377-13 ⑤): WithdrawRankShareHolders takes the published
+// copy and writes its rows back; the accessor keeps the tests' shape. The red
+// run on 532dc208d swaps in that commit's return-value signature.
 func hmc377R12Withdraw(board, detail []RootCauseRankItem, withdrawnBoard, withdrawnDetail []bool) ([]RootCauseRankItem, []RootCauseRankItem) {
-	return WithdrawRankShareHolders(board, detail, withdrawnBoard, withdrawnDetail)
+	published := RootCauseRankResult{Window: TimeWindow{StartTs: 10, EndTs: 11}, Items: board, AbsorbedItems: detail}
+	WithdrawRankShareHolders(&published, withdrawnBoard, withdrawnDetail)
+	return published.Items, published.AbsorbedItems
 }
 
 // The round-12 forms the tests read (the red run's shim spells the same

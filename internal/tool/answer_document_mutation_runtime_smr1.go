@@ -1749,7 +1749,16 @@ func runtimeTraceProjStampRestrictedParts(row *runtimeTraceProjTreeRow, index ma
 // HMC377 round 11 (R-377-11 ①): a claim resolves per held segment, so a claim
 // resolved in part names the holders of its resolved part; a holder that is a
 // withdrawn seat's successor is not a chain seat — the form names none.
+// HMC377 round 13 (R-377-13 ⑥): the partial [E#] form is the engine's
+// held-in-part-and-cap-cut form only; a share part of which passed back to
+// this row (ReturnedMS) is held + returned — a mixed disposition, which the
+// engine words with the see-detail form — so the form names none.
 func runtimeTraceProjResolvedRepresentedHolderTags(node types.TraceCausalProjectionNode, index map[string]runtimeTraceProjDrawnRecord, self *runtimeTraceProjTreeRow) []string {
+	for _, c := range node.ShareClaims {
+		if c.Represented && c.ReturnedMS > 0 {
+			return nil
+		}
+	}
 	var tags []string
 	seen := map[string]bool{}
 	for _, c := range node.ShareClaims {

@@ -334,7 +334,7 @@ func TestHMC377R11ClaimResolvesPerHeldSegment(t *testing.T) {
 		u := hmc377R11Build("UR2w")
 		board, _ := hmc377R11Publish(u, true)
 		again := append([]RootCauseRankItem(nil), board...)
-		WithdrawRankShareHolders(again, nil, u.withdrawn, nil)
+		hmc377R10Withdraw(again, nil, u.withdrawn, nil)
 		for i := range board {
 			if again[i].Summary != board[i].Summary || again[i].EffectiveImpactMs != board[i].EffectiveImpactMs || hmc377R11Returned(again[i]) != hmc377R11Returned(board[i]) {
 				t.Errorf("row %d changed on a second publication: %q %.3f / %q %.3f", i, board[i].Summary, board[i].EffectiveImpactMs, again[i].Summary, again[i].EffectiveImpactMs)

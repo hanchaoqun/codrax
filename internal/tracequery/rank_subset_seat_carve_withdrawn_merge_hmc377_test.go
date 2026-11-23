@@ -90,7 +90,7 @@ func TestHMC377R11MergeCarvedShareOfAWithdrawnHolderHasOneCarrier(t *testing.T) 
 			for i, it := range published {
 				withdrawn[i] = it.Type == "priority_inversion_candidate"
 			}
-			WithdrawRankShareHolders(published, nil, withdrawn, nil)
+			hmc377R10Withdraw(published, nil, withdrawn, nil)
 			seat := hmc377MergeCarveRow(t, published, "cpu_affinity_or_cpuset")
 			rem := hmc377MergeCarveRow(t, published, "runnable_wait")
 			t.Run("one_carrier", func(t *testing.T) {

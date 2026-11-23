@@ -205,6 +205,7 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 			pool[i].RankFamilyKey = ""
 		}
 		pool[i].AbsorbedRankRows = 0
+		pool[i].b4Identity, pool[i].b4DirectOwner = "", ""
 		if pool[i].AbsorbedByRankFamily {
 			pool[i].AbsorbedByRankFamily = false
 			pool[i].AbsorbedIntoFamily = ""
@@ -266,6 +267,13 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	reconcileRSPAMultiPartitionPeriodicAccounts(pool, absorbed)
 	reconcileInversionAccountsRepresentedOnChain(pool, absorbed)
 	reconcileSubsetDetails(pool, absorbed)
+	// HMC377 round 13 (R-377-13 ⑤): the direct owner of every absorbed row,
+	// kept before transitive resolution — a claimless detail whose active
+	// row the publication gate withdraws follows it.
+	direct := make(map[int]int, len(absorbed))
+	for candidate, owner := range absorbed {
+		direct[candidate] = owner
+	}
 	// Resolve transitive ownership (for example scheduler_latency ->
 	// window_stats runnable -> causal runnable) onto the terminal active row.
 	// Cycles are impossible in the directed adjudication table; defend anyway.
@@ -294,6 +302,16 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	lossless := make([]RootCauseRankItem, 0, len(absorbed))
 	keys := make(map[int]string)
 	counts := make(map[int]int)
+	// owns: the absorbed rows that directly own another absorbed row.
+	owns := map[int]bool{}
+	for candidate, owner := range direct {
+		if _, ok := absorbed[candidate]; !ok {
+			continue
+		}
+		if _, ownerAbsorbed := absorbed[owner]; ownerAbsorbed {
+			owns[owner] = true
+		}
+	}
 	// Preserve the original pool order. Iterating the absorbed map directly
 	// made the lossless observation sequence process-random once more than one
 	// adjudicated pair was present, leaking nondeterminism into JSON/evidence
@@ -314,6 +332,14 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 		item.Tier = RootCauseTierAbsorbed
 		item.AbsorbedByRankFamily = true
 		item.AbsorbedIntoFamily = key
+		if owner := direct[absorbedIndex]; owner != absorberIndex {
+			if _, ownerAbsorbed := absorbed[owner]; ownerAbsorbed {
+				item.b4DirectOwner = crossTypeRankSeatOwnerIdentity(pool[owner], rank.Window)
+			}
+		}
+		if owns[absorbedIndex] {
+			item.b4Identity = crossTypeRankSeatOwnerIdentity(pool[absorbedIndex], rank.Window)
+		}
 		lossless = append(lossless, item)
 		counts[absorberIndex]++
 	}
@@ -681,6 +707,18 @@ func crossTypeRankSeatNormalizedIntervals(item RootCauseRankItem) []foldInterval
 		current = interval
 	}
 	return append(merged, current)
+}
+
+// crossTypeRankSeatOwnerIdentity is the typed identity of a B4 owner row —
+// the exact fields its pair key names (type, numeric TID, fold lane, typed
+// window, physical interval, source lines) plus its producer. HMC377 round 13
+// (R-377-13 ⑤): it links a detail to its direct owner across the
+// publication copy.
+func crossTypeRankSeatOwnerIdentity(owner RootCauseRankItem, queryWindow TimeWindow) string {
+	window, _ := crossTypeRankSeatWindow(owner, queryWindow)
+	return fmt.Sprintf("owner:%s|%s|pid:%d|%s|window:%.6f..%.6f|interval:%.6f..%.6f|lines:%d-%d",
+		owner.Type, owner.Source, owner.Thread.PID, rootCauseFamilyFoldLaneKey(owner),
+		window.StartTs, window.EndTs, owner.StartTs, owner.EndTs, owner.LineStart, owner.LineEnd)
 }
 
 func crossTypeRankSeatReconKey(absorber, absorbed RootCauseRankItem, queryWindow TimeWindow) string {

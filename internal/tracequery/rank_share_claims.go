@@ -192,6 +192,10 @@ type RootCauseShareClaim struct {
 	// cut held, they partition ShareMs; a span's words read them
 	// (rspaSpanStateOf) so a mixed disposition is never worded as one.
 	heldOwnMs, heldSuccMs, restWithdrawnMs float64
+	// succRows (transient, HMC377 round 13, R-377-13 ⑥): the board rows that
+	// hold the claim's successor-held part — a single successor disposition
+	// is one disposition AND one holder row.
+	succRows []int
 }
 
 // rspaHeldShare is what one seat holds: recorded where the seat is minted,
@@ -432,7 +436,6 @@ func rspaClearClaims(item *RootCauseRankItem) {
 	item.ShareClaims, item.rspaClaimSpans, item.rspaHeld = nil, nil, nil
 	item.ShareHolderKey = ""
 	item.rspaCarvedAppliedMs, item.rspaCarvedEffective, item.rspaCarvedAccountMs = 0, false, 0
-	item.RestrictedReadyAccountMs, item.ShareCountedElsewhereMs, item.ShareCountedHereMs = 0, 0, 0
 }
 
 // rspaHold records that a seat holds a share (one entry per role). A D/IO
@@ -718,10 +721,12 @@ func resolveRankShareClaims(board []RootCauseRankItem, detail []RootCauseRankIte
 // — held by seats of the claims' roles on the published board (ownMs), held
 // by the published successor of a seat the gate withdrew (succMs), passed
 // back to this row (returnedMs), left by a withdrawn seat with no successor
-// (withdrawnMs) and held by a seat the engine cap cut (capMs).
+// (withdrawnMs) and held by a seat the engine cap cut (capMs). succRows
+// (HMC377 round 13) are the board rows holding the successor-held part.
 type rspaSpanState struct {
 	resolved                                      bool
 	ownMs, succMs, returnedMs, withdrawnMs, capMs float64
+	succRows                                      map[int]bool
 }
 
 func rspaSpanStateOf(sp rspaClaimSpan, claims []RootCauseShareClaim) rspaSpanState {
@@ -738,18 +743,28 @@ func rspaSpanStateOf(sp rspaClaimSpan, claims []RootCauseShareClaim) rspaSpanSta
 		st.returnedMs += c.ReturnedMs
 		st.withdrawnMs += c.restWithdrawnMs
 		st.capMs += rspaClampNonNegative(c.ShareMs - c.heldOwnMs - c.heldSuccMs - c.ReturnedMs - c.restWithdrawnMs)
+		for _, r := range c.succRows {
+			if st.succRows == nil {
+				st.succRows = map[int]bool{}
+			}
+			st.succRows[r] = true
+		}
 	}
 	return st
 }
 
-// disposition is the span's one disposition when its whole share has one
-// (R-377-12 ②); mixed=true otherwise. A span whose share no gate decision
+// gateTouched reports whether a gate decision touched the span's share (a
+// successor-held, returned or withdrawn part). A span no gate decision
 // touched reads the engine run's two dispositions only (held / cap).
 func (st rspaSpanState) gateTouched() bool {
 	tol := rspaAnchorIdentityTolMs
 	return st.succMs > tol || st.returnedMs > tol || st.withdrawnMs > tol
 }
 
+// single is the span's one disposition when its whole share has one
+// (R-377-12 ②) — and, for a successor-held share, one holder row (HMC377
+// round 13, R-377-13 ⑥: two successor rows are two holders, worded with the
+// see-detail form like any other mix). ok=false otherwise.
 func (st rspaSpanState) single() (part string, ok bool) {
 	tol := rspaAnchorIdentityTolMs
 	n := 0
@@ -762,7 +777,7 @@ func (st rspaSpanState) single() (part string, ok bool) {
 			part = kv.name
 		}
 	}
-	return part, n == 1
+	return part, n == 1 && (part != "succ" || len(st.succRows) == 1)
 }
 
 // form is the text a span takes for its claims' state (HMC377 round 12,
@@ -935,9 +950,12 @@ func rspaWriteShareAccounts(item *RootCauseRankItem, claims []RootCauseShareClai
 		// rides as lossless detail (an R-377-4 inversion detail, a
 		// restriction seat all inside one chain-object row) publishes its
 		// account less the shares its claims still resolve to other rows on
-		// the published board — the rest is counted here, once.
+		// the published board — the rest is counted here, once. (HMC377
+		// round 13: no such row makes a carved claim — a carved restriction
+		// seat never rides as detail, and a ◇ remainder takes the arm above —
+		// so the former carved-claim skip, which no shape reached, is gone.)
 		for _, c := range claims {
-			if c.disclosure || c.carved || c.Part == RootCauseShareClaimChainAccount {
+			if c.disclosure || c.Part == RootCauseShareClaimChainAccount {
 				continue
 			}
 			less += c.heldOwnMs + c.heldSuccMs
@@ -998,12 +1016,18 @@ func rspaWriteMintedLess(item *RootCauseRankItem, lessMs float64, cumulative boo
 
 // WithdrawRankShareHolders (HMC377 round 10, batch-owner ruling R-377-10 ①)
 // applies the trace_query publication gate's typed withdrawal decision to a
-// published rank copy and returns the published board and lossless-detail
-// rows. The gate (the tool's priority proof boundary) can publish a seat the
-// engine resolved claims against as context only — no rank seat, no
-// inversion type, no gated share. withdrawnBoard[i] / withdrawnDetail[i] is
-// that gate's own decision for each published row (the precise typed signal;
-// never a value, name or text match).
+// published rank copy. The gate (the tool's priority proof boundary) can
+// publish a seat the engine resolved claims against as context only — no
+// rank seat, no inversion type, no gated share. withdrawnBoard[i] /
+// withdrawnDetail[i] is that gate's own decision for each published row (the
+// precise typed signal; never a value, name or text match).
+//
+// HMC377 round 13 (batch-owner ruling R-377-13 ⑤): the function owns the
+// publication's rows — it takes the published copy and writes its board
+// (published.Items) and lossless-detail rows (published.AbsorbedItems) back,
+// so no caller can drop the rows the re-run moves (review 12: the former
+// return value was assigned by one unpinned line, and a caller that ignored it
+// lost every detail row returned to the board).
 //
 // A withdrawn row holds no share and makes no claim: its holds, claims, claim
 // spans and split fields go with its seat. HMC377 round 11 (R-377-11 ①): each
@@ -1022,13 +1046,30 @@ func rspaWriteMintedLess(item *RootCauseRankItem, lessMs float64, cumulative boo
 // published as a seat and its claims resolve to no instants of its own; any
 // other detail returns to the board with its resolved account and its own
 // words (rspaReleaseDetail), and the successor rule runs again with it on the
-// board. A detail row is never a successor. A board with no withdrawn row is
-// untouched (byte-identical, same slices). The rows are published copies:
-// claims, spans and holds are replaced, never mutated in place, so the engine
-// result is unchanged.
-func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard, withdrawnDetail []bool) ([]RootCauseRankItem, []RootCauseRankItem) {
+// board. A detail row is never a successor.
+//
+// HMC377 round 13 (R-377-13 ⑤): a withdrawn row absorbs nothing. It ends with
+// no family key and no absorbed rows, and every detail it absorbed is decided
+// again — a claim-bearing detail by the one resolver (above), a claimless one
+// (the state-churn twin, the scheduler-latency twin) follows its B4 owner
+// (rspaPlaceClaimlessDetails). A released row that owns no instants rides as
+// the lossless detail of the published row holding the largest part of its
+// account (rspaReleasedDetailHost) — never a zero-valued second object. Every
+// family's absorbed-row count is read from the final detail rows
+// (rspaRecountDetailFamilies), so no two rows wear one family key.
+//
+// A board with no withdrawn row is untouched (byte-identical, same slices).
+// The rows are published copies: claims, spans and holds are replaced, never
+// mutated in place, so the engine result is unchanged.
+func WithdrawRankShareHolders(published *RootCauseRankResult, withdrawnBoard, withdrawnDetail []bool) {
+	if published == nil {
+		return
+	}
+	board, detail := published.Items, published.AbsorbedItems
 	gone := map[string]bool{}
-	goneFamily := map[string]bool{}
+	// accounts: the account of every withdrawn row that absorbed details, by
+	// its family key (what a claimless detail riding under it follows).
+	accounts := map[string]rspaWithdrawnAccount{}
 	var holds []rspaWithdrawnHold
 	withdrewAny := false
 	for i := range board {
@@ -1040,7 +1081,7 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 			gone[key] = true
 		}
 		if key := strings.TrimSpace(board[i].RankFamilyKey); key != "" && board[i].AbsorbedRankRows > 0 {
-			goneFamily[key] = true
+			accounts[key] = rspaWithdrawnAccountOf(board[i])
 		}
 		for _, h := range board[i].rspaHeld {
 			if !h.successor {
@@ -1056,7 +1097,7 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 		}
 	}
 	if !withdrewAny {
-		return board, detail
+		return
 	}
 	mark := func(item *RootCauseRankItem) {
 		named := false
@@ -1128,14 +1169,19 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 	for i := range detail {
 		detail[i].rspaDetailPos = i + 1
 	}
-	var keep, moved []RootCauseRankItem
+	var keep, moved, claimless []RootCauseRankItem
 	for _, d := range detail {
-		if len(d.ShareClaims) > 0 && goneFamily[strings.TrimSpace(d.AbsorbedIntoFamily)] {
-			moved = append(moved, d)
+		if _, gone := accounts[strings.TrimSpace(d.AbsorbedIntoFamily)]; gone {
+			if len(d.ShareClaims) == 0 {
+				claimless = append(claimless, d)
+			} else {
+				moved = append(moved, d)
+			}
 			continue
 		}
 		keep = append(keep, d)
 	}
+	detail = keep
 	for round := 0; ; round++ {
 		if len(moved) > 0 {
 			board = append(append([]RootCauseRankItem(nil), board...), moved...)
@@ -1144,7 +1190,7 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 				base = append(base, m.rspaHeld)
 			}
 			for i := len(board) - len(moved); i < len(board); i++ {
-				rspaReleaseDetail(board, i)
+				rspaReleaseDetail(&board[i])
 			}
 			detail, moved = keep, nil
 		}
@@ -1155,13 +1201,12 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 		if rspaPassWithdrawnSegments(board, holds, withdrawn) {
 			resolveRankShareClaims(board, detail)
 		}
-		// A released row whose claims all resolve to one other published
-		// row and that carries nothing of its own rides as that row's
-		// lossless detail again — its absorber is on the published board and
-		// it owns no instant (never a zero-valued second object).
+		// A released row that owns no instant rides as the lossless detail of
+		// the published row holding the largest part of its account (never a
+		// zero-valued second object).
 		reattached := false
 		for i := len(board) - 1; i >= nb; i-- {
-			holder, ok := rspaReleasedDetailAbsorber(board, i, withdrawn)
+			host, ok := rspaReleasedDetailHost(board, i)
 			if !ok {
 				continue
 			}
@@ -1169,10 +1214,10 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 			board = append(append([]RootCauseRankItem(nil), board[:i]...), board[i+1:]...)
 			withdrawn = append(append([]bool(nil), withdrawn[:i]...), withdrawn[i+1:]...)
 			base = append(append([][]rspaHeldShare(nil), base[:i]...), base[i+1:]...)
-			if holder > i {
-				holder--
+			if host > i {
+				host--
 			}
-			rspaReattachDetail(&item, &board[holder])
+			rspaReattachDetail(&item, &board[host], published.Window)
 			detail = append(append([]RootCauseRankItem(nil), detail...), item)
 			reattached = true
 			break // board positions moved: the next round resolves afresh
@@ -1190,81 +1235,272 @@ func WithdrawRankShareHolders(board, detail []RootCauseRankItem, withdrawnBoard,
 			break
 		}
 	}
+	board, detail = rspaPlaceClaimlessDetails(board, detail, claimless, accounts, nb, published.Window)
+	rspaRecountDetailFamilies(board, detail)
 	sort.SliceStable(detail, func(a, b int) bool { return detail[a].rspaDetailPos < detail[b].rspaDetailPos })
 	for i := nb; i < len(board); i++ {
-		item := &board[i]
-		item.Rank, item.BackgroundRank, item.Tier = 0, 0, "tertiary"
-		if rootCauseEffectiveImpactMs(*item) <= rspaAnchorIdentityTolMs {
-			item.Tier = RootCauseTierContextOnly
-		}
+		board[i].Rank, board[i].BackgroundRank, board[i].Tier = 0, 0, "tertiary"
 	}
-	return board, detail
+	published.Items, published.AbsorbedItems = board, detail
 }
 
-// rspaReleasedDetailAbsorber (HMC377 round 12, R-377-12 ①): board[i], a
-// released detail row, owns no instant after the re-run (nothing returned to
-// it, nothing a withdrawn seat left unheld, its resolved account zero) and
-// every claim it makes resolves to the same one published row — the row it
-// rides as lossless detail of. ok=false otherwise.
-func rspaReleasedDetailAbsorber(board []RootCauseRankItem, i int, withdrawn []bool) (int, bool) {
-	item := board[i]
-	if !item.rspaReleasedDetail || rspaDetailOwnsInstants(item) || len(item.ShareClaims) == 0 ||
-		rootCauseEffectiveImpactMs(item) > rspaAnchorIdentityTolMs || item.RunnableMs > rspaAnchorIdentityTolMs {
+// rspaReleasedDetailHost (HMC377 round 12, R-377-12 ①; round 13, R-377-13
+// ⑤): board[i], a released detail row, owns no instant after the re-run — its
+// resolved account is zero: every claim on its account is held by other rows
+// (a share returned to it, or one a withdrawn seat left unheld, is counted in
+// its own value) — so it rides as the lossless detail of the published row
+// holding the largest part of its account; equal parts go to the earlier row
+// of the published board (the published rank order). When more than one row
+// holds parts its claim phrases already name none of them (the see-detail
+// form of a share held by several rows). ok=false otherwise.
+func rspaReleasedDetailHost(board []RootCauseRankItem, i int) (int, bool) {
+	if board[i].RunnableMs > rspaAnchorIdentityTolMs {
 		return 0, false
 	}
-	holder := -1
-	for _, c := range item.ShareClaims {
-		if c.disclosure || !c.Resolved {
-			return 0, false
-		}
-		for _, h := range c.holders() {
-			if h == i || h < 0 || h >= len(board) || (h < len(withdrawn) && withdrawn[h]) || (holder >= 0 && h != holder) {
-				return 0, false
-			}
-			holder = h
+	parts := map[int]float64{}
+	for _, c := range board[i].ShareClaims {
+		for h, ms := range rspaClaimHeldParts(c, board) {
+			parts[h] += ms
 		}
 	}
-	return holder, holder >= 0
+	return rspaLargestHolder(parts)
 }
 
-// rspaReattachDetail makes item the lossless detail of absorber: it keeps
-// every value it was minted with and rides under the absorber's family key
-// (the B4 absorbed carrier the projection folds by).
-func rspaReattachDetail(item, absorber *RootCauseRankItem) {
-	if item.rspaMintedAccount != nil {
-		item.rspaMintedAccount.write(item, 0, true)
-		item.rspaMintedAccount = nil
+// rspaClaimHeldParts measures the part of a resolved claim's share each of
+// its holders holds: the claim's instants the holder's holds of the claim's
+// thread family cover (a holder without instants: its held value, at most the
+// share).
+func rspaClaimHeldParts(c RootCauseShareClaim, board []RootCauseRankItem) map[int]float64 {
+	out := map[int]float64{}
+	need := c.ShareMs
+	if len(c.windows) > 0 {
+		need = rspaFoldLengthMs(c.windows)
 	}
-	key := strings.TrimSpace(absorber.RankFamilyKey)
+	for _, h := range c.holders() {
+		if h < 0 || h >= len(board) {
+			continue
+		}
+		var windows []foldInterval
+		ms := 0.0
+		for _, hold := range board[h].rspaHeld {
+			if c.heldBy(hold) {
+				windows = append(windows, hold.windows...)
+				ms += hold.ms
+			}
+		}
+		part := math.Min(ms, c.ShareMs)
+		if len(c.windows) > 0 && len(windows) > 0 && need > 0 {
+			part = c.ShareMs * math.Min(1, foldIntervalIntersectionMs(rspaFoldCopy(windows), c.windows)/need)
+		}
+		out[h] += part
+	}
+	return out
+}
+
+// rspaLargestHolder picks the row holding the largest part (equal parts:
+// the earlier board row). ok=false when no row holds any part.
+func rspaLargestHolder(parts map[int]float64) (int, bool) {
+	best, bestMs := -1, 0.0
+	rows := make([]int, 0, len(parts))
+	for h := range parts {
+		rows = append(rows, h)
+	}
+	sort.Ints(rows)
+	for _, h := range rows {
+		if ms := parts[h]; ms > rspaAnchorIdentityTolMs && (best < 0 || ms > bestMs+rspaAnchorIdentityTolMs) {
+			best, bestMs = h, ms
+		}
+	}
+	return best, best >= 0
+}
+
+// rspaReattachDetail makes item the lossless detail of host: it rides under
+// the host's family key, or — when the host owns no family yet — under the B4
+// key of the pair (host, item) (the key the reconciliation mints for an
+// absorber and its detail: one key per host row, so no two rows wear one key).
+// The row's minted values come back with the resolver's next run (it no
+// longer rides as a released row).
+func rspaReattachDetail(item, host *RootCauseRankItem, window TimeWindow) {
+	key := strings.TrimSpace(host.RankFamilyKey)
 	if key == "" {
-		key = item.rspaReleasedFrom
-		absorber.RankFamilyKey = key
+		key = crossTypeRankSeatReconKey(*host, *item, window)
+		host.RankFamilyKey = key
 	}
-	absorber.AbsorbedRankRows++
+	host.AbsorbedRankRows++
 	item.Rank, item.BackgroundRank, item.Tier = 0, 0, RootCauseTierAbsorbed
 	item.AbsorbedByRankFamily, item.AbsorbedIntoFamily, item.rspaReleasedDetail = true, key, false
 }
 
-// rspaReleaseDetail (HMC377 round 12, R-377-12 ①) returns board[i], a former
-// lossless-detail row, to the published board: it no longer wears the absorbed
-// markers, its absorber counts one detail row less, and its pairing phrases
-// take their released form (rspaWriteClaimSpans) — its value is its resolved
-// account (rspaWriteShareAccounts).
-func rspaReleaseDetail(board []RootCauseRankItem, i int) {
-	item := &board[i]
-	key := strings.TrimSpace(item.AbsorbedIntoFamily)
-	item.rspaReleasedFrom = key
+// rspaReleaseDetail (HMC377 round 12, R-377-12 ①) returns a former
+// lossless-detail row to the published board: it no longer wears the absorbed
+// markers, and its pairing phrases take their released form
+// (rspaWriteClaimSpans) — its value is its resolved account
+// (rspaWriteShareAccounts). The family counts are read from the final detail
+// rows (rspaRecountDetailFamilies).
+func rspaReleaseDetail(item *RootCauseRankItem) {
 	item.AbsorbedByRankFamily, item.AbsorbedIntoFamily, item.rspaReleasedDetail = false, "", true
-	if key == "" {
+}
+
+// rspaWithdrawnAccount is the account of a withdrawn row that absorbed
+// details (HMC377 round 13, R-377-13 ⑤): the instants it held and claimed, per
+// state family (dio), and the roles it held them in.
+type rspaWithdrawnAccount struct {
+	pid      int
+	instants map[bool][]foldInterval
+	roles    []RootCauseShareHolderRole
+}
+
+func rspaWithdrawnAccountOf(item RootCauseRankItem) rspaWithdrawnAccount {
+	acct := rspaWithdrawnAccount{pid: item.Thread.PID, instants: map[bool][]foldInterval{}}
+	for _, h := range item.rspaHeld {
+		acct.instants[h.dio] = rspaFoldUnion(acct.instants[h.dio], h.windows)
+		acct.roles = append(acct.roles, h.role)
+	}
+	for _, c := range item.ShareClaims {
+		acct.instants[c.dio] = rspaFoldUnion(acct.instants[c.dio], c.windows)
+	}
+	return acct
+}
+
+// heldBy measures the part of the account a published row holds: the
+// account's instants its holds of the same state family cover (a semantic
+// span's hold is another account), and a value the successor rule passed
+// whole (a hold without instants in one of the account's roles).
+func (a rspaWithdrawnAccount) heldBy(row RootCauseRankItem) float64 {
+	if row.Thread.PID != a.pid {
+		return 0
+	}
+	ms := 0.0
+	for _, h := range row.rspaHeld {
+		if h.semantic {
+			continue
+		}
+		if len(h.windows) > 0 {
+			ms += foldIntervalIntersectionMs(rspaFoldCopy(h.windows), a.instants[h.dio])
+			continue
+		}
+		for _, r := range a.roles {
+			if h.successor && h.holdsRole(r) {
+				ms += h.ms
+				break
+			}
+		}
+	}
+	return ms
+}
+
+// rspaPlaceClaimlessDetails (HMC377 round 13, R-377-13 ⑤): a claimless
+// detail of a withdrawn row — the state-churn twin, the scheduler-latency
+// twin; no claim of its own for the resolver to decide — follows its B4
+// owner. When that owner is a detail the same withdrawal decided again
+// (b4DirectOwner), it rides where that row is now: under the same family when
+// that row rides as detail, as that row's own detail when it is published on
+// the board. When its owner is the withdrawn row itself, it follows that
+// row's account: it rides as the lossless detail of the published row holding
+// the largest part of the instants the withdrawn row held and claimed; when no
+// published row holds any of them it is published as its own row with its own
+// value (the instants keep one carrier). nb is the board's length before any
+// row returned to it.
+func rspaPlaceClaimlessDetails(board, detail, claimless []RootCauseRankItem, accounts map[string]rspaWithdrawnAccount, nb int, window TimeWindow) ([]RootCauseRankItem, []RootCauseRankItem) {
+	ownerOf := func(identity string) (onBoard int, inDetail int) {
+		onBoard, inDetail = -1, -1
+		if identity == "" {
+			return
+		}
+		for i := nb; i < len(board); i++ {
+			if board[i].b4Identity == identity {
+				return i, -1
+			}
+		}
+		for i := range detail {
+			if detail[i].b4Identity == identity {
+				return -1, i
+			}
+		}
 		return
 	}
-	for j := range board {
-		if j != i && board[j].AbsorbedRankRows > 0 && strings.TrimSpace(board[j].RankFamilyKey) == key {
-			board[j].AbsorbedRankRows--
-			if board[j].AbsorbedRankRows == 0 {
-				board[j].RankFamilyKey = ""
+	pending := claimless
+	for len(pending) > 0 {
+		var next []RootCauseRankItem
+		for _, t := range pending {
+			from := strings.TrimSpace(t.AbsorbedIntoFamily)
+			onBoard, inDetail := ownerOf(t.b4DirectOwner)
+			switch {
+			case onBoard >= 0:
+				rspaReattachDetail(&t, &board[onBoard], window)
+				detail = append(detail, t)
+				continue
+			case inDetail >= 0:
+				t.AbsorbedIntoFamily = detail[inDetail].AbsorbedIntoFamily
+				detail = append(detail, t)
+				continue
+			case t.b4DirectOwner != "" && rspaPendingOwner(next, pending, t.b4DirectOwner):
+				// Its owner is a claimless detail not placed yet.
+				next = append(next, t)
+				continue
 			}
-			return
+			acct := accounts[from]
+			parts := map[int]float64{}
+			for i := range board {
+				if ms := acct.heldBy(board[i]); ms > 0 {
+					parts[i] = ms
+				}
+			}
+			if host, ok := rspaLargestHolder(parts); ok {
+				rspaReattachDetail(&t, &board[host], window)
+				detail = append(detail, t)
+				continue
+			}
+			rspaReleaseDetail(&t)
+			board = append(board, t)
+		}
+		if len(next) == len(pending) {
+			// No owner placed this pass (defensive: B4 ownership is acyclic).
+			for i := range next {
+				next[i].b4DirectOwner = ""
+			}
+		}
+		pending = next
+	}
+	return board, detail
+}
+
+// rspaPendingOwner reports whether a claimless detail with the given B4
+// identity is still waiting to be placed (in this pass or the next).
+func rspaPendingOwner(next, pending []RootCauseRankItem, identity string) bool {
+	for _, rows := range [][]RootCauseRankItem{next, pending} {
+		for _, r := range rows {
+			if r.b4Identity == identity {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rspaRecountDetailFamilies (HMC377 round 13, R-377-13 ⑤) reads every B4
+// family's absorbed-row count from the final detail rows: the row that owns a
+// family counts the detail rows riding under its key, and one whose family
+// keeps no detail — the withdrawn row, whose details all left — wears no key.
+// Only rows that own B4 details are read (another reconciliation lane's family
+// key carries no absorbed-row count). On a board whose details did not move
+// the count is unchanged (the B4 reconcile minted it from the same rows: 1106
+// families on the 275 review windows, every count equal to its riding rows).
+func rspaRecountDetailFamilies(board, detail []RootCauseRankItem) {
+	riding := map[string]int{}
+	for _, d := range detail {
+		if key := strings.TrimSpace(d.AbsorbedIntoFamily); key != "" && d.AbsorbedByRankFamily {
+			riding[key]++
+		}
+	}
+	for i := range board {
+		key := strings.TrimSpace(board[i].RankFamilyKey)
+		if board[i].AbsorbedRankRows <= 0 {
+			continue
+		}
+		board[i].AbsorbedRankRows = riding[key]
+		if board[i].AbsorbedRankRows == 0 {
+			board[i].RankFamilyKey = ""
 		}
 	}
 }
@@ -1489,10 +1725,10 @@ func rspaWithdrawSeat(item *RootCauseRankItem) {
 	item.GatedShareClaimedMs, item.GatedShareFullMs, item.GatedShareConstituentSeat = 0, 0, false
 	item.GatedShareClaimSeats, item.GatedShareOverlapDisclosureMs, item.GatedShareClaimWithdrawn = nil, 0, false
 	item.ShareReturnedMs = 0
-	// HMC377 round 12 (R-377-12 ③): the restriction subset's typed fields go
-	// with its seat too.
-	item.RestrictedReadyAccountMs, item.ShareCountedElsewhereMs, item.ShareCountedHereMs = 0, 0, 0
-	item.rspaCarvedAccountMs = 0
+	// HMC377 round 13: the gate withdraws priority-inversion seats only, which
+	// never carry the restriction subset's typed fields (a CPU-restriction
+	// seat or a carved ◇ remainder does) — the round-12 clears of those
+	// fields here, which no shape reached, are gone.
 }
 
 // holders re-derives the board indexes a resolved claim named (kept on the
@@ -1529,7 +1765,7 @@ func (c RootCauseShareClaim) heldBy(h rspaHeldShare) bool {
 func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *RootCauseRankItem) {
 	c.Resolved, c.Exact, c.Successor, c.holderIdx = false, false, false, nil
 	c.ResolvedMs, c.ReturnedMs, c.covered = 0, 0, nil
-	c.heldOwnMs, c.heldSuccMs, c.restWithdrawnMs = 0, 0, 0
+	c.heldOwnMs, c.heldSuccMs, c.restWithdrawnMs, c.succRows = 0, 0, 0, nil
 	if c.pid <= 0 || c.ShareMs <= rspaAnchorIdentityTolMs {
 		return
 	}
@@ -1678,6 +1914,9 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 	c.holderIdx = holders
 	for _, h := range holders {
 		c.Successor = c.Successor || viaSuccessor[h]
+		if viaSuccessor[h] {
+			c.succRows = append(c.succRows, h)
+		}
 	}
 	// The held part per disposition: the instants only a withdrawn seat's
 	// successor holds (successor holds are written by the publication's

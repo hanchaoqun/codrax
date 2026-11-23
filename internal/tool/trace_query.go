@@ -17023,8 +17023,10 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 	// HMC377 round 12 (R-377-12 ①): the same re-run decides every
 	// lossless-detail pairing again — a detail row whose absorber the gate
 	// withdrew, or that the re-run leaves with instants of its own, returns
-	// to the published board.
-	published.Items, published.AbsorbedItems = tracequery.WithdrawRankShareHolders(published.Items, published.AbsorbedItems, withdrawn, withdrawnDetail)
+	// to the published board. HMC377 round 13 (R-377-13 ⑤): the re-run owns
+	// the publication's rows — it writes the board and detail rows back into
+	// this copy, so no caller can drop them.
+	tracequery.WithdrawRankShareHolders(&published, withdrawn, withdrawnDetail)
 	return &published
 }
 
