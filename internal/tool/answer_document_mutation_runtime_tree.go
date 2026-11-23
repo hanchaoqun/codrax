@@ -3676,6 +3676,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	var semanticRankTwinPeers map[string][]types.TraceCausalProjectionNode
 	chainUniverse, adjacentCauses, backgroundCauses, semantics, semanticRankTwinPeers =
 		runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets(chainUniverse, adjacentCauses, backgroundCauses, semantics)
+	// HMC377 R-377-13 ①: a semantic span's ◇ remainder half rides its span's
+	// own record row (one object per physical thread on the tree).
+	adjacentCauses, backgroundCauses, semanticRankTwinPeers =
+		runtimeTraceProjFoldSemanticRemainderTwins(adjacentCauses, backgroundCauses, semantics, semanticRankTwinPeers)
 	// Causal main tree purity: only typed on-chain semantic work may occupy a
 	// `├─语义─` seat. Adjacent/background semantic work keeps one stanza seat
 	// (after B9 twin folding) and is still published by the independent
@@ -9156,6 +9160,78 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets(
 	adjacentNodes = filter(adjacentNodes, adjacentStart, true)
 	backgroundNodes = filter(backgroundNodes, backgroundStart, true)
 	return chainNodes, adjacentNodes, backgroundNodes, semantics, peers
+}
+
+// runtimeTraceProjFoldSemanticRemainderTwins (HMC377 R-377-13 ①, batch-owner
+// ruling 2026-11-22: one object per physical thread on the tree) folds the ◇
+// remainder half of a semantic span's 同源二分 — the part of the span outside
+// every wait of the analysed thread that its thread's own wakeup ended, a
+// context row that prices nothing — into the span's own ✦ record row. The
+// record draws the span's whole in-window wall (lossless observation, the
+// priced seat already folded into it; the record carries no split of its
+// own), so its instants contain the remainder's: drawn beside it, the
+// remainder repeated part of the record (and, carrying the priced seat's
+// value, the anchored part itself). The
+// remainder rides the record's rank-fold carrier: its [E#] joins the record's
+// bracket and its detail line, its magnitudes keep the bar/coverage
+// invariance; no value moves. Typed by span identity — same thread, same
+// semantic class, the exact span lines both lanes carry — never by value;
+// exactly one record row, otherwise fail open (both rows stay).
+func runtimeTraceProjFoldSemanticRemainderTwins(adjacent, background, semantics []types.TraceCausalProjectionNode,
+	peers map[string][]types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	records := map[string][]types.TraceCausalProjectionNode{}
+	for _, sem := range semantics {
+		if key := runtimeTraceProjSemanticSpanIdentity(sem); key != "" {
+			records[key] = append(records[key], sem)
+		}
+	}
+	// A record that is itself the ⛓ half of the split (it carries the
+	// bipartition and publishes the anchored share) draws only that share:
+	// its ◇ remainder is the other, additive half and keeps its row.
+	for key, hosts := range records {
+		for _, host := range hosts {
+			if host.ChainAnchorFullMS > 0 {
+				delete(records, key)
+				break
+			}
+		}
+	}
+	if len(records) == 0 {
+		return adjacent, background, peers
+	}
+	fold := func(nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
+		kept := nodes[:0:0]
+		for _, node := range nodes {
+			if node.ChainAnchorRemainderSeat && !runtimeTraceCausalProjectionSemanticSpanRow(node) {
+				if host := records[runtimeTraceProjSemanticSpanIdentity(node)]; len(host) == 1 {
+					if peers == nil {
+						peers = map[string][]types.TraceCausalProjectionNode{}
+					}
+					key := runtimeTraceCausalProjectionNodeKey(host[0])
+					peers[key] = append(peers[key], node)
+					continue
+				}
+			}
+			kept = append(kept, node)
+		}
+		return kept
+	}
+	adjacent = fold(adjacent)
+	background = fold(background)
+	return adjacent, background, peers
+}
+
+// runtimeTraceProjSemanticSpanIdentity is the lane-free identity of one
+// semantic span (HMC377 R-377-13 ①, runtimeTraceProjFoldSemanticRemainderTwins):
+// canonical subject + typed semantic class + the exact span lines both lanes
+// carry. "" without a class, a subject or a valid line span.
+func runtimeTraceProjSemanticSpanIdentity(node types.TraceCausalProjectionNode) string {
+	class := strings.TrimSpace(node.SemanticClass)
+	subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+	if class == "" || subject == "" || node.LineStart <= 0 || node.LineEnd < node.LineStart {
+		return ""
+	}
+	return subject + "\x00" + class + "\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
 }
 
 // runtimeTraceProjOwnProcessIONode is the NEW-3/F2 typed predicate for an

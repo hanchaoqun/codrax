@@ -316,6 +316,52 @@ func TestHMC377R13OccurrenceRowPointsAtItsAggregateSeat(t *testing.T) {
 	}
 }
 
+// R-377-13 ①: the ◇ remainder half of a semantic span's 同源二分 rides the
+// span's own ✦ record row, which draws the span's whole in-window wall.
+func TestHMC377R13SemanticRemainderRidesItsSpanRecord(t *testing.T) {
+	const subject = "tbs_basemodule_-58968"
+	span := "VerifyClass com.tencent.common.threadpool.debug.ThreadPoolSnapshot"
+	record := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "r13-record", Subject: subject,
+		Predicate: "trace_semantic_span", Object: "class_verification", SemanticClass: "class_verification", SpanName: span,
+		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", ImpactMS: 1.202, CumulativeImpactMS: 1.202,
+		EffectiveImpactMS: 0.292, LineStart: 182417, LineEnd: 182530, Unit: "ms", Value: "1.202",
+	}
+	remainder := elimChainNode("r13-sem-rem", subject, "class_verification", "", 0, 0, 182417)
+	remainder.Predicate, remainder.Tier, remainder.Rank, remainder.LineEnd = "root_cause_context_only", types.TraceCausalTierContextOnly, 0, 182530
+	remainder.Object, remainder.SemanticClass, remainder.SpanName = "class_verification", "class_verification", span
+	remainder.ChainRelevance, remainder.Causality, remainder.ChainDepth = "adjacent", "adjacent_to_wakeup_chain", 0
+	remainder.ImpactMS, remainder.CumulativeImpactMS, remainder.EffectiveImpactMS = 0.910, 0.910, 0
+	remainder.ChainAnchorRemainderSeat, remainder.ChainAnchoredMS, remainder.ChainAnchorFullMS = true, 0.292, 1.202
+	projection := r13Projection(remainder)
+	projection.SemanticSpans = []types.TraceCausalProjectionNode{record}
+	model, fence := hmc377R12Fence(t, projection, true)
+	if row := xlane2FindRowByEvidenceID(&model, "r13-sem-rem"); row != nil {
+		t.Fatalf("the semantic remainder must not be a second row beside its span record:\n%s", fence)
+	}
+	host := xlane2FindRowByEvidenceID(&model, "r13-record")
+	if host == nil || len(host.RankFoldPeers) != 1 || !strings.Contains(fence, "+"+host.RankFoldPeers[0].EvidenceTag+"]") {
+		t.Fatalf("the remainder rides the record's bracket: %+v\n%s", host, fence)
+	}
+	other := remainder
+	other.LineStart = 182000
+	projection.AdjacentCauses = []types.TraceCausalProjectionNode{other}
+	model, _ = hmc377R12Fence(t, projection, true)
+	if xlane2FindRowByEvidenceID(&model, "r13-sem-rem") == nil {
+		t.Fatal("a remainder of another span keeps its own row")
+	}
+	// A record that is itself the ⛓ half (it carries the split and draws the
+	// anchored share) keeps its additive ◇ remainder (the R3 straddle form).
+	half := record
+	half.ImpactMS, half.CumulativeImpactMS, half.ChainAnchoredMS, half.ChainAnchorFullMS = 0.292, 0.292, 0.292, 1.202
+	projection.AdjacentCauses = []types.TraceCausalProjectionNode{remainder}
+	projection.SemanticSpans = []types.TraceCausalProjectionNode{half}
+	model, _ = hmc377R12Fence(t, projection, true)
+	if xlane2FindRowByEvidenceID(&model, "r13-sem-rem") == nil {
+		t.Fatal("the remainder of a record that is the ⛓ half keeps its row")
+	}
+}
+
 // The seat's family key travels with it: the lossless detail rows the engine
 // absorbed into the seat (the R-377-4 inversion window row) stay hosted by
 // the one row.

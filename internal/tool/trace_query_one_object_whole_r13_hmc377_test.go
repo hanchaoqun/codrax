@@ -80,3 +80,36 @@ func TestHMC377R13WholeOriginalTwoRulersOnOneAccountWearTheMirror(t *testing.T) 
 		}
 	}
 }
+
+// 105 元宝 应用后台销毁 #2 (CODRAX_HMC377_YUANBAO_BGKILL2), review window w22m
+// [10835.034648, 10835.183738) TID 58533: tbs_basemodule_-58968's span
+// VerifyClass …ThreadPoolSnapshot walls 1.202ms (raw), 0.292ms of it inside
+// the analysed thread's waits its thread's wakeup ended; the ◇ remainder row
+// repeated the anchored 0.292 beside the ✦ record that draws the whole 1.202
+// (1.202 + 0.292 + the family's 12.120 = 13.614 against raw 13.322). The
+// remainder rides the record now, and its native item publishes 0.910.
+func TestHMC377R13WholeOriginalSemanticRemainderRidesItsRecord(t *testing.T) {
+	path := hmc376Original(t, "CODRAX_HMC377_YUANBAO_BGKILL2", hmc377YuanbaoBgKill2Digest, hmc377YuanbaoBgKill2Size)
+	faces := hmc377R11QueryPID(t, path, 58533, 10835.034648, 10835.183738)
+	var record *runtimeTraceProjTreeRow
+	for _, row := range r13WholeRows(faces, "58968") {
+		if row.Node.ChainAnchorRemainderSeat && row.Node.SemanticClass == "class_verification" {
+			t.Fatalf("the semantic remainder must not be a row beside its record: %s", row.EvidenceTag)
+		}
+		if runtimeTraceCausalProjectionSemanticSpanRow(row.Node) && row.Node.LineStart == 182417 {
+			record = row
+		}
+	}
+	if record == nil {
+		t.Fatal("the span record is drawn")
+	}
+	var rem bool
+	for _, peer := range record.RankFoldPeers {
+		if peer.DisplayImpactMS > 0.909 && peer.DisplayImpactMS < 0.911 {
+			rem = true
+		}
+	}
+	if !rem {
+		t.Fatalf("the record carries its 0.910 remainder: %+v", record.RankFoldPeers)
+	}
+}

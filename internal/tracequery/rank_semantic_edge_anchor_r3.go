@@ -239,6 +239,13 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	// The semantic completion mechanism is a disclosure on both halves, never
 	// a pricing verdict.
 	rem.EffectiveImpactMs = 0
+	// HMC377 R-377-13 ① (batch-owner ruling 2026-11-22): the clone publishes
+	// its own remainder on every value channel. It kept the priced seat's
+	// ImpactMs — the anchored share — so its ◇ context row repeated the
+	// anchored part of the 同源二分 beside the seat that publishes it, while
+	// its own projected/cumulative/actual channels and its sentence said the
+	// remainder.
+	rem.ImpactMs = remMs
 	rem.ProjectedImpactMs = remMs
 	rem.CumulativeImpactMs = remMs
 	rem.ActualImpactMs = remMs
