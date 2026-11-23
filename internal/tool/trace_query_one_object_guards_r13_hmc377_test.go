@@ -91,6 +91,68 @@ func TestHMC377R13FoldedRowSpeaksTheSeatsCountedShareCaliber(t *testing.T) {
 	}
 }
 
+// The folded seat keeps its own caliber word on ◎. The rank lane publishes a
+// seat's window projection as its counted value, so a seat that counts the
+// proven part of a ready wait in full wears no caliber word there; on the one
+// row the bar is the hop's raw wait, and the generic shown-when-different word
+// is still told apart from the seat's own projection (pop w17m
+// DetectViewRect-51191: at 532dc208d the seat's ◎ line 「0.480ms … 优先级反转
+// 候选 ·交集证明」; on the one row it read 「·折算 ·交集证明」 beside tree lines
+// saying 「runnable(全额) 0.480ms … 其余0.255ms未证明优先级更低,不计入」).
+func TestHMC377R13FoldedSeatKeepsItsOwnBoardCaliber(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	board := func(t *testing.T, seatProjection float64, sameSpan, zh bool) (string, runtimeTraceProjMarkSet) {
+		hop, seat := r13Hop("r13-hop", key), r13Seat("r13-seat", key)
+		for _, node := range []*types.TraceCausalProjectionNode{&hop, &seat} {
+			node.GatedRunnableMS, node.GatedRunningDeficitMS, node.EffectiveImpactMS = 6.0, 0, 6.0
+		}
+		seat.ImpactMS = seatProjection
+		if sameSpan {
+			seat.CumulativeImpactMS = hop.CumulativeImpactMS // equal accounts: the same-span fold takes the pair
+		}
+		model, fence := hmc377R12Fence(t, r13Projection(hop, seat, r13Remainder()), zh)
+		host := xlane2FindRowByEvidenceID(&model, "r13-hop")
+		if host == nil || len(host.RankFoldPeers) != 1 || host.Node.ImpactMS != 8.294 {
+			t.Fatalf("fixture: the hop row hosts the seat and keeps its raw wait as its bar: %+v\n%s", host, fence)
+		}
+		var marks runtimeTraceProjMarkSet
+		for _, entry := range runtimeTraceProjElimBoard(model) {
+			if entry.row.Node.Subject == r13Thread && entry.row.Node.ChainRelevance == "on_chain" {
+				return runtimeTraceProjElimRowLine(entry, entry.row.Node.EffectiveImpactMS, &marks, zh, false, false), marks
+			}
+		}
+		t.Fatalf("the one row is a ◎ seat:\n%s", fence)
+		return "", marks
+	}
+	for _, zh := range []bool{true, false} {
+		lang, word := "zh", "折算"
+		if !zh {
+			lang, word = "en", "discounted"
+		}
+		t.Run(lang+"/a seat counted in full wears no caliber word", func(t *testing.T) {
+			line, marks := board(t, 6.0, false, zh)
+			if !strings.Contains(line, "6.000ms") || strings.Contains(line, word) || marks.seen[runtimeTraceProjMarkStanzaDiscount] {
+				t.Fatalf("the seat stood on ◎ at 6.000ms with no %q; the one row must too: %q", word, line)
+			}
+		})
+		t.Run(lang+"/a seat whose own projection differs keeps the word", func(t *testing.T) {
+			line, marks := board(t, 7.5, false, zh)
+			if !strings.Contains(line, word) || !marks.seen[runtimeTraceProjMarkStanzaDiscount] {
+				t.Fatalf("the seat stood on ◎ with %q against its own 7.500ms projection; the one row must too: %q", word, line)
+			}
+		})
+		// The same-span fold transfers annotation only, never an account: its
+		// host keeps its 532dc208d form on ◎ (TestHMC377R13LegacyFoldKeepsItsForm
+		// is the tree half of this boundary).
+		t.Run(lang+"/the same-span fold keeps its form", func(t *testing.T) {
+			line, marks := board(t, 6.0, true, zh)
+			if !strings.Contains(line, word) || !marks.seen[runtimeTraceProjMarkStanzaDiscount] {
+				t.Fatalf("the same-span host reads its own projection as at 532dc208d (%q): %q", word, line)
+			}
+		})
+	}
+}
+
 func r13SemanticRecord(id string) types.TraceCausalProjectionNode {
 	return types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleSemanticSpan, EvidenceID: id, Subject: "tbs_basemodule_-58968",

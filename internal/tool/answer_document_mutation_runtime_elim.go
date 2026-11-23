@@ -1032,8 +1032,8 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 		}
 		return "composition"
 	}
-	if node.EffectiveImpactMS > 0 && node.ImpactMS > 0 &&
-		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.ImpactMS) {
+	if projection := runtimeTraceProjElimPublishedWindowProjection(row); node.EffectiveImpactMS > 0 && projection > 0 &&
+		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, projection) {
 		marks.mark(runtimeTraceProjMarkStanzaDiscount)
 		if zh {
 			return "折算"
@@ -1041,6 +1041,28 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 		return "discounted"
 	}
 	return ""
+}
+
+// runtimeTraceProjElimPublishedWindowProjection is the window projection the
+// ◎ line's published value is told apart from (the generic shown-when-
+// different arm above).
+//
+// HMC377 R-377-13 ① (pop w17m DetectViewRect-51191, 532dc208d → lane): a row
+// that draws a folded rank seat's account as its own speaks that seat's
+// published value on ◎, while its bar keeps the hop's raw wall clock. The
+// rank lane publishes a seat's window projection as its counted value, so the
+// seat standing alone wore no caliber word; read against the hop's raw wait
+// (0.480ms counted of 0.735ms) the one row wore 折算 on ◎ while its own tree
+// lines say the counted part is taken in full and the rest is not counted.
+// The folded seat's own window projection is the operand: its ◎ caliber word
+// follows it onto the one row unchanged.
+func runtimeTraceProjElimPublishedWindowProjection(row runtimeTraceProjTreeRow) float64 {
+	for _, peer := range row.RankFoldPeers {
+		if peer.ownSeat != nil {
+			return peer.ownSeat.ImpactMS
+		}
+	}
+	return row.Node.ImpactMS
 }
 
 // runtimeTraceProjElimClassWord resolves the row's type identity word for the
