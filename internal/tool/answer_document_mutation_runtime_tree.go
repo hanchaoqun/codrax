@@ -4543,11 +4543,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					// ordinal adoption, before its Object became a chain-host
 					// display label. Do not reconstruct it from the host.
 					var memberRef string
-					var rankIdentityAdopted bool
+					var rankIdentityAdopted, accountAdopted bool
 					if donor, ok := rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)]; ok &&
 						donor.PeerKey == runtimeTraceCausalProjectionNodeKey(peer) {
 						memberRef = donor.MemberRef
 						rankIdentityAdopted = true
+						accountAdopted = donor.AccountAdopted
 					}
 					peerRank := peer.Rank
 					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane == "background" {
@@ -4561,7 +4562,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					if strings.TrimSpace(rows[i].Node.FixDirection) == "" {
 						rows[i].Node.FixDirection = peer.FixDirection
 					}
-					drawn := runtimeTraceProjRankFoldPeerDrawn(peer, rankIdentityAdopted && rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)].AccountAdopted)
+					drawn := runtimeTraceProjRankFoldPeerDrawn(peer, accountAdopted)
 					var ownSeat *types.TraceCausalProjectionNode
 					if drawn.own {
 						seat := peer
@@ -6217,18 +6218,16 @@ func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow
 	}
 	// HMC377 R-377-13 ①: the lead row that draws a rank seat's account as its
 	// own (the seat folded into its hop row on their typed account identity;
-	// the conclusion consumes the one row, or the seat itself) speaks the
+	// the conclusion consumes the one row — the fold gives it the seat's rank
+	// and the two publish one effective attribution, so the shared rank board
+	// elects the row whenever it would have elected the seat) speaks the
 	// seat's own causal position, as the seat's block did.
-	if leadKey != "" {
+	if runtimeTraceCausalProjectionNodeKey(node) == leadKey {
 		for _, peer := range row.RankFoldPeers {
-			if peer.ownSeat == nil {
-				continue
-			}
-			seatKey := runtimeTraceCausalProjectionNodeKey(*peer.ownSeat)
-			if runtimeTraceCausalProjectionNodeKey(node) == leadKey || seatKey == leadKey {
+			if peer.ownSeat != nil {
 				seatRow := row
 				seatRow.Node, seatRow.RankFoldPeers = *peer.ownSeat, nil
-				return runtimeTraceProjDetailPositionCellWithAuthority(seatRow, seatKey, zh, frameCausalityUnproven)
+				return runtimeTraceProjDetailPositionCellWithAuthority(seatRow, runtimeTraceCausalProjectionNodeKey(*peer.ownSeat), zh, frameCausalityUnproven)
 			}
 		}
 	}
@@ -8406,10 +8405,9 @@ func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeMode
 	groups := map[string][]*runtimeTraceProjTreeRow{}
 	var order []string
 	for _, row := range runtimeTraceProjSMR1AllRows(model) {
-		if !row.HasData || strings.TrimSpace(row.EvidenceTag) == "" || !runtimeTraceProjSMR1WallClockRow(row.Node) {
-			continue
-		}
-		// The producer hash names the physical thread (it hashes the pid).
+		// The producer hash names the physical thread (it hashes the pid) and
+		// exists only on a data row of a scheduler-state account: a
+		// wall-clock row with its own evidence record by construction.
 		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
 		if key == "" {
 			continue
@@ -8704,12 +8702,13 @@ func runtimeTraceProjFoldRankLaneTwins(nodes []types.TraceCausalProjectionNode, 
 			// is the host's own account — its disclosure (the RSPA split
 			// sentence, the claims its sentences make) and its family key
 			// (the lossless detail rows it represents) travel with it, so the
-			// one row says what the seat said.
+			// one row says what the seat said. The host is an unseated hop
+			// row: the rank funnel's own carriers (family key, cause token
+			// pair, process attribution) exist only on the seat and move as
+			// the seat's.
 			if accountFold[rankIdx] {
 				types.TraceCausalProjectionAdoptAccountDisclosure(&node, rankTwin)
-				if strings.TrimSpace(node.RankFamilyKey) == "" {
-					node.RankFamilyKey = rankTwin.RankFamilyKey
-				}
+				node.RankFamilyKey = rankTwin.RankFamilyKey
 				// The seat's own chain cumulative is the larger scope of the
 				// one fact (the R1 one-fact MAX): its 链上累计 line stays.
 				if rankTwin.CumulativeImpactMS > node.CumulativeImpactMS {
@@ -8717,19 +8716,12 @@ func runtimeTraceProjFoldRankLaneTwins(nodes []types.TraceCausalProjectionNode, 
 				}
 				// The one object is the seat's cause: its typed cause token
 				// names the row on every face that names a cause (the crown,
-				// ◎, the detail type line); the hop's state stays its
-				// StateKind.
-				if object := strings.TrimSpace(rankTwin.Object); object != "" {
-					node.Object = object
-				}
-				if strings.TrimSpace(node.TypeToken) == "" {
-					node.TypeToken = rankTwin.TypeToken
-				}
+				// ◎, the detail type line, the counted-share caliber); the
+				// hop's state stays its StateKind.
+				node.Object, node.TypeToken = rankTwin.Object, rankTwin.TypeToken
 				// The seat's engine-minted process attribution names the one
 				// thread's process: the one row's detail block keeps it.
-				if node.ProcessTGID <= 0 && rankTwin.ProcessTGID > 0 {
-					node.ProcessTGID, node.ProcessComm = rankTwin.ProcessTGID, rankTwin.ProcessComm
-				}
+				node.ProcessTGID, node.ProcessComm = rankTwin.ProcessTGID, rankTwin.ProcessComm
 				adoptedRef.AccountAdopted = true
 			}
 			if adopted {
@@ -9231,7 +9223,7 @@ func runtimeTraceProjFoldSemanticRemainderTwins(adjacent, background, semantics 
 	fold := func(nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
 		kept := nodes[:0:0]
 		for _, node := range nodes {
-			if node.ChainAnchorRemainderSeat && !runtimeTraceCausalProjectionSemanticSpanRow(node) {
+			if node.ChainAnchorRemainderSeat {
 				if host := records[runtimeTraceProjSemanticSpanIdentity(node)]; len(host) == 1 {
 					if peers == nil {
 						peers = map[string][]types.TraceCausalProjectionNode{}

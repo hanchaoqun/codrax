@@ -217,32 +217,29 @@ func runtimeTraceProjStampAggregateMemberCrossRefs(model *runtimeTraceProjTreeMo
 func runtimeTraceProjStampAggregateMemberIdentityRefs(all []*runtimeTraceProjTreeRow) {
 	seats := map[string][]*runtimeTraceProjTreeRow{}
 	for _, row := range all {
-		if !row.HasData || row.Node.GatedShareConstituentSeat ||
+		if row.Node.GatedShareConstituentSeat ||
 			!strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
-			continue
+			continue // rank seats only; the demoted A clone never takes the seat role
 		}
 		// The producer hash names the physical thread (it hashes the pid).
-		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
-		if key == "" || strings.TrimSpace(row.EvidenceTag) == "" {
-			continue
+		if key := strings.TrimSpace(row.Node.MeasuredStateFactKey()); key != "" {
+			seats[key] = append(seats[key], row)
 		}
-		seats[key] = append(seats[key], row)
 	}
 	if len(seats) == 0 {
 		return
 	}
 	boardIndex := runtimeTraceProjRankBoardIndexFor(all)
 	for _, row := range all {
-		if !row.HasData || row.Node.ChainDepth <= 0 || row.Node.MergedCount > 1 || row.AggregateSeatRef != "" ||
-			strings.TrimSpace(row.Node.Predicate) != "wakeup_causal_impact" || strings.TrimSpace(row.EvidenceTag) == "" {
-			continue
-		}
+		// The producer names an occurrence group only on a walked hop's own
+		// occurrence row, and a ×N fold answers with none
+		// (MeasuredOccurrenceGroup).
 		group := row.Node.MeasuredOccurrenceGroup()
 		if group == "" {
 			continue
 		}
 		owners := seats[group]
-		if len(owners) != 1 || owners[0] == row || !runtimeTraceProjSemanticSubsetSameBoard(boardIndex, row, owners[0]) {
+		if len(owners) != 1 || !runtimeTraceProjSemanticSubsetSameBoard(boardIndex, row, owners[0]) {
 			continue // ambiguity fails open
 		}
 		row.AggregateSeatRef = strings.TrimSpace(owners[0].EvidenceTag)
