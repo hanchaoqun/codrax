@@ -1664,53 +1664,90 @@ type runtimeTraceProjRestCarrier struct {
 // when the engine resolved its remainder claim to the same thread's
 // CPU-restriction row besides (or instead of) the thread's ◇ remainder seat
 // (the restriction row publishes those instants as its own): each holder by
-// [E#] in claim order (twin, from runtimeTraceProjResolveShareRef).
+// [E#] in claim order (twin, from runtimeTraceProjResolveShareRef, proves
+// every holder drawn).
 //
-// HMC377 round 13 (R-377-13 ④): a carrier is named only where it is drawn
-// as a row of its own kind — the ◇ remainder seat (ChainAnchorRemainderSeat)
-// or the CPU-restriction seat, the typed kind the engine gave its record. A
-// holder drawn only inside a row of another kind has no row of its own on the
-// board: a fold row (the one fold-row constructor builds the chain overflow
-// fold and the cross-thread stanza fold from several threads' records and
-// gives it no type token and no remainder marker) or a chain row's [E#+E#]
-// bracket. Every such holder turns the rest to the see-detail form
-// (restSeeDetail), which names no carrier and credits nothing to ◇. A rest
-// held only by ◇ remainder seats drawn as their own rows keeps the ◇ word's
-// bytes.
+// HMC377 round 13 (R-377-13 ④): each holder's kind is the engine's typed
+// kind, never the type token of the row it happens to be drawn in. A holder
+// is a restriction seat when the engine resolved a subset claim to it
+// (subsetHolders: the claims only a restriction seat carves, Part subset /
+// Role subset_seat) or when it is drawn as its own row — the row's own record
+// — of the cpu_affinity_or_cpuset type; every other holder is the claim's own
+// role, the ◇ remainder seat. A rest held only by ◇ remainder seats keeps the
+// ◇ word's bytes (the holders are proven drawn; R-377-8). A rest with a
+// restriction holder names every carrier by [E#] only when each one is drawn
+// as its own row; a carrier drawn only inside another row — a
+// several-record fold row (whose seed id may be the holder's record: the one
+// fold-row constructor seeds the fold with its first member's id), a merged
+// member, a peer in another row's bracket — takes the see-detail form
+// (restSeeDetail), which names no carrier and credits nothing to ◇.
 //
-// EVOLUTION RECORD (R-377-13 ④, review-12 R12P-2): old → new = a holder
-// drawn inside a row of another kind only counted when some other holder was
-// a restriction row, so a rest whose restriction holder sat only in a fold
-// row read as all-◇ and kept the plain 「(◇余段席)」 (w27m binder:465_4-8068 ⛓
-// [E19] 「其余72.958ms(◇余段席)」 while ◇ [E26] counts 72.920 and the
-// restriction's 0.038 sits in 「其余 7 项(折叠)」 [E31(+12)]:
+// EVOLUTION RECORD (R-377-13 ④, review-12 R12P-2): old → new = the kind was
+// read from the drawn host row, so a restriction holder drawn only inside a
+// fold row read as a non-restriction and the rest kept the plain 「(◇余段席)」
+// (w27m binder:465_4-8068 ⛓ [E19] 「其余72.958ms(◇余段席)」 while ◇ [E26]
+// counts 72.920 and the restriction's 0.038 sits in 「其余 7 项(折叠)」
+// [E31(+12)]:
 // ~/hmc-work/hmc377/fix12/review-population/evidence/D1_w27m_rest_carrier.txt)
-// → every holder not drawn as a row of its own kind takes the rest to the
-// see-detail form.
-func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtimeTraceProjShareRef) {
+// → the kind is the engine's (the ◇ row's resolved subset claim names that
+// holder a restriction seat) and the fold-drawn carrier takes the see-detail
+// form.
+func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtimeTraceProjShareRef, index map[string]runtimeTraceProjDrawnRecord, subsetHolders map[string]bool) {
 	row.ChainAnchorRestCarriers, row.ChainAnchorRestSeeDetail = nil, false
-	if twin.state != runtimeTraceProjShareRefRendered || twin.successor || len(twin.rows) == 0 || len(twin.rows) != len(twin.tags) {
+	if twin.state != runtimeTraceProjShareRefRendered || twin.successor {
 		return
 	}
-	carriers := make([]runtimeTraceProjRestCarrier, 0, len(twin.rows))
-	restriction := false
-	for i, holder := range twin.rows {
-		if holder == nil || strings.TrimSpace(twin.tags[i]) == "" {
-			return
+	var carriers []runtimeTraceProjRestCarrier
+	restriction, ownRows := false, true
+	for _, c := range row.Node.ShareClaims {
+		if c.Represented || c.Part != string(tracequery.RootCauseShareClaimRemainder) {
+			continue
 		}
-		object := runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(holder.Node.TypeToken, holder.Node.Object))
-		isRestriction := object == "cpu_affinity_or_cpuset"
-		if !isRestriction && !holder.Node.ChainAnchorRemainderSeat {
-			row.ChainAnchorRestSeeDetail = true
-			return
+		for _, id := range c.HolderEvidenceIDs {
+			drawn := index[strings.TrimSpace(id)]
+			if drawn.row == nil || drawn.tag == "" {
+				return
+			}
+			key := runtimeTraceCausalProjectionCanonicalNode(id)
+			host := drawn.row.Node
+			own := runtimeTraceCausalProjectionCanonicalNode(host.EvidenceID) == key && !runtimeTraceProjSubjectlessFoldRow(host)
+			isRestriction := subsetHolders[key] || (own &&
+				runtimeTraceCausalProjectionCanonicalNode(firstNonEmptyAnswerString(host.TypeToken, host.Object)) == "cpu_affinity_or_cpuset")
+			restriction = restriction || isRestriction
+			ownRows = ownRows && own
+			carrier := runtimeTraceProjRestCarrier{Ref: drawn.tag, Remainder: !isRestriction}
+			if isRestriction {
+				carrier.Object = "cpu_affinity_or_cpuset"
+			}
+			carriers = append(carriers, carrier)
 		}
-		restriction = restriction || isRestriction
-		carriers = append(carriers, runtimeTraceProjRestCarrier{Ref: strings.TrimSpace(twin.tags[i]),
-			Remainder: !isRestriction, Object: object})
 	}
-	if restriction {
+	switch {
+	case !restriction:
+	case ownRows:
 		row.ChainAnchorRestCarriers = carriers
+	default:
+		row.ChainAnchorRestSeeDetail = true
 	}
+}
+
+// runtimeTraceProjSubsetSeatHolders is every record the engine resolved a
+// subset claim to (Part subset: the share a ◇ remainder or a carved row hands
+// to the same thread's CPU-restriction seat) — the engine's typed
+// restriction-seat holder kind, whatever row the record is drawn in.
+func runtimeTraceProjSubsetSeatHolders(all []*runtimeTraceProjTreeRow) map[string]bool {
+	holders := map[string]bool{}
+	for _, row := range all {
+		for _, c := range row.Node.ShareClaims {
+			if c.Part != string(tracequery.RootCauseShareClaimSubset) {
+				continue
+			}
+			for _, id := range c.HolderEvidenceIDs {
+				holders[runtimeTraceCausalProjectionCanonicalNode(id)] = true
+			}
+		}
+	}
+	return holders
 }
 
 // runtimeTraceProjRestrictedPart is one part of a CPU-restriction row's
@@ -1807,6 +1844,7 @@ func runtimeTraceProjResolvedRepresentedHolderTags(node types.TraceCausalProject
 // remainder rows (the pair class (0) counterpart).
 func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef {
 	index := runtimeTraceProjDrawnRecordIndex(model, all)
+	subsetHolders := runtimeTraceProjSubsetSeatHolders(all)
 	anchored := map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef{}
 	for _, row := range all {
 		rn := row.Node
@@ -1831,7 +1869,7 @@ func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all [
 			default:
 				twin = runtimeTraceProjResolveShareRef(rn, index, row, false, string(tracequery.RootCauseShareClaimRemainder))
 				// HMC377 round 12 (R-377-12 ③): the rest's carriers by [E#].
-				runtimeTraceProjStampRestCarriers(row, twin)
+				runtimeTraceProjStampRestCarriers(row, twin, index, subsetHolders)
 			}
 			row.ChainAnchorTwinInvisible = twin.state == runtimeTraceProjShareRefCompacted
 			row.ChainAnchorTwinUnreferenced = twin.state == runtimeTraceProjShareRefNone
