@@ -380,6 +380,20 @@ func TestHMC377R13FoldedSeatKeepsItsAbsorbedDetailRows(t *testing.T) {
 	}
 }
 
+// The mirror tag names one other line: when three lines of one thread show one
+// account, no line can name "the other" and none is tagged (fail open).
+func TestHMC377R13MirrorNeedsExactlyTwoLines(t *testing.T) {
+	const key = "state_account:v2:r13-59777"
+	third := r13CensusSeat("r13-census-2", key)
+	third.LineStart, third.LineEnd = 120000, 120400
+	model, fence := hmc377R12Fence(t, r13Projection(r13PricedHop("r13-hop", key), r13CensusSeat("r13-census", key), third), true)
+	for _, id := range []string{"r13-hop", "r13-census", "r13-census-2"} {
+		if row := xlane2FindRowByEvidenceID(&model, id); row == nil || row.ValueMirrorRef != "" {
+			t.Fatalf("three lines of one account wear no mirror tag (%s):\n%s", id, fence)
+		}
+	}
+}
+
 // The mirror tag needs the same shown occupancy too: a seat that shows another
 // number of the same account (priced lower) is not told it repeats it.
 func TestHMC377R13MirrorNeedsTheSameShownOccupancy(t *testing.T) {
