@@ -9,7 +9,14 @@ package tracequery
 //     the withdrawn row's account;
 //   - the B4 owner stamps are recomputed on every reconcile (the pass runs on
 //     the build and again after the enrich additions): a row the second run
-//     no longer pairs keeps no stamp of the first.
+//     no longer pairs keeps no stamp of the first;
+//   - a direct-owner stamp names a detail only (X15): the detail the active
+//     row owns directly carries none, so it is placed by the withdrawn row's
+//     account and never by a name no detail answers to;
+//   - the family count reads the typed riding flag (X14): a row that names a
+//     family without riding under it (a seat minted from a detail's copy keeps
+//     the name and drops the flag) is not counted, and a family left with no
+//     riding row wears no key.
 
 import (
 	"testing"
@@ -85,5 +92,48 @@ func TestHMC377R13B4OwnerStampsAreRecomputedOnEveryReconcile(t *testing.T) {
 	}
 	if c.b4DirectOwner != "" || d.b4Identity != "" {
 		t.Errorf("stamps of the earlier reconcile stay: churn owner %q, detail identity %q", c.b4DirectOwner, d.b4Identity)
+	}
+}
+
+func TestHMC377R13B4DirectOwnerStampNamesADetailOnly(t *testing.T) {
+	inv := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+	inv.inversionAccountRepresents = "inversion_account:rs"
+	det := hmc377R13InvDetail(2.903, hmc377R11W(), []foldInterval{{start: 10.5, end: 10.501}}, "inversion_account:rs", 30)
+	det.StatsWindowStartTs, det.StatsWindowEndTs = 10, 11
+	rank := hmc377R13Enrich([]RootCauseRankItem{hmc377R11OtherSeat(), inv, hmc377R13Rem(1.0, hmc377R11W(), 70), det, hmc377R13ChurnOf(det)})
+	var d, c *RootCauseRankItem
+	for i := range rank.AbsorbedItems {
+		switch rank.AbsorbedItems[i].Type {
+		case "priority_inversion_runnable_wait":
+			d = &rank.AbsorbedItems[i]
+		case "fragmented_runnable_wait":
+			c = &rank.AbsorbedItems[i]
+		}
+	}
+	if d == nil || c == nil || d.b4Identity == "" || c.b4DirectOwner != d.b4Identity {
+		t.Fatalf("precondition: the active row owns the detail and the detail owns its churn twin: %+v", rank.AbsorbedItems)
+	}
+	if d.b4DirectOwner != "" {
+		t.Errorf("the detail the active row owns directly names an owner %q, want none", d.b4DirectOwner)
+	}
+}
+
+func TestHMC377R13FamilyCountReadsRidingDetailsOnly(t *testing.T) {
+	const kept, emptied = "rank_pair:kept", "rank_pair:emptied"
+	board := []RootCauseRankItem{
+		{Type: "runnable_wait", RankFamilyKey: kept, AbsorbedRankRows: 2},
+		{Type: "runnable_wait", RankFamilyKey: emptied, AbsorbedRankRows: 1},
+	}
+	detail := []RootCauseRankItem{
+		{Type: "priority_inversion_runnable_wait", AbsorbedByRankFamily: true, AbsorbedIntoFamily: kept},
+		{Type: "runnable_wait", AbsorbedIntoFamily: kept},
+		{Type: "runnable_wait", AbsorbedIntoFamily: emptied},
+	}
+	rspaRecountDetailFamilies(board, detail)
+	if board[0].AbsorbedRankRows != 1 || board[0].RankFamilyKey != kept {
+		t.Errorf("family with one riding row and one row that only names it: count %d key %q, want 1 under its key", board[0].AbsorbedRankRows, board[0].RankFamilyKey)
+	}
+	if board[1].AbsorbedRankRows != 0 || board[1].RankFamilyKey != "" {
+		t.Errorf("family no row rides under: count %d key %q, want no count and no key", board[1].AbsorbedRankRows, board[1].RankFamilyKey)
 	}
 }
