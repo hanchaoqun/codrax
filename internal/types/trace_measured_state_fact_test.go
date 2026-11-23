@@ -165,3 +165,25 @@ func TestUnanimousOccurrenceGroupKey(t *testing.T) {
 		}
 	}
 }
+
+// HMC377 R-377-13 ①: one occurrence row names the multi-occurrence account it
+// is part of; a ×N fold of the occurrences shows that account itself, so it
+// names no group (the tree's constituent pointer is for a part, never for the
+// row that already shows the whole).
+func TestMeasuredOccurrenceGroupIsNamedByOneOccurrenceOnly(t *testing.T) {
+	node := measuredFactTestNode("state_account:v2:own", "", 5)
+	node.MeasuredOccurrenceGroupKey = " state_account:v2:group "
+	if got := node.MeasuredOccurrenceGroup(); got != "state_account:v2:group" {
+		t.Fatalf("one occurrence names its group: %q", got)
+	}
+	if got := node.MeasuredStateFactKey(); got != "state_account:v2:own" {
+		t.Fatalf("one occurrence shows its own account: %q", got)
+	}
+	node.MergedCount = 3
+	if got := node.MeasuredOccurrenceGroup(); got != "" {
+		t.Fatalf("a fold names no group: %q", got)
+	}
+	if got := node.MeasuredStateFactKey(); got != "state_account:v2:group" {
+		t.Fatalf("a fold shows the account its occurrences name: %q", got)
+	}
+}
