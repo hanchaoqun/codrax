@@ -4637,6 +4637,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// 修复轮 C-2/A1: the µs-equal cross-lane value mirror (aggregate row ↔
 	// ×N candidate row) — typed fingerprint, tag-only convergence.
 	runtimeTraceProjMarkValueMirrorTwins(&model)
+	// HMC377 R-377-13 ①: two lines of one thread that show one measured
+	// account and stay two rows (two rulers) wear the mirror tag.
+	runtimeTraceProjMarkSameMeasuredFactMirrors(&model)
 
 	// SELF-LANE (§29.58.3 处置 a, SELF-ALL 批 件②, 2026-07-13): after the
 	// SELF-ALL engine promotion the ◇ residual target rows are the honest
@@ -8349,6 +8352,60 @@ func runtimeTraceProjMarkValueMirrorTwins(model *runtimeTraceProjTreeModel) {
 			}
 			rows[i].ValueMirrorRef = refs[0]
 		}
+	}
+}
+
+// runtimeTraceProjMarkSameMeasuredFactMirrors (HMC377 R-377-13 ①, batch-owner
+// ruling 2026-11-22) marks the two tree lines of one physical thread that show
+// the same measured scheduler-state account — the producer's exact
+// segment-inventory identity together with the same shown occupancy
+// (types.TraceMeasuredStateFactSame) — and so carry the same instants. A pair
+// the one-object fold draws as one row never reaches here (its seat is a peer
+// of the host, not a row). A pair that stays two rows because the lines are
+// two rulers — a chain hop row priced on the chain ruler beside a census seat
+// priced on its own (the case-B clipped ready-time seat on its hop's
+// segments) — keeps both rows and both prices, and each line wears the
+// existing typed non-additive disclosure, the same-segment mirror tag naming
+// the other. Exactly two lines per account; any other count fails open.
+// Identity decides, never a value or a line envelope: the shown occupancy is
+// the identity's own guard (a seat priced at another number of one account
+// is never told it repeats it).
+func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeModel) {
+	groups := map[string][]*runtimeTraceProjTreeRow{}
+	var order []string
+	for _, row := range runtimeTraceProjSMR1AllRows(model) {
+		if !row.HasData || strings.TrimSpace(row.EvidenceTag) == "" || !runtimeTraceProjSMR1WallClockRow(row.Node) {
+			continue
+		}
+		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
+		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
+		if key == "" || subject == "" {
+			continue
+		}
+		key = subject + "\x00" + key
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], row)
+	}
+	for _, key := range order {
+		rows := groups[key]
+		if len(rows) != 2 {
+			continue
+		}
+		a, b := rows[0], rows[1]
+		if a.ValueMirrorRef != "" || b.ValueMirrorRef != "" || !types.TraceMeasuredStateFactSame(a.Node, b.Node) {
+			continue
+		}
+		// A trunk head and its own state-makeup child are already related by
+		// the tree structure (one thread drawn under its trunk head), as the
+		// one-object fold leaves them to the trunk builder.
+		if (a.Kind == runtimeTraceProjTreeRowChain && b.Kind == runtimeTraceProjTreeRowCause) ||
+			(a.Kind == runtimeTraceProjTreeRowCause && b.Kind == runtimeTraceProjTreeRowChain) {
+			continue
+		}
+		a.ValueMirrorRef = strings.TrimSpace(b.EvidenceTag)
+		b.ValueMirrorRef = strings.TrimSpace(a.EvidenceTag)
 	}
 }
 

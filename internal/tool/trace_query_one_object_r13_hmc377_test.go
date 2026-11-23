@@ -237,6 +237,56 @@ func r13PricedHop(id, key string) types.TraceCausalProjectionNode {
 	return hop
 }
 
+// R-377-13 ①: a census seat priced on its own ruler (the case-B clipped
+// ready-time seat, 调度供给) that shows exactly its chain hop's measured
+// account stays its own row beside the hop priced on the chain ruler
+// (inversion candidacy, 锁与优先级) — both prices and both must-not-lose
+// classes stay drawn — and each line wears the existing typed non-additive
+// disclosure naming the other.
+func TestHMC377R13TwoRulersOnOneAccountWearTheMirrorTag(t *testing.T) {
+	const key = "state_account:v2:r13-59777"
+	projection := r13Projection(r13PricedHop("r13-hop", key), r13CensusSeat("r13-census", key))
+	for _, zh := range []bool{true, false} {
+		name := map[bool]string{true: "zh", false: "en"}[zh]
+		model, fence := hmc377R12Fence(t, projection, zh)
+		t.Run(name, func(t *testing.T) {
+			hop, seat := xlane2FindRowByEvidenceID(&model, "r13-hop"), xlane2FindRowByEvidenceID(&model, "r13-census")
+			if hop == nil || seat == nil {
+				t.Fatalf("both rulers stay drawn:\n%s", fence)
+			}
+			for _, pair := range [][2]*runtimeTraceProjTreeRow{{hop, seat}, {seat, hop}} {
+				want := "同段镜像·与[" + pair[1].EvidenceTag + "]同一物理时间,不可相加"
+				if !zh {
+					want = "same-seg mirror · same physical time as [" + pair[1].EvidenceTag + "], never additive"
+				}
+				if pair[0].ValueMirrorRef != pair[1].EvidenceTag || !strings.Contains(hmc377R12Joined(fence), want) {
+					t.Fatalf("%s must wear %q:\n%s", pair[0].EvidenceTag, want, fence)
+				}
+			}
+		})
+	}
+	t.Run("another account wears nothing", func(t *testing.T) {
+		model, _ := hmc377R12Fence(t, r13Projection(r13PricedHop("r13-hop", key), r13CensusSeat("r13-census", "state_account:v2:other")), true)
+		if row := xlane2FindRowByEvidenceID(&model, "r13-census"); row == nil || row.ValueMirrorRef != "" {
+			t.Fatalf("a seat of another account is not a mirror: %+v", row)
+		}
+	})
+	t.Run("a trunk head and its makeup child wear nothing", func(t *testing.T) {
+		seat := r13CensusSeat("r13-census", key)
+		seat.ChainBranch = 3
+		projection := r13Projection(r13PricedHop("r13-hop", key), seat)
+		projection.WakeupPath, projection.WakeupPathBranch = []string{"dtmp.dispatch-59777", ".ugc.aweme.lite-59591"}, 3
+		model, fence := hmc377R12Fence(t, projection, true)
+		hop, child := xlane2FindRowByEvidenceID(&model, "r13-hop"), xlane2FindRowByEvidenceID(&model, "r13-census")
+		if hop == nil || child == nil || hop.Kind != runtimeTraceProjTreeRowChain || child.Kind != runtimeTraceProjTreeRowCause {
+			t.Fatalf("fixture: the trunk head and its makeup child: %+v %+v\n%s", hop, child, fence)
+		}
+		if hop.ValueMirrorRef != "" || child.ValueMirrorRef != "" {
+			t.Fatalf("a trunk head and its makeup child stay under the head:\n%s", fence)
+		}
+	})
+}
+
 // The seat's family key travels with it: the lossless detail rows the engine
 // absorbed into the seat (the R-377-4 inversion window row) stay hosted by
 // the one row.
@@ -252,5 +302,17 @@ func TestHMC377R13FoldedSeatKeepsItsAbsorbedDetailRows(t *testing.T) {
 	host := xlane2FindRowByEvidenceID(&model, "r13-hop")
 	if host == nil || len(host.RankFoldPeers) != 1 || len(host.AbsorbedChainPeers) != 1 {
 		t.Fatalf("the one row hosts the seat's absorbed detail: %+v\n%s", host, fence)
+	}
+}
+
+// The mirror tag needs the same shown occupancy too: a seat that shows another
+// number of the same account (priced lower) is not told it repeats it.
+func TestHMC377R13MirrorNeedsTheSameShownOccupancy(t *testing.T) {
+	const key = "state_account:v2:r13-59777"
+	seat := r13CensusSeat("r13-census", key)
+	seat.RunnableMS = 4.0
+	model, fence := hmc377R12Fence(t, r13Projection(r13PricedHop("r13-hop", key), seat), true)
+	if row := xlane2FindRowByEvidenceID(&model, "r13-census"); row == nil || row.ValueMirrorRef != "" {
+		t.Fatalf("another shown occupancy is not a mirror:\n%s", fence)
 	}
 }

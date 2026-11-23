@@ -4325,8 +4325,10 @@ type RootCauseRankItem struct {
 	MeasuredStateAccountKey string `json:"-"`
 	// measuredStateIntervals / measuredStateWindow are the complete clamped
 	// dominant-state inventory and its statistics window, copied by
-	// construction from the wakeup impact this seat was built from. Only the
-	// measured-identity mint reads them.
+	// construction from the wakeup impact this seat was built from, or — for
+	// a case-B clipped ready-time seat — its inside instants
+	// (rspaShowClippedReadyAccount). Only the measured-identity mint reads
+	// them.
 	measuredStateIntervals []foldInterval
 	measuredStateWindow    TimeWindow
 	// PhysicalSourcePath is the bundle-local physical artifact identity behind

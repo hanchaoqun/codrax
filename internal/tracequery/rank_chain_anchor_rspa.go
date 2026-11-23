@@ -881,6 +881,19 @@ func rspaClipSeatToAnchored(item *RootCauseRankItem, anchoredMs, fullMs float64,
 	}
 }
 
+// rspaShowClippedReadyAccount (HMC377 R-377-13 ①) records the instants a
+// case-B clipped ready-time seat publishes — its inside share, the walked and
+// owned ready segments it holds — as the seat's measured state inventory, so
+// the producer's measured-account identity names exactly the segments the
+// seat shows. A chain hop row priced at the same segments then carries the
+// same identity, and the tree reads the two lines as one thread's same
+// instants. The seat's price, rank and account are untouched; an inventory
+// whose length does not reproduce the published ready time mints nothing.
+func rspaShowClippedReadyAccount(item *RootCauseRankItem, inside []foldInterval) {
+	item.measuredStateIntervals = rspaFoldCopy(inside)
+	item.measuredStateWindow = TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}
+}
+
 // rspaAnchoredSummary renders the ⛓ clipped seat's engine-side account.
 func rspaAnchoredSummary(thread ThreadRef, family string, anchored, full float64) string {
 	return rspaAnchoredSentence(thread, family, anchored, full, RootCauseShareClaim{}).text
@@ -1224,6 +1237,7 @@ func reanchorOnChainStateSeatsCarried(chain ChainResult, stats WindowStats, item
 							rspaClaim(RootCauseShareClaimRemainder, RootCauseShareHolderRemainderSeat, item.Thread.PID, false, remainder, inst.restOrNil())))
 					item.rspaUnwalkedHeldMs = scope.owned
 					rspaHold(item, RootCauseShareHolderClippedSeat, false, inst.inside(), inside)
+					rspaShowClippedReadyAccount(item, inst.inside())
 				}
 			}
 		case "priority_inversion_runnable_wait":
@@ -1348,6 +1362,7 @@ func reanchorOnChainStateSeatsCarried(chain ChainResult, stats WindowStats, item
 					seat.inversionAccountRepresents = key
 					seat.rspaUnwalkedHeldMs = scope.owned
 					rspaHold(&seat, RootCauseShareHolderClippedSeat, false, inst.inside(), inside)
+					rspaShowClippedReadyAccount(&seat, inst.inside())
 					appended = append(appended, seat)
 					claims := rspaRowClaimsOf(item.Thread.PID, false, RootCauseShareHolderClippedSeat, inside, inst.inside(), rspaRowScope{}, nil, 0)
 					rspaRewriteSeatToRemainder(&twin, inside, full, remainder, 0, 0,
