@@ -221,12 +221,12 @@ func runtimeTraceProjStampAggregateMemberIdentityRefs(all []*runtimeTraceProjTre
 			!strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
 			continue
 		}
+		// The producer hash names the physical thread (it hashes the pid).
 		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
-		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
-		if key == "" || subject == "" || strings.TrimSpace(row.EvidenceTag) == "" {
+		if key == "" || strings.TrimSpace(row.EvidenceTag) == "" {
 			continue
 		}
-		seats[subject+"\x00"+key] = append(seats[subject+"\x00"+key], row)
+		seats[key] = append(seats[key], row)
 	}
 	if len(seats) == 0 {
 		return
@@ -238,11 +238,10 @@ func runtimeTraceProjStampAggregateMemberIdentityRefs(all []*runtimeTraceProjTre
 			continue
 		}
 		group := row.Node.MeasuredOccurrenceGroup()
-		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
-		if group == "" || subject == "" {
+		if group == "" {
 			continue
 		}
-		owners := seats[subject+"\x00"+group]
+		owners := seats[group]
 		if len(owners) != 1 || owners[0] == row || !runtimeTraceProjSemanticSubsetSameBoard(boardIndex, row, owners[0]) {
 			continue // ambiguity fails open
 		}

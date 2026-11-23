@@ -314,6 +314,17 @@ func TestHMC377R13OccurrenceRowPointsAtItsAggregateSeat(t *testing.T) {
 	if row := xlane2FindRowByEvidenceID(&model, "r13-occ"); row == nil || row.AggregateSeatRef != "" {
 		t.Fatalf("an occurrence of another account points nowhere: %+v", row)
 	}
+	// Two drawn seats of the thread show the one account: which seat the
+	// occurrence is part of is ambiguous, so the pointer fails open.
+	twin := elimChainNode("r13-agg-twin", "android.bg-7973", "priority_inversion_candidate", "runnable", 3, 12.5, 230000)
+	twin.MeasuredStateAccountKey = group
+	model, fence = hmc377R12Fence(t, r13Projection(seat, twin, hop), true)
+	if xlane2FindRowByEvidenceID(&model, "r13-agg-twin") == nil || xlane2FindRowByEvidenceID(&model, "r13-agg") == nil {
+		t.Fatalf("both seats are drawn:\n%s", fence)
+	}
+	if row := xlane2FindRowByEvidenceID(&model, "r13-occ"); row == nil || row.AggregateSeatRef != "" {
+		t.Fatalf("an occurrence whose account two drawn seats show points nowhere: %+v", row)
+	}
 }
 
 // R-377-13 ①: the ◇ remainder half of a semantic span's 同源二分 rides the

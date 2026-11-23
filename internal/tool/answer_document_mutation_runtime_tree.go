@@ -8381,12 +8381,11 @@ func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeMode
 		if !row.HasData || strings.TrimSpace(row.EvidenceTag) == "" || !runtimeTraceProjSMR1WallClockRow(row.Node) {
 			continue
 		}
+		// The producer hash names the physical thread (it hashes the pid).
 		key := strings.TrimSpace(row.Node.MeasuredStateFactKey())
-		subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
-		if key == "" || subject == "" {
+		if key == "" {
 			continue
 		}
-		key = subject + "\x00" + key
 		if _, seen := groups[key]; !seen {
 			order = append(order, key)
 		}
@@ -8455,15 +8454,14 @@ func runtimeTraceProjRankFoldWindow(node types.TraceCausalProjectionNode) (float
 // runtimeTraceProjRankFoldAccountKey is the typed identity one lane row of an
 // inversion candidate shows (HMC377 R-377-13 ①): the producer's exact
 // segment-inventory hash of the measured scheduler-state account (a hop row's
-// priced state account, a rank seat's measured account), with the canonical
-// subject. "" when the producer proved none.
+// priced state account, a rank seat's measured account). The hash already
+// names the physical thread (types.TraceSchedulerStateAccountIdentity hashes
+// the pid), so no display name joins it. "" when the producer proved none.
 func runtimeTraceProjRankFoldAccountKey(node types.TraceCausalProjectionNode) string {
-	key := strings.TrimSpace(node.MeasuredStateFactKey())
-	subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
-	if key == "" || subject == "" || node.MergedCount > 1 {
+	if node.MergedCount > 1 {
 		return ""
 	}
-	return subject + "\x00" + key
+	return strings.TrimSpace(node.MeasuredStateFactKey())
 }
 
 // runtimeTraceProjFoldSameSegmentLaneTwins folds the rank-lane twin of a
