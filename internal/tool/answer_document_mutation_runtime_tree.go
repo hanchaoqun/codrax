@@ -8722,6 +8722,12 @@ func runtimeTraceProjFoldRankLaneTwins(nodes []types.TraceCausalProjectionNode, 
 				// The seat's engine-minted process attribution names the one
 				// thread's process: the one row's detail block keeps it.
 				node.ProcessTGID, node.ProcessComm = rankTwin.ProcessTGID, rankTwin.ProcessComm
+				// The seat's typed rank subjects (its board's analysed thread
+				// and the ranked member) are the one object's rank identity:
+				// only a rank record carries them, and every face that reads
+				// them off a rank row (the lead's subject scope, the analysed
+				// thread's 「其中」 host) reads them off the one row.
+				node.RankSubjects = rankTwin.RankSubjects
 				adoptedRef.AccountAdopted = true
 			}
 			if adopted {
