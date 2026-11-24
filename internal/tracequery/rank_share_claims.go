@@ -196,6 +196,11 @@ type RootCauseShareClaim struct {
 	// hold the claim's successor-held part — a single successor disposition
 	// is one disposition AND one holder row.
 	succRows []int
+	// restWithdrawn (transient, HMC377 round 14, R-377-14 ⑤): the instants of
+	// restWithdrawnMs (a share without instants has none). The row that
+	// counts them in its own value carries them — the placement of a
+	// withdrawn row's claimless detail reads them (rspaWithdrawnAccount).
+	restWithdrawn []foldInterval
 }
 
 // rspaHeldShare is what one seat holds: recorded where the seat is minted,
@@ -1378,10 +1383,18 @@ func rspaWithdrawnAccountOf(item RootCauseRankItem) rspaWithdrawnAccount {
 	return acct
 }
 
-// heldBy measures the part of the account a published row holds: the
+// heldBy measures the part of the account a published row carries: the
 // account's instants its holds of the same state family cover (a semantic
 // span's hold is another account), and a value the successor rule passed
 // whole (a hold without instants in one of the account's roles).
+//
+// HMC377 round 14 (R-377-14 ⑤): a row the re-run returned to the board
+// counts in its own value the part of its claims a withdrawn seat left with
+// no successor (rspaWriteShareAccounts) — it carries those instants without
+// holding them: the rest's instants inside the account, or, for a share
+// without instants, the rest of a claim on one of the account's roles. The
+// chain seat's own diverging account, which such a row only names, was never
+// part of its value.
 func (a rspaWithdrawnAccount) heldBy(row RootCauseRankItem) float64 {
 	if row.Thread.PID != a.pid {
 		return 0
@@ -1398,6 +1411,24 @@ func (a rspaWithdrawnAccount) heldBy(row RootCauseRankItem) float64 {
 		for _, r := range a.roles {
 			if h.successor && h.holdsRole(r) {
 				ms += h.ms
+				break
+			}
+		}
+	}
+	if !row.rspaReleasedDetail {
+		return ms
+	}
+	for _, c := range row.ShareClaims {
+		if c.Part == RootCauseShareClaimChainAccount {
+			continue
+		}
+		if len(c.restWithdrawn) > 0 {
+			ms += foldIntervalIntersectionMs(rspaFoldCopy(c.restWithdrawn), a.instants[c.dio])
+			continue
+		}
+		for _, r := range a.roles {
+			if c.Role == r {
+				ms += c.restWithdrawnMs
 				break
 			}
 		}
@@ -1784,7 +1815,7 @@ func (c RootCauseShareClaim) heldBy(h rspaHeldShare) bool {
 func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *RootCauseRankItem) {
 	c.Resolved, c.Exact, c.Successor, c.holderIdx = false, false, false, nil
 	c.ResolvedMs, c.ReturnedMs, c.covered = 0, 0, nil
-	c.heldOwnMs, c.heldSuccMs, c.restWithdrawnMs, c.succRows = 0, 0, 0, nil
+	c.heldOwnMs, c.heldSuccMs, c.restWithdrawnMs, c.succRows, c.restWithdrawn = 0, 0, 0, nil, nil
 	if c.pid <= 0 || c.ShareMs <= rspaAnchorIdentityTolMs {
 		return
 	}
@@ -1823,8 +1854,8 @@ func resolveShareClaim(c *RootCauseShareClaim, board []RootCauseRankItem, self *
 	restWithdrawn := func(held []foldInterval) {
 		switch {
 		case len(c.windows) > 0 && !c.withdrawnWhole:
-			rest := foldIntervalSubtract(foldIntervalSubtract(rspaFoldCopy(c.withdrawn), rspaFoldCopy(held)), own)
-			c.restWithdrawnMs = scale(rspaFoldLengthMs(rest))
+			c.restWithdrawn = foldIntervalSubtract(foldIntervalSubtract(rspaFoldCopy(c.withdrawn), rspaFoldCopy(held)), own)
+			c.restWithdrawnMs = scale(rspaFoldLengthMs(c.restWithdrawn))
 		case c.withdrawnWhole:
 			c.restWithdrawnMs = rspaClampNonNegative(c.ShareMs - c.ResolvedMs - c.ReturnedMs)
 		}
