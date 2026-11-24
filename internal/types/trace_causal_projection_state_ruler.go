@@ -140,18 +140,22 @@ func traceCausalProjectionStateRulerSplit(nodes []TraceCausalProjectionNode, mem
 // merge body, seeded on the first account member (a single account member is
 // the row itself), and each wakeup_chain seat inside that account joins as
 // lossless evidence — its id, its own merged ids and its measurement origins —
-// never as a value. The row carries the seat it absorbed, so the seat's
-// ordinal stays on it (R-377-13 ③ badges follow their seat): a seat with a
-// smaller ordinal supplies the row's Rank and its board/window identity
-// through the ×N merge's one rank-supplier rule
-// (traceCausalProjectionAdoptRankSupplier).
+// never as a value. The row keeps its own rank identity, as every absorb
+// survivor does: it prints the census account, so it wears the account
+// members' own best ordinal (R-377-14 ③, a badge sits beside its own rank
+// row's value).
 //
-// EVOLUTION RECORD (HMC377 round 13, R-377-13 ③, review-12 R12P-3): old → new
-// = the row kept the account members' own best ordinal and the absorbed seat's
-// ordinal was published nowhere → the smaller of the two is the row's
-// ordinal, as on every ×N merge. 14 real windows lost a TOP5 badge
-// (n13w #ActionReaper-65009 ➌ absorbed into the #6 census row, n04w..w42w1 ➋,
-// x10w..x14w): ~/hmc-work/hmc377/fix12/review-population/evidence/D3_badges.txt.
+// EVOLUTION RECORD (HMC377 round 14, R-377-14 ③, review-13 R13P-1): the
+// round-13 adoption (R-377-13 ③: an absorbed seat with a smaller ordinal
+// supplied the row's Rank and board/window identity) is withdrawn. The
+// absorbed seat is a second ruler over an account another rank row already
+// carries (the engine's self_runnable_two_ruler wall seat; register R10S-0),
+// so its ordinal beside the row's residual census value named a value that is
+// not that rank row's: n06w #tp-default-8-11271 「➋ ⧖ 自身·runnable 2.450ms」
+// while rank 2 is 27.417 ms, the row's own ➎ on no line and the side file out
+// of rank order (15 real windows:
+// ~/hmc-work/hmc377/fix14/face/f1/absorbed_class_15.tsv). The absorbed seat's
+// ordinal stays on no tree line until R10S-0 gives the account one rank row.
 func traceCausalProjectionMergeStateAccountRuler(nodes []TraceCausalProjectionNode, account, subset []int, backgroundLane bool) TraceCausalProjectionNode {
 	aggregate := nodes[account[0]]
 	if len(account) > 1 {
@@ -172,7 +176,6 @@ func traceCausalProjectionMergeStateAccountRuler(nodes []TraceCausalProjectionNo
 	}
 	for _, idx := range subset {
 		member := nodes[idx]
-		traceCausalProjectionAdoptRankSupplier(&aggregate, member)
 		aggregate.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(aggregate.MeasurementOrigins, member.MeasurementOrigins)
 		appendID(member.EvidenceID)
 		for _, id := range member.MergedEvidenceIDs {

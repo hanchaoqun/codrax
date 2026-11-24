@@ -7,16 +7,25 @@ import (
 // HMC377 round 13 (batch-owner ruling R-377-13, 2026-11-22), lane face: the
 // projection carriers the tree face reads.
 
-// R-377-13 ③ (badges follow their seat): a row that absorbed a seat as
-// evidence carries the seat's ordinal. The R-377-12 ⑤ two-ruler merge kept
-// the census account members' own best ordinal, so the absorbed wakeup_chain
-// seat's ordinal was published on no row. Real window at 532dc208d (review-12
-// R12P-3, ~/hmc-work/hmc377/fix12/review-population/evidence/D3_badges.txt):
-// 105 某应用 #ActionReaper-65009 (n13w) — census #6 4.312 + census #7 2.506
-// with the wakeup_chain seat #3 25.846 inside the account; the merged row
-// E8(+2) wore #6 and ➌ appeared on no line (base fa2f01465 wore ➌ on the
-// summed 32.664 row).
-func TestHMC377R13AbsorbedSeatKeepsItsOrdinal(t *testing.T) {
+// R-377-14 ③ (a badge sits beside its own rank row's value): the row that
+// absorbed a wakeup_chain seat as evidence wears its OWN ordinal — the smallest
+// ordinal of the census account members whose value it prints — never the
+// absorbed seat's. The absorbed seat is a second ruler over an account another
+// rank row already carries (register R10S-0), so its ordinal stays on no tree
+// line until that account has one rank row.
+//
+// EVOLUTION RECORD (HMC377 round 14, R-377-14 ③, review-13 R13P-1): this test
+// was TestHMC377R13AbsorbedSeatKeepsItsOrdinal and pinned the round-13
+// adoption (the row carried the absorbed seat's smaller ordinal). On 15 real
+// windows the adopted badge then sat beside the row's residual value: 105 抖音
+// 极速版 #tp-default-8-11271 (n06w) 「➋ ⧖ 自身·runnable 2.450ms [E6(+2)]」
+// while native rank 2 is the 27.417 ms wakeup_chain ruler of the ready account
+// rank 1 (164.312 ms) already carries; the row's own ➎ was on no line and the
+// side file listed 164.312, 2.450, 13.074, 8.122
+// (~/hmc-work/hmc377/fix13/review-population/logs/own/{badges_head.tsv,lose.tsv};
+// the absorbed seat's class per window: ~/hmc-work/hmc377/fix14/face/f1/absorbed_class_15.tsv).
+// The same fixtures now pin the ruling: old → new = #3 → #6.
+func TestHMC377R14AbsorbingRowWearsItsOwnOrdinal(t *testing.T) {
 	t.Run("seat ordinal smaller than the account's", func(t *testing.T) {
 		for _, order := range [][]int{{0, 1, 2}, {2, 0, 1}, {1, 2, 0}} {
 			records := []ObservationRecord{
@@ -36,14 +45,8 @@ func TestHMC377R13AbsorbedSeatKeepsItsOrdinal(t *testing.T) {
 			if !r12Near(row.ImpactMS, 6.818) || !r12Near(row.EffectiveImpactMS, 6.818) {
 				t.Fatalf("order %v: the row's value is the census account 6.818 (never + the seat), got %.3f / eff %.3f", order, row.ImpactMS, row.EffectiveImpactMS)
 			}
-			if row.Rank != 3 {
-				t.Fatalf("order %v: the row carries the absorbed seat's ordinal #3, got #%d", order, row.Rank)
-			}
-			if !r12Near(row.RankQueryWindowStartTs, 10.0) || !r12Near(row.RankQueryWindowEndTs, 10.1) {
-				t.Fatalf("order %v: the ordinal's window is the board's, got %.6f..%.6f", order, row.RankQueryWindowStartTs, row.RankQueryWindowEndTs)
-			}
-			if row.RankBoardTarget != "app-100" || row.RankBoardParamsFingerprint != "f1" {
-				t.Fatalf("order %v: the ordinal's board follows the seat that supplies it, got %q/%q", order, row.RankBoardTarget, row.RankBoardParamsFingerprint)
+			if row.Rank != 6 {
+				t.Fatalf("order %v: the row prints the census account and wears its own ordinal #6, never the absorbed seat's #3 (rank 3 is the 25.846 ruler); got #%d", order, row.Rank)
 			}
 			if !r12HasEvidence(row, "#root_cause_rank:3") {
 				t.Fatalf("order %v: the seat stays the row's evidence: %s %v", order, row.EvidenceID, row.MergedEvidenceIDs)
@@ -56,8 +59,8 @@ func TestHMC377R13AbsorbedSeatKeepsItsOrdinal(t *testing.T) {
 			r12RankRecord(3, "wakeup_chain", 25.846, 100, 100, "f1"),
 			r12RankRecord(9, "wakeup_chain.causal_impacts", 2.0, 100, 100, "f1"),
 		))
-		if len(out) != 1 || out[0].Rank != 3 || !r12Near(out[0].ImpactMS, 4.312) {
-			t.Fatalf("the single census seat is the account and carries the seat's #3: %d rows, rank %d", len(out), out[0].Rank)
+		if len(out) != 1 || out[0].Rank != 6 || !r12Near(out[0].ImpactMS, 4.312) {
+			t.Fatalf("the single census seat is the account and keeps its own #6: %d rows, rank %d", len(out), out[0].Rank)
 		}
 	})
 	t.Run("account ordinal smaller than the seat's", func(t *testing.T) {

@@ -1991,31 +1991,6 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	return aggregate
 }
 
-// traceCausalProjectionAdoptRankSupplier is the ×N merge's one rank-supplier
-// rule: a member with a smaller seat ordinal supplies the merged row's Rank,
-// and the ordinal's window (DISP-3 §29.8 P2-⑧: verbatim member endpoints; a
-// pre-merged member seed keeps its own RankQueryWindow pair when its
-// row-level window was already zeroed by an earlier merge) and board identity
-// (XLANE-3 件1: target + params halves) follow the same member. Reports
-// whether the member supplied the ordinal.
-func traceCausalProjectionAdoptRankSupplier(aggregate *TraceCausalProjectionNode, member TraceCausalProjectionNode) bool {
-	if member.Rank <= 0 || (aggregate.Rank > 0 && member.Rank >= aggregate.Rank) {
-		return false
-	}
-	aggregate.Rank = member.Rank
-	aggregate.RankQueryWindowStartTs, aggregate.RankQueryWindowEndTs = 0, 0
-	if traceCausalProjectionIntervalValid(member.QueryWindowStartTs, member.QueryWindowEndTs) {
-		aggregate.RankQueryWindowStartTs = member.QueryWindowStartTs
-		aggregate.RankQueryWindowEndTs = member.QueryWindowEndTs
-	} else if traceCausalProjectionIntervalValid(member.RankQueryWindowStartTs, member.RankQueryWindowEndTs) {
-		aggregate.RankQueryWindowStartTs = member.RankQueryWindowStartTs
-		aggregate.RankQueryWindowEndTs = member.RankQueryWindowEndTs
-	}
-	aggregate.RankBoardTarget = member.RankBoardTarget
-	aggregate.RankBoardParamsFingerprint = member.RankBoardParamsFingerprint
-	return true
-}
-
 // traceCausalProjectionMergeSameKindMemberValues is the merge body without the
 // per-board rosters, so one board's own part of a merge can run through exactly
 // the same value calibers.
@@ -2169,7 +2144,24 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 			if member.LineEnd > aggregate.LineEnd {
 				aggregate.LineEnd = member.LineEnd
 			}
-			if traceCausalProjectionAdoptRankSupplier(&aggregate, member) {
+			if member.Rank > 0 && (aggregate.Rank <= 0 || member.Rank < aggregate.Rank) {
+				aggregate.Rank = member.Rank
+				// DISP-3 (§29.8 P2-⑧): the ordinal's window identity follows the
+				// rank-supplying member verbatim. A pre-merged member seed keeps
+				// its own RankQueryWindow pair when its row-level window was
+				// already zeroed by an earlier merge.
+				aggregate.RankQueryWindowStartTs, aggregate.RankQueryWindowEndTs = 0, 0
+				if traceCausalProjectionIntervalValid(member.QueryWindowStartTs, member.QueryWindowEndTs) {
+					aggregate.RankQueryWindowStartTs = member.QueryWindowStartTs
+					aggregate.RankQueryWindowEndTs = member.QueryWindowEndTs
+				} else if traceCausalProjectionIntervalValid(member.RankQueryWindowStartTs, member.RankQueryWindowEndTs) {
+					aggregate.RankQueryWindowStartTs = member.RankQueryWindowStartTs
+					aggregate.RankQueryWindowEndTs = member.RankQueryWindowEndTs
+				}
+				// XLANE-3 件1: the ordinal's BOARD identity follows the same
+				// rank-supplying member verbatim (target + params halves).
+				aggregate.RankBoardTarget = member.RankBoardTarget
+				aggregate.RankBoardParamsFingerprint = member.RankBoardParamsFingerprint
 				// OMGCLEAN-1 件2: the adoption candidate follows the SAME
 				// rank-supplying member (board/window/direction one identity).
 				rankSupplierDirection = strings.TrimSpace(member.FixDirection)
