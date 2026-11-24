@@ -7871,98 +7871,8 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// never a bare 「CPU亲和/cpuset限制」 assertion. Typed fields only; parts
 	// absent from the payload are omitted (absence never guesses). Soft
 	// descriptive note — no legend mark (完成闭合凭证 precedent).
-	if row.Node.CPUConstraintKind != "" || len(row.Node.CPUConstraintAllowedCPUs) > 0 ||
-		strings.TrimSpace(row.Node.CPUConstraintCPUSet) != "" {
-		var parts []string
-		if len(row.Node.CPUConstraintAllowedCPUs) > 0 {
-			if zh {
-				parts = append(parts, "允许核 "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintAllowedCPUs))
-				if len(row.Node.CPUConstraintExcludedCPUs) > 0 {
-					parts = append(parts, "排除全域观测核 "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintExcludedCPUs))
-				} else {
-					parts = append(parts, "未排除任何全域观测核")
-				}
-			} else {
-				parts = append(parts, "allowed CPUs "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintAllowedCPUs))
-				if len(row.Node.CPUConstraintExcludedCPUs) > 0 {
-					parts = append(parts, "excludes observed CPUs "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintExcludedCPUs))
-				} else {
-					parts = append(parts, "excludes no observed CPU")
-				}
-			}
-		}
-		// R5a (§29.88.4 场景② 按核档, 2026-07-15) mention OBLIGATION: the
-		// binding provably shut out a bigger core tier — the engine minted
-		// the proof pair, the seat MUST say so (与「优化点无条件入正文」同族;
-		// zero pair = negative arm, nothing renders — 禁无中生有).
-		if row.Node.CPUConstraintAllowedMaxTierKHz > 0 && row.Node.CPUConstraintGlobalMaxTierKHz > 0 {
-			// Catalog B11 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the
-			// tier pair speaks GHz like every other frequency face (the
-			// supply-fold clause's %.2fGHz ÷1e6 convention) — this was the
-			// report's only raw %dkHz emission, and the naked `<` gains its
-			// spaces. Same typed pair, display conversion only.
-			//
-			// EVOLUTION RECORD (R10WIRE-1, checklist R-10 / §29.150⑫,
-			// 2026-07-20): the 复核件4① 「双单位形注记 (暂不改)」 that lived
-			// here is RETIRED — the dual-unit shape is converged. Census
-			// adjudication (M18 template, recorded before edits): the
-			// cpu_constraint_*_khz wire notes and the *_khz JSON payload
-			// fields KEEP exact kHz ints (the _khz key suffix IS the typed
-			// unit self-description; renaming to *_ghz would force lossy
-			// float wire values = the §29.42 float64-zero published/
-			// unpublished trap, and the proof-pair negative arm reads int>0),
-			// while the one free-text kHz face — the engine Summary k=v row
-			// (renderCPUConstraintSummary, single mint) — now speaks this
-			// same %.2fGHz ÷1e6 convention. Cross-face identity: every GHz
-			// utterance is the ÷1e6 %.2f image of the SAME typed kHz pair
-			// (pinned engine-side and here).
-			if zh {
-				parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %.2fGHz < 全域最大核档 %.2fGHz)",
-					float64(row.Node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(row.Node.CPUConstraintGlobalMaxTierKHz)/1e6))
-			} else {
-				parts = append(parts, fmt.Sprintf("binding excludes a bigger core tier (allowed max tier %.2fGHz < global max tier %.2fGHz)",
-					float64(row.Node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(row.Node.CPUConstraintGlobalMaxTierKHz)/1e6))
-			}
-		}
-		if set := strings.TrimSpace(row.Node.CPUConstraintCPUSet); set != "" {
-			// V1 dual-review P2: the word face follows the provenance bit —
-			// only a real binding EVENT earns the cpuset claim; the
-			// sched_switch cg= proxy is a cgroup name (display context) and
-			// must not masquerade as a cpuset binding.
-			switch {
-			case row.Node.CPUConstraintCPUSetIsBinding && zh:
-				parts = append(parts, "cpuset组 "+set)
-			case row.Node.CPUConstraintCPUSetIsBinding:
-				parts = append(parts, "cpuset group "+set)
-			case zh:
-				parts = append(parts, "cgroup组 "+set)
-			default:
-				parts = append(parts, "cgroup "+set)
-			}
-		}
-		if strings.Contains(row.Node.CPUConstraintPolicy, "ices_boost=true") {
-			// V1 (2026-07-26): the truthful boost word — never a restriction
-			// claim (the legacy restricted=true misreading retired).
-			if zh {
-				parts = append(parts, "策略 ices_boost=true(前台加速)")
-			} else {
-				parts = append(parts, "policy ices_boost=true (foreground boost)")
-			}
-		}
-		if kind := strings.TrimSpace(row.Node.CPUConstraintKind); kind != "" {
-			if zh {
-				parts = append(parts, "判定依据 "+kind)
-			} else {
-				parts = append(parts, "basis "+kind)
-			}
-		}
-		if len(parts) > 0 {
-			head := "CPU约束描述:"
-			if !zh {
-				head = "CPU-constraint description: "
-			}
-			out = append(out, head+strings.Join(parts, " · "))
-		}
+	if text := runtimeTraceProjCPUConstraintDescriptionText(row.Node, zh); text != "" {
+		out = append(out, text)
 	}
 	// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence — 口径自述 +
 	// 互指 only; 禁「同段」字面, 禁覆盖方向暗示, 禁量化重叠 ms (S6 vnote 三禁令).
@@ -11678,9 +11588,122 @@ func runtimeTraceProjSelfReadySubsetText(row runtimeTraceProjTreeRow, zh bool) s
 	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of this thread's runnable time, already inside its own runnable account above, never added again%s", value, label, pointer)
 }
 
+// runtimeTraceProjCPUConstraintDescriptionText is the one wording of a
+// CPU-restriction seat's constraint description (RNB-2 件5 AFF-EVID): the
+// engine's typed judgment — allowed cores against the observed exclusion, the
+// bigger-core-tier proof pair, the group, the boost word and the basis kind —
+// "" when the seat carries none. The row form prints it as a note of the row;
+// the analysed thread's 「其中」 form prints it with the 「其中」 line
+// (R-377-14 ④: a supply-side fact never leaves the face with the row).
+func runtimeTraceProjCPUConstraintDescriptionText(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.CPUConstraintKind == "" && len(node.CPUConstraintAllowedCPUs) == 0 &&
+		strings.TrimSpace(node.CPUConstraintCPUSet) == "" {
+		return ""
+	}
+	var parts []string
+	if len(node.CPUConstraintAllowedCPUs) > 0 {
+		if zh {
+			parts = append(parts, "允许核 "+runtimeTraceProjCPUListWord(node.CPUConstraintAllowedCPUs))
+			if len(node.CPUConstraintExcludedCPUs) > 0 {
+				parts = append(parts, "排除全域观测核 "+runtimeTraceProjCPUListWord(node.CPUConstraintExcludedCPUs))
+			} else {
+				parts = append(parts, "未排除任何全域观测核")
+			}
+		} else {
+			parts = append(parts, "allowed CPUs "+runtimeTraceProjCPUListWord(node.CPUConstraintAllowedCPUs))
+			if len(node.CPUConstraintExcludedCPUs) > 0 {
+				parts = append(parts, "excludes observed CPUs "+runtimeTraceProjCPUListWord(node.CPUConstraintExcludedCPUs))
+			} else {
+				parts = append(parts, "excludes no observed CPU")
+			}
+		}
+	}
+	// R5a (§29.88.4 场景② 按核档, 2026-07-15) mention OBLIGATION: the
+	// binding provably shut out a bigger core tier — the engine minted
+	// the proof pair, the seat MUST say so (与「优化点无条件入正文」同族;
+	// zero pair = negative arm, nothing renders — 禁无中生有).
+	if node.CPUConstraintAllowedMaxTierKHz > 0 && node.CPUConstraintGlobalMaxTierKHz > 0 {
+		// Catalog B11 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the
+		// tier pair speaks GHz like every other frequency face (the
+		// supply-fold clause's %.2fGHz ÷1e6 convention) — this was the
+		// report's only raw %dkHz emission, and the naked `<` gains its
+		// spaces. Same typed pair, display conversion only.
+		//
+		// EVOLUTION RECORD (R10WIRE-1, checklist R-10 / §29.150⑫,
+		// 2026-07-20): the 复核件4① 「双单位形注记 (暂不改)」 that lived
+		// here is RETIRED — the dual-unit shape is converged. Census
+		// adjudication (M18 template, recorded before edits): the
+		// cpu_constraint_*_khz wire notes and the *_khz JSON payload
+		// fields KEEP exact kHz ints (the _khz key suffix IS the typed
+		// unit self-description; renaming to *_ghz would force lossy
+		// float wire values = the §29.42 float64-zero published/
+		// unpublished trap, and the proof-pair negative arm reads int>0),
+		// while the one free-text kHz face — the engine Summary k=v row
+		// (renderCPUConstraintSummary, single mint) — now speaks this
+		// same %.2fGHz ÷1e6 convention. Cross-face identity: every GHz
+		// utterance is the ÷1e6 %.2f image of the SAME typed kHz pair
+		// (pinned engine-side and here).
+		if zh {
+			parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %.2fGHz < 全域最大核档 %.2fGHz)",
+				float64(node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(node.CPUConstraintGlobalMaxTierKHz)/1e6))
+		} else {
+			parts = append(parts, fmt.Sprintf("binding excludes a bigger core tier (allowed max tier %.2fGHz < global max tier %.2fGHz)",
+				float64(node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(node.CPUConstraintGlobalMaxTierKHz)/1e6))
+		}
+	}
+	if set := strings.TrimSpace(node.CPUConstraintCPUSet); set != "" {
+		// V1 dual-review P2: the word face follows the provenance bit —
+		// only a real binding EVENT earns the cpuset claim; the
+		// sched_switch cg= proxy is a cgroup name (display context) and
+		// must not masquerade as a cpuset binding.
+		switch {
+		case node.CPUConstraintCPUSetIsBinding && zh:
+			parts = append(parts, "cpuset组 "+set)
+		case node.CPUConstraintCPUSetIsBinding:
+			parts = append(parts, "cpuset group "+set)
+		case zh:
+			parts = append(parts, "cgroup组 "+set)
+		default:
+			parts = append(parts, "cgroup "+set)
+		}
+	}
+	if strings.Contains(node.CPUConstraintPolicy, "ices_boost=true") {
+		// V1 (2026-07-26): the truthful boost word — never a restriction
+		// claim (the legacy restricted=true misreading retired).
+		if zh {
+			parts = append(parts, "策略 ices_boost=true(前台加速)")
+		} else {
+			parts = append(parts, "policy ices_boost=true (foreground boost)")
+		}
+	}
+	if kind := strings.TrimSpace(node.CPUConstraintKind); kind != "" {
+		if zh {
+			parts = append(parts, "判定依据 "+kind)
+		} else {
+			parts = append(parts, "basis "+kind)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	head := "CPU约束描述:"
+	if !zh {
+		head = "CPU-constraint description: "
+	}
+	return head + strings.Join(parts, " · ")
+}
+
 // runtimeTraceProjSelfReadySubsetLines renders the 「其中」 lines hosted by
 // one row under the given rails, recording the badge mark of every seat they
-// carry.
+// carry. Each line is followed by the restriction seat's CPU-constraint
+// description, in the row form's own words (R-377-14 ④).
+//
+// EVOLUTION RECORD (HMC377 round 14, R-377-14 ④, review-13 R13P-2): old → new
+// = the 「其中」 line alone → the line and the seat's constraint description.
+// The row form's 「· CPU约束描述:允许核 4-7 · 排除全域观测核 0-3 · 判定依据
+// sched_switch_next_info」 left the face with the row (y51r pool-8-thread-1-10807
+// rank 1, 136.219 ms; 27 of 275 real windows and 14 of the fifth 40:
+// ~/hmc-work/hmc377/fix13/review-population/logs/own/cpudesc_head.tsv).
 func runtimeTraceProjSelfReadySubsetLines(rows []runtimeTraceProjTreeRow, hosted []int, indent string, marks *runtimeTraceProjMarkSet, zh bool) []string {
 	var out []string
 	for _, j := range hosted {
@@ -11688,6 +11711,9 @@ func runtimeTraceProjSelfReadySubsetLines(rows []runtimeTraceProjTreeRow, hosted
 			marks.mark(runtimeTraceProjMarkBadge)
 		}
 		out = append(out, runtimeTraceProjSubordinateLines(indent, runtimeTraceProjSelfReadySubsetText(rows[j], zh))...)
+		if description := runtimeTraceProjCPUConstraintDescriptionText(rows[j].Node, zh); description != "" {
+			out = append(out, runtimeTraceProjSubordinateLines(indent, description)...)
+		}
 	}
 	return out
 }
