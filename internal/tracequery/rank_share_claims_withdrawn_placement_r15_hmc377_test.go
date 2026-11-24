@@ -521,3 +521,71 @@ func TestHMC377R15ChainAccountRestIsNoInstantOfTheDetail(t *testing.T) {
 		}
 	})
 }
+
+// R-377-15 ⑥ (R14E-4, universes Y4seatVO / Y4seatVOvo): only a hold the
+// successor rule passed carries a withdrawn account without instants. A
+// published seat's own hold without instants in the same role is another
+// account (review-14 mutant T05 read it as the carrier and lost the withdrawn
+// seat's 1.903: Σ 1.000 against raw 2.903).
+func TestHMC377R15OwnHoldWithoutInstantsCarriesNoWithdrawnAccount(t *testing.T) {
+	for _, instants := range []bool{true, false} {
+		name := "Y4seatVO"
+		if !instants {
+			name = "Y4seatVOvo"
+		}
+		// A second chain seat of 6326 (1.000 at U) holds its own role without
+		// instants; it is no successor of the withdrawn seat (1.903), whose
+		// scheduler-latency twin therefore has no carrier on the board and is
+		// published with its own value.
+		inv := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+		if !instants {
+			inv = hmc377R15WithoutInstants(inv, RootCauseShareHolderChainSeat)
+		}
+		seat := hmc377R15WithoutInstants(hmc377R11ChainRun(1.0, hmc377R11U(), 41, 45), RootCauseShareHolderChainSeat)
+		twin := hmc377R13SchedTwin(inv)
+		_, pub := hmc377R15Publish(t, name, []RootCauseRankItem{hmc377R11OtherSeat(), inv, seat, twin}, hmc377R13IsChainInversion)
+		if own, ok := hmc377R15TwinOnBoard(pub, twin.LineStart); !ok || math.Abs(own.RunnableMs-1.903) > 0.0005 {
+			t.Errorf("%s: the withdrawn seat's twin is not published with its own value 1.903 (found %t)\n%s", name, ok, hmc377R15Rows(pub))
+		}
+		hmc377R15Carried(t, name, pub, 2.903)
+	}
+}
+
+// R-377-15 ⑥ (R14E-7): a returned row carries, beside what it holds, only the
+// part of its claim that no row took — never the claim's whole share again
+// (review-14 mutant T15 read the whole share).
+func TestHMC377R15ReturnedRowCarriesOnlyTheUnheldRestOfItsClaim(t *testing.T) {
+	// The withdrawn chain seat holds W (1.903). The thread's restriction seat
+	// lies whole inside it (W2, 0.853) and rides as its lossless detail; the
+	// thread's ◇ remainder claims W. The gate withdraws the chain seat: the
+	// restriction seat returns to the board and takes its own instants (W2)
+	// back, the remainder takes the rest (W1, 1.050). The restriction seat's
+	// claim leaves no rest, so it carries 0.853 of the withdrawn account — its
+	// hold — and the seat's scheduler-latency twin follows the larger carrier,
+	// the remainder. Reading the claim's whole share as its rest counts W2
+	// twice (1.706) and moves the twin under the restriction seat.
+	inv := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+	cpu := hmc377R12CPU(hmc377R11W2(), 90)
+	rem := hmc377R13Rem(1.0, hmc377R11W(), 70)
+	twin := hmc377R13SchedTwin(inv)
+	rank, pub := hmc377R15Publish(t, "T15", []RootCauseRankItem{hmc377R11OtherSeat(), inv, cpu, rem, twin}, hmc377R13IsChainInversion)
+	if len(rank.AbsorbedItems) != 2 {
+		t.Fatalf("precondition: the restriction seat and the twin ride under the chain seat (details %d)\n%s", len(rank.AbsorbedItems), hmc377R15Rows(rank))
+	}
+	var seat, remainder RootCauseRankItem
+	for _, it := range hmc377R14Priced(pub) {
+		switch {
+		case it.Type == "cpu_affinity_or_cpuset":
+			seat = it
+		case it.ChainAnchorRemainderSeat:
+			remainder = it
+		}
+	}
+	if math.Abs(seat.RunnableMs-0.853) > 0.0005 || math.Abs(remainder.RunnableMs-2.05) > 0.0005 {
+		t.Fatalf("the restriction seat publishes %.3f and the remainder %.3f, want 0.853 (W2) and 2.050 (rest + W1)\n%s", seat.RunnableMs, remainder.RunnableMs, hmc377R15Rows(pub))
+	}
+	if host, ok := hmc377R15TwinHost(pub, twin.LineStart); !ok || !host.ChainAnchorRemainderSeat {
+		t.Errorf("the withdrawn seat's twin rides under %q (found %t), want the ◇ remainder carrying 1.050 of its account (the restriction seat carries 0.853)\n%s", host.Type, ok, hmc377R15Rows(pub))
+	}
+	hmc377R15Carried(t, "T15", pub, 2.903)
+}
