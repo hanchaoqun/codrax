@@ -1021,7 +1021,7 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 	// runnable witness). Precise typed gate, one word source with the other
 	// three faces; both pure shapes keep their arms byte-identically (pure
 	// full → no note; pure discounted → arm 4 / the generic arm).
-	if runtimeTraceProjGatedCompositeSeat(node) {
+	if runtimeTraceProjGatedCompositeSeat(runtimeTraceProjRowPublishedSeat(row)) {
 		marks.mark(runtimeTraceProjMarkGatedCompositeCaliber)
 		// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离): the ◎ seat row wears the
 		// bare 构成 short mark — the ",见明细" pointer tail is stripped 套话
@@ -1057,12 +1057,7 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 // The folded seat's own window projection is the operand: its ◎ caliber word
 // follows it onto the one row unchanged.
 func runtimeTraceProjElimPublishedWindowProjection(row runtimeTraceProjTreeRow) float64 {
-	for _, peer := range row.RankFoldPeers {
-		if peer.ownSeat != nil {
-			return peer.ownSeat.ImpactMS
-		}
-	}
-	return row.Node.ImpactMS
+	return runtimeTraceProjRowPublishedSeat(row).ImpactMS
 }
 
 // runtimeTraceProjElimClassWord resolves the row's type identity word for the

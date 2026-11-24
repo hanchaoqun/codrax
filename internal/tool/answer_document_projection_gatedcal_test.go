@@ -244,11 +244,20 @@ func TestGatedCalDegenerateArmCompositeNeverWearsFull(t *testing.T) {
 	// table row naming the seat's cause 「| keva-1-17437 / 优先级反转候选
 	// [E21(+1)] | 2.266ms | 4.795ms | 3.514ms |…」. Raw (this fixture, the
 	// RSPA bipartition B1636 record above): 2.266ms of ready time on that
-	// wait, so the two rows drew it twice. The composite cell word stays
-	// pinned by the stale/synthetic arms below.
+	// wait, so the two rows drew it twice.
+	//
+	// EVOLUTION RECORD (HMC377 round 14, batch-owner ruling R-377-14 ②,
+	// 2026-11-24): old → new = the one row's 窗口投影 cell 「2.266ms」 (the
+	// hop's runnable time, bare, under the name 优先级反转候选 and beside the
+	// ◎ mark 「·构成」, with no legend sentence for it) → 「3.514ms(构成,见明细)」,
+	// the composite of the seat the row publishes, as the seat's own row
+	// [E27] read before the fold; the table legend sentence that explains
+	// the annotated cell is printed again. The hop's runnable 2.266ms stays
+	// on the tree row and in the detail block.
 	if (!strings.Contains(donghu, "优先级反转候选 ·构成") &&
 		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成")) ||
-		!strings.Contains(donghu, "| keva-1-17437 / 优先级反转候选 [E21(+1)] | 2.266ms | 4.795ms | 3.514ms |") ||
+		!strings.Contains(donghu, "| keva-1-17437 / 优先级反转候选 [E21(+1)] | 3.514ms(构成,见明细) | 4.795ms | 3.514ms |") ||
+		!strings.Contains(donghu, "- 优先级反转项的「窗口投影」列为 runnable(全额)+running(折算)的构成值,不是单一状态时长;单元格会标注 构成,见明细。") ||
 		strings.Count(donghu, "| keva-1-17437 / ") != 1 ||
 		!regexp.MustCompile(`⇅ keva-1-17437 · runnable .*\[E21\(\+1\)\+E\d+\]`).MatchString(donghu) {
 		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and its one row:\n%s", donghu)

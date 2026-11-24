@@ -649,6 +649,23 @@ func runtimeTraceProjGatedCompositeProjectionCell(node types.TraceCausalProjecti
 		runtimeTraceProjRound3Equal(node.ImpactMS, node.GatedRunnableMS+node.GatedRunningDeficitMS)
 }
 
+// runtimeTraceProjRowPublishedSeat (HMC377 R-377-14 ②) is the rank seat a row
+// publishes: the folded seat whose account the row draws as its own
+// (R-377-13 ①: the row is named for that seat's cause and speaks its value),
+// else the row's own node. The table's window-projection cell, its legend
+// sentence and the ◎ composite short mark read this one seat through the two
+// typed gates above, so they cannot say different things about one row: a hop
+// row that took an inversion seat's account wore 「·构成」 on ◎ beside a bare
+// single-state cell and no legend sentence (dio w04 #tp-io-17-13410).
+func runtimeTraceProjRowPublishedSeat(row runtimeTraceProjTreeRow) types.TraceCausalProjectionNode {
+	for _, peer := range row.RankFoldPeers {
+		if peer.ownSeat != nil {
+			return *peer.ownSeat
+		}
+	}
+	return row.Node
+}
+
 // runtimeTraceProjFamilyValueIsGatedComposite (件1②, M3-b) reports that a
 // FAMILY row's published value is the inversion machinery's gated product —
 // NOT the family fold's own same-thread total — so the 「合计(共N段,同线程)」

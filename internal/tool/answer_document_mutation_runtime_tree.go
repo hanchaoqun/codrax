@@ -20286,9 +20286,10 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		if runtimeTraceProjStanzaRowKind(row.Kind) && node.EffectiveImpactMS > 0 {
 			flags.stanzaAttribution = true
 		}
-		if runtimeTraceProjGatedCompositeProjectionCell(node) {
+		if runtimeTraceProjGatedCompositeProjectionCell(runtimeTraceProjRowPublishedSeat(row)) {
 			// GATED-CAL 件1③: same typed gate as the cell annotation (single
-			// predicate — the line and the annotation can never fork).
+			// predicate — the line and the annotation can never fork), on
+			// the seat the row publishes (HMC377 R-377-14 ②).
 			flags.gatedProjection = true
 		}
 		// SCORE-DERIV (§29.104.22.1): the formula-entry flags read the same
@@ -20642,10 +20643,18 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			projection = dash
 			chainTotal = dash
 		}
-		if runtimeTraceProjGatedCompositeProjectionCell(node) {
+		if seat := runtimeTraceProjRowPublishedSeat(row); runtimeTraceProjGatedCompositeProjectionCell(seat) {
 			// The word's teaching on THIS surface rides the table's own gated
 			// legend line (runtimeTraceProjDetailTableLegendFlags.gatedProjection
 			// — the tree's dynamic legend has already rendered by table time).
+			//
+			// HMC377 R-377-14 ②: the cell is the composite of the seat the
+			// row publishes. A hop row that draws a folded inversion seat's
+			// account as its own is the table row of that seat (it is named
+			// for the seat's cause), so the cell is the seat's composite, as
+			// the seat's own row read before the fold; the hop's state time
+			// stays on the tree row and in the detail block.
+			projection = annotated(seat.ImpactMS)
 			if zh {
 				projection += "(" + runtimeTraceProjGatedCompositeShortWord(true) + ")"
 			} else {
