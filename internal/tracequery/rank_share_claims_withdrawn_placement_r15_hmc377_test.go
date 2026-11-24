@@ -282,3 +282,110 @@ func TestHMC377R15EachRoleWithoutInstantsPassesToItsOwnClaimant(t *testing.T) {
 		}
 	}
 }
+
+// R-377-15 ④ (R14E-6, universe Y3mix2): the held part of a claim reads the
+// holder's hold without instants when its instants cover none of the claim.
+func TestHMC377R15HeldPartReadsTheHoldWithoutInstants(t *testing.T) {
+	// Two withdrawn chain seats of 6326: x with instants (W, 1.903) and y
+	// without (1.000 at U); y owns an R-377-4 inversion account whose claim
+	// carries U. One published row is the successor of both, so it holds W
+	// with instants and y's share without. The inversion account's claim
+	// resolves to that row through the hold without instants: it owns no
+	// instant and rides as that row's lossless detail.
+	//
+	// Constructed: no row the engine mints makes one claim with instants and
+	// one without (a row's inventory reproduces its account or it does not),
+	// so the successor row is built by hand in both forms below.
+	build := func(successor RootCauseRankItem) []RootCauseRankItem {
+		x := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+		y := hmc377R15WithoutInstants(hmc377R11Inv(1.0, hmc377R11U(), 21, 25), RootCauseShareHolderChainSeat)
+		y.inversionAccountRepresents = "inversion_account:y3mix"
+		det := hmc377R14Det(1.0, hmc377R11U(), nil, "inversion_account:y3mix", 30)
+		return []RootCauseRankItem{hmc377R11OtherSeat(), x, y, successor, hmc377R13SchedTwin(x), hmc377R13SchedTwin(y), det}
+	}
+	check := func(t *testing.T, name string, pub RootCauseRankResult, hostLine int) {
+		t.Helper()
+		var det *RootCauseRankItem
+		for i := range pub.AbsorbedItems {
+			if pub.AbsorbedItems[i].Type == "priority_inversion_runnable_wait" {
+				det = &pub.AbsorbedItems[i]
+			}
+		}
+		if det == nil {
+			t.Fatalf("%s: the inversion account does not ride as a lossless detail\n%s", name, hmc377R15Rows(pub))
+		}
+		if host, ok := hmc377R14HostOfRow(pub, *det); !ok || host.LineStart != hostLine || host.Tier == RootCauseTierContextOnly {
+			t.Errorf("%s: the inversion account rides under lines %d (found %t), want the successor row\n%s", name, host.LineStart, ok, hmc377R15Rows(pub))
+		}
+		if math.Abs(det.RunnableMs-1.0) > 0.0005 {
+			t.Errorf("%s: the lossless detail keeps its minted value 1.000, got %.3f", name, det.RunnableMs)
+		}
+	}
+	t.Run("Y3mix2: the reviewer's successor row", func(t *testing.T) {
+		// The ◇ remainder of the thread (rest 1.000, anchored claim over W)
+		// with a second, represented claim without instants appended by hand.
+		// A hybrid of two row kinds: its own published value is no evidence
+		// (review 14), only the placement of the inversion account is.
+		rem := hmc377R13Rem(1.0, hmc377R11W(), 70)
+		rspaAppendSentence(&rem, rspaRepresentedDemotionSummary(1.0, 1.0, hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.0)))
+		_, pub := hmc377R15Publish(t, "Y3mix2", build(rem), hmc377R13IsChainInversion)
+		check(t, "Y3mix2", pub, rem.LineStart)
+	})
+	t.Run("a represented satellite inside both seats' time", func(t *testing.T) {
+		// The same placement on a row whose value is its own account: a
+		// represented satellite of 2.903 = W (claimed with instants) + 1.000
+		// (claimed without). Both shares pass back to it, so it is the one
+		// priced carrier of the thread's 2.903.
+		sat := hmc377R11Satellite(2.903, 10.2, 10.301,
+			rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, hmc377R11W()),
+			hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.0))
+		sat.LineStart, sat.LineEnd = 60, 65
+		_, pub := hmc377R15Publish(t, "Y3mix2sat", build(sat), hmc377R13IsChainInversion)
+		check(t, "Y3mix2sat", pub, sat.LineStart)
+		priced := hmc377R14Priced(pub)
+		if len(priced) != 1 || math.Abs(priced[0].RunnableMs-2.903) > 0.0005 {
+			t.Errorf("Y3mix2sat: priced rows %s, want the satellite alone at 2.903", hmc377R14Describe(priced))
+		}
+		hmc377R15Carried(t, "Y3mix2sat", pub, 2.903)
+	})
+	t.Run("instants that cover the claim still measure the part", func(t *testing.T) {
+		// The windowed part is not zero: the holder's instants decide, and its
+		// hold without instants adds nothing to that part.
+		c := rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, hmc377R11W())
+		holder := hmc377R11ChainRun(1.05, hmc377R11W1(), 41, 45)
+		holder.rspaHeld = append(holder.rspaHeld, rspaHeldShare{role: RootCauseShareHolderChainSeat, ms: 5})
+		c.holderIdx = []int{0}
+		parts := rspaClaimHeldParts(c, []RootCauseRankItem{holder})
+		if math.Abs(parts[0]-1.05) > 0.0005 {
+			t.Errorf("held part %.3f, want the instants the holder covers (1.050)", parts[0])
+		}
+	})
+	t.Run("a holder with instants only keeps its measured part", func(t *testing.T) {
+		// No hold without instants: the part is what the instants measure,
+		// whatever its size (here the holder's 1.000 meets the claim for half
+		// the identity tolerance) — a board with instants everywhere reads
+		// exactly as before.
+		c := rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, hmc377R11W())
+		end := hmc377R11W()[0].end
+		sliver := rspaAnchorIdentityTolMs / 2
+		holder := hmc377R11ChainRun(1.0, []foldInterval{{start: end - sliver/1000, end: end - sliver/1000 + 0.001}}, 41, 45)
+		c.holderIdx = []int{0}
+		parts := rspaClaimHeldParts(c, []RootCauseRankItem{holder})
+		if math.Abs(parts[0]-sliver) > 1e-7 {
+			t.Errorf("held part %.9f, want the instants the holder covers (%.9f)", parts[0], sliver)
+		}
+	})
+	t.Run("instants outside the claim are no part of it", func(t *testing.T) {
+		// The windowed part is zero: the part is the value of the hold without
+		// instants alone — the holder's instants elsewhere (1.000 at U) hold
+		// nothing of this claim.
+		c := rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, hmc377R11W())
+		holder := hmc377R11ChainRun(1.0, hmc377R11U(), 41, 45)
+		holder.rspaHeld = append(holder.rspaHeld, rspaHeldShare{role: RootCauseShareHolderChainSeat, ms: 0.5})
+		c.holderIdx = []int{0}
+		parts := rspaClaimHeldParts(c, []RootCauseRankItem{holder})
+		if math.Abs(parts[0]-0.5) > 0.0005 {
+			t.Errorf("held part %.3f, want the value of the hold without instants (0.500)", parts[0])
+		}
+	})
+}

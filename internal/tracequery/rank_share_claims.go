@@ -1296,6 +1296,13 @@ func rspaReleasedDetailHost(board []RootCauseRankItem, i int) (int, bool) {
 // its holders holds: the claim's instants the holder's holds of the claim's
 // thread family cover (a holder without instants: its held value, at most the
 // share).
+//
+// HMC377 round 15 (R-377-15 ④): a holder whose instants cover none of the
+// claim resolved it through a hold without instants (the resolver counts a
+// row with such a hold by value); its part is that hold's value, at most the
+// share. Read from its instants alone the part was zero, so a released detail
+// whose claim such a row holds found no host and stayed a zero-valued row. A
+// holder with instants only is measured as before.
 func rspaClaimHeldParts(c RootCauseShareClaim, board []RootCauseRankItem) map[int]float64 {
 	out := map[int]float64{}
 	need := c.ShareMs
@@ -1307,16 +1314,23 @@ func rspaClaimHeldParts(c RootCauseShareClaim, board []RootCauseRankItem) map[in
 			continue
 		}
 		var windows []foldInterval
-		ms := 0.0
+		ms, valueMs := 0.0, 0.0
 		for _, hold := range board[h].rspaHeld {
-			if c.heldBy(hold) {
-				windows = append(windows, hold.windows...)
-				ms += hold.ms
+			if !c.heldBy(hold) {
+				continue
+			}
+			windows = append(windows, hold.windows...)
+			ms += hold.ms
+			if len(hold.windows) == 0 {
+				valueMs += hold.ms
 			}
 		}
 		part := math.Min(ms, c.ShareMs)
 		if len(c.windows) > 0 && len(windows) > 0 && need > 0 {
 			part = c.ShareMs * math.Min(1, foldIntervalIntersectionMs(rspaFoldCopy(windows), c.windows)/need)
+			if part <= rspaAnchorIdentityTolMs && valueMs > rspaAnchorIdentityTolMs {
+				part = math.Min(valueMs, c.ShareMs)
+			}
 		}
 		out[h] += part
 	}
