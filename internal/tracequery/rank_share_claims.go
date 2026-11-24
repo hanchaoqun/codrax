@@ -1368,7 +1368,14 @@ func rspaReleaseDetail(item *RootCauseRankItem) {
 
 // rspaWithdrawnAccount is the account of a withdrawn row that absorbed
 // details (HMC377 round 13, R-377-13 ⑤): the instants it held and claimed, per
-// state family (dio), and the roles it held them in.
+// state family (dio), and the roles it held and claimed them in.
+//
+// HMC377 round 15 (R-377-15 ②): the roles come from the row's claims as its
+// instants do. A withdrawn row that holds nothing — a census inversion account
+// the chain seat represents — has its whole account in the role its claim
+// names; with holds alone it had no role, and without instants no instants
+// either, so the row that took the chain seat's share was not seen as
+// carrying it.
 type rspaWithdrawnAccount struct {
 	pid      int
 	instants map[bool][]foldInterval
@@ -1383,6 +1390,7 @@ func rspaWithdrawnAccountOf(item RootCauseRankItem) rspaWithdrawnAccount {
 	}
 	for _, c := range item.ShareClaims {
 		acct.instants[c.dio] = rspaFoldUnion(acct.instants[c.dio], c.windows)
+		acct.roles = append(acct.roles, c.Role)
 	}
 	return acct
 }

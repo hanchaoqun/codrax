@@ -1,0 +1,178 @@
+package tracequery
+
+// HMC377 round 15 — batch-owner ruling R-377-15 ②–⑥ (2026-11-24), the closing
+// round: where a row the publication gate withdrew leaves its account, mostly
+// in the form without instants (no segment inventory reproduced the accounts,
+// so holds and claims carry values only).
+//
+// Review 14 (lens engine, ~/hmc-work/hmc377/fix14/review-engine/univ/
+// head.e14.out; universes Y2censusVO, Y2roleVO, Y3mix2, Y3chainRest,
+// Y4seatVO) reproduced, on boards built with the engine's own typed
+// internals:
+//   - R14E-1: a withdrawn row that holds nothing (a census inversion account
+//     the chain seat represents) had no roles, so the row that took the chain
+//     seat's share through a hold without instants was not seen as carrying
+//     its account and its claimless twin was published as a second priced row
+//     (Y2censusVO 4.806 ms against raw 2.903 ms);
+//   - R14E-2: a hold passed without instants carried every withdrawn role of
+//     the thread's family, so it counted for a withdrawn seat whose share it
+//     did not take (Y2roleVO 0.500 ms against raw 2.403 ms);
+//   - R14E-6: the held part of a claim read only the holder's instants when
+//     it had any, so a claim resolved through a hold without instants found
+//     no host and the released detail stayed a zero-valued row (Y3mix2);
+//   - R14E-5: a detail was said to own instants for the rest of a claim that
+//     only names the chain seat's own diverging account, which neither the
+//     row's value nor the placement counts: the detail ended as a lossless
+//     detail with zeroed values and a second publication differed
+//     (Y3chainRest);
+//   - R14E-4 / R14E-7: two branches of the placement no test told apart (a
+//     hold without instants in the account's own role that no successor rule
+//     passed; the whole share against the unheld rest of a claim).
+//
+// Every board is a hand board run through the production enrich order
+// (hmc377R13Enrich) and published through the gate's typed decision
+// (hmc377R13Gate), as every round-13 and round-14 universe is. Where a row is
+// constructed rather than a row the engine mints, the builder says so.
+
+import (
+	"fmt"
+	"math"
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// hmc377R15WithoutInstants re-stamps a row's hold in role without a segment
+// inventory (the form the engine mints when no inventory reproduces the
+// row's account: the hold carries its value only).
+func hmc377R15WithoutInstants(it RootCauseRankItem, role RootCauseShareHolderRole) RootCauseRankItem {
+	ms := it.RunnableMs
+	it.rspaHeld = nil
+	rspaHold(&it, role, false, nil, ms)
+	return it
+}
+
+// hmc377R15ClaimWithoutInstants is an anchored claim of 6326 on role that
+// carries its value only.
+func hmc377R15ClaimWithoutInstants(role RootCauseShareHolderRole, ms float64) RootCauseShareClaim {
+	return rspaClaim(RootCauseShareClaimAnchored, role, hmc377R11Dep.PID, false, ms, nil)
+}
+
+// hmc377R15Rows prints every row of a publication: what a second publication
+// must reproduce.
+func hmc377R15Rows(pub RootCauseRankResult) string {
+	var b strings.Builder
+	for _, rows := range [][]RootCauseRankItem{pub.Items, pub.AbsorbedItems} {
+		for _, it := range rows {
+			fmt.Fprintf(&b, "[%s/%s rank=%d tier=%s run=%.3f eff=%.3f rows=%d key=%q into=%q absorbed=%t %q]\n", it.Type, it.Source, it.Rank, it.Tier,
+				it.RunnableMs, it.EffectiveImpactMs, it.AbsorbedRankRows, it.RankFamilyKey, it.AbsorbedIntoFamily, it.AbsorbedByRankFamily, it.Summary)
+		}
+		b.WriteString("--\n")
+	}
+	return b.String()
+}
+
+// hmc377R15Publish runs a hand board through the production enrich order and
+// the gate's typed decision, and checks what every publication keeps: no two
+// rows wear one family key, no withdrawn row wears one, every family counts
+// the rows riding under it, no released row is published at zero, the engine
+// result is unchanged, and a second publication equals the first. The second
+// publication applies the gate's own rule to the published copy: a
+// priority-inversion row is published as a cause only with a finite positive
+// effective value.
+func hmc377R15Publish(t *testing.T, name string, items []RootCauseRankItem, board func(RootCauseRankItem) bool) (rank, pub RootCauseRankResult) {
+	t.Helper()
+	rank = hmc377R13Enrich(items)
+	before := hmc377R15Rows(rank)
+	pub, withdrawn := hmc377R13Gate(rank, board, nil)
+	for _, f := range hmc377R13FamilyFaults(pub, withdrawn) {
+		t.Errorf("%s: %s", name, f)
+	}
+	if after := hmc377R15Rows(rank); after != before {
+		t.Errorf("%s: the publication changed the engine result", name)
+	}
+	unproven := func(it RootCauseRankItem) bool {
+		return types.TraceRootCauseTypeIsPriorityInversion(it.Type) && rootCauseEffectiveImpactMs(it) <= 0
+	}
+	again, _ := hmc377R13Gate(pub, unproven, unproven)
+	if first, second := hmc377R15Rows(pub), hmc377R15Rows(again); first != second {
+		t.Errorf("%s: a second publication differs from the first:\nfirst\n%ssecond\n%s", name, first, second)
+	}
+	return rank, pub
+}
+
+// hmc377R15Carried checks the priced carriers of 6326 against its raw ready
+// time (the interval union the board is built from).
+func hmc377R15Carried(t *testing.T, name string, pub RootCauseRankResult, raw float64) {
+	t.Helper()
+	if got := hmc377R13SeatCarriers(pub.Items); math.Abs(got-raw) > 0.0015 {
+		t.Errorf("%s: Σ carriers %.3f, want raw %.3f\n%s", name, got, raw, hmc377R15Rows(pub))
+	}
+}
+
+// hmc377R15TwinHost is the board row the scheduler-latency twin of the given
+// first line rides under (ok=false: the twin does not ride as a detail).
+func hmc377R15TwinHost(pub RootCauseRankResult, line int) (RootCauseRankItem, bool) {
+	for _, d := range pub.AbsorbedItems {
+		if d.Type == "scheduler_latency" && d.LineStart == line {
+			return hmc377R14HostOfRow(pub, d)
+		}
+	}
+	return RootCauseRankItem{}, false
+}
+
+// hmc377R15TwinOnBoard is the scheduler-latency twin of the given first line
+// when it is published as its own priced row.
+func hmc377R15TwinOnBoard(pub RootCauseRankResult, line int) (RootCauseRankItem, bool) {
+	for _, it := range hmc377R14Priced(pub) {
+		if it.Type == "scheduler_latency" && it.LineStart == line {
+			return it, true
+		}
+	}
+	return RootCauseRankItem{}, false
+}
+
+// R-377-15 ② (R14E-1, universes Y2censusVO / Y2censusWin): a withdrawn
+// account's roles come from its holds and from its own claims.
+func TestHMC377R15WithdrawnAccountWithoutHoldsReadsItsClaimRoles(t *testing.T) {
+	for _, instants := range []bool{false, true} {
+		name := "Y2censusVO"
+		if instants {
+			name = "Y2censusWin"
+		}
+		// The chain inversion seat holds 1.903. A census inversion ready
+		// account of the same time is represented by that seat: it holds
+		// nothing, claims the chain seat's share and owns its claimless
+		// scheduler-latency twin. The gate withdraws both. The thread's ◇
+		// remainder (own rest 1.000) takes the chain seat's share as its
+		// successor, so it carries the census account too: the twin rides under
+		// it and 1.903 has one priced carrier.
+		inv := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+		p := hmc377R13Census(hmc377R11W(), 40)
+		rem := hmc377R13Rem(1.0, hmc377R11W(), 70)
+		if !instants {
+			inv = hmc377R15WithoutInstants(inv, RootCauseShareHolderChainSeat)
+			p.ShareClaims, p.rspaClaimSpans = nil, nil
+			p.Summary = "binder:458_5-6326 same-CPU lower-priority overlap"
+			rspaAppendSentence(&p, rspaRepresentedDemotionSummary(1.903, 1.903, hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.903)))
+			rspaSetSentence(&rem, rspaRemainderSentence(hmc377R11Dep, "runnable (scheduling-pressure candidate)", 1.0, 1.903, 2.903,
+				hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.903)))
+			rem = hmc377R15WithoutInstants(rem, RootCauseShareHolderRemainderSeat)
+		}
+		twin := hmc377R13SchedTwin(p)
+		rank, pub := hmc377R15Publish(t, name, []RootCauseRankItem{hmc377R11OtherSeat(), inv, p, twin, rem}, hmc377R13IsAnyInversion)
+		if len(rank.AbsorbedItems) != 1 || len(rank.Items[2].rspaHeld) != 0 || rank.Items[2].RankFamilyKey == "" {
+			t.Fatalf("%s precondition: the census row holds nothing and owns its twin (details %d, holds %d, key %q)",
+				name, len(rank.AbsorbedItems), len(rank.Items[2].rspaHeld), rank.Items[2].RankFamilyKey)
+		}
+		priced := hmc377R14Priced(pub)
+		if len(priced) != 1 || priced[0].Type != "runnable_wait" || math.Abs(priced[0].RunnableMs-2.903) > 0.0005 {
+			t.Errorf("%s: priced rows of 6326 %s, want the ◇ remainder alone at 2.903", name, hmc377R14Describe(priced))
+		}
+		if host, ok := hmc377R15TwinHost(pub, twin.LineStart); !ok || host.Type != "runnable_wait" || host.Tier == RootCauseTierContextOnly {
+			t.Errorf("%s: the census row's twin rides under %q (found %t), want the ◇ remainder that took the chain seat's share\n%s", name, host.Type, ok, hmc377R15Rows(pub))
+		}
+		hmc377R15Carried(t, name, pub, 2.903)
+	}
+}
