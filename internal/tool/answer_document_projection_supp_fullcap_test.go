@@ -54,6 +54,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -376,6 +377,13 @@ func TestSupplementH3WindowMintsIOFacetEndToEndWord(t *testing.T) {
 	}}
 	suppFullCapModelCall(t, ctx, `{"view":"window_stats","pid":17267,"time_start":13762.791708,"time_end":13763.024898}`)
 
+	// HMC377 round 14 (R-377-14 ⑩): a wall-clock budget does not decide this
+	// pin. The two engine views over the real capture take about as long as
+	// the production duration budget when the host is loaded, and an
+	// over-budget run cancels the views this test asserts on. The test takes
+	// its own duration budget through the supplement's test seam; every other
+	// knob keeps its value and the production default is restored on cleanup.
+	suppCoreSetConfig(t, traceSupplementEnabled, traceSupplementMaxColdBytes, time.Hour, traceSupplementMaxWindowSpanS)
 	out := RunTraceQuerySystemSupplement(ctx)
 	if !out.Attempted || out.SkipReason != "" {
 		t.Fatalf("supplement must execute on the window_stats-only h3 shape: %+v", out)
