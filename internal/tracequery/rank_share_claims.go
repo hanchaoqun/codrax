@@ -222,7 +222,9 @@ type rspaHeldShare struct {
 	// withdrew held and that this row now carries. It holds them for every
 	// claim of the thread and family in one of the withdrawn seat's roles
 	// (one carrier per instant across every share relation); it is never
-	// stamped by the engine run.
+	// stamped by the engine run. A hold passed without instants names no
+	// instant another role's claim could meet: it carries the role of the
+	// claim it was passed for and no other (round 15, R-377-15 ③).
 	successor      bool
 	successorRoles []RootCauseShareHolderRole
 }
@@ -1635,6 +1637,17 @@ func rspaSuccessorTier(row RootCauseRankItem, c RootCauseShareClaim) int {
 // each such claim then resolves to it; its own claim on them counts them as
 // returned. A value-only claim (no instants) that no published holder covers
 // any more passes whole the same way. Reports whether any segment passed.
+//
+// HMC377 round 15 (R-377-15 ③): the hold a value-only claim passes carries
+// the role of that claim alone. The roles of every withdrawn seat of the
+// family belong to instants — one carrier per instant whatever the relation;
+// a value has no instant to share, so with the family's roles on it the row
+// that took one seat's value was read as carrying the other seats' accounts
+// as well and their riding details were placed under it, off the board. One
+// value therefore passes per role of the family, not per family: the value
+// held in another role is another withdrawn share, and its own claimant takes
+// it (left to the first claimant's hold, which no longer stands for it, the
+// second claimant and the withdrawn seat's riding detail both published it).
 func rspaPassWithdrawnSegments(board []RootCauseRankItem, holds []rspaWithdrawnHold, withdrawnBoard []bool) bool {
 	type family struct {
 		pid           int
@@ -1657,6 +1670,7 @@ func rspaPassWithdrawnSegments(board []RootCauseRankItem, holds []rspaWithdrawnH
 		row, claim int
 		segs       []foldInterval
 		valueOnly  bool
+		role       RootCauseShareHolderRole
 		partition  rspaDIOCausePartition
 		shareMs    float64
 	}
@@ -1693,7 +1707,7 @@ func rspaPassWithdrawnSegments(board []RootCauseRankItem, holds []rspaWithdrawnH
 					continue
 				}
 				cand := candidate{f: family{c.pid, c.dio, c.semantic}, tier: tier, row: ri, claim: ci,
-					partition: c.partition, shareMs: c.ShareMs}
+					role: c.Role, partition: c.partition, shareMs: c.ShareMs}
 				if len(c.windows) == 0 {
 					// A claim without instants resolves whole or not at all
 					// (resolveShareClaim): an unresolved one passes whole.
@@ -1736,16 +1750,20 @@ func rspaPassWithdrawnSegments(board []RootCauseRankItem, holds []rspaWithdrawnH
 			remaining[c.f] = rspaFoldUnion(remaining[c.f], c.segs)
 		}
 	}
-	valueTaken := map[family]bool{}
+	type valueShare struct {
+		f    family
+		role RootCauseShareHolderRole
+	}
+	valueTaken := map[valueShare]bool{}
 	passed := false
 	for _, c := range cands {
 		share := rspaHeldShare{dio: c.f.dio, semantic: c.f.semantic, partition: c.partition, successor: true, successorRoles: roles[c.f]}
 		if c.valueOnly {
-			if valueTaken[c.f] {
+			if valueTaken[valueShare{c.f, c.role}] {
 				continue
 			}
-			valueTaken[c.f] = true
-			share.ms = c.shareMs
+			valueTaken[valueShare{c.f, c.role}] = true
+			share.ms, share.successorRoles = c.shareMs, []RootCauseShareHolderRole{c.role}
 		} else {
 			take := rspaFoldIntersect(remaining[c.f], c.segs)
 			if rspaFoldLengthMs(take) <= rspaAnchorIdentityTolMs {

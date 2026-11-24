@@ -176,3 +176,109 @@ func TestHMC377R15WithdrawnAccountWithoutHoldsReadsItsClaimRoles(t *testing.T) {
 		hmc377R15Carried(t, name, pub, 2.903)
 	}
 }
+
+// R-377-15 ③ (R14E-2, universes Y2roleVO / Y2roleWin): a hold passed without
+// instants carries only the role of the claim it was passed for. This is also
+// the default-suite pin of the role test of the placement (review-13 mutant
+// M09 / A15f, "any successor hold without instants carries the account"),
+// which round 14 could only record as indistinguishable while such a hold
+// carried every withdrawn role of the family.
+func TestHMC377R15HoldPassedWithoutInstantsCarriesItsClaimsRoleOnly(t *testing.T) {
+	for _, instants := range []bool{false, true} {
+		name := "Y2roleVO"
+		if instants {
+			name = "Y2roleWin"
+		}
+		// Two withdrawn seats of 6326: x holds 1.903 as the chain seat, y holds
+		// 0.500 as the clipped seat; each owns its scheduler-latency twin. A
+		// represented satellite claims the clipped seat's 0.500 and takes it as
+		// y's successor. Nobody takes x's 1.903: x's twin is its only carrier
+		// and is published with its own value; y's twin rides under the
+		// satellite.
+		yw := []foldInterval{{start: 10.3, end: 10.3005}}
+		x := hmc377R11Inv(1.903, hmc377R11W(), 10, 20)
+		y := hmc377R11Inv(0.5, yw, 21, 25)
+		y.rspaHeld = nil
+		rspaHold(&y, RootCauseShareHolderClippedSeat, false, yw, 0.5)
+		claim := rspaClaim(RootCauseShareClaimAnchored, RootCauseShareHolderClippedSeat, hmc377R11Dep.PID, false, 0.5, yw)
+		if !instants {
+			x = hmc377R15WithoutInstants(x, RootCauseShareHolderChainSeat)
+			y = hmc377R15WithoutInstants(y, RootCauseShareHolderClippedSeat)
+			claim = hmc377R15ClaimWithoutInstants(RootCauseShareHolderClippedSeat, 0.5)
+		}
+		sat := hmc377R11Satellite(0.5, 10.3, 10.3005, claim)
+		sat.LineStart, sat.LineEnd = 60, 65
+		tx, ty := hmc377R13SchedTwin(x), hmc377R13SchedTwin(y)
+		_, pub := hmc377R15Publish(t, name, []RootCauseRankItem{hmc377R11OtherSeat(), x, y, sat, tx, ty}, hmc377R13IsChainInversion)
+		if own, ok := hmc377R15TwinOnBoard(pub, tx.LineStart); !ok || math.Abs(own.RunnableMs-1.903) > 0.0005 {
+			t.Errorf("%s: the chain seat's twin is not published with its own value 1.903 (found %t)\n%s", name, ok, hmc377R15Rows(pub))
+		}
+		if host, ok := hmc377R15TwinHost(pub, ty.LineStart); !ok || host.Type != "runnable_wait" || host.LineStart != sat.LineStart {
+			t.Errorf("%s: the clipped seat's twin rides under %q lines %d (found %t), want the satellite that took its share\n%s", name, host.Type, host.LineStart, ok, hmc377R15Rows(pub))
+		}
+		hmc377R15Carried(t, name, pub, 2.403)
+	}
+}
+
+// R-377-15 ③, the same rule with one claimant per withdrawn seat: a value
+// passes per role of the thread's family. The hold passed for one role no
+// longer stands for the other, so the other role's value passes to its own
+// claimant — otherwise that claimant publishes its account with nothing
+// passed to it, the withdrawn seat's twin finds no carrier and is published as
+// well. (Until round 15 one value passed per family with every role on it:
+// the second claimant either stayed represented by a row that never added its
+// share — 0.500 lost on the first three boards — or, when its share was the
+// larger one, published it while both twins rode under the first.)
+func TestHMC377R15EachRoleWithoutInstantsPassesToItsOwnClaimant(t *testing.T) {
+	const remLine, satXLine, satYLine = 70, 50, 60
+	for _, tc := range []struct {
+		name                 string
+		raw                  float64
+		xHost, yHost         int // first line of the row each seat's twin rides under (0: no twins)
+		remainder, satXFirst bool
+	}{
+		// The chain seat's 1.903 is claimed by the thread's ◇ remainder (rest
+		// 1.000) or by a represented satellite; the clipped seat's 0.500 by
+		// another represented satellite.
+		{name: "Y2roleVO2rem", raw: 3.403, xHost: remLine, yHost: satYLine, remainder: true},
+		{name: "Y2roleVO2remNoTwins", raw: 3.403, remainder: true},
+		{name: "Y2roleVO2sat", raw: 2.403, xHost: satXLine, yHost: satYLine, satXFirst: true},
+		{name: "Y2roleVO2satRev", raw: 2.403, xHost: satXLine, yHost: satYLine},
+	} {
+		x := hmc377R15WithoutInstants(hmc377R11Inv(1.903, hmc377R11W(), 10, 20), RootCauseShareHolderChainSeat)
+		y := hmc377R15WithoutInstants(hmc377R11Inv(0.5, []foldInterval{{start: 10.3, end: 10.3005}}, 21, 25), RootCauseShareHolderClippedSeat)
+		satY := hmc377R11Satellite(0.5, 10.3, 10.3005, hmc377R15ClaimWithoutInstants(RootCauseShareHolderClippedSeat, 0.5))
+		satY.LineStart, satY.LineEnd = satYLine, satYLine+5
+		items := []RootCauseRankItem{hmc377R11OtherSeat(), x, y}
+		switch {
+		case tc.remainder:
+			rem := hmc377R13Rem(1.0, hmc377R11W(), remLine)
+			rspaSetSentence(&rem, rspaRemainderSentence(hmc377R11Dep, "runnable (scheduling-pressure candidate)", 1.0, 1.903, 2.903,
+				hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.903)))
+			items = append(items, satY, hmc377R15WithoutInstants(rem, RootCauseShareHolderRemainderSeat))
+		default:
+			satX := hmc377R11Satellite(1.903, 10.2, 10.201903, hmc377R15ClaimWithoutInstants(RootCauseShareHolderChainSeat, 1.903))
+			satX.LineStart, satX.LineEnd = satXLine, satXLine+5
+			if tc.satXFirst {
+				items = append(items, satX, satY)
+			} else {
+				items = append(items, satY, satX)
+			}
+		}
+		tx, ty := hmc377R13SchedTwin(x), hmc377R13SchedTwin(y)
+		if tc.xHost != 0 {
+			items = append(items, tx, ty)
+		}
+		_, pub := hmc377R15Publish(t, tc.name, items, hmc377R13IsChainInversion)
+		hmc377R15Carried(t, tc.name, pub, tc.raw)
+		if tc.xHost == 0 {
+			continue
+		}
+		if host, ok := hmc377R15TwinHost(pub, tx.LineStart); !ok || host.LineStart != tc.xHost {
+			t.Errorf("%s: the chain seat's twin rides under lines %d (found %t), want the row that took its 1.903 (lines %d)\n%s", tc.name, host.LineStart, ok, tc.xHost, hmc377R15Rows(pub))
+		}
+		if host, ok := hmc377R15TwinHost(pub, ty.LineStart); !ok || host.LineStart != tc.yHost {
+			t.Errorf("%s: the clipped seat's twin rides under lines %d (found %t), want the satellite that took its 0.500 (lines %d)\n%s", tc.name, host.LineStart, ok, tc.yHost, hmc377R15Rows(pub))
+		}
+	}
+}
