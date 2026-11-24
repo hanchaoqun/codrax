@@ -2474,8 +2474,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// CR-2 组② P5 (2026-07-12): the same-segment mirror teaching entry —
 		// one physical segment published on several lanes converges at render.
 		{runtimeTraceProjMarkSameSegMirror, runtimeTraceProjLegendGroupMark,
-			"- `同段镜像` = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号);合并行行2指向同源家族行(该行 N次(a~b) 为按分组的组合计值区间,单段真值见家族行明细);同值双行形行2互指同一物理时间,两行数值不可相加。",
-			"- `same-seg mirror` = one physical segment / one physical time published on several surfaces: the same-value raw-state row is merged into the surviving row (its [E#] joins the bracket); a merged row's row 2 points at its source family row (that row's n=N(a~b) range holds per-group sums — true single-segment extrema live in the family row's detail); on the equal-value two-row form, row 2 cross-references the same physical time and the two rows are never additive."},
+			"- `同段镜像` = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号);合并行行2指向同源家族行(该行 N次(a~b) 为按分组的组合计值区间,单段真值见家族行明细);双行形两行各自的行2互指:两行计入同一线程同一状态的同一段时间(两行数值可以不同),不可相加。",
+			"- `same-seg mirror` = one physical segment / one physical time published on several surfaces: the same-value raw-state row is merged into the surviving row (its [E#] joins the bracket); a merged row's row 2 points at its source family row (that row's n=N(a~b) range holds per-group sums — true single-segment extrema live in the family row's detail); on the two-row form each row's row 2 names the other: both rows count the same stretch of one thread's time in one state (their values can differ) and are never additive."},
 		// WO-A1 (SMR-1 批, 2026-07-12): the non-additive pointer teaching entry
 		// — one physical time on two seats must never be summed by the reader.
 		{runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjLegendGroupMark,
@@ -8386,25 +8386,46 @@ func runtimeTraceProjMarkValueMirrorTwins(model *runtimeTraceProjTreeModel) {
 	}
 }
 
-// runtimeTraceProjMarkSameMeasuredFactMirrors (HMC377 R-377-13 ①, batch-owner
-// ruling 2026-11-22) marks the two tree lines of one physical thread that show
-// the same measured scheduler-state account — the producer's exact
-// segment-inventory identity together with the same shown occupancy
-// (types.TraceMeasuredStateFactSame) — and so carry the same instants. A pair
-// the one-object fold draws as one row never reaches here (its seat is a peer
-// of the host, not a row). A pair that stays two rows because the lines are
-// two rulers — a chain hop row priced on the chain ruler beside a census seat
-// priced on its own (the case-B clipped ready-time seat on its hop's
-// segments) — keeps both rows and both prices, and each line wears the
-// existing typed non-additive disclosure, the same-segment mirror tag naming
-// the other. Exactly two lines per account; any other count fails open.
-// Identity decides, never a value or a line envelope: the shown occupancy is
-// the identity's own guard (a seat priced at another number of one account
-// is never told it repeats it).
+// runtimeTraceProjMarkSameMeasuredFactMirrors (HMC377 R-377-13 ① as amended by
+// R-377-14 ①, batch-owner rulings 2026-11-22 / 2026-11-24) marks the two tree
+// lines of one physical thread that show the same measured scheduler-state
+// account — the producer's exact segment-inventory identity together with the
+// same shown occupancy (types.TraceMeasuredStateFactSame) — when the value
+// each line draws counts time of that account's own state
+// (runtimeTraceProjMirrorCountedStates). A pair the one-object fold draws as
+// one row never reaches here (its seat is a peer of the host, not a row). A
+// pair that stays two rows because the lines are two rulers — a chain hop row
+// priced on the chain ruler beside a census seat priced on its own (the
+// case-B clipped ready-time seat on its hop's segments), or a ×N row of an
+// account's occurrences beside the account's seat — keeps both rows and both
+// prices, and each line wears the existing typed non-additive disclosure, the
+// same-segment mirror tag naming the other. The two drawn values can differ:
+// the tag says the lines count the same instants, never that they are equal.
+//
+// A seat that shows the account without counting its state is not a mirror:
+// an inversion rank seat minted on a sleep or D-state hop copies the hop's
+// state kind and split, and draws runnable and running time of the hop's
+// span, which are other instants than the hop's own (dio w24m TID 447). Both
+// rows then stay untagged and additive.
+//
+// Only drawn tree lines are counted and named: a micro anchored seat the tree
+// draws inside its board's fold row is not a line. Exactly two lines per
+// account; any other count fails open. Identity decides, never a value or a
+// line envelope.
 func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeModel) {
+	foldedAway := map[*runtimeTraceProjTreeRow]bool{}
+	microFolds, _ := runtimeTraceProjMicroAnchorFoldGroups(model)
+	for _, group := range microFolds {
+		for _, row := range group {
+			foldedAway[row] = true
+		}
+	}
 	groups := map[string][]*runtimeTraceProjTreeRow{}
 	var order []string
 	for _, row := range runtimeTraceProjSMR1AllRows(model) {
+		if foldedAway[row] {
+			continue
+		}
 		// The producer hash names the physical thread (it hashes the pid) and
 		// exists only on a data row of a scheduler-state account: a
 		// wall-clock row with its own evidence record by construction.
@@ -8423,7 +8444,8 @@ func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeMode
 			continue
 		}
 		a, b := rows[0], rows[1]
-		if a.ValueMirrorRef != "" || b.ValueMirrorRef != "" || !types.TraceMeasuredStateFactSame(a.Node, b.Node) {
+		if a.ValueMirrorRef != "" || b.ValueMirrorRef != "" || !types.TraceMeasuredStateFactSame(a.Node, b.Node) ||
+			!runtimeTraceProjMirrorCountedStatesIntersect(a.Node, b.Node) {
 			continue
 		}
 		// A trunk head and its own state-makeup child are already related by
@@ -8436,6 +8458,44 @@ func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeMode
 		a.ValueMirrorRef = strings.TrimSpace(b.EvidenceTag)
 		b.ValueMirrorRef = strings.TrimSpace(a.EvidenceTag)
 	}
+}
+
+// runtimeTraceProjMirrorCountedStates names the scheduler states the value a
+// tree line draws counts time in, for the measured-account mirror only
+// (HMC377 R-377-14 ①). Typed producer fields decide:
+//   - a rank-lane seat (root_cause_* funnel predicate) that carries a gated
+//     decomposition counts the states its components name — GatedRunnableMS
+//     is runnable time, GatedRunningDeficitMS is running time — whatever
+//     dominant state kind it copied from the hop it was minted on (an
+//     inversion seat publishes that composition as its window value);
+//   - every other line draws the occupancy of its own state kind: a hop row
+//     (which mirrors its seat's gated fields and still draws its own state),
+//     a ×N row of occurrences, a seat priced on its own state.
+func runtimeTraceProjMirrorCountedStates(node types.TraceCausalProjectionNode) []string {
+	var states []string
+	if strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") {
+		if node.GatedRunnableMS > 0 {
+			states = append(states, string(tracequery.StateRunnable))
+		}
+		if node.GatedRunningDeficitMS > 0 {
+			states = append(states, string(tracequery.StateRunning))
+		}
+	}
+	if len(states) == 0 {
+		states = append(states, runtimeTraceCausalProjectionCanonicalNode(node.StateKind))
+	}
+	return states
+}
+
+func runtimeTraceProjMirrorCountedStatesIntersect(a, b types.TraceCausalProjectionNode) bool {
+	for _, left := range runtimeTraceProjMirrorCountedStates(a) {
+		for _, right := range runtimeTraceProjMirrorCountedStates(b) {
+			if left == right {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runtimeTraceProjRankFoldRankArm / ChainArm classify the two lanes of one

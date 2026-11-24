@@ -52,24 +52,16 @@ func runtimeTraceProjMicroAnchorCutSeat(node types.TraceCausalProjectionNode) bo
 		node.EffectiveImpactMS < runtimeTraceProjMicroAnchorFoldMs
 }
 
-// runtimeTraceProjFoldMicroAnchorSeats folds the chain-lane micro anchored
-// cut seats of model.TreeRows into one fold row PER RANK BOARD, each seated
-// at its group's first folded row's position. Runs after every relation/
-// attach pass (members' relation sentences on their ◇ twins are already
-// minted and their E# refs stay on-page via the fold bracket) and before bar
-// scaling / badge assignment.
-//
-// 修补轮 件F (2026-07-16): the fold key includes the typed board triple
-// (shared identity index) — two boards' micro seats never co-fold (a fold
-// row is one board's account Σ; a cross-board Σ is exactly the addition this
-// report family forbids). Each fold row inherits its members' UNIFORM board
-// identity (target / fingerprint / query window), so the multi-board chip
-// pass can dress its detail-face ordinal range, and it carries a single
-// representative note for any member the cross-board stamper had pointed at
-// (the members' own row-2 sentences fold away with their rows — 诚实不湮灭).
-func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
+// runtimeTraceProjMicroAnchorFoldGroups selects the rows the micro fold draws
+// as one row: per rank board, the chain-lane micro anchored cut seats of
+// model.TreeRows when the board has two or more (a lone micro seat keeps its
+// own row). It returns each group in row order and every member's TreeRows
+// index. The fold and the one display rule that needs to know, before the
+// fold runs, which rows will not be tree lines of their own (the
+// measured-account mirror, HMC377 R-377-14 ①) read this one selection.
+func runtimeTraceProjMicroAnchorFoldGroups(model *runtimeTraceProjTreeModel) ([][]*runtimeTraceProjTreeRow, map[*runtimeTraceProjTreeRow]int) {
 	if model == nil {
-		return
+		return nil, nil
 	}
 	var candidates []*runtimeTraceProjTreeRow
 	candidateIdx := map[*runtimeTraceProjTreeRow]int{}
@@ -86,26 +78,47 @@ func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
 			candidateIdx[row] = i
 		}
 	}
-	if len(candidates) < 2 {
-		return // a single micro seat keeps its own row (fold-of-one = rename)
-	}
 	boardIDs := runtimeTraceProjStableRankBoardIDs(candidates)
-	groups := map[string][]*runtimeTraceProjTreeRow{}
-	var groupOrder []string
+	byBoard := map[string][]*runtimeTraceProjTreeRow{}
+	var boardOrder []string
 	for _, row := range candidates {
 		id := boardIDs[row]
-		if _, seen := groups[id]; !seen {
-			groupOrder = append(groupOrder, id)
+		if _, seen := byBoard[id]; !seen {
+			boardOrder = append(boardOrder, id)
 		}
-		groups[id] = append(groups[id], row)
+		byBoard[id] = append(byBoard[id], row)
 	}
+	var groups [][]*runtimeTraceProjTreeRow
+	for _, id := range boardOrder {
+		// A lone micro seat on its board keeps its own row (fold-of-one =
+		// rename).
+		if group := byBoard[id]; len(group) >= 2 {
+			groups = append(groups, group)
+		}
+	}
+	return groups, candidateIdx
+}
+
+// runtimeTraceProjFoldMicroAnchorSeats folds the chain-lane micro anchored
+// cut seats of model.TreeRows into one fold row PER RANK BOARD, each seated
+// at its group's first folded row's position. Runs after every relation/
+// attach pass (members' relation sentences on their ◇ twins are already
+// minted and their E# refs stay on-page via the fold bracket) and before bar
+// scaling / badge assignment.
+//
+// 修补轮 件F (2026-07-16): the fold key includes the typed board triple
+// (shared identity index) — two boards' micro seats never co-fold (a fold
+// row is one board's account Σ; a cross-board Σ is exactly the addition this
+// report family forbids). Each fold row inherits its members' UNIFORM board
+// identity (target / fingerprint / query window), so the multi-board chip
+// pass can dress its detail-face ordinal range, and it carries a single
+// representative note for any member the cross-board stamper had pointed at
+// (the members' own row-2 sentences fold away with their rows — 诚实不湮灭).
+func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
+	groups, candidateIdx := runtimeTraceProjMicroAnchorFoldGroups(model)
 	folds := map[int]runtimeTraceProjTreeRow{} // group-first index → fold row
 	memberIdx := map[int]bool{}
-	for _, id := range groupOrder {
-		group := groups[id]
-		if len(group) < 2 {
-			continue // a lone micro seat on its board keeps its own row
-		}
+	for _, group := range groups {
 		firstIdx := candidateIdx[group[0]]
 		for _, row := range group {
 			memberIdx[candidateIdx[row]] = true

@@ -405,17 +405,8 @@ func TestHMC377R13MirrorNeedsExactlyTwoLines(t *testing.T) {
 	}
 }
 
-// The mirror tag needs the same shown occupancy too: a seat that shows another
-// number of the same account (priced lower) is not told it repeats it.
-func TestHMC377R13MirrorNeedsTheSameShownOccupancy(t *testing.T) {
-	const key = "state_account:v2:r13-59777"
-	seat := r13CensusSeat("r13-census", key)
-	seat.RunnableMS = 4.0
-	model, fence := hmc377R12Fence(t, r13Projection(r13PricedHop("r13-hop", key), seat), true)
-	if row := xlane2FindRowByEvidenceID(&model, "r13-census"); row == nil || row.ValueMirrorRef != "" {
-		t.Fatalf("another shown occupancy is not a mirror:\n%s", fence)
-	}
-}
+// What the two lines must draw to wear the tag (R-377-14 ①) is pinned on the
+// shapes the engine mints in trace_query_mirror_states_r14_hmc377_test.go.
 
 // R-377-13 ①: the one row that draws the lead seat's account as its own keeps
 // what the seat's detail block said about the thread — its process
