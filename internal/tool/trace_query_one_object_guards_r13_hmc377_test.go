@@ -49,6 +49,31 @@ func TestHMC377R13TypedFoldFailsOpenOnTwoSeatsOfOneAccount(t *testing.T) {
 	}
 }
 
+// Two chain hop rows priced at one account leave the join ambiguous from the
+// other side: the seat rides neither and keeps its own row, rank and cause
+// (HMC377 R-377-14 ⑨, review pin C01b: the hop-count half of the guard was
+// unpinned — a join that took the first hop as host passed every test).
+func TestHMC377R14TypedFoldFailsOpenOnTwoHopsOfOneAccount(t *testing.T) {
+	const key = "state_account:v2:r13-59698"
+	model, fence := hmc377R12Fence(t, r13Projection(r13Hop("r13-hop", key), r13Seat("r13-seat", key), r13Remainder()), true)
+	if xlane2FindRowByEvidenceID(&model, "r13-seat") != nil {
+		t.Fatalf("fixture: with one hop of the account the seat rides it:\n%s", fence)
+	}
+	second := r13Hop("r13-hop-2", key)
+	second.ChainBranch, second.LineStart, second.LineEnd = 4, 113300, 115000
+	model, fence = hmc377R12Fence(t, r13Projection(r13Hop("r13-hop", key), second, r13Seat("r13-seat", key), r13Remainder()), true)
+	seat := xlane2FindRowByEvidenceID(&model, "r13-seat")
+	if seat == nil || seat.Node.Rank != 2 || seat.Node.Object != "priority_inversion_candidate" {
+		t.Fatalf("two hops of one account: the seat keeps its own row: %+v\n%s", seat, fence)
+	}
+	for _, id := range []string{"r13-hop", "r13-hop-2"} {
+		hop := xlane2FindRowByEvidenceID(&model, id)
+		if hop == nil || len(hop.RankFoldPeers) != 0 || hop.Node.Rank != 0 || hop.Node.Object != "runnable" {
+			t.Fatalf("two hops of one account: hop %s hosts no seat and adopts none: %+v\n%s", id, hop, fence)
+		}
+	}
+}
+
 // The seat's chain cumulative replaces the hop's only as the larger scope of
 // the one fact: a seat whose cumulative is the smaller one never lowers the
 // row's published cumulative.
@@ -176,8 +201,9 @@ func r13SemanticRemainder(id string) types.TraceCausalProjectionNode {
 
 // Only the ◇ remainder half rides the span's record: another off-chain row of
 // the same span (a context row that is not the remainder of a split), a
-// remainder of another semantic class on the same lines, and a remainder
-// whose span two records publish all keep their own rows.
+// remainder of another semantic class on the same lines, a remainder of
+// another thread with the record's class and lines, and a remainder whose
+// span two records publish all keep their own rows.
 func TestHMC377R13SemanticFoldTakesOnlyTheRemainderHalfOfItsOneRecord(t *testing.T) {
 	semantic := func(t *testing.T, adjacent types.TraceCausalProjectionNode, records ...types.TraceCausalProjectionNode) (runtimeTraceProjTreeModel, string) {
 		projection := r13Projection(adjacent)
@@ -202,6 +228,17 @@ func TestHMC377R13SemanticFoldTakesOnlyTheRemainderHalfOfItsOneRecord(t *testing
 		model, fence := semantic(t, other, r13SemanticRecord("r13-record"))
 		if xlane2FindRowByEvidenceID(&model, "r13-sem-rem") == nil {
 			t.Fatalf("a remainder of another semantic class keeps its row:\n%s", fence)
+		}
+	})
+	// HMC377 R-377-14 ⑨ (review pin C06g): the thread is part of the span's
+	// identity. A class and a line range never name the thread by themselves.
+	t.Run("another thread with the same class and lines", func(t *testing.T) {
+		other := r13SemanticRemainder("r13-sem-rem")
+		other.Subject = "tbs_basemodule_-58970"
+		model, fence := semantic(t, other, r13SemanticRecord("r13-record"))
+		record := xlane2FindRowByEvidenceID(&model, "r13-record")
+		if xlane2FindRowByEvidenceID(&model, "r13-sem-rem") == nil || record == nil || len(record.RankFoldPeers) != 0 {
+			t.Fatalf("a remainder of another thread keeps its row and the record hosts nothing:\n%s", fence)
 		}
 	})
 	t.Run("two records of the span", func(t *testing.T) {

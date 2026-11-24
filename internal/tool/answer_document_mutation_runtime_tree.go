@@ -8450,9 +8450,10 @@ func runtimeTraceProjMarkSameMeasuredFactMirrors(model *runtimeTraceProjTreeMode
 		}
 		// A trunk head and its own state-makeup child are already related by
 		// the tree structure (one thread drawn under its trunk head), as the
-		// one-object fold leaves them to the trunk builder.
-		if (a.Kind == runtimeTraceProjTreeRowChain && b.Kind == runtimeTraceProjTreeRowCause) ||
-			(a.Kind == runtimeTraceProjTreeRowCause && b.Kind == runtimeTraceProjTreeRowChain) {
+		// one-object fold leaves them to the trunk builder. Rows are visited
+		// in drawn order and a makeup child is drawn under its head, so the
+		// head is always the first of the pair.
+		if a.Kind == runtimeTraceProjTreeRowChain && b.Kind == runtimeTraceProjTreeRowCause {
 			continue
 		}
 		a.ValueMirrorRef = strings.TrimSpace(b.EvidenceTag)
