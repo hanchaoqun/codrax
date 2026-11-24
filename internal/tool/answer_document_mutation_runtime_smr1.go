@@ -1734,17 +1734,36 @@ func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtim
 // runtimeTraceProjSubsetSeatHolders is every record the engine resolved a
 // subset claim to (Part subset: the share a ◇ remainder or a carved row hands
 // to the same thread's CPU-restriction seat) — the engine's typed
-// restriction-seat holder kind, whatever row the record is drawn in.
-func runtimeTraceProjSubsetSeatHolders(all []*runtimeTraceProjTreeRow) map[string]bool {
+// restriction-seat holder kind, whatever row the record is drawn in. The
+// claims are read from every engine item of the projection: the drawn rows
+// and the engine-absorbed rows (R-377-14 ⑦) — a ◇ remainder seat the engine
+// carved to nothing is absorbed into the restriction row that counts it, so
+// it is never a drawn row, and its claim is the only one naming that holder.
+//
+// EVOLUTION RECORD (HMC377 round 14, R-377-14 ⑦, review-13 R13P-4): old → new
+// = claims of drawn rows only → claims of drawn rows and absorbed rows. new
+// n21w udk-irq-6-75 ⛓ [E11] said 「其余1.109ms(◇余段席)」 while no ◇ row of
+// the thread is drawn: its remainder seat is an absorbed item of restriction
+// row #9, itself drawn only inside 「◦ 其余 4 项(折叠)」 [E22(+6)]
+// (~/hmc-work/hmc377/fix13/merge/sweep/out/new/m13/m13_n21w.fence_zh.txt:150).
+func runtimeTraceProjSubsetSeatHolders(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[string]bool {
 	holders := map[string]bool{}
-	for _, row := range all {
-		for _, c := range row.Node.ShareClaims {
+	read := func(node types.TraceCausalProjectionNode) {
+		for _, c := range node.ShareClaims {
 			if c.Part != string(tracequery.RootCauseShareClaimSubset) {
 				continue
 			}
 			for _, id := range c.HolderEvidenceIDs {
 				holders[runtimeTraceCausalProjectionCanonicalNode(id)] = true
 			}
+		}
+	}
+	for _, row := range all {
+		read(row.Node)
+	}
+	if model != nil {
+		for _, node := range model.absorbedChainRows {
+			read(node)
 		}
 	}
 	return holders
@@ -1844,7 +1863,7 @@ func runtimeTraceProjResolvedRepresentedHolderTags(node types.TraceCausalProject
 // remainder rows (the pair class (0) counterpart).
 func runtimeTraceProjStampShareClaimRefs(model *runtimeTraceProjTreeModel, all []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef {
 	index := runtimeTraceProjDrawnRecordIndex(model, all)
-	subsetHolders := runtimeTraceProjSubsetSeatHolders(all)
+	subsetHolders := runtimeTraceProjSubsetSeatHolders(model, all)
 	anchored := map[*runtimeTraceProjTreeRow]runtimeTraceProjShareRef{}
 	for _, row := range all {
 		rn := row.Node

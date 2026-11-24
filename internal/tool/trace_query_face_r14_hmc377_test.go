@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -173,4 +174,121 @@ func TestHMC377R14OfWhichLineKeepsTheCPUConstraintDescription(t *testing.T) {
 			t.Fatalf("the 其中 line stands alone when the row carries no constraint judgment:\n%s", fence)
 		}
 	})
+}
+
+// hmc377R14AbsorbedRemainderProjection is the engine-minted n21w shape (105
+// 网易云音乐 应用后台销毁后冷启动, board of binder:3447_2-34067, thread
+// udk-irq-6-75; native board at cff599c7c
+// ~/hmc-work/hmc377/fix13/merge/sweep/out/new/m13/m13_n21w.root_cause_rank.{native,observations}.json):
+// the ⛓ chain seat #10 anchors 0.263 of the thread's 1.372 ms ready account
+// and claims the 1.109 ms rest (remainder / remainder_seat) — which the engine
+// resolved to the thread's CPU-restriction row #9, because that row counts the
+// whole remainder: the ◇ remainder seat was carved to nothing and absorbed
+// into the restriction row (rank 0, chain_anchor_remainder_seat, its subset
+// claim naming the restriction row). The absorbed seat rides on the
+// projection's absorbed rows, never as a drawn row. ownRow draws the
+// restriction row as its own adjacent row (n21w udk-irq-1-66 [E17]); otherwise
+// it is drawn only as a member of a subjectless overflow fold whose seed id is
+// its record (n21w 「◦ 其余 4 项(折叠) 16.183ms [E22(+6)]」).
+func hmc377R14AbsorbedRemainderProjection(ownRow bool) types.TraceCausalProjection {
+	const subject, family = "udk-irq-6-75", "rank_pair:cpu_affinity_or_cpuset>runnable_wait|pid:75|adjacent"
+	chain := elimChainNode("r14-chain", subject, "runnable_wait", "runnable", 10, 0.263, 63801)
+	chain.ChainAnchorFullMS, chain.ChainAnchoredMS = 1.372, 0.263
+	chain.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 1.109,
+			Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-cpu"}},
+	}
+	adjacent := func(id, who, typ string, value float64, line int) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: id,
+			Subject: who, Predicate: "root_cause_adjacent", Object: typ, TypeToken: typ, StateKind: "runnable",
+			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Rank: 9, Tier: "tertiary",
+			ImpactMS: value, CumulativeImpactMS: value, EffectiveImpactMS: value, RunnableMS: value,
+			LineStart: line, LineEnd: line + 9, Confidence: 0.72,
+		}
+	}
+	cpu := adjacent("r14-cpu", subject, "cpu_affinity_or_cpuset", 1.109, 63802)
+	cpu.RankFamilyKey, cpu.RestrictedReadyAccountMS, cpu.ShareCountedElsewhereMS, cpu.ShareCountedHereMS = family, 1.372, 0.263, 1.109
+	cpu.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderResidualSeat), ShareMS: 0.263, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-chain"}},
+	}
+	if !ownRow {
+		cpu.Subject, cpu.Object, cpu.TypeToken, cpu.RankFamilyKey, cpu.ShareClaims = "", "", "", "", nil
+		cpu.RestrictedReadyAccountMS, cpu.ShareCountedElsewhereMS, cpu.ShareCountedHereMS = 0, 0, 0
+		cpu.ImpactMS, cpu.CumulativeImpactMS, cpu.EffectiveImpactMS, cpu.RunnableMS = 16.183, 16.183, 0, 0
+		cpu.MergedEvidenceIDs, cpu.MergedCount, cpu.MergedMinMS, cpu.MergedMaxMS = []string{"r14-other-a", "r14-other-b"}, 3, 1.109, 16.183
+		cpu.MergedSubjects, cpu.MergedMaxSubject = []string{subject, "ease.cloudmusic-34044", "RenderThread-28260"}, "ease.cloudmusic-34044"
+	}
+	rem := adjacent("r14-rem", subject, "runnable_wait", 0, 63801)
+	rem.Predicate, rem.Tier, rem.Rank = "root_cause_absorbed", "absorbed", 0
+	rem.ChainAnchorRemainderSeat, rem.ChainAnchoredMS, rem.ChainAnchorFullMS, rem.ShareCountedElsewhereMS = true, 0.263, 1.372, 1.109
+	rem.AbsorbedByRankFamily, rem.AbsorbedInto = true, family
+	rem.ShareClaims = []types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderResidualSeat), ShareMS: 0.263, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-chain"}},
+		{Part: string(tracequery.RootCauseShareClaimSubset), Role: string(tracequery.RootCauseShareHolderSubsetSeat), ShareMS: 1.109, Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-cpu"}},
+	}
+	return types.TraceCausalProjection{
+		RootCauseFamilyObserved: true, WakeupPath: []string{"app-100"}, WindowStartTs: 5770.663867, WindowEndTs: 5770.863867,
+		OnChainCauses: []types.TraceCausalProjectionNode{chain}, AdjacentCauses: []types.TraceCausalProjectionNode{cpu},
+		AbsorbedChainRows: []types.TraceCausalProjectionNode{rem},
+	}
+}
+
+// R-377-14 ⑦ (review-13 R13P-4, completes R-377-13 ④): the ⛓ row's rest reads
+// its carrier's kind from the engine item — the absorbed remainder seat's
+// subset claim names the row that counts the rest a CPU-restriction seat —
+// never from the rows that happen to be drawn. Real window at cff599c7c and
+// 532dc208d (new n21w, fence line 150): 「⧖ udk-irq-6-75 · runnable 0.263ms
+// [E11]」 said 「同源二分:全窗1.372ms=本行锚定0.263ms+其余1.109ms(◇余段席)」
+// while no ◇ row of the thread is drawn: the remainder seat is an absorbed
+// item of restriction row #9, drawn only inside 「◦ 其余 4 项(折叠) [E22(+6)]」.
+// The holder kind was learnt only from subset claims on drawn rows, so the
+// absorbed seat's claim was never read.
+func TestHMC377R14RestCarrierOfAnAbsorbedRemainderSeat(t *testing.T) {
+	for _, zh := range []bool{true, false} {
+		name := map[bool]string{true: "zh", false: "en"}[zh]
+		t.Run(name+"/restriction drawn only inside a fold row", func(t *testing.T) {
+			model, fence := hmc377R12Fence(t, hmc377R14AbsorbedRemainderProjection(false), zh)
+			chain := xlane2FindRowByEvidenceID(&model, "r14-chain")
+			if chain == nil || chain.EvidenceTag == "" || len(model.absorbedChainRows) != 1 {
+				t.Fatalf("the ⛓ row is drawn and the absorbed remainder seat rides the model:\n%s", fence)
+			}
+			for _, row := range runtimeTraceProjSMR1AllRows(&model) {
+				if row.Node.ChainAnchorRemainderSeat {
+					t.Fatalf("fixture: no ◇ remainder row of the thread is drawn:\n%s", fence)
+				}
+			}
+			joined := hmc377R12Joined(fence)
+			plain, seeDetail := "其余1.109ms(◇余段席)", "其余1.109ms(◇余段席见明细)"
+			if !zh {
+				plain, seeDetail = "remainder 1.109ms (◇ remainder seat)", "remainder 1.109ms (◇ remainder seat: see the detail index)"
+			}
+			if strings.Contains(joined, plain) {
+				t.Errorf("the rest names a ◇ remainder seat (%q) though no ◇ row of the thread is drawn and the folded restriction row counts the 1.109ms:\n%s", plain, fence)
+			}
+			if !strings.Contains(joined, seeDetail) {
+				t.Errorf("expected the see-detail form %q:\n%s", seeDetail, fence)
+			}
+			if chain.ChainAnchorRestSeeDetail != true || len(chain.ChainAnchorRestCarriers) != 0 {
+				t.Errorf("the row stamps the see-detail form and names no carrier: %+v / %t", chain.ChainAnchorRestCarriers, chain.ChainAnchorRestSeeDetail)
+			}
+		})
+		// The same engine shape with the restriction row drawn as its own
+		// row names it by [E#] (n21w udk-irq-1-66 「其余3.224ms(CPU亲和/cpuset
+		// 限制[E17]计入)」): the absorbed seat's claim and the drawn row agree.
+		t.Run(name+"/restriction drawn as its own row", func(t *testing.T) {
+			model, fence := hmc377R12Fence(t, hmc377R14AbsorbedRemainderProjection(true), zh)
+			cpu := xlane2FindRowByEvidenceID(&model, "r14-cpu")
+			if cpu == nil || cpu.EvidenceTag == "" {
+				t.Fatalf("the restriction row is drawn:\n%s", fence)
+			}
+			want := "其余1.109ms(CPU亲和/cpuset限制[" + cpu.EvidenceTag + "]计入)"
+			if !zh {
+				want = "remainder 1.109ms (counted by the CPU affinity/cpuset restriction [" + cpu.EvidenceTag + "])"
+			}
+			if joined := hmc377R12Joined(fence); !strings.Contains(joined, want) {
+				t.Fatalf("%q missing:\n%s", want, fence)
+			}
+		})
+	}
 }
