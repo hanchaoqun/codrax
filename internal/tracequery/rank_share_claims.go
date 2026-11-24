@@ -1497,9 +1497,7 @@ func rspaPlaceClaimlessDetails(board, detail, claimless []RootCauseRankItem, acc
 			acct := accounts[from]
 			parts := map[int]float64{}
 			for i := range board {
-				if ms := acct.heldBy(board[i]); ms > 0 {
-					parts[i] = ms
-				}
+				parts[i] = acct.heldBy(board[i])
 			}
 			if host, ok := rspaLargestHolder(parts); ok {
 				rspaReattachDetail(&t, &board[host], window)

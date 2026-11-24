@@ -332,10 +332,10 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 		item.Tier = RootCauseTierAbsorbed
 		item.AbsorbedByRankFamily = true
 		item.AbsorbedIntoFamily = key
+		// A direct owner other than the terminal row is itself an absorbed
+		// row: the transitive resolution above walked past it.
 		if owner := direct[absorbedIndex]; owner != absorberIndex {
-			if _, ownerAbsorbed := absorbed[owner]; ownerAbsorbed {
-				item.b4DirectOwner = crossTypeRankSeatOwnerIdentity(pool[owner], rank.Window)
-			}
+			item.b4DirectOwner = crossTypeRankSeatOwnerIdentity(pool[owner], rank.Window)
 		}
 		if owns[absorbedIndex] {
 			item.b4Identity = crossTypeRankSeatOwnerIdentity(pool[absorbedIndex], rank.Window)
