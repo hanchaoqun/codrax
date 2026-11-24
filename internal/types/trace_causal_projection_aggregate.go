@@ -438,7 +438,8 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 			for _, candidate := range survivors[key] {
 				prior := &(*buckets[candidate.bucket])[candidate.index]
 				if TraceSchedulerMeasurementRestrictionsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) ||
-					TraceCausalProjectionMeasurementDomainsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) {
+					TraceCausalProjectionMeasurementDomainsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) ||
+					traceCausalProjectionContextRankRowMeetsPriced(*prior, node) {
 					continue
 				}
 				ref = candidate
@@ -506,6 +507,24 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 		}
 		*bucket = kept
 	}
+}
+
+// traceCausalProjectionContextRankRowMeetsPriced (HMC377 R-377-14 ⑤) reports
+// that one row is a rank board's context-only row and the other carries an
+// attribution. They are two publications, never two views of one fact, even
+// on the same thread, value and lines: the engine kept the first as context
+// with no attribution and priced the second. Joined, the context row took the
+// attribution and printed it under its context words, and the priced row — the
+// only carrier of that time when the gate withdrew an inversion seat and
+// released its twin — was on no board. Typed fields only: the tier token, the
+// rank-board predicate family, the published attribution. A state-evidence
+// record with the context tier is no rank-board row and keeps joining the
+// priced row of its fact.
+func traceCausalProjectionContextRankRowMeetsPriced(a, b TraceCausalProjectionNode) bool {
+	contextRankRow := func(node TraceCausalProjectionNode) bool {
+		return node.IsContextOnlyRow() && strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
+	}
+	return (contextRankRow(a) && b.EffectiveImpactMS > 0) || (contextRankRow(b) && a.EffectiveImpactMS > 0)
 }
 
 // traceCausalProjectionSupplyFoldBackfill is the R1-lane fold back-fill state

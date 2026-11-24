@@ -76,9 +76,9 @@ func TestHMC377R13PublicationReRunOwnsThePublishedRows(t *testing.T) {
 	if len(result.RootCauseRank.AbsorbedItems) != 1 || result.RootCauseRank.Items[1].RankFamilyKey == "" {
 		t.Errorf("the engine result changed")
 	}
-	// The face hosts no absorbed row under the context-only row (the
-	// projection draws the published twin with the same thread's row on the
-	// same instants as one object).
+	// The face hosts no absorbed row under the context-only row. The
+	// published twin is its own priced row beside it (HMC377 R-377-14 ⑤,
+	// TestHMC377R14ReleasedTwinIsItsOwnRowBesideTheContextRow).
 	f := hmc377R9Run(t, result)
 	if strings.Contains(f.zh, "链上并入") || strings.Contains(f.en, "chain-lane absorbed") {
 		t.Errorf("the face still hosts an absorbed row under the context-only row:\n%s", f.dump())
