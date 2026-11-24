@@ -1664,8 +1664,9 @@ type runtimeTraceProjRestCarrier struct {
 // when the engine resolved its remainder claim to the same thread's
 // CPU-restriction row besides (or instead of) the thread's ◇ remainder seat
 // (the restriction row publishes those instants as its own): each holder by
-// [E#] in claim order (twin, from runtimeTraceProjResolveShareRef, proves
-// every holder drawn).
+// [E#] in claim order (a holder the drawn-record lookup does not find stamps
+// nothing; twin, from runtimeTraceProjResolveShareRef, says whether a holder
+// is a withdrawn seat's successor).
 //
 // HMC377 round 13 (R-377-13 ④): each holder's kind is the engine's typed
 // kind, never the type token of the row it happens to be drawn in. A holder
@@ -1692,15 +1693,31 @@ type runtimeTraceProjRestCarrier struct {
 // → the kind is the engine's (the ◇ row's resolved subset claim names that
 // holder a restriction seat) and the fold-drawn carrier takes the see-detail
 // form.
+//
+// HMC377 round 14 (R-377-14 ⑨, review-13 pins C13g/C13i/C13j): a rest some
+// holder of which is a gate-withdrawn seat's published successor (the
+// engine's typed Successor: another row of the thread that counts the share,
+// no seat of the claim's role) takes the see-detail form too — the plain ◇
+// word would name a ◇ remainder seat that holds none of it, and the carrier
+// form would name the successor as a seat. EVOLUTION RECORD: old → new = a
+// successor twin returned before the claims were read and kept the plain
+// 「(◇余段席)」 → see-detail (no real window carries a successor claim:
+// ~/hmc-work/hmc377/fix14/face/f4/claim_shapes_315.txt). Two conjuncts no
+// reachable shape told apart are removed: the twin-state test (a twin that is
+// not rendered sets the row's unreferenced/invisible mark, and the rest word
+// reads those before anything stamped here) and the represented test (the
+// engine mints represented claims on anchored and unwalked parts only, never
+// on a remainder part).
 func runtimeTraceProjStampRestCarriers(row *runtimeTraceProjTreeRow, twin runtimeTraceProjShareRef, index map[string]runtimeTraceProjDrawnRecord, subsetHolders map[string]bool) {
 	row.ChainAnchorRestCarriers, row.ChainAnchorRestSeeDetail = nil, false
-	if twin.state != runtimeTraceProjShareRefRendered || twin.successor {
+	if twin.successor {
+		row.ChainAnchorRestSeeDetail = true
 		return
 	}
 	var carriers []runtimeTraceProjRestCarrier
 	restriction, ownRows := false, true
 	for _, c := range row.Node.ShareClaims {
-		if c.Represented || c.Part != string(tracequery.RootCauseShareClaimRemainder) {
+		if c.Part != string(tracequery.RootCauseShareClaimRemainder) {
 			continue
 		}
 		for _, id := range c.HolderEvidenceIDs {

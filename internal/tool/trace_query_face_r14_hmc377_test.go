@@ -292,3 +292,181 @@ func TestHMC377R14RestCarrierOfAnAbsorbedRemainderSeat(t *testing.T) {
 		})
 	}
 }
+
+// hmc377R14Joined is the fence with rails and wrap breaks dropped; the zh face
+// wraps inside a sentence without a space, so its wrap spaces go too.
+func hmc377R14Joined(fence string, zh bool) string {
+	joined := hmc377R12Joined(fence)
+	if zh {
+		joined = strings.ReplaceAll(joined, " ", "")
+	}
+	return joined
+}
+
+// hmc377R14RestProjection is a ⛓ chain seat of one thread with the rows its
+// remainder claim may name: the thread's ◇ remainder seat, its CPU-restriction
+// row and (three-way split) its 唤醒锚定 seat, each drawn as its own row.
+func hmc377R14RestProjection(chainClaims []types.TraceCausalProjectionShareClaim, unwalkedMS float64, withRemainderSeat bool) types.TraceCausalProjection {
+	const subject = "HeapTaskDaemon-26594"
+	chain := elimChainNode("r14-chain", subject, "runnable_wait", "runnable", 1, 19.476, 41)
+	chain.ChainAnchorFullMS, chain.ChainAnchoredMS = 301.646, 19.476
+	if unwalkedMS > 0 {
+		chain.ChainAnchorUnwalkedMS, chain.ChainAnchorOutsideMS = unwalkedMS, 282.170-unwalkedMS
+	}
+	chain.ShareClaims = chainClaims
+	onChain := []types.TraceCausalProjectionNode{chain}
+	if unwalkedMS > 0 {
+		onChain = append(onChain, elimChainNode("r14-unwalked", subject, "runnable_wait", "runnable", 2, unwalkedMS, 81))
+	}
+	adjacent := func(id, typ string, value float64, line int) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: id,
+			Subject: subject, Predicate: "root_cause_adjacent", Object: typ, TypeToken: typ, StateKind: "runnable",
+			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Rank: 3, Tier: "tertiary",
+			ImpactMS: value, CumulativeImpactMS: value, EffectiveImpactMS: value, RunnableMS: value,
+			LineStart: line, LineEnd: line + 9, Confidence: 0.76,
+		}
+	}
+	cpu := adjacent("r14-cpu", "cpu_affinity_or_cpuset", 115.162, 160)
+	cpu.ChainCredentialLaneDemoted = true
+	adjacentRows := []types.TraceCausalProjectionNode{cpu}
+	if withRemainderSeat {
+		rem := adjacent("r14-rem", "runnable_wait", 166.062, 150)
+		rem.ChainAnchorRemainderSeat, rem.ChainAnchoredMS, rem.ChainAnchorFullMS = true, 19.476, 301.646
+		rem.ShareClaims = []types.TraceCausalProjectionShareClaim{
+			{Part: string(tracequery.RootCauseShareClaimAnchored), Role: string(tracequery.RootCauseShareHolderChainSeat), ShareMS: 19.476,
+				Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-chain"}},
+			{Part: string(tracequery.RootCauseShareClaimSubset), Role: string(tracequery.RootCauseShareHolderSubsetSeat), ShareMS: 115.162,
+				Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-cpu"}},
+		}
+		hmc377R12SetRestricted(&rem, 0, 115.162, 166.062)
+		adjacentRows = []types.TraceCausalProjectionNode{rem, cpu}
+	}
+	return types.TraceCausalProjection{
+		RootCauseFamilyObserved: true, WakeupPath: []string{"app-100"}, WindowStartTs: 10.0, WindowEndTs: 11.0,
+		OnChainCauses: onChain, AdjacentCauses: adjacentRows,
+	}
+}
+
+// R-377-14 ⑨ (review-13 pin C13h): the rest's carriers are the holders of the
+// ⛓ row's remainder claim and of no other claim it carries. A three-way split
+// seat also claims its 唤醒锚定 share (unwalked part, held by the thread's own
+// 唤醒锚定 seat): that seat holds none of the rest and is never named as one of
+// its carriers.
+func TestHMC377R14RestCarriersAreTheRemainderClaimsHolders(t *testing.T) {
+	projection := hmc377R14RestProjection([]types.TraceCausalProjectionShareClaim{
+		{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 281.224,
+			Resolved: true, HolderEvidenceIDs: []string{"r14-rem", "r14-cpu"}},
+		{Part: string(tracequery.RootCauseShareClaimUnwalked), Role: string(tracequery.RootCauseShareHolderUnwalkedSeat), ShareMS: 0.946,
+			Resolved: true, Exact: true, HolderEvidenceIDs: []string{"r14-unwalked"}},
+	}, 0.946, true)
+	for _, zh := range []bool{true, false} {
+		model, fence := hmc377R12Fence(t, projection, zh)
+		rem, cpu, unwalked := xlane2FindRowByEvidenceID(&model, "r14-rem"), xlane2FindRowByEvidenceID(&model, "r14-cpu"), xlane2FindRowByEvidenceID(&model, "r14-unwalked")
+		if rem == nil || cpu == nil || unwalked == nil || rem.EvidenceTag == "" || cpu.EvidenceTag == "" || unwalked.EvidenceTag == "" {
+			t.Fatalf("zh=%t: the ◇, restriction and 唤醒锚定 rows are drawn:\n%s", zh, fence)
+		}
+		want := "+其余281.224ms(◇余段席[" + rem.EvidenceTag + "]、CPU亲和/cpuset限制[" + cpu.EvidenceTag + "]分计)"
+		if !zh {
+			want = "+ remainder 281.224ms (counted by the ◇ remainder seat [" + rem.EvidenceTag + "] and the CPU affinity/cpuset restriction [" + cpu.EvidenceTag + "])"
+		}
+		if joined := hmc377R14Joined(fence, zh); !strings.Contains(joined, want) {
+			t.Fatalf("zh=%t: the rest names its two carriers and no other row, %q missing:\n%s", zh, want, fence)
+		}
+		chain := xlane2FindRowByEvidenceID(&model, "r14-chain")
+		if chain == nil || len(chain.ChainAnchorRestCarriers) != 2 || chain.ChainAnchorUnwalkedRef != unwalked.EvidenceTag {
+			t.Fatalf("zh=%t: two rest carriers and the 唤醒锚定 seat on its own word, got %+v / %q", zh, chain.ChainAnchorRestCarriers, chain.ChainAnchorUnwalkedRef)
+		}
+	}
+}
+
+// R-377-14 ⑦/⑨ (review-13 pin C13i): a rest held by a gate-withdrawn seat's
+// published successor — the engine's typed Successor: another row of the
+// thread that counts the share, no seat of the claim's role — takes the
+// see-detail form. The plain 「(◇余段席)」 would name a ◇ remainder seat that
+// holds none of it, and the carrier form would name the successor as a seat
+// (R-377-12 ② ruled the same for the ◇ row's anchored share). No real window
+// carries a successor claim
+// (~/hmc-work/hmc377/fix14/face/f4/claim_shapes_315.txt); the shape is the
+// publication gate's (WithdrawRankShareHolders).
+func TestHMC377R14RestHeldByAWithdrawnSeatsSuccessorTakesTheSeeDetailForm(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		holders           []string
+		withRemainderSeat bool
+	}{
+		// The ◇ remainder seat was withdrawn; the restriction row is the
+		// successor that counts the rest.
+		{"the successor is the restriction row", []string{"r14-cpu"}, false},
+		// A ◇ remainder seat is drawn and holds part; a successor holds the
+		// other part.
+		{"a ◇ seat and a successor", []string{"r14-rem", "r14-cpu"}, true},
+	} {
+		projection := hmc377R14RestProjection([]types.TraceCausalProjectionShareClaim{
+			{Part: string(tracequery.RootCauseShareClaimRemainder), Role: string(tracequery.RootCauseShareHolderRemainderSeat), ShareMS: 282.170,
+				Resolved: true, ResolvedMS: 282.170, Successor: true, HolderEvidenceIDs: tc.holders},
+		}, 0, tc.withRemainderSeat)
+		for _, zh := range []bool{true, false} {
+			model, fence := hmc377R12Fence(t, projection, zh)
+			cpu := xlane2FindRowByEvidenceID(&model, "r14-cpu")
+			if cpu == nil || cpu.EvidenceTag == "" {
+				t.Fatalf("%s zh=%t: the successor row is drawn:\n%s", tc.name, zh, fence)
+			}
+			joined := hmc377R14Joined(fence, zh)
+			want, plain, carrier := "其余282.170ms(◇余段席见明细)", "其余282.170ms(◇余段席)", "CPU亲和/cpuset限制["+cpu.EvidenceTag+"]"
+			if !zh {
+				want, plain, carrier = "remainder 282.170ms (◇ remainder seat: see the detail index)", "remainder 282.170ms (◇ remainder seat)", "the CPU affinity/cpuset restriction ["+cpu.EvidenceTag+"]"
+			}
+			if !strings.Contains(joined, want) || strings.Contains(joined, plain) || strings.Contains(joined, "282.170ms("+carrier) || strings.Contains(joined, "(counted by "+carrier) {
+				t.Fatalf("%s zh=%t: the rest takes the see-detail form %q — no ◇ word, no carrier named:\n%s", tc.name, zh, want, fence)
+			}
+		}
+	}
+}
+
+// R-377-14 ⑨ (review-13 pin C08c): the 「其中」 line hangs on the ready account
+// of its own thread. An account is one analysed thread's (the typed rank
+// member TID) on one rank board; two analysed threads whose rows wear one
+// board identity — a same-kind merge takes its board identity from its rank
+// supplier and its rank subjects from its seed, and a board that minted no
+// identity reads the same — are two accounts, and each restriction line sits
+// under its own thread's ready row, never under the other thread's.
+func TestHMC377R14OfWhichLineHangsOnItsOwnThreadsAccount(t *testing.T) {
+	const a, aTID, b, bTID = "pool-8-thread-1-10807", 10807, "PPS-IO-pool-thr-10892", 10892
+	cpuA := hmc377R13Rank("r14-cpu-a", a, aTID, aTID, "cpu_affinity_or_cpuset", 1, 136.219, 136.219, 100)
+	readyA := hmc377R13Rank("r14-ready-a", a, aTID, aTID, "runnable_wait", 2, 136.219, 136.219, 200)
+	cpuB := hmc377R13Rank("r14-cpu-b", b, bTID, bTID, "cpu_affinity_or_cpuset", 3, 20.5, 20.5, 300)
+	readyB := hmc377R13Rank("r14-ready-b", b, bTID, bTID, "runnable_wait", 4, 20.5, 20.5, 400)
+	for _, order := range [][]types.TraceCausalProjectionNode{{cpuA, readyA, cpuB, readyB}, {cpuB, readyB, cpuA, readyA}} {
+		for _, zh := range []bool{true, false} {
+			model, fence := hmc377R12Fence(t, types.TraceCausalProjection{
+				RootCauseFamilyObserved: true, WindowStartTs: 149.090584, WindowEndTs: 149.290584, OnChainCauses: order,
+			}, zh)
+			tag := func(id string) string {
+				row := xlane2FindRowByEvidenceID(&model, id)
+				if row == nil || row.EvidenceTag == "" {
+					t.Fatalf("zh=%t: row %s is in the model:\n%s", zh, id, fence)
+				}
+				return "[" + row.EvidenceTag + "]"
+			}
+			// hostOf is the row head the restriction's 「其中」 line sits under.
+			hostOf := func(lineTag string) string {
+				head := ""
+				for _, l := range hmc377R13TreeLines(fence) {
+					switch {
+					case hmc377R13RowHead(l):
+						head = l
+					case strings.Contains(l, lineTag):
+						return head
+					}
+				}
+				return ""
+			}
+			for _, pair := range [][2]string{{"r14-cpu-a", "r14-ready-a"}, {"r14-cpu-b", "r14-ready-b"}} {
+				if host := hostOf(tag(pair[0])); !strings.Contains(host, tag(pair[1])) {
+					t.Fatalf("zh=%t: the 其中 line of %s hangs under its own thread's ready row %s, got host %q:\n%s", zh, pair[0], pair[1], host, fence)
+				}
+			}
+		}
+	}
+}
