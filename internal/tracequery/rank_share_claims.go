@@ -1089,7 +1089,11 @@ func WithdrawRankShareHolders(published *RootCauseRankResult, withdrawnBoard, wi
 		if key := strings.TrimSpace(board[i].ShareHolderKey); key != "" {
 			gone[key] = true
 		}
-		if key := strings.TrimSpace(board[i].RankFamilyKey); key != "" && board[i].AbsorbedRankRows > 0 {
+		// HMC377 round 14 (R-377-14 ⑥): the gate withdraws priority-inversion
+		// rows only, and only the B4 reconcile gives such a row a family key
+		// — together with its absorbed-row count (the closed type sets are
+		// pinned disjoint by TestHMC377R14GateTypesOwnNoOtherLanesFamily).
+		if key := strings.TrimSpace(board[i].RankFamilyKey); key != "" {
 			accounts[key] = rspaWithdrawnAccountOf(board[i])
 		}
 		for _, h := range board[i].rspaHeld {
@@ -1386,7 +1390,8 @@ func rspaWithdrawnAccountOf(item RootCauseRankItem) rspaWithdrawnAccount {
 // heldBy measures the part of the account a published row carries: the
 // account's instants its holds of the same state family cover (a semantic
 // span's hold is another account), and a value the successor rule passed
-// whole (a hold without instants in one of the account's roles).
+// whole (a hold without instants in one of the account's roles — only a
+// successor hold carries roles).
 //
 // HMC377 round 14 (R-377-14 ⑤): a row the re-run returned to the board
 // counts in its own value the part of its claims a withdrawn seat left with
@@ -1409,7 +1414,7 @@ func (a rspaWithdrawnAccount) heldBy(row RootCauseRankItem) float64 {
 			continue
 		}
 		for _, r := range a.roles {
-			if h.successor && h.holdsRole(r) {
+			if h.holdsRole(r) {
 				ms += h.ms
 				break
 			}
