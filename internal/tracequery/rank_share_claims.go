@@ -1585,10 +1585,17 @@ func rspaRecountDetailFamilies(board, detail []RootCauseRankItem) {
 // rspaDetailOwnsInstants reports whether a detail row's claims resolve to
 // instants of its own after the successor rule: a share a withdrawn seat held
 // that no published row took.
+//
+// HMC377 round 15 (R-377-15 ⑤): the rest of a claim that only names the chain
+// seat's own diverging account is none of the row's instants — the row's
+// value never included that account (rspaWriteShareAccounts) and the
+// placement does not count it (heldBy). Counted here it returned the row to
+// the board with nothing to publish, and the row ended a lossless detail with
+// zeroed values that a second publication wrote differently.
 func rspaDetailOwnsInstants(item RootCauseRankItem) bool {
 	own := 0.0
 	for _, c := range item.ShareClaims {
-		if !c.disclosure {
+		if !c.disclosure && c.Part != RootCauseShareClaimChainAccount {
 			own += c.ReturnedMs + c.restWithdrawnMs
 		}
 	}

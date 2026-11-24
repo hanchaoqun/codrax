@@ -389,3 +389,135 @@ func TestHMC377R15HeldPartReadsTheHoldWithoutInstants(t *testing.T) {
 		}
 	})
 }
+
+// R-377-15 ⑤ (R14E-5, universes Y3chainRest / Y3chainRestCtl): the rest of a
+// claim that only names the chain seat's own diverging account is no instant
+// of the detail that makes it — in both directions: such a rest alone does
+// not return the detail to the board, and beside it the unheld rest of an
+// ordinary claim still does.
+func TestHMC377R15ChainAccountRestIsNoInstantOfTheDetail(t *testing.T) {
+	a := []foldInterval{{start: 10.2, end: 10.201}}
+	whole := []foldInterval{{start: 10.2, end: 10.203}}
+	const key = "inversion_account:y3r"
+	// The withdrawn chain seat holds T = [10.2, 10.203) (3.000) and owns an
+	// R-377-4 inversion account; a represented satellite takes A (1.000) as
+	// the seat's successor. chainAccount: the inversion account also names the
+	// chain seat's own diverging account (3.000, no instants).
+	//
+	// Constructed: the engine gives a chain-account claim to the thread's ◇
+	// remainder under a diverging chain seat and to the restriction seat
+	// beside it (rspaRowClaimsOf with a chain-lane value; the restriction
+	// carve's divergent arm), never to an R-377-4 inversion account. The one
+	// detail it can mint with such a claim — that remainder, emptied by the
+	// restriction carve — carries no value and publishes the same before and
+	// after (the last subtest), so the value-bearing row is built by hand.
+	build := func(anchored []foldInterval, chainAccount bool) []RootCauseRankItem {
+		inv := hmc377R11Inv(3.0, whole, 10, 20)
+		inv.inversionAccountRepresents = key
+		det := hmc377R14Det(rspaFoldLengthMs(anchored), anchored, nil, key, 30)
+		if chainAccount {
+			det.ShareClaims = append(append([]RootCauseShareClaim(nil), det.ShareClaims...),
+				rspaClaim(RootCauseShareClaimChainAccount, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 3.0, nil))
+		}
+		return []RootCauseRankItem{hmc377R11OtherSeat(), inv, hmc377R14Sat(a, 60), hmc377R13SchedTwin(inv), det, hmc377R13ChurnOf(det)}
+	}
+	account := func(pub RootCauseRankResult) (board, detail *RootCauseRankItem) {
+		for i := range pub.Items {
+			if hmc377R13IsInversionAccount(pub.Items[i]) {
+				board = &pub.Items[i]
+			}
+		}
+		for i := range pub.AbsorbedItems {
+			if hmc377R13IsInversionAccount(pub.AbsorbedItems[i]) {
+				detail = &pub.AbsorbedItems[i]
+			}
+		}
+		return board, detail
+	}
+	t.Run("Y3chainRest: the chain account's rest alone returns no detail", func(t *testing.T) {
+		_, ctl := hmc377R15Publish(t, "Y3chainRestCtl", build(a, false), hmc377R13IsChainInversion)
+		_, pub := hmc377R15Publish(t, "Y3chainRest", build(a, true), hmc377R13IsChainInversion)
+		if got, want := hmc377R15Rows(pub), hmc377R15Rows(ctl); got != want {
+			t.Errorf("Y3chainRest publishes differently from the same board without the chain-account claim:\n%swant\n%s", got, want)
+		}
+		for name, p := range map[string]RootCauseRankResult{"Y3chainRestCtl": ctl, "Y3chainRest": pub} {
+			board, det := account(p)
+			if board != nil || det == nil {
+				t.Fatalf("%s: the inversion account does not ride as a lossless detail\n%s", name, hmc377R15Rows(p))
+			}
+			if host, ok := hmc377R14HostOfRow(p, *det); !ok || host.LineStart != 60 {
+				t.Errorf("%s: the inversion account rides under lines %d (found %t), want the satellite that took its share", name, host.LineStart, ok)
+			}
+			if math.Abs(det.RunnableMs-1.0) > 0.0005 || math.Abs(det.EffectiveImpactMs-1.0) > 0.0005 {
+				t.Errorf("%s: the lossless detail keeps its minted value 1.000, got run %.3f effective %.3f", name, det.RunnableMs, det.EffectiveImpactMs)
+			}
+		}
+	})
+	t.Run("an ordinary claim's unheld rest still returns the detail", func(t *testing.T) {
+		// The other direction, on a detail whose host stays published. A
+		// case-A' thread: the chain seat (1.903 over W) publishes its own
+		// account, the ◇ remainder (rest 1.000) names that account and hosts
+		// the thread's R-377-4 inversion account (anchored W + rest). The gate
+		// withdraws the chain seat; the remainder makes no claim on W, so
+		// nobody takes it: the inversion account's anchored claim keeps W as
+		// its unheld rest, the row returns to the board and publishes it —
+		// with a chain-account claim beside the anchored one (constructed, as
+		// above) or without.
+		rest := []foldInterval{{start: 10.5, end: 10.501}}
+		for _, chainAccount := range []bool{false, true} {
+			name := fmt.Sprintf("Y3chainRestOrdinary(chainAccount=%t)", chainAccount)
+			account := rspaClaim(RootCauseShareClaimChainAccount, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, nil)
+			rem := hmc377R11Remainder(1.0, 1.903, 2.903, 10.5, 70, 80)
+			rem.ChainAnchorOwnershipDivergent, rem.ChainAnchorChainLaneMs, rem.ChainAnchorCensusMs = true, 1.903, 1.903
+			rspaSetSentence(&rem, rspaRemainderSentenceDivergent(hmc377R11Dep, "runnable (scheduling-pressure candidate)", 1.0, 1.903, 2.903, 1.903, 1.903, account))
+			rem.inversionAccountRepresents = key
+			det := hmc377R14Det(2.903, hmc377R11W(), rest, key, 30)
+			if chainAccount {
+				det.ShareClaims = append(append([]RootCauseShareClaim(nil), det.ShareClaims...), account)
+			}
+			rank, pub := hmc377R15Publish(t, name,
+				[]RootCauseRankItem{hmc377R11OtherSeat(), hmc377R11Inv(1.903, hmc377R11W(), 10, 20), rem, det}, hmc377R13IsChainInversion)
+			if len(rank.AbsorbedItems) != 1 || rank.AbsorbedItems[0].AbsorbedIntoFamily != rank.Items[2].RankFamilyKey || rank.Items[2].RankFamilyKey == "" {
+				t.Fatalf("%s precondition: the inversion account rides under the ◇ remainder\n%s", name, hmc377R15Rows(rank))
+			}
+			var board *RootCauseRankItem
+			for i := range pub.Items {
+				if hmc377R13IsInversionAccount(pub.Items[i]) {
+					board = &pub.Items[i]
+				}
+			}
+			if board == nil || len(pub.AbsorbedItems) != 0 {
+				t.Fatalf("%s: the inversion account did not return to the board\n%s", name, hmc377R15Rows(pub))
+			}
+			if math.Abs(board.RunnableMs-1.903) > 0.0005 {
+				t.Errorf("%s: the returned row publishes %.3f, want the unheld rest 1.903 (W)", name, board.RunnableMs)
+			}
+			hmc377R15Carried(t, name, pub, 2.903)
+		}
+	})
+	t.Run("the detail the engine mints with a chain-account claim", func(t *testing.T) {
+		// A case-A' ◇ remainder (rest 1.000 at [10.5, 10.501)) whose every
+		// instant the thread's restriction seat publishes: the restriction
+		// carve empties it and it rides as that seat's lossless detail, its
+		// chain-account claim naming the chain seat's 1.903. The gate
+		// withdraws the chain seat: the detail owns no instant and stays
+		// where it is.
+		rem := hmc377R11Remainder(1.0, 1.903, 2.903, 10.5, 70, 80)
+		rem.ChainAnchorOwnershipDivergent, rem.ChainAnchorChainLaneMs, rem.ChainAnchorCensusMs = true, 1.903, 1.903
+		rspaSetSentence(&rem, rspaRemainderSentenceDivergent(hmc377R11Dep, "runnable (scheduling-pressure candidate)", 1.0, 1.903, 2.903, 1.903, 1.903,
+			rspaClaim(RootCauseShareClaimChainAccount, RootCauseShareHolderChainSeat, hmc377R11Dep.PID, false, 1.903, nil)))
+		cpu := hmc377R12CPU([]foldInterval{{start: 10.5, end: 10.501}}, 90)
+		rank, pub := hmc377R15Publish(t, "emptied divergent remainder",
+			[]RootCauseRankItem{hmc377R11OtherSeat(), hmc377R11Inv(1.903, hmc377R11W(), 10, 20), rem, cpu}, hmc377R13IsChainInversion)
+		if len(rank.AbsorbedItems) != 1 || !rank.AbsorbedItems[0].ChainAnchorRemainderSeat {
+			t.Fatalf("precondition: the emptied remainder rides as the restriction seat's detail\n%s", hmc377R15Rows(rank))
+		}
+		if len(pub.AbsorbedItems) != 1 || len(pub.Items) != len(rank.Items) {
+			t.Fatalf("the emptied remainder left the restriction seat\n%s", hmc377R15Rows(pub))
+		}
+		host, ok := hmc377R14HostOfRow(pub, pub.AbsorbedItems[0])
+		if !ok || host.Type != "cpu_affinity_or_cpuset" || math.Abs(host.RunnableMs-1.0) > 0.0005 {
+			t.Errorf("the emptied remainder rides under %q at %.3f (found %t), want the restriction seat at 1.000", host.Type, host.RunnableMs, ok)
+		}
+	})
+}
