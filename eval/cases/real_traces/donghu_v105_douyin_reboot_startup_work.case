@@ -1,0 +1,14 @@
+# Whole original from the Donghu baseline: 105版本 / 抖音极速版 / 终端重启后冷启动 / capture 5.
+# Source SHA256: 8087138a5810347675fe7764974f5103cad4a9a71e56d7d1702d65da2256892e (138438125 bytes, 968592 lines)
+#
+# The range is one closed bindApplication marker of the main thread (lines 103054 to 208300).
+# The question states data, object, range and the requested result only. Smoke check only; acceptance is the human audit against the raw oracle.
+ID="donghu_v105_douyin_reboot_startup_work"
+NAME="Whole Douyin Lite reboot cold start — main-thread startup work and waits"
+QUESTION="请分析这份抖音极速版手机重启后冷启动的采集：140.911304 到 141.835458 秒这段应用初始化期间，主线程（tid 11105）的时间主要花在了哪里？能定位到哪些具体原因，各自影响多久？请按影响大小排序说明。"
+: "${CODRAX_HMC377_DOUYIN_REBOOT:?set CODRAX_HMC377_DOUYIN_REBOOT to the pinned complete Douyin Lite reboot cold-start ftrace}"
+HTRACE_FILE="$CODRAX_HMC377_DOUYIN_REBOOT"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"
+EXPECT_PRIMARY_CONTAINS="11105"
