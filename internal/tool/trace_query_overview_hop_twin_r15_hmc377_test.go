@@ -88,6 +88,25 @@ func hmc377R15Published(t *testing.T) tracequery.Result {
 	return pub
 }
 
+// hmc377R15WithAggregates adds what the engine publishes beside every hop: the
+// chain aggregate of the hop's thread and state. With one occurrence it is the
+// hop's own value over the hop's own lines, a second priced chain view of the
+// same fact.
+func hmc377R15WithAggregates(pub *tracequery.Result) {
+	pub.WakeupChain.AggregatedImpacts = nil
+	for _, hop := range pub.WakeupChain.CausalImpacts {
+		pub.WakeupChain.AggregatedImpacts = append(pub.WakeupChain.AggregatedImpacts, tracequery.WakeupCausalAggregate{
+			Thread: hop.Thread, ChainDepth: hop.ChainDepth, ChainBranch: hop.ChainBranch, OccurrenceCount: 1, AggregationCaliber: "sum_disjoint_occurrences",
+			DominantState: hop.DominantState, DominantImpactMs: hop.DominantImpactMs, TotalMs: hop.TotalMs, RunnableMs: hop.RunnableMs, RunningMs: hop.RunningMs,
+			FirstTs: hop.Window.StartTs, LastTs: hop.Window.EndTs, LineStart: hop.LineStart, LineEnd: hop.LineEnd,
+			PriorityRelation: hop.PriorityRelation, PriorityInversion: hop.PriorityInversionCandidate, PriorityRelationCaliber: hop.PriorityRelationCaliber,
+			PriorityRelationProvenLowerMs: hop.PriorityRelationProvenLowerMs, PriorityRelationArtifactSources: hop.PriorityRelationArtifactSources,
+			PriorityInversionGatedMs: hop.PriorityInversionGatedMs, GatedRunnableMs: hop.GatedRunnableMs, GatedRunningDeficitMs: hop.GatedRunningDeficitMs,
+			MeasuredStateAccountKey: hop.StateAccountKey,
+		})
+	}
+}
+
 // hmc377R15Thread is what the faces say about the dependency thread.
 type hmc377R15Thread struct {
 	f hmc377R9Face
@@ -273,7 +292,9 @@ func TestHMC377R15OverviewListsTheReleasedTwinThatRidesInAHopRow(t *testing.T) {
 // whole account a chain seat represents (the arbitration under which an
 // ordinal follows the fact) stays off ◎ as before; a hop row that took an
 // ordinal publishes its own seat as before, whichever view it met first; and a
-// board row that keeps the fact publishes itself.
+// board row that keeps the fact publishes itself. The chain aggregate of the
+// thread, a priced chain view that rides in the hop row after the twin, is no
+// board seat: it neither displaces the twin nor makes a hop row a ◎ member.
 func TestHMC377R15AHopRowPublishesOnlyAPricedBoardSeatWithoutOrdinal(t *testing.T) {
 	const twin = 2
 	for _, tc := range []struct {
@@ -298,6 +319,15 @@ func TestHMC377R15AHopRowPublishesOnlyAPricedBoardSeatWithoutOrdinal(t *testing.
 		{"two publications of the face: the row is listed once", func(pub *tracequery.Result) []types.ObservationRecord {
 			return hmc377R15Records(*pub, "second")
 		}, true, 3, true, false, true, 0},
+		{"the thread's chain aggregate rides in the hop row after the twin", func(pub *tracequery.Result) []types.ObservationRecord {
+			hmc377R15WithAggregates(pub)
+			return nil
+		}, true, 2, true, false, true, 0},
+		{"the thread's chain aggregate alone, no board row", func(pub *tracequery.Result) []types.ObservationRecord {
+			pub.RootCauseRank.Items = pub.RootCauseRank.Items[:twin]
+			hmc377R15WithAggregates(pub)
+			return nil
+		}, true, 1, false, true, false, 0},
 		{"a board row without attribution (background channel)", func(pub *tracequery.Result) []types.ObservationRecord {
 			pub.RootCauseRank.Items[twin].ChainRelevance, pub.RootCauseRank.Items[twin].Causality = "background", "background"
 			return nil
