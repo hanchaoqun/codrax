@@ -1373,9 +1373,11 @@ type TraceCausalProjectionNode struct {
 	// released back to the board — had nothing to pass, and the chain view
 	// that kept the fact was a member of no board. The seat rides here whole,
 	// exactly as its own publication carried it: display layers read it as
-	// the seat the row publishes. It adds no value and moves no row between
-	// lanes. In-process only, same contract as SameFactRankBoards (the
-	// projection is recompiled from records, never restored from JSON).
+	// the seat the row publishes (TraceCausalProjectionCarriedRankSeat), and
+	// a row that publishes it joins no ×N family. It adds no value and moves
+	// no row between lanes. In-process only, same contract as
+	// SameFactRankBoards (the projection is recompiled from records, never
+	// restored from JSON).
 	SameFactRankSeat *TraceCausalProjectionNode `json:"-"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
 	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —

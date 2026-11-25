@@ -661,7 +661,7 @@ func runtimeTraceProjGatedCompositeProjectionCell(node types.TraceCausalProjecti
 // HMC377 R-377-15 ⑦: a row that is no rank-board row itself and holds no
 // ordinal publishes the board seat the same-fact merge folded into its node
 // when that seat had no ordinal to hand over
-// (types.TraceCausalProjectionNode.SameFactRankSeat): a detail the engine
+// (types.TraceCausalProjectionCarriedRankSeat): a detail the engine
 // released back to the board, the only priced carrier of a withdrawn seat's
 // time, rides in the thread's hop row. ◎ admission reads the same seat
 // (runtimeTraceProjElimRankItemRow), so the overview lists what the tree
@@ -672,8 +672,7 @@ func runtimeTraceProjRowPublishedSeat(row runtimeTraceProjTreeRow) types.TraceCa
 			return *peer.ownSeat
 		}
 	}
-	if seat := row.Node.SameFactRankSeat; seat != nil && row.Node.Rank == 0 &&
-		!strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
+	if seat := types.TraceCausalProjectionCarriedRankSeat(row.Node); seat != nil {
 		return *seat
 	}
 	return row.Node

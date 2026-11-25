@@ -471,3 +471,165 @@ func TestHMC377R15OverviewOnAHopFaceListsEachShareOnce(t *testing.T) {
 		}
 	})
 }
+
+// hmc377R15PlainHops returns further hop occurrences of a hop's thread and
+// state: each on a measured account of its own, none with a board row.
+func hmc377R15PlainHops(of tracequery.WakeupCausalImpact, ms ...float64) []tracequery.WakeupCausalImpact {
+	var out []tracequery.WakeupCausalImpact
+	for i, v := range ms {
+		line, start := 30+20*i, 10.4+0.1*float64(i)
+		out = append(out, tracequery.WakeupCausalImpact{
+			Thread: of.Thread, ChainDepth: of.ChainDepth, DominantState: of.DominantState, DominantImpactMs: v, TotalMs: v, RunnableMs: v,
+			OnChain: true, LineStart: line, LineEnd: line + 4, Window: tracequery.TimeWindow{StartTs: start, EndTs: start + v/1000},
+			StateAccountKey: fmt.Sprintf("state_account:v2:hmc377r15-%d-%d", of.Thread.PID, line),
+		})
+	}
+	return out
+}
+
+// hmc377R15HoldsTheTwin reports the row that holds the released twin's record.
+func hmc377R15HoldsTheTwin(row *runtimeTraceProjTreeRow) bool {
+	for _, id := range append([]string{row.Node.EvidenceID}, row.Node.MergedEvidenceIDs...) {
+		if strings.Contains(id, "#root_cause_rank:") {
+			return true
+		}
+	}
+	return false
+}
+
+// A row that publishes a board seat riding in it is not one more occurrence of
+// the plain hop rows of its thread and state. Three or more such rows are one
+// ×N row, seeded on one member with the rest summed into it: beside two more
+// hops of the thread the row that held the twin was the family's row, off ◎
+// with another member as the seed and on ◎ with the family's time for the
+// twin's when it was the seed itself. It keeps its own row and its own time;
+// the plain occurrences are a family of their own from three on. A hop row
+// that took an ordinal publishes its own node and is one more occurrence, as
+// before.
+func TestHMC377R15ARowThatPublishesACarriedSeatJoinsNoRepeatedFamily(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		plain  []float64
+		before bool
+		// rows, family: the thread's plain hop rows and the occurrences in the
+		// largest of them.
+		rows, family int
+	}{
+		{"two larger occurrences, published before it", []float64{5.0, 4.0}, true, 2, 1},
+		{"two larger occurrences, published after it", []float64{5.0, 4.0}, false, 2, 1},
+		{"two smaller occurrences", []float64{0.4, 0.3}, false, 2, 1},
+		{"three occurrences are a family of their own", []float64{5.0, 0.2, 4.0}, true, 1, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := hmc377R15Published(t)
+			hops := pub.WakeupChain.CausalImpacts
+			plain := hmc377R15PlainHops(hops[1], tc.plain...)
+			if tc.before {
+				pub.WakeupChain.CausalImpacts = append(append([]tracequery.WakeupCausalImpact{hops[0]}, plain...), hops[1])
+			} else {
+				pub.WakeupChain.CausalImpacts = append(hops, plain...)
+			}
+			th := hmc377R15Run(t, pub)
+			var carrier *runtimeTraceProjTreeRow
+			rows, family, sum := 0, 0, 0.0
+			for _, row := range th.priced {
+				if hmc377R15HoldsTheTwin(row) {
+					if carrier != nil {
+						t.Fatalf("two rows hold the twin\n%s", th.f.dump())
+					}
+					carrier = row
+					continue
+				}
+				rows++
+				family = max(family, row.Node.MergedCount, 1)
+				sum += runtimeTraceProjNodeDisplayImpact(row.Node)
+				if _, listed := th.board[row.EvidenceTag]; listed || runtimeTraceProjElimEligible(*row) {
+					t.Errorf("the plain hop row [%s] carries no board seat and is no ◎ member\n%s", row.EvidenceTag, th.f.dump())
+				}
+			}
+			if carrier == nil || len(th.context) != 1 {
+				t.Fatalf("precondition: one row holds the twin, beside the context row: context %d\n%s", len(th.context), th.f.dump())
+			}
+			want := 0.0
+			for _, v := range tc.plain {
+				want += v
+			}
+			if rows != tc.rows || family != tc.family || !hmc377R15Near(sum, want) {
+				t.Errorf("the plain occurrences: %d rows, the largest of %d, %.3fms in all; want %d rows, %d, %.3fms\n%s", rows, family, sum, tc.rows, tc.family, want, th.f.dump())
+			}
+			if carrier.Node.MergedCount > 1 || !hmc377R15Near(runtimeTraceProjNodeDisplayImpact(carrier.Node), 1.903) ||
+				!strings.Contains(hmc377R15Block(th.f.zh, carrier.EvidenceTag), "有效归因 1.903ms") {
+				t.Errorf("the row that holds the twin [%s] is its own row and prices 1.903ms: occurrences %d, value %.3f\n%s",
+					carrier.EvidenceTag, carrier.Node.MergedCount, runtimeTraceProjNodeDisplayImpact(carrier.Node), th.f.dump())
+			}
+			if len(th.board) != 1 || !hmc377R15Near(th.board[carrier.EvidenceTag], 1.903) ||
+				!hmc377R15Near(th.overview, 1.903) || !hmc377R15Near(th.native, 1.903) || !hmc377R15Near(th.llm, 1.903) {
+				t.Errorf("the twin's 1.903ms on [%s]: ◎ %v = %.3f, rank board %.3f, summary %.3f\n%s",
+					carrier.EvidenceTag, th.board, th.overview, th.native, th.llm, th.f.dump())
+			}
+			// The ◎ line is the line of the face without the other occurrences:
+			// the seat's own time and no caliber word over it.
+			for elim, line := range map[string]string{
+				th.f.elimZH: "1.903ms █░░░░░░░░░░░ binder:458_5-6326 · 调度延迟 ·交集证明 [" + carrier.EvidenceTag + "]",
+				th.f.elimEN: "1.903ms █░░░░░░░░░░░ binder:458_5-6326 · scheduling latency ·interval-proven [" + carrier.EvidenceTag + "]",
+			} {
+				if got := strings.TrimSpace(hmc377R15Line(elim, "["+carrier.EvidenceTag+"]")); got != line {
+					t.Errorf("◎ line of [%s]:\n got %q\nwant %q", carrier.EvidenceTag, got, line)
+				}
+			}
+			if line := hmc377R15Line(th.f.elimZH, "未计价占用"); !strings.Contains(line, "⛓ 1 行(最大 1.903ms ["+th.context[0].EvidenceTag+"])") {
+				t.Errorf("unpriced occupancy counts the context row: %q\n%s", line, th.f.elimZH)
+			}
+		})
+	}
+	t.Run("a hop row that took an ordinal is one more occurrence", func(t *testing.T) {
+		pub := hmc377R15Published(t)
+		seated := pub.RootCauseRank.Items[2]
+		seated.Rank, seated.Tier, seated.Type, seated.Source = 2, "secondary", "runnable_wait", "wakeup_chain.causal_impacts"
+		pub.RootCauseRank.Items = append(pub.RootCauseRank.Items, seated)
+		pub.WakeupChain.CausalImpacts = append(pub.WakeupChain.CausalImpacts, hmc377R15PlainHops(pub.WakeupChain.CausalImpacts[1], 0.4, 0.3)...)
+		th := hmc377R15Run(t, pub)
+		if len(th.priced) != 1 {
+			t.Fatalf("the thread's hop rows are one row: %d\n%s", len(th.priced), th.f.dump())
+		}
+		row := th.priced[0]
+		if row.Node.SameFactRankSeat == nil || row.Node.Rank != 2 || types.TraceCausalProjectionCarriedRankSeat(row.Node) != nil {
+			t.Fatalf("precondition: the row holds the twin and took the ordinal of the second view: carried %t ordinal %d\n%s",
+				row.Node.SameFactRankSeat != nil, row.Node.Rank, th.f.dump())
+		}
+		if row.Node.MergedCount != 3 || !hmc377R15Near(runtimeTraceProjNodeDisplayImpact(row.Node), 2.603) || !runtimeTraceProjElimEligible(*row) {
+			t.Errorf("the seated row is the family of three occurrences, 2.603ms, a ◎ member: occurrences %d, value %.3f\n%s",
+				row.Node.MergedCount, runtimeTraceProjNodeDisplayImpact(row.Node), th.f.dump())
+		}
+	})
+}
+
+// The trunk's two-occurrence fold reads the same predicate: beside a plain
+// occurrence of its thread and state, the row that publishes a carried seat
+// stays a row of its own, whichever of the two is the trunk's main row.
+func TestHMC377R15TheTrunkFoldLeavesARowThatPublishesACarriedSeatAlone(t *testing.T) {
+	plain := types.TraceCausalProjectionNode{EvidenceID: "plain", Subject: hmc377R9DepSubject, Role: types.TraceCausalRoleCausalHop,
+		Predicate: "wakeup_causal_impact", Object: "runnable", StateKind: "runnable", ImpactMS: 5, EffectiveImpactMS: 5, StartTs: 10.4, EndTs: 10.405}
+	other := plain
+	other.EvidenceID, other.ImpactMS, other.EffectiveImpactMS, other.StartTs, other.EndTs = "other", 1.903, 1.903, 10.2, 10.201903
+	if merged, kept := runtimeTraceProjTrunkFoldSameStateOccurrences(plain, []types.TraceCausalProjectionNode{other}); merged.MergedCount != 2 || len(kept) != 0 {
+		t.Fatalf("precondition: two plain occurrences of one thread and state are one row: occurrences %d kept %d", merged.MergedCount, len(kept))
+	}
+	seat := types.TraceCausalProjectionNode{EvidenceID: "seat", Subject: hmc377R9DepSubject, Predicate: "root_cause_context_only", Tier: "tertiary",
+		ImpactMS: 1.903, EffectiveImpactMS: 1.903}
+	carrier := other
+	carrier.SameFactRankSeat = &seat
+	if merged, kept := runtimeTraceProjTrunkFoldSameStateOccurrences(plain, []types.TraceCausalProjectionNode{carrier}); merged.MergedCount > 1 || len(kept) != 1 || kept[0].SameFactRankSeat == nil {
+		t.Errorf("beside a larger plain occurrence the row keeps its seat and its own row: occurrences %d kept %d", merged.MergedCount, len(kept))
+	}
+	if merged, kept := runtimeTraceProjTrunkFoldSameStateOccurrences(carrier, []types.TraceCausalProjectionNode{plain}); merged.MergedCount > 1 || len(kept) != 1 ||
+		!hmc377R15Near(merged.ImpactMS, 1.903) || merged.SameFactRankSeat == nil {
+		t.Errorf("as the trunk's main row it keeps its own time: occurrences %d kept %d value %.3f", merged.MergedCount, len(kept), merged.ImpactMS)
+	}
+	// A row that took an ordinal publishes its own node: one more occurrence.
+	seated := carrier
+	seated.Rank = 2
+	if merged, kept := runtimeTraceProjTrunkFoldSameStateOccurrences(plain, []types.TraceCausalProjectionNode{seated}); merged.MergedCount != 2 || len(kept) != 0 {
+		t.Errorf("a row with an ordinal is one more occurrence: occurrences %d kept %d", merged.MergedCount, len(kept))
+	}
+}

@@ -542,6 +542,20 @@ func traceCausalProjectionOrdinalLessRankSeat(node TraceCausalProjectionNode) bo
 		!node.IsTargetSelfStateRow() && !node.AbsorbedByRankFamily
 }
 
+// TraceCausalProjectionCarriedRankSeat (HMC377 R-377-15 ⑦) returns the board
+// seat a row publishes in place of its own node: the seat without an ordinal
+// that rides in it (SameFactRankSeat), when the row is no rank-board row
+// itself and holds no ordinal. A board row, and a row that took an ordinal,
+// publish their own node (nil). One predicate for the display's seat resolver
+// and for the two ×N merges below, which leave such a row alone.
+func TraceCausalProjectionCarriedRankSeat(node TraceCausalProjectionNode) *TraceCausalProjectionNode {
+	if seat := node.SameFactRankSeat; seat != nil && node.Rank == 0 &&
+		!strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") {
+		return seat
+	}
+	return nil
+}
+
 // traceCausalProjectionSupplyFoldBackfill is the R1-lane fold back-fill state
 // of ONE same-fact survivor (SFD 复核 F4): backfilled marks an account taken
 // from an absorbed loser (as opposed to the survivor's OWN publication, which
@@ -1860,6 +1874,15 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		// 0.668 + 0.668 + 195.733 = 197.069 ms effective for a 196.401 ms
 		// window). Account rows keep their own seats; precise typed gate.
 		if TraceCausalProjectionOwnWorkAccountFact(node) != "" {
+			continue
+		}
+		// HMC377 R-377-15 ⑦: a row that publishes a board seat riding in it
+		// is not one more occurrence of the plain rows of its thread and
+		// state. Summed with them it listed the family's time for the seat's
+		// (1.903 + 0.400 + 0.300 = 2.603 ms on ◎ for a 1.903 ms board row),
+		// and with another member as the seed the seat was dropped with the
+		// row. It keeps its own row; precise typed gate.
+		if TraceCausalProjectionCarriedRankSeat(node) != nil {
 			continue
 		}
 		key := subject + "\x00" + object

@@ -336,6 +336,11 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// HMC376: each board's own part of a ×N row whose members several boards
 	// published; the per-board account faces read it instead of the row total.
 	"RankBoardPartAccounts": {Status: "internal_gate", Token: "PublishedRankBoardParts", Ref: "HMC376 跨板 ×N 合并行的逐板分账:A2 分母/同板Σ/周期节拍;非排名/席位/值权威"},
+	// HMC377 R-377-15 ⑦: the rank-board seat without an ordinal that the
+	// same-fact merge folded into the row. Consumed through the one typed
+	// predicate by the published-seat resolver (◎ admission and the seat's
+	// caliber faces) and by the trunk's occurrence fold.
+	"SameFactRankSeat": {Status: "internal_gate", Token: "TraceCausalProjectionCarriedRankSeat", Ref: "HMC377 R-377-15 ⑦ 无序数板席随同事实并入的行:行所发布席解析(◎ 准入/口径面)+ 不入 ×N 族;非排名/值权威"},
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// ⚠/超出发生段/区间未发布 word-face containment judge (never printed raw).
 	"ActualWindowStartTs":   {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},

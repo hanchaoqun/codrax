@@ -3446,6 +3446,11 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	if node.GatedShareFullMS > 0 || node.GatedShareConstituentSeat || node.GatedShareOverlapDisclosureMS > 0 {
 		return false
 	}
+	// HMC377 R-377-15 ⑦: a row that publishes a board seat riding in it keeps
+	// its own row, as in the R2 pass (one typed predicate for both merges).
+	if types.TraceCausalProjectionCarriedRankSeat(node) != nil {
+		return false
+	}
 	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
 		!node.OnChainOverflowFold && !node.MergedIntervalUnion && !node.MergedCrossWindowMax &&
 		!node.MergedSameSegmentMirror &&
