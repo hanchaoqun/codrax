@@ -52,18 +52,71 @@ func traceRankRestrictedBefore(a, b traceRankRestrictedAt) bool {
 	return a.seat < b.seat
 }
 
+// traceRankRestrictedEntry is one statement of the placement: a hold on its
+// holder's line, or (elsewhere) on the restriction seat's own line naming the
+// holders (refs: the section's words for the other lines).
+type traceRankRestrictedEntry struct {
+	at         traceRankRestrictedAt
+	projection int
+	hold       tool.TraceRestrictedReadyHold
+	elsewhere  bool
+	refs       []string
+	describe   bool
+}
+
 // traceRankRestrictedReadyLines places the decision of every projection on
 // the section's lines and words each placement: the sub-lines of each seat's
 // line, in the decision's seat order. lists are the section's list numbers.
 func traceRankRestrictedReadyLines(set types.TraceCausalProjectionSet, authorities []traceReaderRankDisplayAuthority, lists []int, zh bool) map[traceRankRestrictedAt][]string {
-	type entry struct {
-		at         traceRankRestrictedAt
-		projection int
-		hold       tool.TraceRestrictedReadyHold
-		elsewhere  bool
-		refs       []string
-		describe   bool
+	entries := traceRankRestrictedReadyPlace(set, authorities, lists, zh)
+	// One CPU-constraint description per thread and request: the thread's
+	// first holding line in the section's order. The thread is read per
+	// capture (its typed identity names the board, not the capture).
+	first := map[string]int{}
+	for j, e := range entries {
+		if e.elsewhere {
+			continue
+		}
+		thread := fmt.Sprintf("%d|%s", e.projection, tool.TraceRestrictedReadyThread(e.hold.Seat))
+		if k, seen := first[thread]; !seen || traceRankRestrictedBefore(e.at, entries[k].at) {
+			first[thread] = j
+		}
 	}
+	for _, j := range first {
+		entries[j].describe = true
+	}
+	out := map[traceRankRestrictedAt][]string{}
+	for _, e := range entries {
+		out[e.at] = append(out[e.at], tool.TraceRestrictedReadyLineText(e.hold, e.elsewhere, e.refs, zh))
+		if !e.describe {
+			continue
+		}
+		if description := tool.TraceCPUConstraintDescription(e.hold.Seat, zh); description != "" {
+			out[e.at] = append(out[e.at], description)
+		}
+	}
+	return out
+}
+
+// traceRankRestrictedReadyStatedSeats are, per projection index, the
+// CPU-restriction seats whose restricted time the rank section states on a
+// holder's line. The reader-label section permits their reader label: an
+// engine-absorbed member has no rank line, so no other pool of that section
+// carries it, yet the holder's line speaks its label.
+func traceRankRestrictedReadyStatedSeats(set types.TraceCausalProjectionSet) map[int][]types.TraceCausalProjectionNode {
+	authorities := traceReaderRankDisplayAuthorities(set)
+	out := map[int][]types.TraceCausalProjectionNode{}
+	for _, e := range traceRankRestrictedReadyPlace(set, authorities, make([]int, len(authorities)), true) {
+		if !e.elsewhere {
+			out[e.projection] = append(out[e.projection], e.hold.Seat)
+		}
+	}
+	return out
+}
+
+// traceRankRestrictedReadyPlace is the placement itself (see the file header).
+func traceRankRestrictedReadyPlace(set types.TraceCausalProjectionSet, authorities []traceReaderRankDisplayAuthority, lists []int, zh bool) []traceRankRestrictedEntry {
+	type entry = traceRankRestrictedEntry
 	var entries []entry
 	for p, projection := range set.Projections {
 		holds := tool.TraceRestrictedReadyHolds(projection)
@@ -147,33 +200,7 @@ func traceRankRestrictedReadyLines(set types.TraceCausalProjectionSet, authoriti
 			}
 		}
 	}
-	// One CPU-constraint description per thread and request: the thread's
-	// first holding line in the section's order. The thread is read per
-	// capture (its typed identity names the board, not the capture).
-	first := map[string]int{}
-	for j, e := range entries {
-		if e.elsewhere {
-			continue
-		}
-		thread := fmt.Sprintf("%d|%s", e.projection, tool.TraceRestrictedReadyThread(e.hold.Seat))
-		if k, seen := first[thread]; !seen || traceRankRestrictedBefore(e.at, entries[k].at) {
-			first[thread] = j
-		}
-	}
-	for _, j := range first {
-		entries[j].describe = true
-	}
-	out := map[traceRankRestrictedAt][]string{}
-	for _, e := range entries {
-		out[e.at] = append(out[e.at], tool.TraceRestrictedReadyLineText(e.hold, e.elsewhere, e.refs, zh))
-		if !e.describe {
-			continue
-		}
-		if description := tool.TraceCPUConstraintDescription(e.hold.Seat, zh); description != "" {
-			out[e.at] = append(out[e.at], description)
-		}
-	}
-	return out
+	return entries
 }
 
 // traceRankRestrictedRef names the line to in the words the section prints it

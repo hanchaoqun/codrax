@@ -162,11 +162,16 @@ func TestHMC377R16FinalizerSplitArmStatesTheAccountOnBothLines(t *testing.T) {
 	if len(holds) != 1 || fmt.Sprintf("%.3f/%.3f", holds[0].MS, holds[0].AccountMS) != "3.913/6.606" {
 		t.Fatalf("fixture precondition: the decision holds 3.913 of 6.606 ms: %+v", holds)
 	}
-	hmc377R16FWantLines(t, "zh", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), []string{
+	zh := hmc377R16FRequest(t, "zh", records...)
+	hmc377R16FWantLines(t, "zh", hmc377R16FSubLines(t, zh), []string{
 		hmc377R16FSeatZH + " => CPU亲和/cpuset限制下合计6.606ms:其中3.913ms已含在排名清单 2 #2账内,不另计",
 		"#2 udk-irq-7-76：runnable；估算优化潜力影响 4.250ms => CPU亲和/cpuset限制下合计6.606ms:其中3.913ms已含在本行账内,不另计",
 		"#2 udk-irq-7-76：runnable；估算优化潜力影响 4.250ms => " + hmc377R16FDesc7ZH,
 	})
+	// The seat's own line already permits its label: once.
+	if got := strings.Count(zh, `permitted_reader_cause_label="CPU亲和/cpuset限制"`); got != 1 {
+		t.Errorf("the label section permits the restriction label %d times, want 1", got)
+	}
 	hmc377R16FWantLines(t, "en", hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...)), []string{
 		hmc377R16FSeatEN + " => 6.606ms under the CPU affinity/cpuset restriction in all: of which 3.913ms is already inside the account of ranking list 2 #2, never added again",
 		"#2 udk-irq-7-76: runnable; 4.250ms modeled potential under existing rules => 6.606ms under the CPU affinity/cpuset restriction in all: of which 3.913ms is already inside this row's account, never added again",
@@ -222,7 +227,19 @@ func TestHMC377R16FinalizerWholeArmHolderCarriesTheAbsorbedSeat(t *testing.T) {
 		if strings.Contains(zh, "：CPU亲和/cpuset限制；") {
 			t.Errorf("[%s] an absorbed member has no line of its own in the rank section", name)
 		}
-		hmc377R16FWantLines(t, name+" en", hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...)), wantEN)
+		en := hmc377R16FRequest(t, "en", records...)
+		hmc377R16FWantLines(t, name+" en", hmc377R16FSubLines(t, en), wantEN)
+		// The reader-label section permits the label the holder's line speaks,
+		// and only where it speaks it.
+		permitted := 0
+		if tc.placed {
+			permitted = 1
+		}
+		for _, face := range []struct{ prompt, label string }{{zh, "CPU亲和/cpuset限制"}, {en, "CPU affinity/cpuset restriction"}} {
+			if got := strings.Count(face.prompt, "permitted_reader_cause_label="+fmt.Sprintf("%q", face.label)); got != permitted {
+				t.Errorf("[%s] the label section permits %q %d times, want %d", name, face.label, got, permitted)
+			}
+		}
 	}
 }
 

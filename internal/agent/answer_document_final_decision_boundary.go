@@ -274,7 +274,10 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 	// printed once per token even when one token speaks several labels (the
 	// blocking words).
 	scopeSeen := make(map[string]bool)
-	for _, projection := range set.Projections {
+	// HMC377 round 16 (R-377-17 ④): the CPU-restriction seats whose time the
+	// rank section states on a holder's line speak their reader label there.
+	stated := traceRankRestrictedReadyStatedSeats(set)
+	for p, projection := range set.Projections {
 		pools := [][]types.TraceCausalProjectionNode{
 			projection.PrimaryRootCauses,
 			projection.RankedSeats,
@@ -282,6 +285,7 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 			projection.AdjacentCauses,
 			projection.BackgroundCauses,
 			projection.SemanticSpans,
+			stated[p],
 		}
 		for _, pool := range pools {
 			for _, node := range pool {
