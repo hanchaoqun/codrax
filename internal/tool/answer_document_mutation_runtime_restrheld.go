@@ -36,6 +36,12 @@ package tool
 // No pair-key string, no thread name and no value decides it. A restriction
 // seat drawn as a row of its own keeps its description and its own
 // 「…另行计入[E#]」 note there; the holding row then adds nothing.
+//
+// What the line says follows the same typed fields: under (a) the amount is
+// the seat's whole restricted time and the row says so in the 「其中」
+// sentence; under (b) the amount is one part of the account the engine split
+// (RestrictedReadyAccountMS), so the row states that account and its part in
+// the words of the restriction row's own account sentence.
 
 import (
 	"fmt"
@@ -54,7 +60,10 @@ type runtimeTraceProjRestrictedHeld struct {
 	// value, or the engine share of the claim this row holds — never the
 	// row's value.
 	MS float64
-	// Seat is the restriction seat (label and description source).
+	// Seat is the restriction seat (label and description source). Its
+	// RestrictedReadyAccountMS, where the engine typed the seat's account as
+	// split between rows, is the whole restricted ready account MS is a part
+	// of: the line states both (runtimeTraceProjRestrictedHeldText).
 	Seat types.TraceCausalProjectionNode
 	// Tag is the seat's own [E#] when it is this row's absorbed member (the
 	// number its 「链上并入」 note cites); "" for a seat without an [E#] of its
@@ -299,27 +308,66 @@ func runtimeTraceProjFoldRestrictedHeld(members []runtimeTraceProjTreeRow) []run
 	return out
 }
 
+// runtimeTraceProjRestrictedInsideWords says which account a restricted time is
+// already inside and that it is never added again — the closing words of every
+// sentence that states a CPU-restriction seat's time under the row that counts
+// it (the 「其中」 sentence and the holding row's part of a split account).
+func runtimeTraceProjRestrictedInsideWords(account string, zh bool) string {
+	if zh {
+		return "已含在" + account + "内,不另计"
+	}
+	return "already inside " + account + ", never added again"
+}
+
 // runtimeTraceProjOfWhichRestrictedText is the one 「其中」 sentence of a
 // CPU-restriction seat's time stated under the row that counts it: the
 // restricted time, whose runnable time it is part of, the account it is
 // already inside, and that it is never added again. The analysed thread's
-// form (R-377-12 ④) and the holding row's form (R-377-16 ③) are this one
-// sentence with their own subject and account words.
+// form (R-377-12 ④) and the holding row's form for a seat whose whole
+// restricted time it prices (R-377-16 ③) are this one sentence with their own
+// subject and account words: ms is the thread's whole restricted time.
 func runtimeTraceProjOfWhichRestrictedText(label string, ms float64, whose, account, pointer string, zh bool) string {
 	if zh {
-		return fmt.Sprintf("其中%s下%.3fms是%srunnable时间里受限的那一部分,已含在%s内,不另计%s", label, ms, whose, account, pointer)
+		return fmt.Sprintf("其中%s下%.3fms是%srunnable时间里受限的那一部分,%s%s", label, ms, whose, runtimeTraceProjRestrictedInsideWords(account, zh), pointer)
 	}
-	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of %s runnable time, already inside %s, never added again%s", ms, label, whose, account, pointer)
+	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of %s runnable time, %s%s", ms, label, whose, runtimeTraceProjRestrictedInsideWords(account, zh), pointer)
+}
+
+// runtimeTraceProjRestrictedAccountHead opens every sentence that states a
+// CPU-restriction seat's whole restricted ready account before the parts of it
+// that rows count: the restriction row's own account sentence
+// (runtimeTraceProjRestrictedAccountText) and the holding row's line for a
+// part of that account (runtimeTraceProjRestrictedHeldText).
+func runtimeTraceProjRestrictedAccountHead(label string, accountMS float64, zh bool) string {
+	if zh {
+		return fmt.Sprintf("%s下合计%.3fms:其中", label, accountMS)
+	}
+	return fmt.Sprintf("%.3fms under the %s in all: of which ", accountMS, label)
 }
 
 // runtimeTraceProjRestrictedHeldText words one share on its holding row. The
 // amount is the share this row prices, so the sentence never says the whole
-// row is restricted. The account the share is already inside is the row's own
-// (「本行账」) or the seat's this row draws under its own [E#] (「[E#]账」: the
-// row's headline is then the host's account, on which 「本行账」 would be
-// false). Case A' takes the restriction row's own A' words turned to the
-// holding row (the share lies inside the seat's time; the seat keeps its own
-// account): 「其中…已含在…账内」 would be false there.
+// row is restricted.
+//
+// HMC377 round 16 fix-up (review finding, 2026-11-24): the amount is not always
+// the thread's whole restricted time either. Where the engine typed the seat's
+// restricted ready account as split between rows (Seat.RestrictedReadyAccountMS
+// — the field the restriction row's own account sentence reads), MS is one part
+// of that account, and the 「其中」 sentence's words 「X ms是本线程runnable时间里
+// 受限的那一部分」 would give the part as the thread's restricted time (dio w01
+// udk-irq-7-76: 11.364 ms stated, 18.308 ms restricted). The line then states
+// the whole account and this row's part, in the words of the restriction row's
+// own account sentence turned to the holding row: 「…下合计18.308ms:其中
+// 11.364ms已含在本行账内,不另计」. On a seat whose account the engine did not
+// split (the absorbed member: every restricted instant inside one row), MS is
+// the whole restricted time and the 「其中」 sentence stands.
+//
+// The account the share is already inside is the row's own (「本行账」) or the
+// seat's this row draws under its own [E#] (「[E#]账」: the row's headline is
+// then the host's account, on which 「本行账」 would be false). Case A' takes
+// the restriction row's own A' words turned to the holding row (the share lies
+// inside the seat's time; the seat keeps its own account): 「…已含在…账内」
+// would be false there.
 func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh bool) string {
 	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(held.Seat.Object, zh))
 	pointer := ""
@@ -331,20 +379,41 @@ func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh 
 	for _, ref := range held.Refs {
 		refs = append(refs, "["+ref+"]")
 	}
+	// split: the head of the split account's sentence — a row that draws
+	// several threads names the member whose account it is.
+	split := ""
+	if account := held.Seat.RestrictedReadyAccountMS; account > 0 {
+		split = runtimeTraceProjRestrictedAccountHead(label, account, zh)
+		switch {
+		case member != "" && zh:
+			split = "成员 " + member + " " + split
+		case member != "":
+			split = "member " + member + "'s " + split
+		}
+	}
 	if held.OwnAccount {
+		var inside string
 		switch {
 		case held.Elsewhere && len(refs) > 0 && zh:
-			return fmt.Sprintf("%s下%.3fms落在链上席%s时段内(链席另列自账)%s", label, held.MS, refs[0], pointer)
+			inside = "落在链上席" + refs[0] + "时段内(链席另列自账)"
 		case held.Elsewhere && len(refs) > 0:
-			return fmt.Sprintf("%.3fms under the %s lies inside the time of the chain seat %s (the chain seat keeps its own separate account)%s", held.MS, label, refs[0], pointer)
+			inside = " lies inside the time of the chain seat " + refs[0] + " (the chain seat keeps its own separate account)"
 		case zh && member != "":
-			return fmt.Sprintf("%s下%.3fms落在成员 %s 时段内(该成员另列自账)%s", label, held.MS, member, pointer)
+			inside = "落在成员 " + member + " 时段内(该成员另列自账)"
 		case zh:
-			return fmt.Sprintf("%s下%.3fms落在本行时段内(本行另列自账)%s", label, held.MS, pointer)
+			inside = "落在本行时段内(本行另列自账)"
 		case member != "":
-			return fmt.Sprintf("%.3fms under the %s lies inside the time of member %s (the member keeps its own separate account)%s", held.MS, label, member, pointer)
+			inside = " lies inside the time of member " + member + " (the member keeps its own separate account)"
 		default:
-			return fmt.Sprintf("%.3fms under the %s lies inside the time of this row (this row keeps its own separate account)%s", held.MS, label, pointer)
+			inside = " lies inside the time of this row (this row keeps its own separate account)"
+		}
+		switch {
+		case split != "":
+			return fmt.Sprintf("%s%.3fms%s%s", split, held.MS, inside, pointer)
+		case zh:
+			return fmt.Sprintf("%s下%.3fms%s%s", label, held.MS, inside, pointer)
+		default:
+			return fmt.Sprintf("%.3fms under the %s%s%s", held.MS, label, inside, pointer)
 		}
 	}
 	whose, account := "本线程", "本行账"
@@ -369,6 +438,12 @@ func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh 
 		account = "本行与" + strings.Join(refs, "、") + "账"
 	default:
 		account = "the accounts of this row and " + strings.Join(refs, ", ")
+	}
+	switch {
+	case split != "" && zh:
+		return fmt.Sprintf("%s%.3fms%s%s", split, held.MS, runtimeTraceProjRestrictedInsideWords(account, zh), pointer)
+	case split != "":
+		return fmt.Sprintf("%s%.3fms is %s%s", split, held.MS, runtimeTraceProjRestrictedInsideWords(account, zh), pointer)
 	}
 	return runtimeTraceProjOfWhichRestrictedText(label, held.MS, whose, account, pointer, zh)
 }

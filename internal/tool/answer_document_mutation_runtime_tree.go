@@ -22620,12 +22620,13 @@ func runtimeTraceProjRestrictedAccountText(row runtimeTraceProjTreeRow, zh bool)
 			parts = append(parts, fmt.Sprintf("%.3fms is counted separately on this thread's on-chain seat (see the detail index)", p.MS))
 		}
 	}
+	// HMC377 round 16 fix-up: the head — the whole account before its parts —
+	// is the one the holding row's line opens with (bytes unchanged here).
+	head := runtimeTraceProjRestrictedAccountHead(label, row.Node.RestrictedReadyAccountMS, zh)
 	if zh {
-		return fmt.Sprintf("%s下合计%.3fms:其中%s,本行计%.3fms(无链上凭证)",
-			label, row.Node.RestrictedReadyAccountMS, strings.Join(parts, "、"), row.Node.ShareCountedHereMS)
+		return fmt.Sprintf("%s%s,本行计%.3fms(无链上凭证)", head, strings.Join(parts, "、"), row.Node.ShareCountedHereMS)
 	}
-	return fmt.Sprintf("%.3fms under the %s in all: of which %s; this row %.3fms (no chain credential)",
-		row.Node.RestrictedReadyAccountMS, label, strings.Join(parts, ", "), row.Node.ShareCountedHereMS)
+	return fmt.Sprintf("%s%s; this row %.3fms (no chain credential)", head, strings.Join(parts, ", "), row.Node.ShareCountedHereMS)
 }
 
 func runtimeTraceProjUnwalkedPartWords(ref string, invisible, unreferenced, exact bool, seatMS float64) (string, string) {

@@ -163,13 +163,25 @@ func hmc377R16Count(text, want string) int {
 	return strings.Count(hmc377R7Squash(text), hmc377R7Squash(want))
 }
 
-// hmc377R16OfWhich is the holding row's sentence for an amount, in the words
-// of the 「其中」 form (R-377-12 ④ / R-377-14 ④) turned to the holding row.
+// hmc377R16OfWhich is the holding row's sentence for a seat whose whole
+// restricted time it prices (the absorbed member), in the words of the 「其中」
+// form (R-377-12 ④ / R-377-14 ④) turned to the holding row.
 func hmc377R16OfWhich(ms string, zh bool) string {
 	if zh {
 		return "其中CPU亲和/cpuset限制下" + ms + "ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计"
 	}
 	return "of which " + ms + "ms under the CPU affinity/cpuset restriction is the restricted part of this thread's runnable time, already inside this row's account, never added again"
+}
+
+// hmc377R16OfAccount is the holding row's sentence for one part of a seat
+// whose restricted ready account the engine split between rows: the whole
+// account, then this row's part — the words of the restriction row's own
+// account sentence (「…下合计X ms:其中…」) turned to the holding row.
+func hmc377R16OfAccount(account, ms string, zh bool) string {
+	if zh {
+		return "CPU亲和/cpuset限制下合计" + account + "ms:其中" + ms + "ms已含在本行账内,不另计"
+	}
+	return account + "ms under the CPU affinity/cpuset restriction in all: of which " + ms + "ms is already inside this row's account, never added again"
 }
 
 func hmc377R16Desc(zh bool) string {
@@ -179,13 +191,29 @@ func hmc377R16Desc(zh bool) string {
 	return hmc377R16DescEN
 }
 
-// hmc377R16RestrictedWord is the word every form of the holding row's line
-// carries and no other line of these fixtures does.
+// hmc377R16RestrictedWord is the word of the 「其中」 sentence: the amount is
+// the thread's whole restricted time. No other line of these fixtures has it.
 func hmc377R16RestrictedWord(zh bool) string {
 	if zh {
 		return "受限的那一部分"
 	}
 	return "is the restricted part of"
+}
+
+// hmc377R16HeldCount counts the holding row's lines of a face, in each of
+// their forms: the 「其中」 sentence, the part of a split account inside an
+// account, and the part inside a row's time (case A'). No other line of these
+// fixtures carries one of these words.
+func hmc377R16HeldCount(text string, zh bool) int {
+	words := []string{"受限的那一部分", "已含在", "另列自账)"}
+	if !zh {
+		words = []string{"is the restricted part of", "already inside", "keeps its own separate account)"}
+	}
+	n := 0
+	for _, w := range words {
+		n += hmc377R16Count(text, w)
+	}
+	return n
 }
 
 var hmc377R16TagRE = regexp.MustCompile(`\[(E\d+[^\]]*)\]\s*$`)
@@ -234,10 +262,10 @@ func TestHMC377R16ChainRowStatesTheRestrictedPartOfAFoldedSeat(t *testing.T) {
 		if block == "" {
 			t.Fatalf("zh=%t: the chain row is drawn:\n%s", zh, fence)
 		}
-		if !hmc377R16Has(block, hmc377R16OfWhich("11.364", zh)) {
-			t.Errorf("zh=%t: the chain row states the 11.364 ms it prices of the restricted time:\n%s", zh, block)
+		if !hmc377R16Has(block, hmc377R16OfAccount("18.308", "11.364", zh)) {
+			t.Errorf("zh=%t: the chain row states the 11.364 ms it prices of the 18.308 ms restricted account:\n%s", zh, block)
 		}
-		if hmc377R16Has(block, hmc377R16OfWhich("20.000", zh)) {
+		if hmc377R16Has(block, hmc377R16OfAccount("18.308", "20.000", zh)) || hmc377R16Has(block, "20.000ms已含在") || hmc377R16Has(block, "20.000ms is already inside") {
 			t.Errorf("zh=%t: the amount is the engine's share, never the row's value:\n%s", zh, block)
 		}
 		if !hmc377R16Has(block, hmc377R16Desc(zh)) {
@@ -246,7 +274,7 @@ func TestHMC377R16ChainRowStatesTheRestrictedPartOfAFoldedSeat(t *testing.T) {
 		if got := hmc377R16Count(fence, hmc377R16Desc(zh)); got != 1 {
 			t.Errorf("zh=%t: the description is printed %d time(s) on the tree, want once:\n%s", zh, got, fence)
 		}
-		if got := hmc377R16Count(fence, hmc377R16RestrictedWord(zh)); got != 1 {
+		if got := hmc377R16HeldCount(fence, zh); got != 1 {
 			t.Errorf("zh=%t: one row states the share, got %d line(s):\n%s", zh, got, fence)
 		}
 		// The row's detail block says the same as its tree lines.
@@ -255,10 +283,10 @@ func TestHMC377R16ChainRowStatesTheRestrictedPartOfAFoldedSeat(t *testing.T) {
 		if !zh {
 			label, head = "- CPU affinity/cpuset restriction: ", "- CPU-constraint description: allowed CPUs 7 · excludes observed CPUs 0-6 · basis sched_switch_next_info"
 		}
-		if !strings.Contains(detail, label+hmc377R16OfWhich("11.364", zh)) || !strings.Contains(detail, head) {
+		if !strings.Contains(detail, label+hmc377R16OfAccount("18.308", "11.364", zh)) || !strings.Contains(detail, head) {
 			t.Errorf("zh=%t: the detail block of the chain row carries the sentence and the description:\n%s", zh, detail)
 		}
-		if got := strings.Count(faces.detail(zh), hmc377R16RestrictedWord(zh)); got != 1 {
+		if got := hmc377R16HeldCount(faces.detail(zh), zh); got != 1 {
 			t.Errorf("zh=%t: one detail block states the share, got %d", zh, got)
 		}
 	}
@@ -413,13 +441,13 @@ func TestHMC377R16DrawnRestrictionRowKeepsItsDescriptionAlone(t *testing.T) {
 		if got := hmc377R16Count(fence, hmc377R16Desc(zh)); got != 1 {
 			t.Errorf("zh=%t: the description is printed %d time(s), want once (on the restriction row):\n%s", zh, got, fence)
 		}
-		if got := hmc377R16Count(fence, hmc377R16RestrictedWord(zh)); got != 0 {
+		if got := hmc377R16HeldCount(fence, zh); got != 0 {
 			t.Errorf("zh=%t: the chain row adds nothing beside the drawn restriction row:\n%s", zh, fence)
 		}
 		if block := hmc377R16RowBlock(fence, hmc377R16Subject+" · runnable"); hmc377R16Has(block, hmc377R16Desc(zh)) {
 			t.Errorf("zh=%t: the description stays on the restriction row:\n%s", zh, block)
 		}
-		if got := strings.Count(faces.detail(zh), hmc377R16RestrictedWord(zh)); got != 0 {
+		if got := hmc377R16HeldCount(faces.detail(zh), zh); got != 0 {
 			t.Errorf("zh=%t: no detail block states a share, got %d", zh, got)
 		}
 	}
@@ -458,13 +486,13 @@ func TestHMC377R16OnlyTheRowTheClaimNamesStatesTheShare(t *testing.T) {
 		if !strings.Contains(first, hmc377R16Subject) || !strings.Contains(second, hmc377R16Subject) {
 			t.Fatalf("zh=%t: the thread has two chain rows:\n%s", zh, fence)
 		}
-		if hmc377R16Has(first, hmc377R16RestrictedWord(zh)) || hmc377R16Has(first, hmc377R16Desc(zh)) {
+		if hmc377R16HeldCount(first, zh) != 0 || hmc377R16Has(first, hmc377R16Desc(zh)) {
 			t.Errorf("zh=%t: the row the claim does not name states nothing:\n%s", zh, first)
 		}
-		if !hmc377R16Has(second, hmc377R16OfWhich("3.364", zh)) || !hmc377R16Has(second, hmc377R16Desc(zh)) {
+		if !hmc377R16Has(second, hmc377R16OfAccount("10.308", "3.364", zh)) || !hmc377R16Has(second, hmc377R16Desc(zh)) {
 			t.Errorf("zh=%t: the row the claim names states the share and the description:\n%s", zh, second)
 		}
-		if got := hmc377R16Count(fence, hmc377R16RestrictedWord(zh)); got != 1 {
+		if got := hmc377R16HeldCount(fence, zh); got != 1 {
 			t.Errorf("zh=%t: one row states the share, got %d:\n%s", zh, got, fence)
 		}
 	}
@@ -479,11 +507,11 @@ func TestHMC377R16EachHoldingRowStatesItsOwnShareAndOneDescription(t *testing.T)
 	for _, zh := range []bool{true, false} {
 		fence := faces.fence(zh)
 		first, second := hmc377R16RowBlock(fence, "20.000ms"), hmc377R16RowBlock(fence, "3.364ms")
-		if !hmc377R16Has(first, hmc377R16OfWhich("8.000", zh)) || !hmc377R16Has(first, hmc377R16Desc(zh)) {
-			t.Errorf("zh=%t: the first holding row states 8.000 ms and the description:\n%s", zh, first)
+		if !hmc377R16Has(first, hmc377R16OfAccount("18.308", "8.000", zh)) || !hmc377R16Has(first, hmc377R16Desc(zh)) {
+			t.Errorf("zh=%t: the first holding row states 8.000 ms of the 18.308 ms account and the description:\n%s", zh, first)
 		}
-		if !hmc377R16Has(second, hmc377R16OfWhich("3.364", zh)) || hmc377R16Has(second, hmc377R16Desc(zh)) {
-			t.Errorf("zh=%t: the second holding row states 3.364 ms and no second description:\n%s", zh, second)
+		if !hmc377R16Has(second, hmc377R16OfAccount("18.308", "3.364", zh)) || hmc377R16Has(second, hmc377R16Desc(zh)) {
+			t.Errorf("zh=%t: the second holding row states 3.364 ms of the 18.308 ms account and no second description:\n%s", zh, second)
 		}
 		if got := hmc377R16Count(fence, hmc377R16Desc(zh)); got != 1 {
 			t.Errorf("zh=%t: the description is printed %d time(s), want once:\n%s", zh, got, fence)
@@ -500,14 +528,14 @@ func TestHMC377R16OneShareHeldByTwoRowsIsStatedOnce(t *testing.T) {
 		fence := faces.fence(zh)
 		first, second := hmc377R16RowBlock(fence, "20.000ms"), hmc377R16RowBlock(fence, "3.364ms")
 		other := hmc377R16HeadTag(second)
-		want := "其中CPU亲和/cpuset限制下11.364ms是本线程runnable时间里受限的那一部分,已含在本行与[" + other + "]账内,不另计"
+		want := "CPU亲和/cpuset限制下合计18.308ms:其中11.364ms已含在本行与[" + other + "]账内,不另计"
 		if !zh {
-			want = "of which 11.364ms under the CPU affinity/cpuset restriction is the restricted part of this thread's runnable time, already inside the accounts of this row and [" + other + "], never added again"
+			want = "18.308ms under the CPU affinity/cpuset restriction in all: of which 11.364ms is already inside the accounts of this row and [" + other + "], never added again"
 		}
 		if other == "" || !hmc377R16Has(first, want) {
 			t.Errorf("zh=%t: the first row states the share inside both rows' accounts (other row [%s]):\n%s", zh, other, first)
 		}
-		if hmc377R16Has(second, hmc377R16RestrictedWord(zh)) || hmc377R16Count(fence, hmc377R16RestrictedWord(zh)) != 1 {
+		if hmc377R16HeldCount(second, zh) != 0 || hmc377R16HeldCount(fence, zh) != 1 {
 			t.Errorf("zh=%t: the share is stated once:\n%s", zh, fence)
 		}
 	}
@@ -526,14 +554,14 @@ func TestHMC377R16ChainSeatWithItsOwnAccountSaysInsideItsTime(t *testing.T) {
 	faces := hmc377R16Run(t, hmc377R11Result(append(items, hmc377R16ContextSeats(9)...)...))
 	for _, zh := range []bool{true, false} {
 		block := hmc377R16RowBlock(faces.fence(zh), hmc377R16Subject+" · runnable")
-		want := "CPU亲和/cpuset限制下30.537ms落在本行时段内(本行另列自账)"
+		want, account := "CPU亲和/cpuset限制下合计31.834ms:其中30.537ms落在本行时段内(本行另列自账)", "已含在"
 		if !zh {
-			want = "30.537ms under the CPU affinity/cpuset restriction lies inside the time of this row (this row keeps its own separate account)"
+			want, account = "31.834ms under the CPU affinity/cpuset restriction in all: of which 30.537ms lies inside the time of this row (this row keeps its own separate account)", "already inside"
 		}
 		if !hmc377R16Has(block, want) || !hmc377R16Has(block, hmc377R16Desc(zh)) {
-			t.Errorf("zh=%t: the row says the share lies inside its time and prints the description:\n%s", zh, block)
+			t.Errorf("zh=%t: the row says the share of the 31.834 ms account lies inside its time and prints the description:\n%s", zh, block)
 		}
-		if hmc377R16Has(block, hmc377R16RestrictedWord(zh)) {
+		if hmc377R16Has(block, hmc377R16RestrictedWord(zh)) || hmc377R16Has(block, account) {
 			t.Errorf("zh=%t: a row with its own account never says the share is inside its account:\n%s", zh, block)
 		}
 	}
@@ -553,9 +581,9 @@ func TestHMC377R16MicroFoldRowNamesTheHoldingMember(t *testing.T) {
 	faces := hmc377R16Run(t, hmc377R11Result(append(items, hmc377R16ContextSeats(9)...)...))
 	for _, zh := range []bool{true, false} {
 		fence := faces.fence(zh)
-		head, want := "其余 2 项微额锚定席", "其中CPU亲和/cpuset限制下0.029ms是成员 udk-irq-7-77 runnable时间里受限的那一部分,已含在本行账内,不另计"
+		head, want := "其余 2 项微额锚定席", "成员 udk-irq-7-77 CPU亲和/cpuset限制下合计0.042ms:其中0.029ms已含在本行账内,不另计"
 		if !zh {
-			head, want = "2 more micro anchored seats", "of which 0.029ms under the CPU affinity/cpuset restriction is the restricted part of member udk-irq-7-77's runnable time, already inside this row's account, never added again"
+			head, want = "2 more micro anchored seats", "member udk-irq-7-77's 0.042ms under the CPU affinity/cpuset restriction in all: of which 0.029ms is already inside this row's account, never added again"
 		}
 		block := hmc377R16RowBlock(fence, head)
 		if block == "" {
@@ -585,7 +613,7 @@ func TestHMC377R16UnplacedHolderStatesNothing(t *testing.T) {
 			hmc377R16Restriction(hmc377R16Thread, 10, 18.308, 11.364, claim)}
 		faces := hmc377R16Run(t, hmc377R11Result(append(items, hmc377R16ContextSeats(9)...)...))
 		for _, zh := range []bool{true, false} {
-			if fence := faces.fence(zh); hmc377R16Count(fence, hmc377R16RestrictedWord(zh)) != 0 || hmc377R16Count(fence, hmc377R16Desc(zh)) != 0 {
+			if fence := faces.fence(zh); hmc377R16HeldCount(fence, zh) != 0 || hmc377R16Count(fence, hmc377R16Desc(zh)) != 0 {
 				t.Errorf("%s zh=%t: no row states a share the face cannot place:\n%s", name, zh, fence)
 			}
 		}
@@ -613,8 +641,8 @@ func TestHMC377R16OnlyARestrictionSeatWithItsTypedAccountSpeaks(t *testing.T) {
 			if hmc377R16RowBlock(fence, hmc377R16Subject+" · runnable") == "" {
 				t.Fatalf("%s zh=%t: the chain row is drawn:\n%s", name, zh, fence)
 			}
-			if hmc377R16Count(fence, hmc377R16RestrictedWord(zh)) != 0 || hmc377R16Count(fence, hmc377R16Desc(zh)) != 0 ||
-				strings.Count(faces.detail(zh), hmc377R16RestrictedWord(zh)) != 0 {
+			if hmc377R16HeldCount(fence, zh) != 0 || hmc377R16Count(fence, hmc377R16Desc(zh)) != 0 ||
+				hmc377R16HeldCount(faces.detail(zh), zh) != 0 {
 				t.Errorf("%s zh=%t: no row states a restricted part:\n%s", name, zh, fence)
 			}
 		}
@@ -718,6 +746,118 @@ func TestHMC377R16HoldingRowFollowsEveryDrawnIDClass(t *testing.T) {
 	}
 }
 
+// Review finding of round 16 (fix-up, 2026-11-24): a part of a split account is
+// never given as the thread's restricted time. dio w01 udk-irq-7-76: the seat's
+// typed restricted ready account is 18.308 ms; its chain row prices 11.364 ms
+// of it and the seat keeps 6.944 ms. The 「其中」 sentence's words 「11.364ms是
+// 本线程runnable时间里受限的那一部分」 stood under 「窗内 runnable 合计 18.308ms」
+// and read as "6.944 ms of this thread's ready time was not restricted" (23 of
+// the 23 part thread-windows of the 315; main printed 18.308 on the restriction
+// row). The row states the whole account and its part, opening with the words
+// the restriction row's own account sentence opens with — one typed number and
+// one wording on both sides of the split. The whole shape keeps the 「其中」
+// sentence: its amount is the seat's whole restricted time.
+func TestHMC377R16PartOfASplitAccountIsStatedBesideTheWholeAccount(t *testing.T) {
+	folded, drawn, whole := hmc377R16Run(t, hmc377R16PartResult(true)), hmc377R16Run(t, hmc377R16PartResult(false)), hmc377R16Run(t, hmc377R16WholeResult())
+	for _, zh := range []bool{true, false} {
+		head, counted := "CPU亲和/cpuset限制下合计18.308ms:其中", "11.364ms另行计入["
+		if !zh {
+			head, counted = "18.308ms under the CPU affinity/cpuset restriction in all: of which ", "11.364ms is counted separately on ["
+		}
+		block := hmc377R16RowBlock(folded.fence(zh), hmc377R16Subject+" · runnable")
+		if !hmc377R16Has(block, head+"11.364ms") {
+			t.Errorf("zh=%t: the holding row states the seat's 18.308 ms account before its 11.364 ms part:\n%s", zh, block)
+		}
+		if hmc377R16Has(block, hmc377R16RestrictedWord(zh)) || hmc377R16Has(block, hmc377R16OfWhich("11.364", zh)) {
+			t.Errorf("zh=%t: the part is never given as the thread's restricted time:\n%s", zh, block)
+		}
+		for name, text := range map[string]string{"tree": folded.fence(zh), "detail": folded.detail(zh)} {
+			if got := hmc377R16Count(text, head); got != 1 {
+				t.Errorf("zh=%t %s: the account is stated %d time(s) on the holding row's face, want once", zh, name, got)
+			}
+		}
+		// The same account, in the same words, on the restriction row where it
+		// is drawn (and no holding row's line beside it).
+		if !hmc377R16Has(drawn.fence(zh), head+counted) || hmc377R16Count(drawn.fence(zh), head) != 1 {
+			t.Errorf("zh=%t: the drawn restriction row opens its account sentence with the same words:\n%s", zh, drawn.fence(zh))
+		}
+		// The whole shape: the amount is the seat's whole restricted time.
+		wholeBlock := hmc377R16RowBlock(whole.fence(zh), hmc377R16Subject+" · runnable")
+		total := "下合计"
+		if !zh {
+			total = " in all: of which "
+		}
+		if !hmc377R16Has(wholeBlock, hmc377R16OfWhich("0.038", zh)) || hmc377R16Has(wholeBlock, total) {
+			t.Errorf("zh=%t: a seat whose account is not split keeps the of-which sentence:\n%s", zh, wholeBlock)
+		}
+	}
+}
+
+// The one wording rule over every form of the holding row's line: where the
+// engine typed the seat's restricted ready account as split
+// (RestrictedReadyAccountMS), the line states that account and the row's part —
+// also when the part equals the account — and never the 「其中」 sentence's
+// thread-scope words; a seat without the typed split keeps its forms.
+func TestHMC377R16HeldSentenceStatesTheSplitAccountInEveryForm(t *testing.T) {
+	seat := func(account float64) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{Subject: hmc377R16Subject, Object: "cpu_affinity_or_cpuset", TypeToken: "cpu_affinity_or_cpuset",
+			RestrictedReadyAccountMS: account}
+	}
+	for _, c := range []struct {
+		name   string
+		held   runtimeTraceProjRestrictedHeld
+		zh, en string
+	}{
+		{name: "split, the row's own account", held: runtimeTraceProjRestrictedHeld{MS: 11.364, Seat: seat(18.308)},
+			zh: "CPU亲和/cpuset限制下合计18.308ms:其中11.364ms已含在本行账内,不另计",
+			en: "18.308ms under the CPU affinity/cpuset restriction in all: of which 11.364ms is already inside this row's account, never added again"},
+		{name: "split, the part equals the account", held: runtimeTraceProjRestrictedHeld{MS: 18.308, Seat: seat(18.308)},
+			zh: "CPU亲和/cpuset限制下合计18.308ms:其中18.308ms已含在本行账内,不另计",
+			en: "18.308ms under the CPU affinity/cpuset restriction in all: of which 18.308ms is already inside this row's account, never added again"},
+		{name: "split, a seat drawn inside the row under its own [E#]", held: runtimeTraceProjRestrictedHeld{MS: 0.272, Seat: seat(19.025), Elsewhere: true, Refs: []string{"E32"}},
+			zh: "CPU亲和/cpuset限制下合计19.025ms:其中0.272ms已含在[E32]账内,不另计",
+			en: "19.025ms under the CPU affinity/cpuset restriction in all: of which 0.272ms is already inside the account of [E32], never added again"},
+		{name: "split, this row and another row", held: runtimeTraceProjRestrictedHeld{MS: 11.364, Seat: seat(18.308), Refs: []string{"E9"}},
+			zh: "CPU亲和/cpuset限制下合计18.308ms:其中11.364ms已含在本行与[E9]账内,不另计",
+			en: "18.308ms under the CPU affinity/cpuset restriction in all: of which 11.364ms is already inside the accounts of this row and [E9], never added again"},
+		{name: "split, a member of a row of several threads", held: runtimeTraceProjRestrictedHeld{MS: 0.029, Seat: seat(0.042), Member: "udk-irq-7-77"},
+			zh: "成员 udk-irq-7-77 CPU亲和/cpuset限制下合计0.042ms:其中0.029ms已含在本行账内,不另计",
+			en: "member udk-irq-7-77's 0.042ms under the CPU affinity/cpuset restriction in all: of which 0.029ms is already inside this row's account, never added again"},
+		{name: "split, the row keeps its own account", held: runtimeTraceProjRestrictedHeld{MS: 30.537, Seat: seat(31.834), OwnAccount: true},
+			zh: "CPU亲和/cpuset限制下合计31.834ms:其中30.537ms落在本行时段内(本行另列自账)",
+			en: "31.834ms under the CPU affinity/cpuset restriction in all: of which 30.537ms lies inside the time of this row (this row keeps its own separate account)"},
+		{name: "split, a chain seat inside the row keeps its own account", held: runtimeTraceProjRestrictedHeld{MS: 30.537, Seat: seat(31.834), OwnAccount: true, Elsewhere: true, Refs: []string{"E9"}},
+			zh: "CPU亲和/cpuset限制下合计31.834ms:其中30.537ms落在链上席[E9]时段内(链席另列自账)",
+			en: "31.834ms under the CPU affinity/cpuset restriction in all: of which 30.537ms lies inside the time of the chain seat [E9] (the chain seat keeps its own separate account)"},
+		{name: "split, a member keeps its own account", held: runtimeTraceProjRestrictedHeld{MS: 0.029, Seat: seat(0.042), OwnAccount: true, Member: "udk-irq-7-77"},
+			zh: "成员 udk-irq-7-77 CPU亲和/cpuset限制下合计0.042ms:其中0.029ms落在成员 udk-irq-7-77 时段内(该成员另列自账)",
+			en: "member udk-irq-7-77's 0.042ms under the CPU affinity/cpuset restriction in all: of which 0.029ms lies inside the time of member udk-irq-7-77 (the member keeps its own separate account)"},
+		{name: "not split, the absorbed member", held: runtimeTraceProjRestrictedHeld{MS: 0.038, Seat: seat(0), Tag: "E54"},
+			zh: "其中CPU亲和/cpuset限制下0.038ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计 [E54]",
+			en: "of which 0.038ms under the CPU affinity/cpuset restriction is the restricted part of this thread's runnable time, already inside this row's account, never added again [E54]"},
+		{name: "not split, a seat drawn inside the row under its own [E#]", held: runtimeTraceProjRestrictedHeld{MS: 1.050, Seat: seat(0), Elsewhere: true, Refs: []string{"E7"}},
+			zh: "其中CPU亲和/cpuset限制下1.050ms是本线程runnable时间里受限的那一部分,已含在[E7]账内,不另计",
+			en: "of which 1.050ms under the CPU affinity/cpuset restriction is the restricted part of this thread's runnable time, already inside the account of [E7], never added again"},
+		{name: "not split, the row keeps its own account", held: runtimeTraceProjRestrictedHeld{MS: 0.500, Seat: seat(0), OwnAccount: true},
+			zh: "CPU亲和/cpuset限制下0.500ms落在本行时段内(本行另列自账)",
+			en: "0.500ms under the CPU affinity/cpuset restriction lies inside the time of this row (this row keeps its own separate account)"},
+	} {
+		for _, zh := range []bool{true, false} {
+			want := c.en
+			if zh {
+				want = c.zh
+			}
+			got := runtimeTraceProjRestrictedHeldText(c.held, zh)
+			if got != want {
+				t.Errorf("[%s] zh=%t:\n got %q\nwant %q", c.name, zh, got, want)
+			}
+			if c.held.Seat.RestrictedReadyAccountMS > 0 && strings.Contains(got, hmc377R16RestrictedWord(zh)) {
+				t.Errorf("[%s] zh=%t: a part of a split account is never given as the thread's restricted time: %q", c.name, zh, got)
+			}
+		}
+	}
+}
+
 // R-377-16 ④, the rank preview: a board row whose absorbed member is a
 // CPU-restriction seat carries the restricted time inside it and the engine's
 // constraint judgment under the keys the seat's own record carries (the seat
@@ -770,7 +910,8 @@ func TestHMC377R16RankPreviewCarriesTheAbsorbedRestriction(t *testing.T) {
 //   - part, review window w01 [2493.173005, 2494.208465) TID 56888:
 //     udk-irq-7-76's chain row 「runnable 11.364ms」 holds 11.364 of the seat's
 //     18.308 ms restricted ready account; the seat (6.944) is a member of the
-//     ◇ context fold row;
+//     ◇ context fold row; the row states 「…下合计18.308ms:其中11.364ms已含在
+//     本行账内,不另计」;
 //   - whole, review window zr23 [2498.683045, 2498.883045) TID 56984:
 //     Dns_100_10098-57468's restriction seat (0.038) is an absorbed member of
 //     its chain row 「runnable 7.940ms」.
@@ -781,11 +922,12 @@ func TestHMC377R16WholeOriginalChainRowStatesItsRestrictedTime(t *testing.T) {
 		tid        int
 		start, end float64
 		head, ms   string
+		account    string
 		descZH     string
 		descEN     string
 		pointer    bool
 	}{
-		{name: "part w01", tid: 56888, start: 2493.173005, end: 2494.208465, head: "udk-irq-7-76 · runnable", ms: "11.364",
+		{name: "part w01", tid: 56888, start: 2493.173005, end: 2494.208465, head: "udk-irq-7-76 · runnable", ms: "11.364", account: "18.308",
 			descZH: hmc377R16DescZH, descEN: hmc377R16DescEN},
 		{name: "whole zr23", tid: 56984, start: 2498.683045, end: 2498.883045, head: "Dns_100_10098-57468 · runnable", ms: "0.038",
 			descZH: "CPU约束描述:判定依据 sched_switch_next_info", descEN: "CPU-constraint description: basis sched_switch_next_info", pointer: true},
@@ -802,6 +944,15 @@ func TestHMC377R16WholeOriginalChainRowStatesItsRestrictedTime(t *testing.T) {
 					t.Fatalf("zh=%t: the chain row is drawn", zh)
 				}
 				want := hmc377R16OfWhich(c.ms, zh)
+				if c.account != "" {
+					// The seat's account is split between rows: the row states
+					// the whole account beside its part, never the part as the
+					// thread's restricted time.
+					want = hmc377R16OfAccount(c.account, c.ms, zh)
+					if hmc377R16Has(block, hmc377R16RestrictedWord(zh)) {
+						t.Errorf("zh=%t: a part of a split account is never given as the thread's restricted time:\n%s", zh, block)
+					}
+				}
 				if c.pointer {
 					want += " [E"
 				}
