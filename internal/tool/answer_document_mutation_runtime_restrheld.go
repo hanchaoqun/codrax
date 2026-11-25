@@ -392,10 +392,12 @@ func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh 
 // words (the finalizer request, R-377-17 ④), in the reader's sentence
 // (runtimeTraceProjRestrictedHeldText): on a holder's line (elsewhere false)
 // the restricted time inside this line's account — beside the seat's whole
-// account where the engine split it — with refs naming the other lines the
-// claim names; on the restriction seat's own line (elsewhere true) the seat's
-// account and the lines its part lies inside (refs, at least one). refs are
-// written verbatim.
+// account where the engine split it. The request passes no refs there: a
+// claim whose holders sit on several lines is stated on the seat's own line
+// only (R-377-19 ①), and refs on a holder's line would select the reader's
+// co-holder words (registered R16X-6). On the restriction seat's own line
+// (elsewhere true) it words the seat's account and the lines its part lies
+// inside (refs, at least one). refs are written verbatim.
 func TraceRestrictedReadyLineText(hold TraceRestrictedReadyHold, elsewhere bool, refs []string, zh bool) string {
 	return runtimeTraceProjRestrictedHeldWords(runtimeTraceProjRestrictedHeld{MS: hold.MS, Seat: hold.Seat,
 		Elsewhere: elsewhere, OwnAccount: hold.OwnAccount}, refs, zh)

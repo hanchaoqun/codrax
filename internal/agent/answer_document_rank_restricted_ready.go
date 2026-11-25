@@ -16,8 +16,11 @@ package agent
 //
 // The section lists every ranked seat of a board on a line of its own under
 // its ordinal, so a hold is placed on the seats' own lines: the holder's line
-// is the line whose record the claim names (an absorbed member's: the first
-// line wearing its family key, an opaque identity), the restriction seat's
+// is the line whose record the claim names (an absorbed member's: the line
+// wearing its family key, an opaque identity; where several lines wear one
+// key the last is kept, while the reader keeps the first drawn row and the
+// summary the first board row — one host rule for every face is registered
+// R16X-7, and no real board has two rows wearing one key), the restriction seat's
 // line is the seat's own (an engine-absorbed member has none).
 //   - The holder's line says how much restricted time lies inside its account
 //     (beside the seat's whole account where the engine split it) and, on the
@@ -129,7 +132,8 @@ func traceRankRestrictedReadyPlace(set types.TraceCausalProjectionSet, authoriti
 		holds := tool.TraceRestrictedReadyHolds(projection)
 		// The lines of this projection by the record ids they stand for and
 		// by the family key they wear. A record is one line of the roster (a
-		// merged record leaves its own seat), and one family row wears a key.
+		// merged record leaves its own seat). On real boards one row wears a
+		// family key; where several do, byFamily keeps the last (R16X-7).
 		byID := map[string]traceRankRestrictedAt{}
 		byFamily := map[string]traceRankRestrictedAt{}
 		for a, authority := range authorities {

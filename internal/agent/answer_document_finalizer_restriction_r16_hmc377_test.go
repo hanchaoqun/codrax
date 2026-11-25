@@ -589,3 +589,33 @@ func TestHMC377R16FinalizerWritesNoDescriptionWithoutTheTypedJudgment(t *testing
 		"#2 udk-irq-7-76：runnable；估算优化潜力影响 4.250ms => CPU亲和/cpuset限制下合计6.606ms:其中3.913ms已含在本行账内,不另计",
 	})
 }
+
+// One thread's restriction seat hands one part to a line of the support list
+// (list 1, its second line) and one part to a line of the chain list (list 2,
+// its first line). The thread's description goes on its first holding line in
+// the section's order, so on the support list's line: the order compares the
+// lists before the seats on them (separating shape of the merge verifier's
+// mutant N13, 2026-11-25).
+func TestHMC377R16FinalizerDescriptionFollowsTheSectionOrderAcrossLists(t *testing.T) {
+	records := []types.ObservationRecord{
+		hmc377R16FChain(1, "udk-irq-7-76", 76, "4.250"),
+		hmc377R16FSeat(2, 1, "udk-irq-7-76", 76, "2.693", append(hmc377R16FSplit("6.606", "3.913", "2.693", "anchored/residual_seat/1/1/0/3.000/3;unwalked/unwalked_seat/1/1/0/0.913/1"),
+			hmc377R16FConstraint("7", "0,1,2,3,4,5,6")...)...),
+		hmc377R16FRecord(3, "root_cause_adjacent", "udk-irq-7-76", 76, "runnable_wait", "3.000", "rank=2", "tier=tertiary", "source=window_stats", "causality=adjacent_to_wakeup_chain", "chain_relevance=adjacent"),
+	}
+	got := hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...))
+	support := "原始排序 #2 udk-irq-7-76：runnable；原始排序计量 3.000ms（仅支撑，不授予根因或优化收益）"
+	chain := "#1 udk-irq-7-76：runnable；估算优化潜力影响 4.250ms"
+	var onSupport, onChain int
+	for _, l := range got {
+		switch l {
+		case support + " => " + hmc377R16FDesc7ZH:
+			onSupport++
+		case chain + " => " + hmc377R16FDesc7ZH:
+			onChain++
+		}
+	}
+	if onSupport != 1 || onChain != 0 {
+		t.Errorf("the description sits once on the thread's first holding line in the section's order (the support list's line): support %d, chain %d\n  %s", onSupport, onChain, strings.Join(got, "\n  "))
+	}
+}
