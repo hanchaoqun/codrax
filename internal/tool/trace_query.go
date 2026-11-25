@@ -8826,7 +8826,42 @@ const traceQueryTargetWaitOccurrencePreviewCap = 8
 const (
 	traceQueryRootCauseRankPreviewCap    = 12
 	traceQueryRootCauseOverlapPreviewCap = 4
+	// traceQueryRankPreviewRowPrefix opens every row of the rank preview;
+	// traceQueryRankRestrictedReadyKey opens the restricted-ready fields a
+	// row may end with (traceQueryRankRestrictedReadyFields). The writer and
+	// traceQuerySummaryUnchargedSpans share both.
+	traceQueryRankPreviewRowPrefix   = "- root_cause_rank_preview_row "
+	traceQueryRankRestrictedReadyKey = " cpu_restricted_ready_inside_this_row="
 )
+
+// traceQuerySummaryUnchargedSpans returns the byte ranges of a trace_query
+// summary that the rank preview's restricted-ready fields occupy (R-377-16 ④):
+// on every rank preview row that carries them, from the fields' key to the end
+// of the row — the writer appends them last. StoreBlob does not charge these
+// bytes to its budgets, so the fields never move another line of the summary
+// out of the head (the rows themselves sit in the head by construction,
+// B37-RANKPREVIEW). The key is matched verbatim on the writer's own row; a
+// line that is no preview row is never a span.
+func traceQuerySummaryUnchargedSpans(summary string) []blobSpan {
+	var spans []blobSpan
+	for pos := 0; pos < len(summary); {
+		at := strings.Index(summary[pos:], traceQueryRankRestrictedReadyKey)
+		if at < 0 {
+			break
+		}
+		at += pos
+		lineStart := strings.LastIndexByte(summary[:at], '\n') + 1
+		lineEnd := len(summary)
+		if nl := strings.IndexByte(summary[at:], '\n'); nl >= 0 {
+			lineEnd = at + nl
+		}
+		if strings.HasPrefix(summary[lineStart:], traceQueryRankPreviewRowPrefix) {
+			spans = append(spans, blobSpan{start: at, end: lineEnd})
+		}
+		pos = lineEnd
+	}
+	return spans
+}
 
 // traceQueryRootCauseRankForHeadPreview picks the same typed board that the
 // long result body will publish. Composite frame views may carry the board on
@@ -8895,7 +8930,7 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 		if item.OwnWorkOnCPUMs > 0 {
 			members += fmt.Sprintf(" own_work_on_cpu=%.3fms", item.OwnWorkOnCPUMs)
 		}
-		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%s cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s%s\n",
+		fmt.Fprintf(b, traceQueryRankPreviewRowPrefix+"board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%s cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s%s\n",
 			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
 			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), magnitudeField,
 			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), members,

@@ -98,19 +98,35 @@ func PreviewTailBytesValue() int { return previewTailBytes }
 //
 // The hint embedded in the preview is the only contract by which a
 // downstream agent learns about the ref — keep it explicit.
+//
+// Uncharged row fields (HMC377 round 16 fix-up, 2026-11-24): a trace_query
+// summary may carry fields its writer appended to an existing head row (the
+// rank preview's restricted-ready fields, R-377-16 ④). Their bytes count
+// against neither the inline threshold nor the head budget, so the preview
+// keeps every line it would show without them: a fact added to a row never
+// pushes another line out of the model's view (review-population n24m: 162 B
+// on one preview row moved the 「## Wakeup chain」 header and two chain paths
+// out of the head).
 func StoreBlob(ctx *types.BusContext, toolName string, output string) (summary, ref string) {
 	if len(output) <= MaxInlineBytes {
 		return output, ""
+	}
+	var uncharged []blobSpan
+	if toolName == "trace_query" {
+		uncharged = traceQuerySummaryUnchargedSpans(output)
+		if len(output)-blobSpanBytes(uncharged) <= MaxInlineBytes {
+			return output, ""
+		}
 	}
 
 	data := []byte(output)
 
 	if ctx == nil || ctx.WorkDir == "" {
-		return buildPreview(data, ""), ""
+		return buildPreviewUncharged(data, "", uncharged), ""
 	}
 	if toolName == "trace_query" {
 		path := storeImmutableTraceResult(ctx.WorkDir, toolName+".txt", output)
-		return buildPreview(data, path), path
+		return buildPreviewUncharged(data, path, uncharged), path
 	}
 
 	if err := os.MkdirAll(ctx.WorkDir, 0o755); err != nil {
@@ -126,6 +142,33 @@ func StoreBlob(ctx *types.BusContext, toolName string, output string) (summary, 
 	}
 
 	return buildPreview(data, path), path
+}
+
+// blobSpan is a byte range [start, end) of a tool output whose bytes are not
+// charged to a preview budget. Spans are ordered, disjoint and each lies
+// inside one line.
+type blobSpan struct{ start, end int }
+
+func blobSpanBytes(spans []blobSpan) int {
+	n := 0
+	for _, s := range spans {
+		n += s.end - s.start
+	}
+	return n
+}
+
+// blobHeadBudget returns the head budget in bytes of the output itself: the
+// charged budget plus every uncharged span that starts inside the head. The
+// head cut then falls on the line boundary it would fall on with the spans
+// taken out of the output — a span past that boundary changes nothing.
+func blobHeadBudget(budget int, uncharged []blobSpan) int {
+	for _, s := range uncharged {
+		if s.start >= budget {
+			break
+		}
+		budget += s.end - s.start
+	}
+	return budget
 }
 
 // StoreBlobHeadOnly is the file-aware variant used by tools like
@@ -447,9 +490,15 @@ func countLines(data []byte) int {
 // instructions. When ref is empty the trailing hint is dropped because
 // the caller had no way to persist the full content.
 func buildPreview(data []byte, ref string) string {
+	return buildPreviewUncharged(data, ref, nil)
+}
+
+// buildPreviewUncharged is buildPreview with spans of data that are not
+// charged to the head budget (see StoreBlob).
+func buildPreviewUncharged(data []byte, ref string, uncharged []blobSpan) string {
 	total := len(data)
 
-	head := cutHeadAtBoundary(data, previewHeadBytes)
+	head := cutHeadAtBoundary(data, blobHeadBudget(previewHeadBytes, uncharged))
 
 	// Head and tail must not overlap; if the data is barely over the
 	// threshold, just return the head with a truncation note.

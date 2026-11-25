@@ -536,7 +536,7 @@ func traceQueryRankRestrictedReadyFields(rank *tracequery.RootCauseRankResult) m
 				continue
 			}
 			var b strings.Builder
-			fmt.Fprintf(&b, " cpu_restricted_ready_inside_this_row=%.3fms", ms)
+			fmt.Fprintf(&b, traceQueryRankRestrictedReadyKey+"%.3fms", ms)
 			for _, kv := range traceQueryCPUConstraintKVs(seat) {
 				if kv[0] == types.TraceNoteKeyCPUConstraintPolicy || strings.TrimSpace(kv[1]) == "" {
 					continue

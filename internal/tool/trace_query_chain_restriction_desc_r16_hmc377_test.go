@@ -29,6 +29,7 @@ package tool
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -902,6 +903,252 @@ func TestHMC377R16RankPreviewCarriesTheAbsorbedRestriction(t *testing.T) {
 	}
 	if part := hmc377R16Run(t, hmc377R16PartResult(true)).preview; strings.Contains(part, "cpu_restricted_ready_inside_this_row") || strings.Contains(part, "cpu_constraint_") {
 		t.Errorf("a seat with a board row of its own speaks there; the holding row's preview is unchanged:\n%s", part)
+	}
+}
+
+// hmc377R16RestrictedFieldsRE matches the restricted-ready fields at the end of
+// a rank preview row (the test's own reading of the row, not the product's).
+var hmc377R16RestrictedFieldsRE = regexp.MustCompile(`(?m)^(- root_cause_rank_preview_row .*?) cpu_restricted_ready_inside_this_row=\S+( cpu_constraint_\S+=\S+)*$`)
+
+// hmc377R16WithoutRestrictedFields takes the restricted-ready fields out of
+// every rank preview row of a summary.
+func hmc377R16WithoutRestrictedFields(summary string) string {
+	return hmc377R16RestrictedFieldsRE.ReplaceAllString(summary, "$1")
+}
+
+// hmc377R16LongSummary is the production summary of a result followed by body
+// lines far past the blob preview's head (each shorter than the restricted-
+// ready fields, so charging the fields to the head would move the cut).
+func hmc377R16LongSummary(t *testing.T, result tracequery.Result) string {
+	t.Helper()
+	summary := traceQuerySummary(result, traceQueryParams{View: "root_cause_rank"}, "path", "payload")
+	if len(summary) >= previewHeadBytes/2 {
+		t.Fatalf("fixture precondition: the rank preview sits inside the head (summary %d B, head %d B)", len(summary), previewHeadBytes)
+	}
+	var b strings.Builder
+	b.WriteString(summary)
+	for i := 0; b.Len() < MaxInlineBytes+3*previewHeadBytes; i++ {
+		fmt.Fprintf(&b, "- body_line index=%06d value=%06d\n", i, i*7)
+	}
+	return b.String()
+}
+
+// Review finding of round 16 (fix-up, 2026-11-24): the restricted-ready fields
+// a rank preview row gains (R-377-16 ④) are a fact added to an existing row of
+// the model-facing summary; they must not move another line out of the blob
+// preview's head. new n24m (网易云 终端重启 #5, [151.362553, 151.509196) TID
+// 11077): 162 B on the row of udk-irq-7-76 moved 「## Wakeup chain」 and the two
+// wakeup_chain path lines behind the truncation marker (n30m: one
+// state_drilldown line; pop w22m: two wakeup_edge_census lines).
+//
+// The production summary of the whole shape and the same summary with the
+// fields taken out go through the production store: with the fields taken out
+// of its preview, the first preview is the second, byte for byte — head lines,
+// truncation marker and tail.
+func TestHMC377R16RestrictedReadyFieldsDoNotMoveTheSummaryHead(t *testing.T) {
+	with := hmc377R16LongSummary(t, hmc377R16WholeResult())
+	without := hmc377R16WithoutRestrictedFields(with)
+	const fields = " cpu_restricted_ready_inside_this_row=0.038ms cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 cpu_constraint_excluded_cpus=0,1,2,3,4,5,6"
+	if strings.Count(with, fields) != 1 || strings.Replace(with, fields, "", 1) != without {
+		t.Fatalf("fixture precondition: the two summaries differ by the holding row's fields only")
+	}
+	// Both store paths: no work directory (preview only) and a work directory
+	// (the stored summary's path rides in the truncation marker).
+	stored := regexp.MustCompile(`trace_query-[0-9a-f]{64}\.txt`)
+	for name, ctx := range map[string]*types.BusContext{"no work directory": nil, "work directory": {WorkDir: t.TempDir()}} {
+		previewWith, refWith := StoreBlob(ctx, "trace_query", with)
+		previewWithout, refWithout := StoreBlob(ctx, "trace_query", without)
+		if !strings.Contains(previewWith, fields) || !strings.Contains(previewWithout, "…[truncated ") || (ctx != nil) != (refWith != "" && refWithout != "") {
+			t.Fatalf("%s: fixture precondition: both summaries are previewed and the holding row is in the head", name)
+		}
+		got, want := stored.ReplaceAllString(strings.Replace(previewWith, fields, "", 1), "trace_query-H.txt"), stored.ReplaceAllString(previewWithout, "trace_query-H.txt")
+		if got != want {
+			gl, wl := strings.Split(got, "\n"), strings.Split(want, "\n")
+			t.Errorf("%s: the fields move no other line of the preview: %d line(s) with them, %d without; head budget %d B", name, len(gl), len(wl), previewHeadBytes)
+			for i := 0; i < len(gl) && i < len(wl); i++ {
+				if gl[i] != wl[i] {
+					t.Errorf("first differing line %d:\n with: %q\n without: %q", i+1, gl[i], wl[i])
+					break
+				}
+			}
+		}
+		if refWith != "" {
+			if full, err := os.ReadFile(refWith); err != nil || string(full) != with {
+				t.Errorf("%s: the stored summary is the whole summary, fields included (err=%v)", name, err)
+			}
+		}
+	}
+	previewWithout, _ := StoreBlob(nil, "trace_query", without)
+	// Only a trace_query summary carries such rows: any other tool's output is
+	// charged byte for byte.
+	other, _ := StoreBlob(nil, "exec_command", with)
+	if want := buildPreview([]byte(with), ""); other != want || strings.Replace(other, fields, "", 1) == previewWithout {
+		t.Errorf("another tool's output is previewed under the plain budget")
+	}
+}
+
+// hmc377R16PreviewRow is a rank preview row in the writer's form, with or
+// without the restricted-ready fields; hmc377R16BodyLines are n ordinary lines.
+func hmc377R16PreviewRow(order int, fields string) string {
+	return fmt.Sprintf("- root_cause_rank_preview_row board_order=%d rank=%d source=window_stats%s\n", order, order, fields)
+}
+
+func hmc377R16BodyLines(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "- body_line index=%06d value=%06d\n", i, i*7)
+	}
+	return b.String()
+}
+
+const hmc377R16ShortFields = " cpu_restricted_ready_inside_this_row=0.038ms cpu_constraint_kind=sched_switch_next_info"
+
+// The bytes the store does not charge are exactly the restricted-ready fields
+// of the rank preview rows that carry them: from the fields' key to the end of
+// the row, on a line that is a preview row — never the row itself, never the
+// same key on another line.
+func TestHMC377R16UnchargedSpansAreThePreviewRowFields(t *testing.T) {
+	const fields = hmc377R16ShortFields
+	text := "head\n" + hmc377R16PreviewRow(1, fields) + "note" + fields + "\n" + hmc377R16PreviewRow(2, "") + hmc377R16PreviewRow(3, fields)
+	spans := traceQuerySummaryUnchargedSpans(text)
+	if len(spans) != 2 || text[spans[0].start:spans[0].end] != fields || text[spans[1].start:spans[1].end] != fields ||
+		!strings.HasSuffix(text[:spans[0].start], "head\n- root_cause_rank_preview_row board_order=1 rank=1 source=window_stats") ||
+		!strings.HasSuffix(text[:spans[1].start], "board_order=3 rank=3 source=window_stats") {
+		t.Errorf("the uncharged spans are the fields of the two preview rows that carry them: %+v", spans)
+	}
+	if blobSpanBytes(spans) != 2*len(fields) || len(traceQuerySummaryUnchargedSpans(strings.ReplaceAll(text, fields, ""))) != 0 {
+		t.Errorf("span bytes are the fields' bytes; a summary without fields has no span")
+	}
+	// The production writer's row: the span is the fields it appended.
+	summary := traceQuerySummary(hmc377R16WholeResult(), traceQueryParams{View: "root_cause_rank"}, "path", "payload")
+	const written = " cpu_restricted_ready_inside_this_row=0.038ms cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 cpu_constraint_excluded_cpus=0,1,2,3,4,5,6"
+	if got := traceQuerySummaryUnchargedSpans(summary); len(got) != 1 || summary[got[0].start:got[0].end] != written || summary[got[0].end] != '\n' {
+		t.Errorf("the writer's holding row yields one span, its fields: %+v", got)
+	}
+}
+
+// Only fields of a row that starts inside the head extend it: fields behind
+// the head change nothing before the truncation marker, the same key on a line
+// that is no preview row is charged, and an output that fits inline without
+// the fields is returned whole.
+func TestHMC377R16OnlyHeadRowFieldsAreUncharged(t *testing.T) {
+	const fields = hmc377R16ShortFields
+	row, body := hmc377R16PreviewRow, hmc377R16BodyLines
+	headOf := func(preview string) string {
+		at := strings.Index(preview, "\n…[truncated ")
+		if at < 0 {
+			t.Fatalf("a previewed output carries the truncation marker")
+		}
+		return preview[:at]
+	}
+	lines := (MaxInlineBytes + 3*previewHeadBytes) / len(body(1))
+	// A row behind the head: its fields are no part of the head budget.
+	behind := body(lines) + row(1, fields) + body(lines)
+	plain := body(lines) + row(1, "") + body(lines)
+	if a, b := headOf(mustPreview(t, behind)), headOf(mustPreview(t, plain)); a != b {
+		t.Errorf("fields behind the head leave the head as it is: %d B against %d B", len(a), len(b))
+	}
+	// The key on a line that is no preview row is charged like any byte.
+	noRow := "note" + fields + "\n" + body(lines)
+	if got, want := mustPreview(t, noRow), buildPreview([]byte(noRow), ""); got != want {
+		t.Errorf("a line that is no rank preview row is charged")
+	}
+	// Inline threshold: the output without the fields fits inline, so the
+	// output with them is returned whole.
+	fits := row(1, "") + body(lines)
+	fits = fits[:strings.LastIndexByte(fits[:MaxInlineBytes], '\n')+1]
+	withFields := strings.Replace(fits, row(1, ""), row(1, fields), 1)
+	if len(fits) > MaxInlineBytes || len(withFields) <= MaxInlineBytes {
+		t.Fatalf("fixture precondition: %d B fits inline, %d B does not", len(fits), len(withFields))
+	}
+	if got, ref := StoreBlob(nil, "trace_query", withFields); got != withFields || ref != "" {
+		t.Errorf("an output that fits inline without the fields is returned whole (%d B returned of %d B)", len(got), len(withFields))
+	}
+	// A few lines more of ordinary content and both are previewed, with the same lines.
+	over, overWith := fits+body(4), withFields+body(4)
+	if a, b := mustPreview(t, overWith), mustPreview(t, over); strings.Replace(a, fields, "", 1) != b {
+		t.Errorf("past the inline threshold the fields move no line of the preview")
+	}
+}
+
+func mustPreview(t *testing.T, output string) string {
+	t.Helper()
+	preview, _ := StoreBlob(nil, "trace_query", output)
+	if !strings.Contains(preview, "truncated") {
+		t.Fatalf("the %d B output is previewed", len(output))
+	}
+	return preview
+}
+
+// 105 网易云音乐 终端重启 #5 (CODRAX_HMC376_NETEASE_REBOOT_FRAME), review window
+// n24m [151.362553, 151.509196) TID 11077, on the original capture through the
+// public trace_query entry: the rank summary's head, with the restricted-ready
+// fields taken out, is the head of the stored summary with them taken out —
+// the fields moved no line behind the truncation marker.
+//
+// Where the cut falls depends on every byte before it (the run's own directory
+// name is in the summary), so one run meets one cut position. The stored
+// summary then goes through the production store again under every head budget
+// of a 2,048 B range: each line boundary near the cut is met with every amount
+// of room left before it, the amounts smaller than the fields included.
+func TestHMC377R16WholeOriginalSummaryHeadKeepsItsLines(t *testing.T) {
+	path := hmc376Original(t, "CODRAX_HMC376_NETEASE_REBOOT_FRAME", hmc377NetEaseDigest, hmc377NetEaseSize)
+	hmc176DisableExternalProviders(t)
+	ctx, _, _ := hmc17NamedPathContext(t)
+	r := hmc17NamedQuery(t, ctx, map[string]any{"source": "path", "path": path, "view": "root_cause_rank", "pid": 11077,
+		"target_scope": "thread", "time_start": 151.362553, "time_end": 151.509196})
+	if !r.Success {
+		t.Fatalf("root_cause_rank: %s", r.Summary)
+	}
+	headOf := func(preview string) string {
+		at := strings.Index(preview, "\n…[truncated ")
+		if at < 0 {
+			t.Fatalf("the summary is previewed")
+		}
+		return preview[:at]
+	}
+	if strings.TrimSpace(r.RawRef) == "" {
+		t.Fatalf("the summary is stored")
+	}
+	const fields = " cpu_restricted_ready_inside_this_row=0.073ms cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 cpu_constraint_excluded_cpus=0,1,2,3,4,5,6\n"
+	head := headOf(r.Summary)
+	if !strings.Contains(head, fields) {
+		t.Fatalf("window precondition: the holding row of udk-irq-7-76 carries the restricted-ready fields in the head")
+	}
+	raw, err := os.ReadFile(r.RawRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, bare := string(raw), hmc377R16WithoutRestrictedFields(string(raw))
+	if len(full)-len(bare) != len(fields)-1 {
+		t.Fatalf("window precondition: one row of the stored summary carries the fields (%d B against %d B)", len(full), len(bare))
+	}
+	if got, want := hmc377R16WithoutRestrictedFields(head), cutHeadAtBoundary([]byte(bare), previewHeadBytes); got != want {
+		t.Errorf("the published head keeps the lines it has without the fields: %d B, want %d B", len(got), len(want))
+	}
+	budget := previewHeadBytes
+	t.Cleanup(func() { previewHeadBytes = budget })
+	moved, boundaries, last := 0, 0, -1
+	for b := budget - 2047; b <= budget; b++ {
+		previewHeadBytes = b
+		preview, _ := StoreBlob(nil, "trace_query", full)
+		want := cutHeadAtBoundary([]byte(bare), b)
+		if len(want) != last {
+			boundaries++
+			last = len(want)
+		}
+		if got := hmc377R16WithoutRestrictedFields(headOf(preview)); got != want {
+			if moved == 0 {
+				t.Errorf("head budget %d B: the head keeps the lines it has without the fields: %d B, want %d B (last line wanted %q)", b, len(got), len(want), want[strings.LastIndexByte(strings.TrimRight(want, "\n"), '\n')+1:])
+			}
+			moved++
+		}
+	}
+	if moved > 0 {
+		t.Errorf("the fields moved the cut under %d of 2048 head budgets", moved)
+	}
+	if boundaries < 4 {
+		t.Fatalf("sweep precondition: the range crosses several line boundaries, got %d", boundaries)
 	}
 }
 
