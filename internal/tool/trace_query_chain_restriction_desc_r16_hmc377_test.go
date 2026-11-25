@@ -727,7 +727,8 @@ func TestHMC377R16HoldingRowFollowsEveryDrawnIDClass(t *testing.T) {
 	for _, c := range cases {
 		model := runtimeTraceProjTreeModel{WindowMS: 100, Target: "app-100"}
 		c.place(&model)
-		runtimeTraceProjStampRestrictedHeld(&model, []types.TraceCausalProjectionNode{hmc377R16SeatNode(holder)}, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+		holds := TraceRestrictedReadyHolds(types.TraceCausalProjection{RankedSeats: []types.TraceCausalProjectionNode{hmc377R16SeatNode(holder)}})
+		runtimeTraceProjStampRestrictedHeld(&model, holds, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 		var got []string
 		for _, row := range runtimeTraceProjSMR1AllRows(&model) {
 			for _, held := range row.RestrictedHeld {
@@ -795,10 +796,10 @@ func TestHMC377R16PartOfASplitAccountIsStatedBesideTheWholeAccount(t *testing.T)
 }
 
 // The one wording rule over every form of the holding row's line: where the
-// engine typed the seat's restricted ready account as split
-// (RestrictedReadyAccountMS), the line states that account and the row's part —
-// also when the part equals the account — and never the 「其中」 sentence's
-// thread-scope words; a seat without the typed split keeps its forms.
+// seat's typed restricted ready account exceeds the part the row states
+// (TraceRestrictedReadySplit, R-377-17 ①②), the line states that account and
+// the row's part and never the 「其中」 sentence's thread-scope words; a seat
+// whose account is the stated time (or has none) keeps the 「其中」 forms.
 func TestHMC377R16HeldSentenceStatesTheSplitAccountInEveryForm(t *testing.T) {
 	seat := func(account float64) types.TraceCausalProjectionNode {
 		return types.TraceCausalProjectionNode{Subject: hmc377R16Subject, Object: "cpu_affinity_or_cpuset", TypeToken: "cpu_affinity_or_cpuset",
@@ -812,9 +813,12 @@ func TestHMC377R16HeldSentenceStatesTheSplitAccountInEveryForm(t *testing.T) {
 		{name: "split, the row's own account", held: runtimeTraceProjRestrictedHeld{MS: 11.364, Seat: seat(18.308)},
 			zh: "CPU亲和/cpuset限制下合计18.308ms:其中11.364ms已含在本行账内,不另计",
 			en: "18.308ms under the CPU affinity/cpuset restriction in all: of which 11.364ms is already inside this row's account, never added again"},
-		{name: "split, the part equals the account", held: runtimeTraceProjRestrictedHeld{MS: 18.308, Seat: seat(18.308)},
-			zh: "CPU亲和/cpuset限制下合计18.308ms:其中18.308ms已含在本行账内,不另计",
-			en: "18.308ms under the CPU affinity/cpuset restriction in all: of which 18.308ms is already inside this row's account, never added again"},
+		{name: "not split, the part is the whole account", held: runtimeTraceProjRestrictedHeld{MS: 18.308, Seat: seat(18.308)},
+			zh: "其中CPU亲和/cpuset限制下18.308ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计",
+			en: "of which 18.308ms under the CPU affinity/cpuset restriction is the restricted part of this thread's runnable time, already inside this row's account, never added again"},
+		{name: "split, several seats inside the row under their own [E#]", held: runtimeTraceProjRestrictedHeld{MS: 0.272, Seat: seat(19.025), Elsewhere: true, Refs: []string{"E32", "E33"}},
+			zh: "CPU亲和/cpuset限制下合计19.025ms:其中0.272ms已含在[E32]、[E33]账内,不另计",
+			en: "19.025ms under the CPU affinity/cpuset restriction in all: of which 0.272ms is already inside the accounts of [E32], [E33], never added again"},
 		{name: "split, a seat drawn inside the row under its own [E#]", held: runtimeTraceProjRestrictedHeld{MS: 0.272, Seat: seat(19.025), Elsewhere: true, Refs: []string{"E32"}},
 			zh: "CPU亲和/cpuset限制下合计19.025ms:其中0.272ms已含在[E32]账内,不另计",
 			en: "19.025ms under the CPU affinity/cpuset restriction in all: of which 0.272ms is already inside the account of [E32], never added again"},
@@ -852,37 +856,54 @@ func TestHMC377R16HeldSentenceStatesTheSplitAccountInEveryForm(t *testing.T) {
 			if got != want {
 				t.Errorf("[%s] zh=%t:\n got %q\nwant %q", c.name, zh, got, want)
 			}
-			if c.held.Seat.RestrictedReadyAccountMS > 0 && strings.Contains(got, hmc377R16RestrictedWord(zh)) {
+			if TraceRestrictedReadySplit(c.held.Seat.RestrictedReadyAccountMS, c.held.MS) && strings.Contains(got, hmc377R16RestrictedWord(zh)) {
 				t.Errorf("[%s] zh=%t: a part of a split account is never given as the thread's restricted time: %q", c.name, zh, got)
 			}
 		}
 	}
 }
 
-// R-377-16 ④, the rank preview: a board row whose absorbed member is a
-// CPU-restriction seat carries the restricted time inside it and the engine's
-// constraint judgment under the keys the seat's own record carries (the seat
-// is no row of the board). A seat that keeps a board row of its own speaks
-// there: the preview of the part shape is unchanged, row for row.
+// R-377-16 ④ / R-377-17 ②, the rank preview: a board row that holds restricted
+// ready instants of a CPU-restriction seat carries the restricted time inside
+// it under one key on both arms and, once per thread, the engine's constraint
+// judgment under the keys the seat's own record carries. The whole arm (the
+// seat is an absorbed member, no row of the board) gives the time alone; the
+// part arm gives the seat's split account beside it under the record's key —
+// whether the reader draws the seat as a row of its own or folds it.
 func TestHMC377R16RankPreviewCarriesTheAbsorbedRestriction(t *testing.T) {
-	whole := hmc377R16WholeResult()
-	preview := hmc377R16Run(t, whole).preview
-	const fields = " cpu_restricted_ready_inside_this_row=0.038ms cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 cpu_constraint_excluded_cpus=0,1,2,3,4,5,6"
-	var holding []string
-	for _, l := range strings.Split(preview, "\n") {
-		if strings.Contains(l, "cpu_restricted_ready_inside_this_row") || strings.Contains(l, "cpu_constraint_") {
-			holding = append(holding, l)
+	const judgment = " cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 cpu_constraint_excluded_cpus=0,1,2,3,4,5,6"
+	for _, c := range []struct {
+		name   string
+		result func() tracequery.Result
+		order  string
+		fields string
+		bare   func(tracequery.Result) tracequery.Result
+	}{
+		{name: "whole", result: hmc377R16WholeResult, order: "board_order=2 ", fields: " cpu_restricted_ready_inside_this_row=0.038ms" + judgment,
+			bare: func(r tracequery.Result) tracequery.Result { r.RootCauseRank.AbsorbedItems = nil; return r }},
+		{name: "part, seat folded on the reader face", result: func() tracequery.Result { return hmc377R16PartResult(true) }, order: "board_order=2 ",
+			fields: " cpu_restricted_ready_inside_this_row=11.364ms restricted_ready_account_ms=18.308" + judgment,
+			bare:   hmc377R16WithoutSeatClaims},
+		{name: "part, seat drawn on the reader face", result: func() tracequery.Result { return hmc377R16PartResult(false) }, order: "board_order=2 ",
+			fields: " cpu_restricted_ready_inside_this_row=11.364ms restricted_ready_account_ms=18.308" + judgment,
+			bare:   hmc377R16WithoutSeatClaims},
+	} {
+		preview := hmc377R16Run(t, c.result()).preview
+		var holding []string
+		for _, l := range strings.Split(preview, "\n") {
+			if strings.Contains(l, "cpu_restricted_ready_inside_this_row") || strings.Contains(l, "cpu_constraint_") || strings.Contains(l, "restricted_ready_account_ms") {
+				holding = append(holding, l)
+			}
 		}
-	}
-	if len(holding) != 1 || !strings.Contains(holding[0], "board_order=2 ") || !strings.Contains(holding[0], "subject="+hmc377R16Subject+" ") ||
-		!strings.HasSuffix(holding[0], "source=window_stats"+fields) {
-		t.Fatalf("the holding row, and only it, carries the restricted time and the constraint judgment:\n%s", preview)
-	}
-	// Every other byte of the preview is the preview of the same board without
-	// the absorbed member.
-	whole.RootCauseRank.AbsorbedItems = nil
-	if bare := hmc377R16Run(t, whole).preview; strings.Replace(preview, fields, "", 1) != bare {
-		t.Errorf("only the holding row's suffix is added:\n%s\n--- without the absorbed member:\n%s", preview, bare)
+		if len(holding) != 1 || !strings.Contains(holding[0], c.order) || !strings.Contains(holding[0], "subject="+hmc377R16Subject+" ") ||
+			!strings.HasSuffix(holding[0], "source=window_stats"+c.fields) {
+			t.Fatalf("[%s] the holding row, and only it, carries the restricted time, the split account and the judgment:\n%s", c.name, preview)
+		}
+		// Every other byte of the preview is the preview of the same board
+		// without the relation.
+		if bare := hmc377R16Run(t, c.bare(c.result())).preview; strings.Replace(preview, c.fields, "", 1) != bare {
+			t.Errorf("[%s] only the holding row's suffix is added:\n%s\n--- without the relation:\n%s", c.name, preview, bare)
+		}
 	}
 	// The seat's own record keeps its typed judgment, key order included.
 	for _, r := range traceQueryTypedObservations(hmc377R16PartResult(true), "capture.ftrace", "payload", "raw", "", time.Unix(0, 0).UTC()) {
@@ -901,14 +922,26 @@ func TestHMC377R16RankPreviewCarriesTheAbsorbedRestriction(t *testing.T) {
 			t.Errorf("the seat's record carries its judgment unchanged: %v", keys)
 		}
 	}
-	if part := hmc377R16Run(t, hmc377R16PartResult(true)).preview; strings.Contains(part, "cpu_restricted_ready_inside_this_row") || strings.Contains(part, "cpu_constraint_") {
-		t.Errorf("a seat with a board row of its own speaks there; the holding row's preview is unchanged:\n%s", part)
+}
+
+// hmc377R16WithoutSeatClaims drops the restriction seats' share claims: the
+// board without the hold relation.
+func hmc377R16WithoutSeatClaims(r tracequery.Result) tracequery.Result {
+	items := append([]tracequery.RootCauseRankItem(nil), r.RootCauseRank.Items...)
+	for i := range items {
+		if items[i].Type == "cpu_affinity_or_cpuset" {
+			items[i].ShareClaims = nil
+		}
 	}
+	rank := *r.RootCauseRank
+	rank.Items = items
+	r.RootCauseRank = &rank
+	return r
 }
 
 // hmc377R16RestrictedFieldsRE matches the restricted-ready fields at the end of
 // a rank preview row (the test's own reading of the row, not the product's).
-var hmc377R16RestrictedFieldsRE = regexp.MustCompile(`(?m)^(- root_cause_rank_preview_row .*?) cpu_restricted_ready_inside_this_row=\S+( cpu_constraint_\S+=\S+)*$`)
+var hmc377R16RestrictedFieldsRE = regexp.MustCompile(`(?m)^(- root_cause_rank_preview_row .*?) cpu_restricted_ready_inside_this_row=\S+( restricted_ready_account_ms=\S+)?( cpu_constraint_\S+=\S+)*$`)
 
 // hmc377R16WithoutRestrictedFields takes the restricted-ready fields out of
 // every rank preview row of a summary.
@@ -988,9 +1021,14 @@ func TestHMC377R16RestrictedReadyFieldsDoNotMoveTheSummaryHead(t *testing.T) {
 }
 
 // hmc377R16PreviewRow is a rank preview row in the writer's form, with or
-// without the restricted-ready fields; hmc377R16BodyLines are n ordinary lines.
+// without the restricted-ready fields; hmc377R16PreviewHeader is the header
+// line the writer puts above its rows; hmc377R16BodyLines are n ordinary lines.
 func hmc377R16PreviewRow(order int, fields string) string {
 	return fmt.Sprintf("- root_cause_rank_preview_row board_order=%d rank=%d source=window_stats%s\n", order, order, fields)
+}
+
+func hmc377R16PreviewHeader(emitted int) string {
+	return fmt.Sprintf("root_cause_rank_preview status=complete emitted=%d published_total=%d order=engine_published_board\n", emitted, emitted)
 }
 
 func hmc377R16BodyLines(n int) string {
@@ -1005,14 +1043,14 @@ const hmc377R16ShortFields = " cpu_restricted_ready_inside_this_row=0.038ms cpu_
 
 // The bytes the store does not charge are exactly the restricted-ready fields
 // of the rank preview rows that carry them: from the fields' key to the end of
-// the row, on a line that is a preview row — never the row itself, never the
-// same key on another line.
+// the row, on a row of the writer's preview block — never the row itself,
+// never the same key on another line.
 func TestHMC377R16UnchargedSpansAreThePreviewRowFields(t *testing.T) {
 	const fields = hmc377R16ShortFields
-	text := "head\n" + hmc377R16PreviewRow(1, fields) + "note" + fields + "\n" + hmc377R16PreviewRow(2, "") + hmc377R16PreviewRow(3, fields)
+	text := "head\n" + hmc377R16PreviewHeader(3) + hmc377R16PreviewRow(1, fields) + hmc377R16PreviewRow(2, "") + hmc377R16PreviewRow(3, fields) + "note" + fields + "\n"
 	spans := traceQuerySummaryUnchargedSpans(text)
 	if len(spans) != 2 || text[spans[0].start:spans[0].end] != fields || text[spans[1].start:spans[1].end] != fields ||
-		!strings.HasSuffix(text[:spans[0].start], "head\n- root_cause_rank_preview_row board_order=1 rank=1 source=window_stats") ||
+		!strings.HasSuffix(text[:spans[0].start], "head\n"+hmc377R16PreviewHeader(3)+"- root_cause_rank_preview_row board_order=1 rank=1 source=window_stats") ||
 		!strings.HasSuffix(text[:spans[1].start], "board_order=3 rank=3 source=window_stats") {
 		t.Errorf("the uncharged spans are the fields of the two preview rows that carry them: %+v", spans)
 	}
@@ -1043,8 +1081,9 @@ func TestHMC377R16OnlyHeadRowFieldsAreUncharged(t *testing.T) {
 	}
 	lines := (MaxInlineBytes + 3*previewHeadBytes) / len(body(1))
 	// A row behind the head: its fields are no part of the head budget.
-	behind := body(lines) + row(1, fields) + body(lines)
-	plain := body(lines) + row(1, "") + body(lines)
+	header := hmc377R16PreviewHeader(1)
+	behind := body(lines) + header + row(1, fields) + body(lines)
+	plain := body(lines) + header + row(1, "") + body(lines)
 	if a, b := headOf(mustPreview(t, behind)), headOf(mustPreview(t, plain)); a != b {
 		t.Errorf("fields behind the head leave the head as it is: %d B against %d B", len(a), len(b))
 	}
@@ -1055,7 +1094,7 @@ func TestHMC377R16OnlyHeadRowFieldsAreUncharged(t *testing.T) {
 	}
 	// Inline threshold: the output without the fields fits inline, so the
 	// output with them is returned whole.
-	fits := row(1, "") + body(lines)
+	fits := header + row(1, "") + body(lines)
 	fits = fits[:strings.LastIndexByte(fits[:MaxInlineBytes], '\n')+1]
 	withFields := strings.Replace(fits, row(1, ""), row(1, fields), 1)
 	if len(fits) > MaxInlineBytes || len(withFields) <= MaxInlineBytes {

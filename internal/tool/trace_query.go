@@ -8826,39 +8826,54 @@ const traceQueryTargetWaitOccurrencePreviewCap = 8
 const (
 	traceQueryRootCauseRankPreviewCap    = 12
 	traceQueryRootCauseOverlapPreviewCap = 4
-	// traceQueryRankPreviewRowPrefix opens every row of the rank preview;
+	// traceQueryRankPreviewHeaderPrefix opens the rank preview's header line
+	// and traceQueryRankPreviewRowPrefix every row below it;
 	// traceQueryRankRestrictedReadyKey opens the restricted-ready fields a
 	// row may end with (traceQueryRankRestrictedReadyFields). The writer and
-	// traceQuerySummaryUnchargedSpans share both.
-	traceQueryRankPreviewRowPrefix   = "- root_cause_rank_preview_row "
-	traceQueryRankRestrictedReadyKey = " cpu_restricted_ready_inside_this_row="
+	// traceQuerySummaryUnchargedSpans share all three.
+	traceQueryRankPreviewHeaderPrefix = "root_cause_rank_preview status="
+	traceQueryRankPreviewRowPrefix    = "- root_cause_rank_preview_row "
+	traceQueryRankRestrictedReadyKey  = " cpu_restricted_ready_inside_this_row="
 )
 
 // traceQuerySummaryUnchargedSpans returns the byte ranges of a trace_query
-// summary that the rank preview's restricted-ready fields occupy (R-377-16 ④):
-// on every rank preview row that carries them, from the fields' key to the end
-// of the row — the writer appends them last. StoreBlob does not charge these
-// bytes to its budgets, so the fields never move another line of the summary
-// out of the head (the rows themselves sit in the head by construction,
-// B37-RANKPREVIEW). The key is matched verbatim on the writer's own row; a
-// line that is no preview row is never a span.
+// summary that the rank preview's restricted-ready fields occupy (R-377-16 ④,
+// R-377-17 ①②): on the writer's own preview rows — the rows directly below a
+// rank preview header line, at most traceQueryRootCauseRankPreviewCap of them
+// per header — from the fields' key to the end of the row (the writer appends
+// them last). StoreBlob does not charge these bytes to its budgets, so the
+// fields never move another line of the summary out of the head (the rows
+// themselves sit in the head by construction, B37-RANKPREVIEW). A line that is
+// no row of a preview block is never a span, whatever it carries.
 func traceQuerySummaryUnchargedSpans(summary string) []blobSpan {
+	lineEnd := func(at int) int {
+		if nl := strings.IndexByte(summary[at:], '\n'); nl >= 0 {
+			return at + nl
+		}
+		return len(summary)
+	}
 	var spans []blobSpan
 	for pos := 0; pos < len(summary); {
-		at := strings.Index(summary[pos:], traceQueryRankRestrictedReadyKey)
+		at := strings.Index(summary[pos:], traceQueryRankPreviewHeaderPrefix)
 		if at < 0 {
 			break
 		}
 		at += pos
-		lineStart := strings.LastIndexByte(summary[:at], '\n') + 1
-		lineEnd := len(summary)
-		if nl := strings.IndexByte(summary[at:], '\n'); nl >= 0 {
-			lineEnd = at + nl
+		next := lineEnd(at) + 1
+		if at > 0 && summary[at-1] != '\n' {
+			// The header text inside another line opens no preview block.
+			pos = next
+			continue
 		}
-		if strings.HasPrefix(summary[lineStart:], traceQueryRankPreviewRowPrefix) {
-			spans = append(spans, blobSpan{start: at, end: lineEnd})
+		for rows := 0; rows < traceQueryRootCauseRankPreviewCap && next < len(summary) &&
+			strings.HasPrefix(summary[next:], traceQueryRankPreviewRowPrefix); rows++ {
+			end := lineEnd(next)
+			if key := strings.Index(summary[next:end], traceQueryRankRestrictedReadyKey); key >= 0 {
+				spans = append(spans, blobSpan{start: next + key, end: end})
+			}
+			next = end + 1
 		}
-		pos = lineEnd
+		pos = next
 	}
 	return spans
 }
@@ -8892,12 +8907,13 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 	if visible < len(rank.Items) {
 		status = "incomplete"
 	}
-	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=resolved_board_target_and_typed_on_chain_only adjacent_role=support_only background_role=support_only board_target=%s authority_scope=this_board_target_and_window\n",
+	fmt.Fprintf(b, traceQueryRankPreviewHeaderPrefix+"%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=resolved_board_target_and_typed_on_chain_only adjacent_role=support_only background_role=support_only board_target=%s authority_scope=this_board_target_and_window\n",
 		status, visible, len(rank.Items), sanitizeForBanner(traceThreadLabel(rank.Target)))
-	// HMC377 round 16 (R-377-16 ④): a row whose absorbed member is a
-	// CPU-restriction seat says how much of its time is restricted and under
-	// which constraint (every other row keeps its bytes).
-	restricted := traceQueryRankRestrictedReadyFields(rank)
+	// HMC377 round 16 (R-377-16 ④, R-377-17 ②): a row that holds restricted
+	// ready instants of a CPU-restriction seat says how much, the seat's split
+	// account and, once per thread, under which constraint (every other row
+	// keeps its bytes).
+	restricted := traceQueryRankRestrictedReadyFields(rank, visible)
 	for i := 0; i < visible; i++ {
 		item := rank.Items[i]
 		value := traceQueryRankImpactValue(item.Type)
@@ -9732,15 +9748,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		// a share claim (the record identity below keys on the same position).
 		shareHolderPositions := traceQueryShareHolderPositions(rankRows)
 		for i, item := range rankRows {
-			if i >= traceQueryWidthTypedFamilyRowCap() &&
-				!traceQueryRootCauseRankRowCapExempt(item) {
-				// The engine has already applied the root-cause candidate and
-				// side-row budgets before assigning ordinals.  This second,
-				// transport-side position cap therefore applies only to unseated
-				// diagnostics.  Cutting a Rank>0 row here creates an ordinal hole
-				// and silently removes an authoritative published cause from the
-				// projection.  The typed predicate below also retains the target's
-				// own supply-fold deficit seat, whose historical rank may be zero.
+			if !traceQueryRankRecordEmitted(i, item) {
 				continue
 			}
 			rank := item.Rank
@@ -9758,9 +9766,6 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				rank = i + 1
 			}
 			tier := firstNonEmptyTraceString(item.Tier, traceQueryRootCauseTierLabel(rank))
-			if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Summary) == "" {
-				continue
-			}
 			notes := traceQueryTypedOccurrenceWindowRichNotes(item.OccurrenceWindows)
 			var valueContext []types.ObservationValueContext
 			if strings.TrimSpace(item.Type) == "io_pressure" {
@@ -10117,7 +10122,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// rank-keyed ID would collide across them. Byte-identical to
 				// the pre-G9 shape whenever every row carries an ordinal
 				// (there rank == i+1 held by construction).
-				ID: fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
+				ID: traceQueryRankRecordID(scope, i+1),
 				TraceRankSubjects: &types.TraceRankSubjects{Target: targetCoordinate, Member: types.TraceThreadCoordinate{
 					TID: item.Thread.PID, TGID: item.Thread.TGID, Comm: item.Thread.Comm,
 				}},
@@ -11636,15 +11641,7 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	// and what the row counts itself (the face prints these engine numbers,
 	// never a difference of its own). The three ride together: the account
 	// only beside a share counted elsewhere.
-	restrictedAccount, countedElsewhere, countedHere := "", "", ""
-	if item.ShareCountedElsewhereMs > 0 {
-		countedElsewhere = traceQueryObservationMSValue(item.ShareCountedElsewhereMs)
-		countedHere = traceQueryObservationMSValue(item.ShareCountedHereMs)
-		if countedHere == "" {
-			countedHere = "0.000"
-		}
-		restrictedAccount = traceQueryObservationMSValue(item.RestrictedReadyAccountMs)
-	}
+	restrictedAccount, countedElsewhere, countedHere := traceQueryRestrictedSubsetNoteValues(item)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
 	// family — emitted only when the engine minted it (GatedShareFullMs > 0
 	// ⇔ the split ran on this seat pair; the overlap key rides the fail-open
@@ -11776,6 +11773,30 @@ func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map
 	if len(item.ShareClaims) == 0 {
 		return nil
 	}
+	return traceQueryTypedKVNotes([][2]string{{types.TraceNoteKeyShareClaims, types.EncodeTraceShareClaimsNote(traceQueryShareClaimNoteEntries(item, positions))}})
+}
+
+// traceQueryRestrictedSubsetNoteValues are the restriction subset's typed
+// fields (HMC377 round 12, R-377-12 ③) as a rank row's record carries them:
+// the account, the share counted elsewhere and the share counted here ride
+// together, only beside a share counted elsewhere. The rank summary's reading
+// of the row (traceQueryRankRestrictedReadySeat) reads the same values.
+func traceQueryRestrictedSubsetNoteValues(item tracequery.RootCauseRankItem) (account, elsewhere, here string) {
+	if item.ShareCountedElsewhereMs <= 0 {
+		return "", "", ""
+	}
+	elsewhere = traceQueryObservationMSValue(item.ShareCountedElsewhereMs)
+	here = traceQueryObservationMSValue(item.ShareCountedHereMs)
+	if here == "" {
+		here = "0.000"
+	}
+	return traceQueryObservationMSValue(item.RestrictedReadyAccountMs), elsewhere, here
+}
+
+// traceQueryShareClaimNoteEntries are the typed share-claim entries of one rank
+// row as its record's share_claims note carries them (traceQueryShareClaimsNotes),
+// holders named by their board positions.
+func traceQueryShareClaimNoteEntries(item tracequery.RootCauseRankItem, positions map[string]int) []types.TraceShareClaimNote {
 	claims := make([]types.TraceShareClaimNote, 0, len(item.ShareClaims))
 	for _, c := range item.ShareClaims {
 		note := types.TraceShareClaimNote{Part: string(c.Part), Role: string(c.Role), ShareMS: c.ShareMs, Resolved: c.Resolved, Exact: c.Exact, Represented: c.Represented}
@@ -11797,7 +11818,7 @@ func traceQueryShareClaimsNotes(item tracequery.RootCauseRankItem, positions map
 		}
 		claims = append(claims, note)
 	}
-	return traceQueryTypedKVNotes([][2]string{{types.TraceNoteKeyShareClaims, types.EncodeTraceShareClaimsNote(claims)}})
+	return claims
 }
 
 func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankItem) []string {
@@ -11854,6 +11875,33 @@ func traceQuerySelfSupplyFoldSeatCapExempt(item tracequery.RootCauseRankItem) bo
 // normal cap, except for the independently ruled self supply-fold seat.
 func traceQueryRootCauseRankRowCapExempt(item tracequery.RootCauseRankItem) bool {
 	return item.Rank > 0 || traceQuerySelfSupplyFoldSeatCapExempt(item)
+}
+
+// traceQueryRankRecordEmitted is THE predicate of which rank rows (Items then
+// AbsorbedItems, at position i) publish an observation record: every face
+// that reads the rank board through its records reads exactly these rows
+// (the restricted-ready decision of the rank summary included, R-377-17 ⑥).
+//
+// The engine has already applied the root-cause candidate and side-row
+// budgets before assigning ordinals. The transport-side position cap
+// therefore applies only to unseated diagnostics: cutting a Rank>0 row would
+// create an ordinal hole and silently remove an authoritative published cause
+// from the projection, and the typed exemption also retains the target's own
+// supply-fold deficit seat, whose historical rank may be zero. A row with
+// neither a type nor a summary publishes nothing.
+func traceQueryRankRecordEmitted(i int, item tracequery.RootCauseRankItem) bool {
+	if i >= traceQueryWidthTypedFamilyRowCap() && !traceQueryRootCauseRankRowCapExempt(item) {
+		return false
+	}
+	return strings.TrimSpace(item.Type) != "" || strings.TrimSpace(item.Summary) != ""
+}
+
+// traceQueryRankRecordID is the identity of the rank row at board position
+// pos (1-based, Items then AbsorbedItems): it keys on the position, not the
+// rank ordinal (G9 rows without a board seat carry Rank=0). Share-claim
+// holder positions resolve to the same ids (types.ParseTraceShareClaimsNote).
+func traceQueryRankRecordID(scope string, pos int) string {
+	return fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, pos)
 }
 
 // traceQueryWakeupCausalImpactFoldRecord builds the PTS zero-silent-drop fold

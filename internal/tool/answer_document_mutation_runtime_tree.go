@@ -4799,10 +4799,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// relation pass (members' ◇ twins keep their minted sentences; the fold
 	// bracket keeps their E#s on-page) and before bar scaling / badges.
 	//
-	// HMC377 round 16 (R-377-16 ③): the rows that price a share of a
-	// CPU-restriction seat not drawn as a row of its own are stamped first —
-	// the fold row takes its members' stamps.
-	runtimeTraceProjStampRestrictedHeld(&model, projection.RankedSeats, evidence, zh)
+	// HMC377 round 16 (R-377-16 ③, R-377-17 ③): the rows that price a share
+	// of a CPU-restriction seat not drawn as a row of its own are stamped
+	// first, from the one decision every face reads — the fold row takes its
+	// members' stamps.
+	runtimeTraceProjStampRestrictedHeld(&model, TraceRestrictedReadyHolds(projection), evidence, zh)
 	runtimeTraceProjFoldMicroAnchorSeats(&model)
 	// RNB-5B 默认小件c (§29.95 UX-4 对称): the 目标自身·墙钟席 qualifier covers
 	// the whole self wall-clock cause-seat family (runs after every SelfRows

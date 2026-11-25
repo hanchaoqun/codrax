@@ -18,30 +18,39 @@ package tool
 // thread-windows of the 315: ~/hmc-work/hmc377/fix15/scout/res/onchain_class_m14.txt).
 // Supply-side facts are must-not-lose on the chain.
 //
-// One predicate, evaluated once per (restriction seat, model) and read by both
-// languages and by every section that draws the holding row with its notes
-// (tree line, flat board, stanza rows, detail block). The relation is the
-// engine's, read from typed fields only:
-//   - (a) the restriction seat is an engine-absorbed member of the row
-//     (AbsorbedByRankFamily, AbsorbedInto == the row's RankFamilyKey — the
-//     host rule runtimeTraceProjAbsorbedChainHosts shares with the 「链上并入」
-//     note and the drawn-record index); where the family's seat is no row of
-//     its own on the face (its record is drawn inside its chain hop row), the
-//     absorbed seat's own resolved claim names that seat's record, as in (b);
-//   - (b) the restriction seat left part of its restricted ready time to rows
-//     of the published board (RestrictedReadyAccountMS and
-//     ShareCountedElsewhereMS) and the resolver's claim for that part names
-//     this row's record as the holder.
+// Which rows hold which restricted time is ONE decision shared by every face
+// (TraceRestrictedReadyHolds, trace_query_restricted_ready.go: the reader, the
+// rank summary and the finalizer request read it — R-377-17 ③). The relation
+// is the engine's, read from typed fields only:
+//   - (a) the restriction seat is an engine-absorbed member of a rank family
+//     (AbsorbedByRankFamily with its AbsorbedInto key); its hold sits on the
+//     row that wears the family key — AbsorbedInto compared with the row's
+//     RankFamilyKey as an opaque identity, never parsed (the host rule
+//     runtimeTraceProjAbsorbedChainHosts shares with the 「链上并入」 note and
+//     the drawn-record index); where no row wears the key on the face (the
+//     family's seat is drawn inside its chain hop row), on the row that draws
+//     the record its resolved claim names, as in (b);
+//   - (b) the engine typed the seat's restricted ready account as split
+//     between rows of the published board (RestrictedReadyAccountMS and
+//     ShareCountedElsewhereMS) and the resolver's claim for a part names the
+//     holder's record.
+// The amount is the claim's share on both arms, never a row value. No thread
+// name, no value and no label decides a hold.
 //
-// No pair-key string, no thread name and no value decides it. A restriction
-// seat drawn as a row of its own keeps its description and its own
-// 「…另行计入[E#]」 note there; the holding row then adds nothing.
+// This file is the reader's placement and wording of the decision, once per
+// model, read by both languages and by every section that draws the holding
+// row with its notes (tree line, flat board, stanza rows, detail block). A
+// restriction seat drawn as a row of its own keeps its description and its
+// own 「…另行计入[E#]」 note there; a holding row then states no share of it.
+// One CPU-constraint description per (thread, face), the thread read by its
+// typed identity (TraceRestrictedReadyThread): where a restriction row of the
+// thread is drawn, it describes, and a holding row of that thread adds none;
+// otherwise the first holding row of the thread in drawing order describes.
 //
-// What the line says follows the same typed fields: under (a) the amount is
-// the seat's whole restricted time and the row says so in the 「其中」
-// sentence; under (b) the amount is one part of the account the engine split
-// (RestrictedReadyAccountMS), so the row states that account and its part in
-// the words of the restriction row's own account sentence.
+// What the line says follows the same typed fields: where the seat's typed
+// account is split around the time the row states (TraceRestrictedReadySplit)
+// the row states that account and its part in the words of the restriction
+// row's own account sentence; otherwise the 「其中」 sentence states the time.
 
 import (
 	"fmt"
@@ -56,14 +65,14 @@ import (
 // restricted ready time that the row prices while the seat is not drawn as a
 // row of its own.
 type runtimeTraceProjRestrictedHeld struct {
-	// MS is the restricted time priced on this row: the absorbed member's own
-	// value, or the engine share of the claim this row holds — never the
-	// row's value.
+	// MS is the restricted time priced on this row: the engine share of the
+	// claim this row holds (the decision's TraceRestrictedReadyHold.MS) —
+	// never the row's value.
 	MS float64
 	// Seat is the restriction seat (label and description source). Its
-	// RestrictedReadyAccountMS, where the engine typed the seat's account as
-	// split between rows, is the whole restricted ready account MS is a part
-	// of: the line states both (runtimeTraceProjRestrictedHeldText).
+	// RestrictedReadyAccountMS, where it exceeds MS (TraceRestrictedReadySplit),
+	// is the whole restricted ready account MS is a part of: the line states
+	// both (runtimeTraceProjRestrictedHeldText).
 	Seat types.TraceCausalProjectionNode
 	// Tag is the seat's own [E#] when it is this row's absorbed member (the
 	// number its 「链上并入」 note cites); "" for a seat without an [E#] of its
@@ -87,8 +96,10 @@ type runtimeTraceProjRestrictedHeld struct {
 	// 「本线程」 has no referent on such a row. "" on the thread's own row.
 	Member string
 	// Describe: this is the first row, in drawing order, that prices a share
-	// of the seat — the seat's CPU-constraint description is printed here and
-	// nowhere else on the face.
+	// of a restriction seat of the thread, and no restriction row of the
+	// thread is drawn — the seat's CPU-constraint description is printed here
+	// and nowhere else on the face (one per thread and face, the thread read
+	// by its typed identity, TraceRestrictedReadyThread).
 	Describe bool
 }
 
@@ -135,14 +146,13 @@ func runtimeTraceProjRestrictionSeatDrawn(seat types.TraceCausalProjectionNode, 
 	return false
 }
 
-// runtimeTraceProjStampRestrictedHeld stamps every row that prices a share of
-// a CPU-restriction seat not drawn as a row of its own (see the file header).
-// It runs once per model, after every row lane is populated and the absorbed
-// members are attached, and before the micro anchored-seat fold, whose row
-// takes its members' stamps (runtimeTraceProjFoldRestrictedHeld). ranked is
-// the projection's complete seat roster (RankedSeats: a seat the context cap
-// folded keeps its typed claims there).
-func runtimeTraceProjStampRestrictedHeld(model *runtimeTraceProjTreeModel, ranked []types.TraceCausalProjectionNode,
+// runtimeTraceProjStampRestrictedHeld places the decision's holds on the rows
+// of the model (see the file header). It runs once per model, after every row
+// lane is populated and the absorbed members are attached, and before the
+// micro anchored-seat fold, whose row takes its members' stamps
+// (runtimeTraceProjFoldRestrictedHeld). holds is TraceRestrictedReadyHolds of
+// the model's projection.
+func runtimeTraceProjStampRestrictedHeld(model *runtimeTraceProjTreeModel, holds []TraceRestrictedReadyHold,
 	evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) {
 	if model == nil {
 		return
@@ -154,137 +164,137 @@ func runtimeTraceProjStampRestrictedHeld(model *runtimeTraceProjTreeModel, ranke
 		order[row] = i
 	}
 	type share struct {
-		row  *runtimeTraceProjTreeRow
-		held runtimeTraceProjRestrictedHeld
+		row    *runtimeTraceProjTreeRow
+		held   runtimeTraceProjRestrictedHeld
+		thread string
 	}
-	// One list per restriction seat, in seat order (absorbed members first,
-	// then the roster): the first holding row in drawing order describes it.
+	// One list per restriction seat, in the decision's seat order.
 	var seats [][]share
-	// holds reports a row that publishes its own account (a row of several
-	// records whose value is the members' maximum prices no member's share).
-	holds := func(row *runtimeTraceProjTreeRow) bool {
+	seatAt := map[int]int{}
+	// publishes reports a row that publishes its own account (a row of
+	// several records whose value is the members' maximum prices no member's
+	// share).
+	publishes := func(row *runtimeTraceProjTreeRow) bool {
 		return row != nil && row.HasData && !row.Node.OnChainOverflowFold && !runtimeTraceProjSubjectlessFoldRow(row.Node)
 	}
 	index := runtimeTraceProjDrawnRecordIndex(model, all)
-	// claimed places the parts of the seat the resolver's claims hand to rows
-	// of the published board on the rows that draw the holders' records.
-	claimed := func(seat types.TraceCausalProjectionNode) []share {
-		chainAccount := false
-		for _, c := range seat.ShareClaims {
-			chainAccount = chainAccount || c.Part == string(tracequery.RootCauseShareClaimChainAccount)
+	// The threads with a restriction row drawn as a row of its own describe
+	// there (the analysed thread's 「其中」 line under its ready account,
+	// R-377-12 ④, is such a row).
+	described := map[string]bool{}
+	for _, drawn := range index {
+		if drawn.row != nil && drawn.own && runtimeTraceProjRestrictionSeatNode(drawn.row.Node) {
+			described[TraceRestrictedReadyThread(drawn.row.Node)] = true
 		}
-		var shares []share
-		for _, c := range seat.ShareClaims {
-			if !runtimeTraceProjRestrictedPartClaim(c.Part, c.Resolved, c.Represented, c.ShareMS) {
-				continue
+	}
+	hosts := runtimeTraceProjAbsorbedChainHosts(model)
+	for _, h := range holds {
+		if runtimeTraceProjRestrictionSeatDrawn(h.Seat, index) {
+			continue
+		}
+		thread := TraceRestrictedReadyThread(h.Seat)
+		var placed *share
+		if host := hosts[h.FamilyKey]; h.FamilyKey != "" && host != nil {
+			// The absorbed member's 「链上并入」 note cites its [E#] on its
+			// family's row: the line points at it.
+			if publishes(host) {
+				placed = &share{row: host, thread: thread, held: runtimeTraceProjRestrictedHeld{MS: h.MS, Seat: h.Seat,
+					Tag: runtimeTraceProjEvidenceTag(h.Seat, evidence, zh), OwnAccount: h.OwnAccount}}
 			}
-			// Every holder the engine names must be drawn in a row that
-			// publishes an account: a share with a holder this face does
-			// not draw is stated on no row (the engine types no split
-			// between holders). The line sits on the first such row; a
-			// holder that is that row's own account reads 「本行账」, every
-			// other holder — a seat drawn inside the row under its own
-			// [E#], or another row — is named by its [E#].
+		} else if len(h.HolderIDs) > 0 {
+			// Every holder the claim names must be drawn in a row that
+			// publishes an account: a share with a holder this face does not
+			// draw is stated on no row (the engine types no split between
+			// holders). The line sits on the first such row; a holder that is
+			// that row's own account reads 「本行账」, every other holder — a
+			// seat drawn inside the row under its own [E#], or another row —
+			// is named by its [E#]. Where no row wears an absorbed seat's
+			// family key it has no [E#] on the face: the line points at none.
 			type holderAt struct {
 				row *runtimeTraceProjTreeRow
 				tag string
 				own bool
 			}
 			var holders []holderAt
-			placed := len(c.HolderEvidenceIDs) > 0
-			for _, id := range c.HolderEvidenceIDs {
-				drawn, ok := index[strings.TrimSpace(id)]
-				if !ok || !holds(drawn.row) {
-					placed = false
+			ok := true
+			for _, id := range h.HolderIDs {
+				drawn, found := index[id]
+				if !found || !publishes(drawn.row) {
+					ok = false
 					break
 				}
 				at := holderAt{row: drawn.row, tag: strings.TrimSpace(drawn.tag),
 					own: drawn.own || strings.TrimSpace(drawn.tag) == strings.TrimSpace(drawn.row.EvidenceTag)}
 				known := false
-				for _, h := range holders {
-					known = known || (h.row == at.row && h.tag == at.tag)
+				for _, k := range holders {
+					known = known || (k.row == at.row && k.tag == at.tag)
 				}
 				if !known {
 					holders = append(holders, at)
 				}
 			}
-			if !placed {
+			if ok {
+				sort.SliceStable(holders, func(i, j int) bool { return order[holders[i].row] < order[holders[j].row] })
+				first := holders[0].row
+				held := runtimeTraceProjRestrictedHeld{MS: h.MS, Seat: h.Seat, Elsewhere: true, OwnAccount: h.OwnAccount}
+				for _, k := range holders {
+					switch {
+					case k.row == first && k.own:
+						held.Elsewhere = false
+					case k.own:
+						held.Refs = append(held.Refs, strings.TrimSpace(k.row.EvidenceTag))
+					default:
+						held.Refs = append(held.Refs, k.tag)
+					}
+				}
+				placed = &share{row: first, thread: thread, held: held}
+			}
+		}
+		if placed == nil {
+			continue
+		}
+		at, known := seatAt[h.seat]
+		if !known {
+			at = len(seats)
+			seatAt[h.seat] = at
+			seats = append(seats, nil)
+		}
+		// Two parts of the seat priced on one row's own account are one line
+		// of that row (disjoint instants of one account).
+		merged := false
+		for i := range seats[at] {
+			s := &seats[at][i]
+			if s.row == placed.row && s.held.OwnAccount == placed.held.OwnAccount &&
+				!s.held.Elsewhere && !placed.held.Elsewhere && len(s.held.Refs) == 0 && len(placed.held.Refs) == 0 {
+				s.held.MS += placed.held.MS
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			seats[at] = append(seats[at], *placed)
+		}
+	}
+	// One description per thread and face: the first holding row of the
+	// thread in drawing order, unless a restriction row of the thread is drawn.
+	first := map[string]*share{}
+	for i := range seats {
+		for j := range seats[i] {
+			s := &seats[i][j]
+			if described[s.thread] {
 				continue
 			}
-			sort.SliceStable(holders, func(i, j int) bool { return order[holders[i].row] < order[holders[j].row] })
-			first := holders[0].row
-			held := runtimeTraceProjRestrictedHeld{MS: c.ShareMS, Seat: seat, Elsewhere: true,
-				OwnAccount: runtimeTraceProjRestrictedPartOwnAccount(chainAccount, c.Part, c.Role)}
-			for _, h := range holders {
-				switch {
-				case h.row == first && h.own:
-					held.Elsewhere = false
-				case h.own:
-					held.Refs = append(held.Refs, strings.TrimSpace(h.row.EvidenceTag))
-				default:
-					held.Refs = append(held.Refs, h.tag)
-				}
+			if f := first[s.thread]; f == nil || order[s.row] < order[f.row] {
+				first[s.thread] = s
 			}
-			// Two parts of the seat priced on one row's own account are one
-			// line of that row (disjoint instants of one account).
-			merged := false
-			for i := range shares {
-				if shares[i].row == first && shares[i].held.OwnAccount == held.OwnAccount &&
-					!shares[i].held.Elsewhere && !held.Elsewhere && len(shares[i].held.Refs) == 0 && len(held.Refs) == 0 {
-					shares[i].held.MS += held.MS
-					merged = true
-					break
-				}
-			}
-			if !merged {
-				shares = append(shares, share{row: first, held: held})
-			}
-		}
-		return shares
-	}
-	hosts := runtimeTraceProjAbsorbedChainHosts(model)
-	for _, seat := range model.absorbedChainRows {
-		if !runtimeTraceProjRestrictionSeatNode(seat) {
-			continue
-		}
-		if host := hosts[strings.TrimSpace(seat.AbsorbedInto)]; host != nil {
-			if ms := runtimeTraceProjNodeDisplayImpact(seat); holds(host) && ms > 0 {
-				seats = append(seats, []share{{row: host, held: runtimeTraceProjRestrictedHeld{
-					MS: ms, Seat: seat, Tag: runtimeTraceProjEvidenceTag(seat, evidence, zh)}}})
-			}
-			continue
-		}
-		// The family's seat is no row of its own on this face: the absorbed
-		// seat's resolved claim names its record, drawn inside another row.
-		// The absorbed seat has no [E#] here (no 「链上并入」 note cites it),
-		// so the line points at none.
-		if shares := claimed(seat); len(shares) > 0 {
-			seats = append(seats, shares)
 		}
 	}
-	seen := map[string]bool{}
-	for _, seat := range ranked {
-		if !runtimeTraceProjRestrictionSeatNode(seat) || seat.RestrictedReadyAccountMS <= 0 || seat.ShareCountedElsewhereMS <= 0 {
-			continue
-		}
-		key := runtimeTraceCausalProjectionNodeKey(seat)
-		if seen[key] || runtimeTraceProjRestrictionSeatDrawn(seat, index) {
-			continue
-		}
-		seen[key] = true
-		if shares := claimed(seat); len(shares) > 0 {
-			seats = append(seats, shares)
-		}
+	for _, s := range first {
+		s.held.Describe = true
 	}
+	// Each row takes its shares in seat order (a row's lines never depend on
+	// another row's).
 	for _, shares := range seats {
-		first := 0
-		for i := range shares {
-			if order[shares[i].row] < order[shares[first].row] {
-				first = i
-			}
-		}
-		shares[first].held.Describe = true
-		sort.SliceStable(shares, func(i, j int) bool { return order[shares[i].row] < order[shares[j].row] })
 		for _, s := range shares {
 			s.row.RestrictedHeld = append(s.row.RestrictedHeld, s.held)
 		}
@@ -352,7 +362,8 @@ func runtimeTraceProjRestrictedAccountHead(label string, accountMS float64, zh b
 // HMC377 round 16 fix-up (review finding, 2026-11-24): the amount is not always
 // the thread's whole restricted time either. Where the engine typed the seat's
 // restricted ready account as split between rows (Seat.RestrictedReadyAccountMS
-// — the field the restriction row's own account sentence reads), MS is one part
+// — the field the restriction row's own account sentence reads — exceeds MS,
+// TraceRestrictedReadySplit, the one split rule of every face), MS is one part
 // of that account, and the 「其中」 sentence's words 「X ms是本线程runnable时间里
 // 受限的那一部分」 would give the part as the thread's restricted time (dio w01
 // udk-irq-7-76: 11.364 ms stated, 18.308 ms restricted). The line then states
@@ -382,7 +393,7 @@ func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh 
 	// split: the head of the split account's sentence — a row that draws
 	// several threads names the member whose account it is.
 	split := ""
-	if account := held.Seat.RestrictedReadyAccountMS; account > 0 {
+	if account := held.Seat.RestrictedReadyAccountMS; TraceRestrictedReadySplit(account, held.MS) {
 		split = runtimeTraceProjRestrictedAccountHead(label, account, zh)
 		switch {
 		case member != "" && zh:
@@ -479,75 +490,6 @@ func runtimeTraceProjRestrictedHeldDetail(row runtimeTraceProjTreeRow, zh bool) 
 		if description := runtimeTraceProjCPUConstraintDescriptionText(held.Seat, zh); description != "" {
 			head := runtimeTraceProjCPUConstraintDescriptionHead(zh)
 			out = append(out, [2]string{strings.TrimRight(strings.TrimSpace(head), ":"), strings.TrimPrefix(description, head)})
-		}
-	}
-	return out
-}
-
-// traceQueryCPUConstraintKVs is the one list of a rank item's typed
-// CPU-constraint judgment as note pairs (empty values are dropped by the
-// writer): the item's observation record carries it, and the rank preview row
-// of a row that holds the seat's time prints it (R-377-16 ④).
-func traceQueryCPUConstraintKVs(item tracequery.RootCauseRankItem) [][2]string {
-	return [][2]string{
-		{types.TraceNoteKeyCPUConstraintKind, sanitizeForBanner(item.CPUConstraintKind)},
-		{types.TraceNoteKeyCPUConstraintCPUSet, sanitizeForBanner(item.CPUConstraintCPUSet)},
-		{types.TraceNoteKeyCPUConstraintCPUSetIsBinding, traceQueryTypedBool(item.CPUConstraintCPUSetIsBinding)},
-		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
-		{types.TraceNoteKeyCPUConstraintAllowedCPUs, traceIntList(item.CPUConstraintAllowedCPUs)},
-		{types.TraceNoteKeyCPUConstraintExcludedCPUs, traceIntList(item.CPUConstraintExcludedCPUs)},
-		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintAllowedMaxTierKHz)},
-		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintGlobalMaxTierKHz)},
-	}
-}
-
-// traceQueryRankRestrictedReadyFields is the rank preview's carrier of the
-// same fact (R-377-16 ④), under the same predicate read on the published
-// board: a board row whose absorbed member is a CPU-restriction seat (the
-// engine's AbsorbedByRankFamily / AbsorbedIntoFamily == the row's
-// RankFamilyKey) states the restricted time inside it and the engine's
-// constraint judgment under the note keys the seat's own record carries. An
-// absorbed seat is no row of the board, so nothing else on the preview names
-// it. A restriction seat that keeps a board row of its own (its restricted
-// time split between rows) speaks there — its typed account, its claims and
-// its judgment ride its own row and record — and the holding row adds
-// nothing. The verbatim policy string stays on the seat's record: its inner
-// key=value tokens would read as fields of the holding row.
-// Keyed by the row's index in rank.Items; every other row gets "".
-func traceQueryRankRestrictedReadyFields(rank *tracequery.RootCauseRankResult) map[int]string {
-	if rank == nil {
-		return nil
-	}
-	var out map[int]string
-	for _, seat := range rank.AbsorbedItems {
-		key := strings.TrimSpace(seat.AbsorbedIntoFamily)
-		if runtimeTraceCausalProjectionCanonicalNode(seat.Type) != runtimeTraceProjRestrictionSeatType || !seat.AbsorbedByRankFamily || key == "" {
-			continue
-		}
-		ms := seat.ImpactMs
-		if ms <= 0 {
-			ms = seat.CumulativeImpactMs
-		}
-		if ms <= 0 {
-			continue
-		}
-		for at, row := range rank.Items {
-			if strings.TrimSpace(row.RankFamilyKey) != key {
-				continue
-			}
-			var b strings.Builder
-			fmt.Fprintf(&b, traceQueryRankRestrictedReadyKey+"%.3fms", ms)
-			for _, kv := range traceQueryCPUConstraintKVs(seat) {
-				if kv[0] == types.TraceNoteKeyCPUConstraintPolicy || strings.TrimSpace(kv[1]) == "" {
-					continue
-				}
-				b.WriteString(" " + kv[0] + "=" + kv[1])
-			}
-			if out == nil {
-				out = map[int]string{}
-			}
-			out[at] += b.String()
-			break
 		}
 	}
 	return out
