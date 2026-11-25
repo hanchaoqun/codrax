@@ -597,6 +597,11 @@ type runtimeTraceProjTreeRow struct {
 	// see-detail form), and whether the chain seat keeps its own account for
 	// it (the row's chain-account claim: case A').
 	RestrictedParts []runtimeTraceProjRestrictedPart
+	// RestrictedHeld (HMC377 round 16, R-377-16 ③): the shares of
+	// CPU-restriction seats this row prices while the seat is not drawn as a
+	// row of its own — the 「其中」 line and, once per seat, its CPU-constraint
+	// description beneath the row (runtimeTraceProjStampRestrictedHeld).
+	RestrictedHeld []runtimeTraceProjRestrictedHeld
 	// AccountRelSameSourceUnwalkedMS / AccountRelSameSourceUnwalkedRef (HMC377
 	// fix round 3): the pair sentence's third part (the unwalked seat) when
 	// the pair is a three-way split; carried to the ⛓ side by the pairing arm
@@ -4793,6 +4798,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// anchored cut seats (<0.1ms) into one counted ⛓ row — after every
 	// relation pass (members' ◇ twins keep their minted sentences; the fold
 	// bracket keeps their E#s on-page) and before bar scaling / badges.
+	//
+	// HMC377 round 16 (R-377-16 ③): the rows that price a share of a
+	// CPU-restriction seat not drawn as a row of its own are stamped first —
+	// the fold row takes its members' stamps.
+	runtimeTraceProjStampRestrictedHeld(&model, projection.RankedSeats, evidence, zh)
 	runtimeTraceProjFoldMicroAnchorSeats(&model)
 	// RNB-5B 默认小件c (§29.95 UX-4 对称): the 目标自身·墙钟席 qualifier covers
 	// the whole self wall-clock cause-seat family (runs after every SelfRows
@@ -10375,6 +10385,11 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		for _, line := range runtimeTraceProjSelfReadySubsetLines(model.SelfRows, hosted[i], "│       ", model.Marks, zh) {
 			body.WriteString(line + "\n")
 		}
+		// HMC377 round 16 (R-377-16 ③): the restricted share this row prices
+		// for a restriction seat that is no row of its own here.
+		for _, line := range runtimeTraceProjRestrictedHeldLines(row, "│       ", zh) {
+			body.WriteString(line + "\n")
+		}
 	}
 	// GAP-B G11 (§27.5): the bounded self-wait relocation's overflow
 	// disclosure — the rows themselves keep their ◇/▒ stanza seats below
@@ -10416,6 +10431,9 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		for _, line := range runtimeTraceProjSelfReadySubsetLines(treeRows, treeHosted[i], runtimeTraceProjRowContinuationIndent(row), model.Marks, zh) {
 			body.WriteString(line + "\n")
 		}
+		for _, line := range runtimeTraceProjRestrictedHeldLines(row, runtimeTraceProjRowContinuationIndent(row), zh) {
+			body.WriteString(line + "\n")
+		}
 	}
 	if len(model.Adjacent) > 0 {
 		model.Marks.mark(runtimeTraceProjMarkAdjacentStanza)
@@ -10434,6 +10452,9 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			row.ValueSlot = valueSlot
 			body.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			body.WriteString("\n")
+			for _, line := range runtimeTraceProjRestrictedHeldLines(row, runtimeTraceProjRowContinuationIndent(row), zh) {
+				body.WriteString(line + "\n")
+			}
 		}
 	}
 	if len(model.Background) > 0 {
@@ -10451,6 +10472,9 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			row.ValueSlot = valueSlot
 			body.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			body.WriteString("\n")
+			for _, line := range runtimeTraceProjRestrictedHeldLines(row, runtimeTraceProjRowContinuationIndent(row), zh) {
+				body.WriteString(line + "\n")
+			}
 		}
 	}
 	// SPANVIS-1 (user ruling 2026-07-19 定形原则 面1): the ◈ pure-advisory
@@ -11587,10 +11611,12 @@ func runtimeTraceProjSelfReadySubsetText(row runtimeTraceProjTreeRow, zh bool) s
 	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(row.Node.Object, zh))
 	value := runtimeTraceProjNodeDisplayImpact(row.Node)
 	pointer := runtimeTraceProjProsePointer(row.Badge, strings.TrimSpace(row.EvidenceTag))
+	// HMC377 round 16 (R-377-16 ③): one sentence with the holding row's form
+	// (runtimeTraceProjOfWhichRestrictedText); this form's bytes are unchanged.
 	if zh {
-		return fmt.Sprintf("其中%s下%.3fms是本线程runnable时间里受限的那一部分,已含在上述自身runnable账内,不另计%s", label, value, pointer)
+		return runtimeTraceProjOfWhichRestrictedText(label, value, "本线程", "上述自身runnable账", pointer, zh)
 	}
-	return fmt.Sprintf("of which %.3fms under the %s is the restricted part of this thread's runnable time, already inside its own runnable account above, never added again%s", value, label, pointer)
+	return runtimeTraceProjOfWhichRestrictedText(label, value, "this thread's", "its own runnable account above", pointer, zh)
 }
 
 // runtimeTraceProjCPUConstraintDescriptionText is the one wording of a
@@ -11691,11 +11717,17 @@ func runtimeTraceProjCPUConstraintDescriptionText(node types.TraceCausalProjecti
 	if len(parts) == 0 {
 		return ""
 	}
-	head := "CPU约束描述:"
-	if !zh {
-		head = "CPU-constraint description: "
+	return runtimeTraceProjCPUConstraintDescriptionHead(zh) + strings.Join(parts, " · ")
+}
+
+// runtimeTraceProjCPUConstraintDescriptionHead is the description's head word
+// (the detail block of a holding row keys the same description on it,
+// R-377-16 ③).
+func runtimeTraceProjCPUConstraintDescriptionHead(zh bool) string {
+	if zh {
+		return "CPU约束描述:"
 	}
-	return head + strings.Join(parts, " · ")
+	return "CPU-constraint description: "
 }
 
 // runtimeTraceProjSelfReadySubsetLines renders the 「其中」 lines hosted by
@@ -21259,6 +21291,12 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		if len(row.AbsorbedChainPeers) > 0 {
 			add("链上并入", "chain-lane absorbed",
 				runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjAbsorbedChainNote(row.AbsorbedChainPeers, zh)))
+		}
+		// HMC377 round 16 (R-377-16 ③): the block says what the tree line
+		// says beneath the row — the restricted share it prices and the
+		// seat's CPU-constraint description.
+		for _, kv := range runtimeTraceProjRestrictedHeldDetail(row, zh) {
+			add(kv[0], kv[0], runtimeTraceCausalProjectionMarkdownSafe(kv[1]))
 		}
 		if node.MergedCount > 1 {
 			var form string

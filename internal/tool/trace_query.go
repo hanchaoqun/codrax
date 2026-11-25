@@ -8859,6 +8859,10 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 	}
 	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=resolved_board_target_and_typed_on_chain_only adjacent_role=support_only background_role=support_only board_target=%s authority_scope=this_board_target_and_window\n",
 		status, visible, len(rank.Items), sanitizeForBanner(traceThreadLabel(rank.Target)))
+	// HMC377 round 16 (R-377-16 ④): a row whose absorbed member is a
+	// CPU-restriction seat says how much of its time is restricted and under
+	// which constraint (every other row keeps its bytes).
+	restricted := traceQueryRankRestrictedReadyFields(rank)
 	for i := 0; i < visible; i++ {
 		item := rank.Items[i]
 		value := traceQueryRankImpactValue(item.Type)
@@ -8891,12 +8895,12 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 		if item.OwnWorkOnCPUMs > 0 {
 			members += fmt.Sprintf(" own_work_on_cpu=%.3fms", item.OwnWorkOnCPUMs)
 		}
-		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%s cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s\n",
+		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%s cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s%s\n",
 			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
 			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), magnitudeField,
 			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), members,
 			sanitizeForBanner(traceQueryCrossDirectionOverlapsNote(overlaps)), overlapOmitted,
-			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source), ruler)
+			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source), ruler, restricted[i])
 	}
 	if status != "complete" {
 		fmt.Fprintf(b, "root_cause_rank_preview_continuation omitted=%d payload_ref=%s\n",
@@ -11653,18 +11657,10 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 	}
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset judgment
 	// payload — emitted only when the engine minted it (fields ride only the
-	// window_stats.cpu_constraints seat; absence never guesses).
-	joinCPUs := func(cpus []int) string {
-		if len(cpus) == 0 {
-			return ""
-		}
-		parts := make([]string, 0, len(cpus))
-		for _, cpu := range cpus {
-			parts = append(parts, fmt.Sprintf("%d", cpu))
-		}
-		return strings.Join(parts, ",")
-	}
-	return traceQueryTypedKVNotes([][2]string{
+	// window_stats.cpu_constraints seat; absence never guesses). HMC377 round
+	// 16 (R-377-16 ④): the pairs are traceQueryCPUConstraintKVs, the one list
+	// the rank preview row of a row holding the seat's time prints too.
+	notes := traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableMs)},
@@ -11711,17 +11707,12 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		// against the raw wakeup line; zero-dropped on every other row).
 		{types.TraceNoteKeyHostWakeupEdgeAnchorTs, traceQueryTypedPositiveTimestamp(item.HostWakeupEdgeAnchorTs)},
 		{types.TraceNoteKeyHostWakeupEdgeAnchorVia, item.HostWakeupEdgeAnchorVia},
-		{types.TraceNoteKeyCPUConstraintKind, sanitizeForBanner(item.CPUConstraintKind)},
-		{types.TraceNoteKeyCPUConstraintCPUSet, sanitizeForBanner(item.CPUConstraintCPUSet)},
-		{types.TraceNoteKeyCPUConstraintCPUSetIsBinding, traceQueryTypedBool(item.CPUConstraintCPUSetIsBinding)},
-		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
-		{types.TraceNoteKeyCPUConstraintAllowedCPUs, joinCPUs(item.CPUConstraintAllowedCPUs)},
-		{types.TraceNoteKeyCPUConstraintExcludedCPUs, joinCPUs(item.CPUConstraintExcludedCPUs)},
-		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintAllowedMaxTierKHz)},
-		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintGlobalMaxTierKHz)},
+	})
+	notes = append(notes, traceQueryTypedKVNotes(traceQueryCPUConstraintKVs(item))...)
+	return append(notes, traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 		{types.TraceNoteKeyIOValueCaliber, types.NormalizeTraceIOValueCaliber(item.IOValueCaliber)},
-	})
+	})...)
 }
 
 // traceQueryShareHolderPositions maps every share-holder key the engine

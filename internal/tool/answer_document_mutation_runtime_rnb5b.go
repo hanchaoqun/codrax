@@ -279,6 +279,9 @@ func runtimeTraceProjBuildMicroAnchorFoldRow(group []*runtimeTraceProjTreeRow) r
 	fold.EvidenceTag = strings.Join(tags, "+")
 	fold.MicroAnchorFoldDepthlessMembers = depthless
 	fold.MicroAnchorFoldCrossBoardPeerBoards = crossBoardOrder
+	// HMC377 round 16 (R-377-16 ③): the fold row draws its members' accounts,
+	// so it carries the restricted shares they price (each names its member).
+	fold.RestrictedHeld = runtimeTraceProjFoldRestrictedHeld(members)
 	if allRanked && rankLo > 0 {
 		fold.MicroAnchorFoldRankLo = rankLo
 		fold.MicroAnchorFoldRankHi = rankHi

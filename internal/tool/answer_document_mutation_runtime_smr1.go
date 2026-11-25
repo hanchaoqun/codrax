@@ -1815,14 +1815,15 @@ func runtimeTraceProjStampRestrictedParts(row *runtimeTraceProjTreeRow, index ma
 		}
 	}
 	for _, c := range rn.ShareClaims {
-		if c.Represented || !c.Resolved || c.ShareMS <= 0 ||
-			(c.Part != string(tracequery.RootCauseShareClaimAnchored) && c.Part != string(tracequery.RootCauseShareClaimUnwalked)) {
+		// HMC377 round 16 (R-377-16 ③): the one selection of the parts a
+		// restriction seat hands over, shared with the holding row's line.
+		if !runtimeTraceProjRestrictedPartClaim(c.Part, c.Resolved, c.Represented, c.ShareMS) {
 			continue
 		}
 		one := rn
 		one.ShareClaims = []types.TraceCausalProjectionShareClaim{c}
 		part := runtimeTraceProjRestrictedPart{MS: c.ShareMS,
-			OwnAccount: ownAccount && c.Part == string(tracequery.RootCauseShareClaimAnchored) && c.Role == string(tracequery.RootCauseShareHolderChainSeat)}
+			OwnAccount: runtimeTraceProjRestrictedPartOwnAccount(ownAccount, c.Part, c.Role)}
 		if ref := runtimeTraceProjResolveShareRef(one, index, row, false, c.Part); ref.state == runtimeTraceProjShareRefRendered && len(ref.tags) > 0 {
 			part.Ref = strings.Join(ref.tags, ",")
 		}
