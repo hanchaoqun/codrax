@@ -507,14 +507,20 @@ func TestHMC377R16FinalizerReadsEachCapturesDecisionAgainstItsOwnLines(t *testin
 			row74+" => "+desc5,
 		))
 	}
+	// The copy's holder row states 0.025 ms (the lines of the two captures
+	// differ, so the listing tells them apart); its family key is the same.
 	whole := hmc377R16FWholeBoard(true, "2")
-	records := append(append([]types.ObservationRecord(nil), whole...), hmc377R16FUnderPath(whole, "trace_query:publication-r16h", "/captures/douyin-reboot-copy.ftrace")...)
-	row := "#2 udk-irq-7-76：runnable；估算优化潜力影响 0.020ms"
-	once := []string{
-		row + " => 其中CPU亲和/cpuset限制下0.014ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计",
-		row + " => " + hmc377R16FDesc7ZH,
+	copied := hmc377R16FUnderPath(whole, "trace_query:publication-r16h", "/captures/douyin-reboot-copy.ftrace")
+	copied[1].Value = "0.025"
+	for i, note := range copied[1].RichNotes {
+		copied[1].RichNotes[i] = strings.Replace(note, "=0.020", "=0.025", 1)
 	}
-	hmc377R16FWantLines(t, "the same capture under two paths", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), append(append([]string(nil), once...), once...))
+	records := append(append([]types.ObservationRecord(nil), whole...), copied...)
+	var want []string
+	for _, row := range []string{"#2 udk-irq-7-76：runnable；估算优化潜力影响 0.020ms", "#2 udk-irq-7-76：runnable；估算优化潜力影响 0.025ms"} {
+		want = append(want, row+" => 其中CPU亲和/cpuset限制下0.014ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计", row+" => "+hmc377R16FDesc7ZH)
+	}
+	hmc377R16FWantLines(t, "the same capture under two paths", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), want)
 }
 
 // A seat without a typed CPU-constraint judgment: its time is stated, and no
