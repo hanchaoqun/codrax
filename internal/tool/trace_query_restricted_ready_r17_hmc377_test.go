@@ -149,7 +149,15 @@ func TestHMC377R17OneDescriptionPerThreadAndFace(t *testing.T) {
 // key state nothing.
 func TestHMC377R17PreviewSpeaksForAbsorbedRestrictionSeatsOnly(t *testing.T) {
 	result := hmc377R16WholeResult()
-	key := result.RootCauseRank.Items[0].RankFamilyKey
+	key := ""
+	for _, item := range result.RootCauseRank.Items {
+		if item.ShareHolderKey == "seat-udk" {
+			key = item.RankFamilyKey
+		}
+	}
+	if key == "" {
+		t.Fatalf("fixture precondition: the holding row wears its family key")
+	}
 	claim := func(ms float64, holder string) []tracequery.RootCauseShareClaim {
 		return []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored, Role: tracequery.RootCauseShareHolderClippedSeat,
 			ShareMs: ms, Resolved: true, HolderKeys: []string{holder}}}
@@ -216,6 +224,10 @@ func TestHMC377R17OneDecisionOnEveryFace(t *testing.T) {
 		"micro fold member":   hmc377R17MicroResult(),
 		"whole, host stanza":  hmc377R17WholeHostAs("adjacent", "adjacent_to_wakeup_chain"),
 		"whole, host context": hmc377R17WholeHostAs("background", "background_pressure"),
+		// An absorbed member with an engine account its record does not carry
+		// (the record states the account only beside a share counted
+		// elsewhere): both carriers read no account.
+		"whole, account off the record": hmc377R17AbsorbedWithAccount(),
 	}
 	names := make([]string, 0, len(fixtures))
 	for name := range fixtures {
@@ -793,6 +805,16 @@ func TestHMC377R17DecisionHoldsArePlaceable(t *testing.T) {
 	if len(got) != 1 || got[0].FamilyKey != "fam-k" || got[0].MS != 0.272 || len(got[0].HolderIDs) != 0 {
 		t.Errorf("an absorbed seat's claim is one hold on its family row: %+v", got)
 	}
+	// Where no row wears the family key and the claim names no holder, the
+	// reader places it nowhere (reviewer survivor R17's shape).
+	m := runtimeTraceProjTreeModel{WindowMS: 100, Target: "app-100"}
+	m.TreeRows = append(m.TreeRows, hmc377R6Row("pub#root_cause_rank:7", "dep-200", "E32", runtimeTraceProjTreeRowChain))
+	runtimeTraceProjStampRestrictedHeld(&m, got, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	for _, row := range runtimeTraceProjSMR1AllRows(&m) {
+		if len(row.RestrictedHeld) != 0 {
+			t.Errorf("a hold neither a family row nor a holder places is stated nowhere: %+v", row.RestrictedHeld)
+		}
+	}
 }
 
 // A restriction record drawn inside another restriction row's bracket (not a
@@ -863,7 +885,21 @@ func TestHMC377R17WholeFamilyRowPastThePreview(t *testing.T) {
 	if got := hmc377R17PreviewFields(hmc377R16Run(t, result).preview); len(got) != 0 {
 		t.Errorf("a family row past the preview carries nothing on it: %v", got)
 	}
+	if fields := traceQueryRankRestrictedReadyFields(result.RootCauseRank, traceQueryRootCauseRankPreviewCap); len(fields) != 0 {
+		t.Errorf("the writer gives no row below the visible ones fields: %v", fields)
+	}
 	if fields := traceQueryRankRestrictedReadyFields(result.RootCauseRank, len(rank.Items)); len(fields) != 1 {
 		t.Errorf("fixture precondition: with every row visible the family row has its fields: %v", fields)
 	}
+}
+
+// hmc377R17AbsorbedWithAccount: the whole shape whose absorbed member carries a
+// restricted ready account and no share counted elsewhere.
+func hmc377R17AbsorbedWithAccount() tracequery.Result {
+	result := hmc377R16WholeResult()
+	rank := *result.RootCauseRank
+	rank.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
+	rank.AbsorbedItems[0].RestrictedReadyAccountMs = 0.500
+	result.RootCauseRank = &rank
+	return result
 }
