@@ -30,7 +30,9 @@ package tool
 //
 // Where a face puts a hold is that face's own placement: the reader on the
 // drawn row that draws the holder's record and publishes an account; the
-// summary on the preview row of the holder's record.
+// summary on the preview row of the holder's record, except a hold its one
+// key would misstate (a claim of several rows, case A'), which it leaves to
+// the seat's record.
 
 import (
 	"fmt"
@@ -233,6 +235,16 @@ func traceQueryCPUConstraintKVs(item tracequery.RootCauseRankItem) [][2]string {
 // seats state nothing here: the key speaks of this row alone, and the seats'
 // records carry the relation. Keyed by the row's index in rank.Items (only
 // rows below visible); every other row gets "".
+//
+// A hold in case A' (OwnAccount: the seat's chain-account claim stands beside
+// the walked part, so the holder keeps its own diverging account) states
+// nothing here either (second review, 2026-11-25): the share lies inside the
+// holder's time but is no part of its account, and the key says "inside this
+// row's account" — on pop w02w2 row 2 it gave 30.537 ms of restricted time
+// inside a row whose ready time is 20.256 ms. The summary has no words for
+// "lies inside this row's time, the row keeps its own account"; the seat's
+// record carries the relation (its claims), as for a claim of several rows.
+// The thread's constraint pairs then go to its first row that states a hold.
 func traceQueryRankRestrictedReadyFields(rank *tracequery.RootCauseRankResult, visible int) map[int]string {
 	holds := traceQueryRankRestrictedReadyHolds(rank)
 	if len(holds) == 0 {
@@ -257,6 +269,9 @@ func traceQueryRankRestrictedReadyFields(rank *tracequery.RootCauseRankResult, v
 	}
 	byRow := map[int]*rowHold{}
 	for _, h := range holds {
+		if h.OwnAccount {
+			continue
+		}
 		at := -1
 		if row, ok := familyRow[h.FamilyKey]; h.FamilyKey != "" && ok {
 			if row < visible {

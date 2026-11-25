@@ -94,6 +94,72 @@ func TestHMC377R17SummaryLeavesASharedClaimOrRowToTheRecords(t *testing.T) {
 	}
 }
 
+// Second review (2026-11-25): a hold in case A' (the seat's chain-account
+// claim beside the walked chain-seat part; the holder keeps its own account)
+// states nothing on the summary — the key says the time is inside the row's
+// account, which is false there (pop w02w2 row 2: 30.537 ms against 20.256 ms
+// of ready time); the seat's record carries the relation. A part of the same
+// seat that is inside a row's account is still stated, on the same row or on
+// another, and the thread's judgment moves to its first stating row. The
+// reader keeps its A' words.
+func TestHMC377R17SummaryLeavesTheOwnAccountFormToTheRecord(t *testing.T) {
+	ownWords := map[bool]string{true: "落在本行时段内(本行另列自账)", false: "lies inside the time of this row (this row keeps its own separate account)"}
+	chainAccount := func(ms float64, holder string) tracequery.RootCauseShareClaim {
+		return hmc377R16Claim(tracequery.RootCauseShareClaimChainAccount, tracequery.RootCauseShareHolderChainSeat, ms, holder)
+	}
+	for _, c := range []struct {
+		name   string
+		result tracequery.Result
+		want   map[string]string
+		ownRow string
+	}{
+		{"case A'", hmc377R17OwnAccountResult(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat),
+			map[string]string{}, "20.256ms"},
+		{"unwalked part beside the chain account (control)", hmc377R17OwnAccountResult(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderChainSeat),
+			map[string]string{"board_order=2": " cpu_restricted_ready_inside_this_row=30.537ms restricted_ready_account_ms=31.834" + hmc377R17Judgment}, ""},
+		{"clipped part beside the chain account (control)", hmc377R17OwnAccountResult(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderClippedSeat),
+			map[string]string{"board_order=2": " cpu_restricted_ready_inside_this_row=30.537ms restricted_ready_account_ms=31.834" + hmc377R17Judgment}, ""},
+		{"case A' and a part inside the same row", hmc377R17TwoPartsOneRowResult(
+			hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 8.000, "seat-udk"),
+			hmc377R16Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 3.364, "seat-udk"),
+			chainAccount(20.000, "seat-udk")),
+			map[string]string{"board_order=2": " cpu_restricted_ready_inside_this_row=3.364ms restricted_ready_account_ms=18.308" + hmc377R17Judgment}, "20.000ms"},
+		{"case A' on one row, a part inside another (w02w2 form)", hmc377R16TwoSeatResult(
+			hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 8.000, "seat-walked"),
+			hmc377R16Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 3.364, "seat-unwalked"),
+			chainAccount(20.000, "seat-walked")),
+			map[string]string{"board_order=3": " cpu_restricted_ready_inside_this_row=3.364ms restricted_ready_account_ms=18.308" + hmc377R17Judgment}, "20.000ms"},
+		{"case A' of an absorbed member on its family's row", hmc377R17AbsorbedOwnAccount(), map[string]string{}, "7.940ms"},
+	} {
+		faces := hmc377R16Run(t, c.result)
+		if got := hmc377R17PreviewFields(faces.preview); fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("[%s] summary fields:\n got %v\nwant %v", c.name, got, c.want)
+		}
+		if c.ownRow == "" {
+			continue
+		}
+		for _, zh := range []bool{true, false} {
+			if block := hmc377R16RowBlock(faces.fence(zh), c.ownRow); !strings.Contains(block, hmc377R16Subject+" · runnable") || !hmc377R16Has(block, ownWords[zh]) {
+				t.Errorf("[%s] zh=%t: the reader keeps the A' words on the holding row:\n%s", c.name, zh, block)
+			}
+		}
+	}
+}
+
+// hmc377R17AbsorbedOwnAccount: the whole shape whose absorbed restriction
+// member hands its walked part to its family's chain seat beside a
+// chain-account claim (case A' on the absorbed arm).
+func hmc377R17AbsorbedOwnAccount() tracequery.Result {
+	result := hmc377R16WholeResult()
+	rank := *result.RootCauseRank
+	rank.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
+	rank.AbsorbedItems[0].ShareClaims = []tracequery.RootCauseShareClaim{
+		hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 0.038, "seat-udk"),
+		hmc377R16Claim(tracequery.RootCauseShareClaimChainAccount, tracequery.RootCauseShareHolderChainSeat, 7.940, "seat-udk")}
+	result.RootCauseRank = &rank
+	return result
+}
+
 // hmc377R17TwoSeatsOneThreadResult is the reviewer's two-seats-one-thread
 // board: one restriction seat of the thread drawn as a row of its own
 // (88.636 ms kept), a second one folded; both hand a part to the thread's
@@ -228,6 +294,7 @@ func TestHMC377R17OneDecisionOnEveryFace(t *testing.T) {
 		// (the record states the account only beside a share counted
 		// elsewhere): both carriers read no account.
 		"whole, account off the record": hmc377R17AbsorbedWithAccount(),
+		"whole, case A'":                hmc377R17AbsorbedOwnAccount(),
 	}
 	names := make([]string, 0, len(fixtures))
 	for name := range fixtures {
