@@ -970,3 +970,229 @@ func hmc377R17AbsorbedWithAccount() tracequery.Result {
 	result.RootCauseRank = &rank
 	return result
 }
+
+// HMC377 merge 16 (batch-owner ruling R-377-19 ⑥, 2026-11-25): default-suite
+// pins of the shapes whose right behaviour is decided and which the second
+// code review's mutants (fix16/review2-code/tools/mutants.py) left unguarded
+// by both full default suites — E04, F10, F06, R18, W22, H01, H04. Test only.
+// G19 and R10 are not pinned here: they wait on R16X-7 (one host rule) and
+// R16X-6 (the reader's co-holder form).
+
+// E04: the restriction subset's typed fields ride only beside a share counted
+// elsewhere (R-377-12 ③). A restriction seat with a restricted ready account
+// and no share counted elsewhere (real: n05w, n21w, x01w, y41r) keeps none of
+// them on its record, and every face reads it as without the account: the
+// whole-arm member with such an account is stated unsplit on the reader and
+// without the account on the summary.
+func TestHMC377R19SubsetFieldsRideOnlyBesideAShareCountedElsewhere(t *testing.T) {
+	seat := hmc377R16Restriction(hmc377R16Thread, 10, 7.000, 0)
+	result := hmc377R11Result(append([]tracequery.RootCauseRankItem{hmc377R16ChainSeat(hmc377R16Thread, 2, 20.000, "seat-udk", 900), seat}, hmc377R16ContextSeats(3)...)...)
+	found := 0
+	for _, r := range traceQueryTypedObservations(result, "capture.ftrace", "payload", "raw", "", time.Unix(0, 0).UTC()) {
+		if r.Subject != hmc377R16Subject || r.Object != "cpu_affinity_or_cpuset" {
+			continue
+		}
+		found++
+		for _, n := range r.RichNotes {
+			for _, key := range []string{types.TraceNoteKeyRestrictedReadyAccount, types.TraceNoteKeyShareCountedElsewhere, types.TraceNoteKeyShareCountedHere} {
+				if strings.HasPrefix(n, key+"=") {
+					t.Errorf("a restriction record without a share counted elsewhere carries %q", n)
+				}
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("fixture precondition: one record of the restriction seat, got %d", found)
+	}
+	bare := result
+	rank := *result.RootCauseRank
+	rank.Items = append([]tracequery.RootCauseRankItem(nil), rank.Items...)
+	for i := range rank.Items {
+		if rank.Items[i].Type == "cpu_affinity_or_cpuset" {
+			rank.Items[i].RestrictedReadyAccountMs = 0
+		}
+	}
+	bare.RootCauseRank = &rank
+	with, without := hmc377R16Run(t, result), hmc377R16Run(t, bare)
+	if with.zh != without.zh || with.en != without.en || with.preview != without.preview {
+		t.Errorf("the faces read a restriction seat without a share counted elsewhere as without its account:\n%s\n--- without the account:\n%s", with.zh, without.zh)
+	}
+	// The whole arm: the absorbed member's own account (0.500 ms) is off its
+	// record, so the row states the member's 0.038 ms unsplit.
+	faces := hmc377R16Run(t, hmc377R17AbsorbedWithAccount())
+	for _, zh := range []bool{true, false} {
+		block := hmc377R16RowBlock(faces.fence(zh), hmc377R16Subject+" · runnable")
+		if !hmc377R16Has(block, hmc377R16OfWhich("0.038", zh)) || hmc377R16Has(block, "0.500") {
+			t.Errorf("zh=%t: the absorbed member is stated unsplit, without an account its record does not carry:\n%s", zh, block)
+		}
+	}
+	if got := hmc377R17PreviewFields(faces.preview); len(got) != 1 || strings.Contains(fmt.Sprint(got), types.TraceNoteKeyRestrictedReadyAccount) {
+		t.Errorf("the summary states the member's time without an account: %v", got)
+	}
+}
+
+// F10: the summary gives the seat's account only where it exceeds the time the
+// row states. A seat the engine split whose whole restricted account lies in
+// one holder (share = account, nothing counted on the seat itself) is stated
+// on that row as its time alone — on the reader the unsplit 「其中」 form.
+func TestHMC377R19SummaryAccountOnlyWhenSplit(t *testing.T) {
+	walked, unwalked := hmc377R16TwoSeats()
+	result := hmc377R11Result(append([]tracequery.RootCauseRankItem{walked, unwalked, hmc377R16Restriction(hmc377R16Thread, 10, 8.000, 8.000,
+		hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 8.000, "seat-walked"))}, hmc377R16ContextSeats(9)...)...)
+	faces := hmc377R16Run(t, result)
+	got := hmc377R17PreviewFields(faces.preview)
+	want := map[string]string{"board_order=2": " cpu_restricted_ready_inside_this_row=8.000ms" + hmc377R17Judgment}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("an account equal to the row's time is not given beside it:\n got %v\nwant %v", got, want)
+	}
+	for _, zh := range []bool{true, false} {
+		if block := hmc377R16RowBlock(faces.fence(zh), "20.000ms"); !hmc377R16Has(block, hmc377R16OfWhich("8.000", zh)) || hmc377R16Has(block, hmc377R16OfAccount("8.000", "8.000", zh)) {
+			t.Errorf("zh=%t: the reader states the whole account in the unsplit form:\n%s", zh, block)
+		}
+	}
+}
+
+// F06: a claim that names a visible preview row and a row past the 12 preview
+// rows is a claim of several rows: the summary states it on neither (not on
+// the visible holder as if that row held the whole share). Named alone, the
+// visible holder states it.
+func TestHMC377R19SummaryClaimWithAHolderPastThePreview(t *testing.T) {
+	build := func(holders ...string) tracequery.Result {
+		walked, unwalked := hmc377R16TwoSeats()
+		items := []tracequery.RootCauseRankItem{walked}
+		for i := 0; i < traceQueryRootCauseRankPreviewCap; i++ {
+			ms := 60 - float64(i)
+			items = append(items, tracequery.RootCauseRankItem{Rank: 3 + i, Tier: "tertiary", Type: "runnable_wait", Source: "window_stats",
+				Thread:   tracequery.ThreadRef{Comm: fmt.Sprintf("lead%d", i), PID: 9500 + i},
+				ImpactMs: ms, CumulativeImpactMs: ms, EffectiveImpactMs: ms, RunnableMs: ms, DominantState: "runnable",
+				ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Confidence: 0.6, LineStart: 4000 + 10*i, LineEnd: 4005 + 10*i})
+		}
+		unwalked.Rank = 3 + traceQueryRootCauseRankPreviewCap
+		items = append(items, unwalked, hmc377R16Restriction(hmc377R16Thread, 40, 18.308, 11.364,
+			hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 11.364, holders...)))
+		return hmc377R11Result(items...)
+	}
+	two := build("seat-walked", "seat-unwalked")
+	if row := hmc377R19BoardRow(two, "seat-unwalked"); row < traceQueryRootCauseRankPreviewCap {
+		t.Fatalf("fixture precondition: the second holder is past the preview (board row %d)", row)
+	}
+	if got := hmc377R17PreviewFields(hmc377R16Run(t, two).preview); len(got) != 0 {
+		t.Errorf("a claim of a visible row and a row past the preview states nothing on the summary: %v", got)
+	}
+	want := map[string]string{"board_order=2": " cpu_restricted_ready_inside_this_row=11.364ms restricted_ready_account_ms=18.308" + hmc377R17Judgment}
+	if got := hmc377R17PreviewFields(hmc377R16Run(t, build("seat-walked")).preview); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("fixture control: the visible holder named alone states the share:\n got %v\nwant %v", got, want)
+	}
+}
+
+// hmc377R19BoardRow is the board row index of the item carrying holder key.
+func hmc377R19BoardRow(result tracequery.Result, key string) int {
+	for i, item := range result.RootCauseRank.Items {
+		if item.ShareHolderKey == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// R18: the thread's description goes to its first stated share in drawing
+// order, whatever order the seat's claims are listed in. The seat lists its
+// unwalked part (the row drawn second) before its walked part (drawn first).
+func TestHMC377R19DescriptionOnTheFirstHoldingRowInDrawingOrder(t *testing.T) {
+	result := hmc377R16TwoSeatResult(
+		hmc377R16Claim(tracequery.RootCauseShareClaimUnwalked, tracequery.RootCauseShareHolderUnwalkedSeat, 3.364, "seat-unwalked"),
+		hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderChainSeat, 8.000, "seat-walked"))
+	faces := hmc377R16Run(t, result)
+	for _, zh := range []bool{true, false} {
+		fence := faces.fence(zh)
+		first, second := hmc377R16RowBlock(fence, "20.000ms"), hmc377R16RowBlock(fence, "3.364ms")
+		if !hmc377R16Has(first, hmc377R16OfAccount("18.308", "8.000", zh)) || !hmc377R16Has(first, hmc377R16Desc(zh)) {
+			t.Errorf("zh=%t: the row drawn first states its part and the description:\n%s", zh, first)
+		}
+		if !hmc377R16Has(second, hmc377R16OfAccount("18.308", "3.364", zh)) || hmc377R16Has(second, hmc377R16Desc(zh)) {
+			t.Errorf("zh=%t: the row drawn second states its part and no description:\n%s", zh, second)
+		}
+		if got := hmc377R16Count(fence, hmc377R16Desc(zh)); got != 1 {
+			t.Errorf("zh=%t: the description is printed %d time(s), want once:\n%s", zh, got, fence)
+		}
+	}
+}
+
+// W22: a micro anchored-seat fold row draws several threads, so the 「其中」
+// form of a member's unsplit share names the member as its subject in both
+// languages (「成员 X」 / "member X's"), never 「本线程」 / "this thread's".
+func TestHMC377R19FoldRowNamesTheMemberInTheUnsplitForm(t *testing.T) {
+	member := tracequery.ThreadRef{Comm: "udk-irq-7", PID: 77}
+	result := hmc377R11Result(append([]tracequery.RootCauseRankItem{
+		hmc377R16ChainSeat(member, 7, 0.029, "seat-micro", 900),
+		hmc377R16ChainSeat(tracequery.ThreadRef{Comm: "binder:431_4", PID: 8650}, 8, 0.082, "seat-other", 1300),
+		hmc377R16Restriction(member, 10, 0.029, 0.029,
+			hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderClippedSeat, 0.029, "seat-micro")),
+	}, hmc377R16ContextSeats(9)...)...)
+	faces := hmc377R16Run(t, result)
+	want := map[bool]string{
+		true:  "其中CPU亲和/cpuset限制下0.029ms是成员 udk-irq-7-77 runnable时间里受限的那一部分,已含在本行账内,不另计",
+		false: "of which 0.029ms under the CPU affinity/cpuset restriction is the restricted part of member udk-irq-7-77's runnable time, already inside this row's account, never added again",
+	}
+	for _, zh := range []bool{true, false} {
+		fence := faces.fence(zh)
+		if hmc377R16Count(fence, want[zh]) != 1 {
+			t.Errorf("zh=%t: the fold row names its member in the unsplit form:\n%s", zh, fence)
+		}
+		if hmc377R16Has(fence, "是本线程runnable") || hmc377R16Has(fence, "part of this thread's runnable") {
+			t.Errorf("zh=%t: a fold row never says 「本线程」 / \"this thread's\" for a member's share:\n%s", zh, fence)
+		}
+	}
+}
+
+// H01, H04: a thread is read by its typed identity on its board — the member
+// TID (only when typed, TID > 0) with the board's target and params
+// fingerprint; a seat without a typed TID is its own identity. Two boards of
+// one target in one projection (two queries with different params) each
+// describe their seat once.
+func TestHMC377R19ThreadIdentityIsTypedTIDOnItsBoard(t *testing.T) {
+	untyped := func(id string) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{EvidenceID: id, RankSubjects: &types.TraceRankSubjects{Member: types.TraceThreadCoordinate{TID: 0, Comm: "swapper"}}}
+	}
+	if TraceRestrictedReadyThread(untyped("a")) == TraceRestrictedReadyThread(untyped("b")) {
+		t.Errorf("two seats without a typed TID are two identities")
+	}
+	board := func(params string) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{EvidenceID: "s-" + params, RankBoardTarget: "app-100", RankBoardParamsFingerprint: params,
+			RankSubjects: &types.TraceRankSubjects{Member: types.TraceThreadCoordinate{TID: 76}}}
+	}
+	if TraceRestrictedReadyThread(board("params-a")) == TraceRestrictedReadyThread(board("params-b")) {
+		t.Errorf("one TID on two boards of one target (different params) is two identities")
+	}
+	if TraceRestrictedReadyThread(board("params-a")) != TraceRestrictedReadyThread(types.TraceCausalProjectionNode{EvidenceID: "other", RankBoardTarget: "app-100",
+		RankBoardParamsFingerprint: "params-a", RankSubjects: &types.TraceRankSubjects{Member: types.TraceThreadCoordinate{TID: 76}}}) {
+		t.Errorf("one TID on one board is one identity")
+	}
+	// Through the production path: two queries of one target, one projection.
+	a := hmc377R16PartResult(true)
+	seatB := hmc377R16ChainSeat(hmc377R16Thread, 2, 25.000, "seat-udk-b", 1500)
+	restB := hmc377R16Restriction(hmc377R16Thread, 10, 9.000, 5.000,
+		hmc377R16Claim(tracequery.RootCauseShareClaimAnchored, tracequery.RootCauseShareHolderClippedSeat, 5.000, "seat-udk-b"))
+	restB.LineStart, restB.LineEnd = 1902, 1902
+	b := hmc377R11Result(append([]tracequery.RootCauseRankItem{seatB, restB}, hmc377R16ContextSeats(9)...)...)
+	ra, rb := *a.RootCauseRank, *b.RootCauseRank
+	ra.BoardParamsFingerprint, rb.BoardParamsFingerprint = "params-a", "params-b"
+	a.RootCauseRank, b.RootCauseRank = &ra, &rb
+	records := traceQueryTypedObservations(a, "capture.ftrace", "payload-a", "raw-a", "qa", time.Unix(0, 0).UTC())
+	records = append(records, traceQueryTypedObservations(b, "capture.ftrace", "payload-b", "raw-b", "qb", time.Unix(0, 0).UTC())...)
+	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
+	if len(set.Projections) != 1 || len(TraceRestrictedReadyHolds(set.Projections[0])) != 2 {
+		t.Fatalf("fixture precondition: one projection with one hold per board")
+	}
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		fence := runtimeTraceProjTreeFence(model, zh)
+		if !hmc377R16Has(hmc377R16RowBlock(fence, "25.000ms"), hmc377R16OfAccount("9.000", "5.000", zh)) ||
+			!hmc377R16Has(hmc377R16RowBlock(fence, "20.000ms"), hmc377R16OfAccount("18.308", "11.364", zh)) {
+			t.Fatalf("zh=%t: fixture precondition: each board's holding row states its part:\n%s", zh, fence)
+		}
+		if got := hmc377R16Count(fence, hmc377R16Desc(zh)); got != 2 {
+			t.Errorf("zh=%t: each board describes its seat once, got %d description(s):\n%s", zh, got, fence)
+		}
+	}
+}
