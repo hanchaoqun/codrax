@@ -380,16 +380,43 @@ func runtimeTraceProjRestrictedAccountHead(label string, accountMS float64, zh b
 // inside the seat's time; the seat keeps its own account): 「…已含在…账内」
 // would be false there.
 func runtimeTraceProjRestrictedHeldText(held runtimeTraceProjRestrictedHeld, zh bool) string {
+	refs := make([]string, 0, len(held.Refs))
+	for _, ref := range held.Refs {
+		refs = append(refs, "["+ref+"]")
+	}
+	return runtimeTraceProjRestrictedHeldWords(held, refs, zh)
+}
+
+// TraceRestrictedReadyLineText words one hold of the decision on a face that
+// lists every ranked seat on a line of its own under that face's ordinal
+// words (the finalizer request, R-377-17 ④), in the reader's sentence
+// (runtimeTraceProjRestrictedHeldText): on a holder's line (elsewhere false)
+// the restricted time inside this line's account — beside the seat's whole
+// account where the engine split it — with refs naming the other lines the
+// claim names; on the restriction seat's own line (elsewhere true) the seat's
+// account and the lines its part lies inside (refs, at least one). refs are
+// written verbatim.
+func TraceRestrictedReadyLineText(hold TraceRestrictedReadyHold, elsewhere bool, refs []string, zh bool) string {
+	return runtimeTraceProjRestrictedHeldWords(runtimeTraceProjRestrictedHeld{MS: hold.MS, Seat: hold.Seat,
+		Elsewhere: elsewhere, OwnAccount: hold.OwnAccount}, refs, zh)
+}
+
+// TraceCPUConstraintDescription is the one description renderer's words
+// (runtimeTraceProjCPUConstraintDescriptionText) for a face outside this
+// package: "" when the seat carries no typed judgment.
+func TraceCPUConstraintDescription(seat types.TraceCausalProjectionNode, zh bool) string {
+	return runtimeTraceProjCPUConstraintDescriptionText(seat, zh)
+}
+
+// runtimeTraceProjRestrictedHeldWords is runtimeTraceProjRestrictedHeldText
+// with the holders' references already written (refs).
+func runtimeTraceProjRestrictedHeldWords(held runtimeTraceProjRestrictedHeld, refs []string, zh bool) string {
 	label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(held.Seat.Object, zh))
 	pointer := ""
 	if tag := strings.TrimSpace(held.Tag); tag != "" {
 		pointer = runtimeTraceProjProsePointer(0, tag)
 	}
 	member := strings.TrimSpace(held.Member)
-	refs := make([]string, 0, len(held.Refs))
-	for _, ref := range held.Refs {
-		refs = append(refs, "["+ref+"]")
-	}
 	// split: the head of the split account's sentence — a row that draws
 	// several threads names the member whose account it is.
 	split := ""

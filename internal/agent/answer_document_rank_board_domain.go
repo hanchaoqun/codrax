@@ -153,11 +153,14 @@ func traceRankDisplayField(value string) string {
 type traceReaderRankDisplayAuthority struct {
 	types.TraceRankRosterAuthority
 	identity types.TraceRankBoardDisplayIdentity
+	// projection is the index in the set of the projection the seats come
+	// from (the restricted-ready decision is read per projection).
+	projection int
 }
 
 func traceReaderRankDisplayAuthorities(set types.TraceCausalProjectionSet) []traceReaderRankDisplayAuthority {
 	var out []traceReaderRankDisplayAuthority
-	for _, projection := range set.Projections {
+	for p, projection := range set.Projections {
 		// The existing constructor still owns seat selection, channel and rank
 		// gap checks. Retain the enclosing capture before its label-only view.
 		for _, authority := range types.BuildTraceRankRosterAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}) {
@@ -166,7 +169,7 @@ func traceReaderRankDisplayAuthorities(set types.TraceCausalProjectionSet) []tra
 				RankQueryWindowStartTs: authority.WindowStartTs, RankQueryWindowEndTs: authority.WindowEndTs,
 			})
 			if identity.Complete {
-				out = append(out, traceReaderRankDisplayAuthority{authority, identity})
+				out = append(out, traceReaderRankDisplayAuthority{authority, identity, p})
 				continue
 			}
 			// No loss of admitted facts, and no grouping on an incomplete key.
@@ -175,7 +178,7 @@ func traceReaderRankDisplayAuthorities(set types.TraceCausalProjectionSet) []tra
 				row := authority
 				row.Seats = []types.TraceRankRosterSeat{seat}
 				row.Complete, row.Status = false, "identity_incomplete"
-				out = append(out, traceReaderRankDisplayAuthority{row, identity})
+				out = append(out, traceReaderRankDisplayAuthority{row, identity, p})
 			}
 		}
 	}

@@ -7089,9 +7089,19 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 		return ""
 	}
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	// HMC377 round 16 (R-377-17 ④): the section's list numbers, and the
+	// restricted-ready decision placed on its lines.
+	lists := make([]int, len(authorities))
+	for i, n := 0, 0; i < len(authorities); i++ {
+		if len(authorities[i].Seats) > 0 {
+			n++
+			lists[i] = n
+		}
+	}
+	restricted := traceRankRestrictedReadyLines(set, authorities, lists, zh)
 	var b strings.Builder
 	written := 0
-	for _, authority := range authorities {
+	for index, authority := range authorities {
 		if len(authority.Seats) == 0 {
 			continue
 		}
@@ -7197,7 +7207,7 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 		} else {
 			b.WriteString("  - Causes in rank order:\n")
 		}
-		for _, seat := range authority.Seats {
+		for position, seat := range authority.Seats {
 			cause := answerDocTraceRankReaderMeasuredCauseLabel(seat, zh)
 			if authority.BoardChannel != "on_chain" && zh {
 				fmt.Fprintf(&b, "    - 原始排序 #%d %s：%s；原始排序计量 %.3fms（仅支撑，不授予根因或优化收益）\n", seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
@@ -7209,6 +7219,9 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 			} else {
 				fmt.Fprintf(&b, "    - #%d %s: %s; %.3fms modeled potential under existing rules\n",
 					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
+			}
+			for _, line := range restricted[traceRankRestrictedAt{index, position}] {
+				fmt.Fprintf(&b, "      - %s\n", line)
 			}
 		}
 		if supply, ok := answerDocTraceRankAuthorityTopSupplySeat(authority.Seats); ok {

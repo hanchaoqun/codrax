@@ -22,6 +22,14 @@ type TraceRankRosterSeat struct {
 	ChainRelevance           string
 	FixDirection             string
 	EvidenceID               string
+	// HMC377 round 16 (R-377-17 ④): the record ids the seat's line stands for
+	// (its own and the records merged into it) and its rank family key, as the
+	// node carries them. A face that lists every seat on a line of its own
+	// places the restricted-ready decision with them: a claim's holders are
+	// record ids, an absorbed member's host is the line wearing its family key
+	// (an opaque identity, never parsed).
+	MergedEvidenceIDs []string
+	RankFamilyKey     string
 }
 
 type TraceRankRosterAuthority struct {
@@ -94,6 +102,8 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 				ChainRelevance:           strings.TrimSpace(node.ChainRelevance),
 				FixDirection:             strings.TrimSpace(node.FixDirection),
 				EvidenceID:               strings.TrimSpace(node.EvidenceID),
+				MergedEvidenceIDs:        append([]string(nil), node.MergedEvidenceIDs...),
+				RankFamilyKey:            strings.TrimSpace(node.RankFamilyKey),
 			})
 		}
 	}
