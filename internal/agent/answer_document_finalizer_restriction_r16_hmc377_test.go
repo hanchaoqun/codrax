@@ -326,33 +326,38 @@ func TestHMC377R16FinalizerOwnAccountSharedClaimAndMerge(t *testing.T) {
 }
 
 // A holder is named in the words of its own list: a support-list holder on
-// the seat's list by its published order, one on another support list with
-// that list's name too.
+// the seat's list by its published order, one on another list with that
+// list's name too — on the seat's line and among a claim's co-holders, in
+// both languages.
 func TestHMC377R16FinalizerNamesASupportListHolderInItsListsWords(t *testing.T) {
 	records := []types.ObservationRecord{
 		hmc377R16FChain(1, ".ugc.aweme.lite-11105", 11105, "92.026"),
-		hmc377R16FSeat(2, 1, "udk-irq-7-76", 76, "2.693", append(hmc377R16FSplit("6.606", "3.913", "2.693", "anchored/residual_seat/1/1/0/3.000/3;unwalked/unwalked_seat/1/1/0/0.913/4"),
+		hmc377R16FSeat(2, 1, "udk-irq-7-76", 76, "2.693", append(hmc377R16FSplit("6.606", "3.913", "2.693", "anchored/residual_seat/1/1/0/3.000/3;unwalked/unwalked_seat/1/1/0/0.913/4+5"),
 			hmc377R16FConstraint("7", "0,1,2,3,4,5,6")...)...),
 		hmc377R16FRecord(3, "root_cause_adjacent", "udk-irq-7-76", 76, "runnable_wait", "3.000", "rank=2", "tier=tertiary", "source=window_stats", "causality=adjacent_to_wakeup_chain", "chain_relevance=adjacent"),
 		hmc377R16FRecord(4, "root_cause_background", "udk-irq-7-76", 76, "runnable_wait", "0.913", "rank=1", "tier=background", "source=window_stats", "causality=background_pressure", "chain_relevance=background"),
+		hmc377R16FRecord(5, "root_cause_tertiary", "udk-irq-7-76", 76, "priority_inversion_candidate", "1.200", "rank=2", "tier=tertiary", "source=window_stats", "causality=on_wakeup_chain", "chain_relevance=on_chain"),
 	}
 	seat := hmc377R16FSeatZH
 	adjacent := "原始排序 #2 udk-irq-7-76：runnable；原始排序计量 3.000ms（仅支撑，不授予根因或优化收益）"
 	background := "原始排序 #1 udk-irq-7-76：runnable；原始排序计量 0.913ms（仅支撑，不授予根因或优化收益）"
 	hmc377R16FWantLines(t, "zh", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), []string{
 		seat + " => CPU亲和/cpuset限制下合计6.606ms:其中3.000ms已含在原始排序 #2账内,不另计",
-		seat + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在支撑观测清单 2 原始排序 #1账内,不另计",
+		seat + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在支撑观测清单 2 原始排序 #1、排名清单 3 #2账内,不另计",
 		adjacent + " => CPU亲和/cpuset限制下合计6.606ms:其中3.000ms已含在本行账内,不另计",
 		adjacent + " => " + hmc377R16FDesc7ZH,
-		background + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在本行账内,不另计",
+		background + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在本行与排名清单 3 #2账内,不另计",
 	})
-	got := hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...))
-	for _, want := range []string{"of which 3.000ms is already inside the account of published order #2, never added again",
-		"of which 0.913ms is already inside the account of supporting observation list 2 published order #1, never added again"} {
-		if !strings.Contains(strings.Join(got, "\n"), want) {
-			t.Errorf("en: the seat's line names its holder %q:\n%s", want, strings.Join(got, "\n"))
-		}
-	}
+	adjacentEN := "Published order #2 udk-irq-7-76: runnable; published ranking measure 3.000ms (support only, not cause or optimization-benefit authority)"
+	backgroundEN := "Published order #1 udk-irq-7-76: runnable; published ranking measure 0.913ms (support only, not cause or optimization-benefit authority)"
+	headEN := "6.606ms under the CPU affinity/cpuset restriction in all: of which "
+	hmc377R16FWantLines(t, "en", hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...)), []string{
+		hmc377R16FSeatEN + " => " + headEN + "3.000ms is already inside the account of published order #2, never added again",
+		hmc377R16FSeatEN + " => " + headEN + "0.913ms is already inside the accounts of supporting observation list 2 published order #1, ranking list 3 #2, never added again",
+		adjacentEN + " => " + headEN + "3.000ms is already inside this row's account, never added again",
+		adjacentEN + " => " + hmc377R16FDesc7EN,
+		backgroundEN + " => " + headEN + "0.913ms is already inside the accounts of this row and ranking list 3 #2, never added again",
+	})
 }
 
 // No typed hold, no line: a restriction seat whose account the engine did not
