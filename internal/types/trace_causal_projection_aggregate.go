@@ -527,6 +527,21 @@ func traceCausalProjectionContextRankRowMeetsPriced(a, b TraceCausalProjectionNo
 	return (contextRankRow(a) && b.EffectiveImpactMS > 0) || (contextRankRow(b) && a.EffectiveImpactMS > 0)
 }
 
+// traceCausalProjectionOrdinalLessRankSeat (HMC377 R-377-15 ⑦) reports a
+// rank-board row that carries an attribution of its own and no ordinal: the
+// form in which the engine returns a released detail to the board (rank 0, a
+// ladder tier, its own value). When the gate withdraws an inversion seat, such
+// a row is the only priced carrier of the seat's time. Typed fields only: the
+// rank-board predicate family, the ordinal, the published attribution, and the
+// two forms in which a priced rank record is no contender of its own — the
+// analysed thread's own state, and a lossless detail of another row. (A
+// context row and a ▒ board position publish no attribution.)
+func traceCausalProjectionOrdinalLessRankSeat(node TraceCausalProjectionNode) bool {
+	return strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") &&
+		node.Rank == 0 && node.EffectiveImpactMS > 0 &&
+		!node.IsTargetSelfStateRow() && !node.AbsorbedByRankFamily
+}
+
 // traceCausalProjectionSupplyFoldBackfill is the R1-lane fold back-fill state
 // of ONE same-fact survivor (SFD 复核 F4): backfilled marks an account taken
 // from an absorbed loser (as opposed to the survivor's OWN publication, which
@@ -831,8 +846,8 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// cross-step forms depend on it (refusing there would silently drop a
 	// board seat from display: the ELIM-GAP disappearance family).
 	loserWholeSeatDemoted := loser.ChainCredentialLaneDemoted || loser.ChainAnchorRepresentedByChainSeat
-	if survivor.Rank == 0 && loser.Rank > 0 &&
-		!(loserWholeSeatDemoted && strings.TrimSpace(survivor.ChainRelevance) == "on_chain") {
+	seatFollowsFact := !(loserWholeSeatDemoted && strings.TrimSpace(survivor.ChainRelevance) == "on_chain")
+	if survivor.Rank == 0 && loser.Rank > 0 && seatFollowsFact {
 		survivor.Rank = loser.Rank
 		if strings.TrimSpace(survivor.Tier) == "" {
 			survivor.Tier = loser.Tier
@@ -853,6 +868,14 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		if strings.TrimSpace(survivor.Tier) == "" {
 			survivor.Tier = loser.Tier
 		}
+	}
+	// HMC377 R-377-15 ⑦: a board seat with no ordinal passes nothing above.
+	// It rides on the row that keeps the fact, under the same arbitration as
+	// an ordinal, so the row's board membership does not depend on the seat
+	// having one.
+	if seatFollowsFact && traceCausalProjectionOrdinalLessRankSeat(loser) {
+		seat := loser
+		survivor.SameFactRankSeat = &seat
 	}
 	if survivor.ChainDepth <= 0 {
 		survivor.ChainDepth = loser.ChainDepth

@@ -101,13 +101,20 @@ import (
 //	    every present and future Rank carrier (predicate seats, RNB folds, R1
 //	    backfill, R2 member carriage, XLANE-1 absorb) by construction.
 //
+// HMC377 R-377-15 ⑦ (review R14E-3, universe Z1cTwinOnly_H): carriage (a)
+// reads the seat the row publishes (runtimeTraceProjRowPublishedSeat), so the
+// rank record is recognised also when it rides in a chain row without an
+// ordinal: the R1 same-fact absorb passes a board identity to its survivor
+// only as an ordinal, and a released detail back on the board has none. The
+// hop row it rode in printed its attribution while ◎ did not list it.
+//
 // Rows outside the rank population (✦-only mention-floor rows, raw
 // critical_blocking stanza rows, hop/context rows) are honestly OUT — the
 // overview never invents a population member (ADJ-MINT fail-honest; when
 // ADJ-MINT lands and mints them as rank items they enter with zero changes
 // here).
 func runtimeTraceProjElimRankItemRow(row runtimeTraceProjTreeRow) bool {
-	if strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
+	if strings.HasPrefix(strings.TrimSpace(runtimeTraceProjRowPublishedSeat(row).Predicate), "root_cause_") {
 		return true
 	}
 	if len(row.RankFoldPeers) > 0 {

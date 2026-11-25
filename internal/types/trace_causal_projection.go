@@ -1365,6 +1365,18 @@ type TraceCausalProjectionNode struct {
 	// row's current value). In-process display membership only, same contract
 	// as SameFactRankBoards.
 	RankBoardPartAccounts []TraceRankBoardPartAccount `json:"-"`
+	// SameFactRankSeat (HMC377 R-377-15 ⑦): the rank-board seat the same-fact
+	// merge folded into this row when that seat held no ordinal to hand over
+	// (traceCausalProjectionOrdinalLessRankSeat). The merge keeps one row per
+	// fact and passes a rank view's board identity to the survivor as its
+	// ordinal; a priced board row without an ordinal — a detail the engine
+	// released back to the board — had nothing to pass, and the chain view
+	// that kept the fact was a member of no board. The seat rides here whole,
+	// exactly as its own publication carried it: display layers read it as
+	// the seat the row publishes. It adds no value and moves no row between
+	// lanes. In-process only, same contract as SameFactRankBoards (the
+	// projection is recompiled from records, never restored from JSON).
+	SameFactRankSeat *TraceCausalProjectionNode `json:"-"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
 	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —
 	// the actual channel travels verbatim from it and is never re-derived).

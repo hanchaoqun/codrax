@@ -657,11 +657,24 @@ func runtimeTraceProjGatedCompositeProjectionCell(node types.TraceCausalProjecti
 // typed gates above, so they cannot say different things about one row: a hop
 // row that took an inversion seat's account wore 「·构成」 on ◎ beside a bare
 // single-state cell and no legend sentence (dio w04 #tp-io-17-13410).
+//
+// HMC377 R-377-15 ⑦: a row that is no rank-board row itself and holds no
+// ordinal publishes the board seat the same-fact merge folded into its node
+// when that seat had no ordinal to hand over
+// (types.TraceCausalProjectionNode.SameFactRankSeat): a detail the engine
+// released back to the board, the only priced carrier of a withdrawn seat's
+// time, rides in the thread's hop row. ◎ admission reads the same seat
+// (runtimeTraceProjElimRankItemRow), so the overview lists what the tree
+// prices.
 func runtimeTraceProjRowPublishedSeat(row runtimeTraceProjTreeRow) types.TraceCausalProjectionNode {
 	for _, peer := range row.RankFoldPeers {
 		if peer.ownSeat != nil {
 			return *peer.ownSeat
 		}
+	}
+	if seat := row.Node.SameFactRankSeat; seat != nil && row.Node.Rank == 0 &&
+		!strings.HasPrefix(strings.TrimSpace(row.Node.Predicate), "root_cause_") {
+		return *seat
 	}
 	return row.Node
 }
