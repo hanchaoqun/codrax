@@ -243,6 +243,46 @@ func TestHMC377R16FinalizerWholeArmHolderCarriesTheAbsorbedSeat(t *testing.T) {
 	}
 }
 
+// Second review (2026-11-25), batch owner R16X-1: an absorbed member's claim
+// naming two lines where no line wears its family key has no single holder's
+// line — no line states it, the reader label is not permitted for it, and no
+// co-holder words are written. Where a line wears the family key, that line
+// holds it (the engine absorbed the member into that family).
+func TestHMC377R16FinalizerWholeArmClaimOfTwoLinesStatesNothing(t *testing.T) {
+	row2 := "#2 udk-irq-7-76：runnable；估算优化潜力影响 0.020ms"
+	for _, tc := range []struct {
+		familyOnLine bool
+		want         []string
+	}{
+		{false, nil},
+		{true, []string{
+			row2 + " => 其中CPU亲和/cpuset限制下0.014ms是本线程runnable时间里受限的那一部分,已含在本行账内,不另计",
+			row2 + " => " + hmc377R16FDesc7ZH,
+		}},
+	} {
+		name := fmt.Sprintf("family on a line=%v", tc.familyOnLine)
+		records := append(hmc377R16FWholeBoard(tc.familyOnLine, "2+5"),
+			hmc377R16FChainOf(5, "priority_inversion_candidate", "udk-irq-7-76", 76, "0.030"))
+		zh := hmc377R16FRequest(t, "zh", records...)
+		if !strings.Contains(zh, "#5 udk-irq-7-76：优先级反转候选") {
+			t.Fatalf("[%s] fixture precondition: the claim's second holder has a line of its own", name)
+		}
+		hmc377R16FWantLines(t, name, hmc377R16FSubLines(t, zh), tc.want)
+		en := hmc377R16FRequest(t, "en", records...)
+		if got := len(hmc377R16FSubLines(t, en)); got != len(tc.want) {
+			t.Errorf("[%s] en: %d sub-lines, want %d", name, got, len(tc.want))
+		}
+		permitted := 0
+		if tc.want != nil {
+			permitted = 1
+		}
+		if got := strings.Count(zh, `permitted_reader_cause_label="CPU亲和/cpuset限制"`); got != permitted {
+			t.Errorf("[%s] the label section permits the restriction label %d times, want %d", name, got, permitted)
+		}
+		hmc377R16FNoCoHolderWords(t, name, zh, en)
+	}
+}
+
 // R-377-17 ③⑤: one description per thread and request, on the thread's first
 // holding line in the section's order (the claims list the later line first),
 // each from its own seat's typed judgment.
@@ -274,9 +314,10 @@ func TestHMC377R16FinalizerDescribesEachThreadOnceFromItsOwnSeat(t *testing.T) {
 
 // Case A' (the seat's chain-account claim stands beside a walked part: the
 // chain seat keeps its own account), a claim naming two holders (the engine
-// types no split between them: the first line states it, naming the other),
-// and the merge of two parts of one seat inside one line's own account — only
-// when neither names another line and both are of the same account form.
+// types no split between them: no holder's line states it, the seat's own
+// line names both — second review 2026-11-25, batch owner R16X-1), and the
+// merge of two parts of one seat inside one line's own account — only when
+// both are of the same account form.
 func TestHMC377R16FinalizerOwnAccountSharedClaimAndMerge(t *testing.T) {
 	board := func(claims string) []types.ObservationRecord {
 		return []types.ObservationRecord{
@@ -306,12 +347,8 @@ func TestHMC377R16FinalizerOwnAccountSharedClaimAndMerge(t *testing.T) {
 		}},
 		{"one claim, two holders", "anchored/chain_seat/1/1/0/2.365/4+2", []string{
 			hmc377R16FSeatZH + " => " + head + "2.365ms已含在排名清单 2 #2、排名清单 2 #4账内,不另计",
-			row2 + " => " + head + "2.365ms已含在本行与#4账内,不另计",
-			row2 + " => " + hmc377R16FDesc7ZH,
 		}, []string{
 			hmc377R16FSeatEN + " => " + headEN + "2.365ms is already inside the accounts of ranking list 2 #2, ranking list 2 #4, never added again",
-			row2en + " => " + headEN + "2.365ms is already inside the accounts of this row and #4, never added again",
-			row2en + " => " + hmc377R16FDesc7EN,
 		}},
 		{"two parts in one line's own account", "anchored/clipped_seat/1/1/0/1.000/2;unwalked/unwalked_seat/1/1/0/0.500/2", []string{
 			hmc377R16FSeatZH + " => " + head + "1.000ms已含在排名清单 2 #2账内,不另计",
@@ -324,7 +361,12 @@ func TestHMC377R16FinalizerOwnAccountSharedClaimAndMerge(t *testing.T) {
 			hmc377R16FSeatZH + " => " + head + "0.500ms已含在排名清单 2 #2、排名清单 2 #4账内,不另计",
 			row2 + " => " + head + "1.000ms已含在本行账内,不另计",
 			row2 + " => " + hmc377R16FDesc7ZH,
-			row2 + " => " + head + "0.500ms已含在本行与#4账内,不另计",
+		}, nil},
+		{"the shared part first", "unwalked/unwalked_seat/1/1/0/0.500/2+4;anchored/clipped_seat/1/1/0/1.000/2", []string{
+			hmc377R16FSeatZH + " => " + head + "0.500ms已含在排名清单 2 #2、排名清单 2 #4账内,不另计",
+			hmc377R16FSeatZH + " => " + head + "1.000ms已含在排名清单 2 #2账内,不另计",
+			row2 + " => " + head + "1.000ms已含在本行账内,不另计",
+			row2 + " => " + hmc377R16FDesc7ZH,
 		}, nil},
 		{"two parts of two account forms", "chain_account/chain_seat/1/1/0/3.000/2;anchored/chain_seat/1/1/0/1.000/2;unwalked/unwalked_seat/1/1/0/0.500/2", []string{
 			hmc377R16FSeatZH + " => " + head + "1.000ms落在链上席排名清单 2 #2时段内(链席另列自账)",
@@ -335,17 +377,32 @@ func TestHMC377R16FinalizerOwnAccountSharedClaimAndMerge(t *testing.T) {
 		}, nil},
 	} {
 		records := board(tc.claims)
-		hmc377R16FWantLines(t, tc.name+" zh", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), tc.zh)
+		zh := hmc377R16FRequest(t, "zh", records...)
+		hmc377R16FWantLines(t, tc.name+" zh", hmc377R16FSubLines(t, zh), tc.zh)
+		en := hmc377R16FRequest(t, "en", records...)
 		if tc.en != nil {
-			hmc377R16FWantLines(t, tc.name+" en", hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...)), tc.en)
+			hmc377R16FWantLines(t, tc.name+" en", hmc377R16FSubLines(t, en), tc.en)
+		}
+		hmc377R16FNoCoHolderWords(t, tc.name, zh, en)
+	}
+}
+
+// hmc377R16FNoCoHolderWords: no line of the request names a holder beside
+// its own account (R16X-1: no co-holder words in round 16).
+func hmc377R16FNoCoHolderWords(t *testing.T, name, zh, en string) {
+	t.Helper()
+	for _, w := range []string{"本行与", "accounts of this row and"} {
+		if strings.Contains(zh+en, w) {
+			t.Errorf("[%s] the request names a co-holder beside its own account (%q)", name, w)
 		}
 	}
 }
 
 // A holder is named in the words of its own list: a support-list holder on
 // the seat's list by its published order, one on another list with that
-// list's name too — on the seat's line and among a claim's co-holders, in
-// both languages.
+// list's name too — on the seat's line, for a claim of one holder and for a
+// claim of two holders on two lists (stated on the seat's line only), in both
+// languages.
 func TestHMC377R16FinalizerNamesASupportListHolderInItsListsWords(t *testing.T) {
 	records := []types.ObservationRecord{
 		hmc377R16FChain(1, ".ugc.aweme.lite-11105", 11105, "92.026"),
@@ -357,23 +414,19 @@ func TestHMC377R16FinalizerNamesASupportListHolderInItsListsWords(t *testing.T) 
 	}
 	seat := hmc377R16FSeatZH
 	adjacent := "原始排序 #2 udk-irq-7-76：runnable；原始排序计量 3.000ms（仅支撑，不授予根因或优化收益）"
-	background := "原始排序 #1 udk-irq-7-76：runnable；原始排序计量 0.913ms（仅支撑，不授予根因或优化收益）"
 	hmc377R16FWantLines(t, "zh", hmc377R16FSubLines(t, hmc377R16FRequest(t, "zh", records...)), []string{
 		seat + " => CPU亲和/cpuset限制下合计6.606ms:其中3.000ms已含在原始排序 #2账内,不另计",
 		seat + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在支撑观测清单 2 原始排序 #1、排名清单 3 #2账内,不另计",
 		adjacent + " => CPU亲和/cpuset限制下合计6.606ms:其中3.000ms已含在本行账内,不另计",
 		adjacent + " => " + hmc377R16FDesc7ZH,
-		background + " => CPU亲和/cpuset限制下合计6.606ms:其中0.913ms已含在本行与排名清单 3 #2账内,不另计",
 	})
 	adjacentEN := "Published order #2 udk-irq-7-76: runnable; published ranking measure 3.000ms (support only, not cause or optimization-benefit authority)"
-	backgroundEN := "Published order #1 udk-irq-7-76: runnable; published ranking measure 0.913ms (support only, not cause or optimization-benefit authority)"
 	headEN := "6.606ms under the CPU affinity/cpuset restriction in all: of which "
 	hmc377R16FWantLines(t, "en", hmc377R16FSubLines(t, hmc377R16FRequest(t, "en", records...)), []string{
 		hmc377R16FSeatEN + " => " + headEN + "3.000ms is already inside the account of published order #2, never added again",
 		hmc377R16FSeatEN + " => " + headEN + "0.913ms is already inside the accounts of supporting observation list 2 published order #1, ranking list 3 #2, never added again",
 		adjacentEN + " => " + headEN + "3.000ms is already inside this row's account, never added again",
 		adjacentEN + " => " + hmc377R16FDesc7EN,
-		backgroundEN + " => " + headEN + "0.913ms is already inside the accounts of this row and ranking list 3 #2, never added again",
 	})
 }
 

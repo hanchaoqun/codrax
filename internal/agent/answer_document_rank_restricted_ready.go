@@ -32,6 +32,14 @@ package agent
 // own ordinal words, with its list's name when it sits on another list. A
 // hold with a holder on no line of the request states nothing: the engine
 // types no split between the holders a claim names.
+//
+// A claim whose holders sit on several lines states nothing on any holder's
+// line (second review, 2026-11-25; batch owner R16X-1: no co-holder words in
+// round 16): no single line can say how much of the share is inside its own
+// account, as on the rank summary. The restriction seat's own line still
+// names every holder its part lies inside (the reader's 「另行计入[E#,E#]」),
+// and the seat's record carries the claim. Such a thread is described on the
+// request only where another of its holds is stated on a holder's line.
 
 import (
 	"fmt"
@@ -53,8 +61,9 @@ func traceRankRestrictedBefore(a, b traceRankRestrictedAt) bool {
 }
 
 // traceRankRestrictedEntry is one statement of the placement: a hold on its
-// holder's line, or (elsewhere) on the restriction seat's own line naming the
-// holders (refs: the section's words for the other lines).
+// one holder's line, or (elsewhere) on the restriction seat's own line naming
+// the holders (refs: the section's words for the holders' lines; a holder's
+// line names no other line).
 type traceRankRestrictedEntry struct {
 	at         traceRankRestrictedAt
 	projection int
@@ -164,28 +173,26 @@ func traceRankRestrictedReadyPlace(set types.TraceCausalProjectionSet, authoriti
 				continue
 			}
 			sort.SliceStable(holders, func(x, y int) bool { return traceRankRestrictedBefore(holders[x], holders[y]) })
-			// The statement sits on the first holder's line; the other
-			// holders are named by their ordinals.
-			first := holders[0]
-			held := entry{at: first, projection: p, hold: h}
-			for _, k := range holders[1:] {
-				held.refs = append(held.refs, traceRankRestrictedRef(authorities, lists, first, k, zh))
-			}
-			// Two parts of one seat inside one line's own account are one
-			// statement of that line (disjoint instants of one account), as
-			// on the reader face.
-			merged := false
-			for j := range entries {
-				e := &entries[j]
-				if e.at == held.at && e.hold.Seat.EvidenceID == h.Seat.EvidenceID && len(e.refs) == 0 && len(held.refs) == 0 &&
-					e.hold.OwnAccount == h.OwnAccount {
-					e.hold.MS += h.MS
-					merged = true
-					break
+			// The statement sits on the holder's line when the claim's
+			// holders are one line; a claim of several lines is stated on the
+			// seat's own line only (see the file header).
+			if len(holders) == 1 {
+				held := entry{at: holders[0], projection: p, hold: h}
+				// Two parts of one seat inside one line's own account are one
+				// statement of that line (disjoint instants of one account),
+				// as on the reader face.
+				merged := false
+				for j := range entries {
+					e := &entries[j]
+					if !e.elsewhere && e.at == held.at && e.hold.Seat.EvidenceID == h.Seat.EvidenceID && e.hold.OwnAccount == h.OwnAccount {
+						e.hold.MS += h.MS
+						merged = true
+						break
+					}
 				}
-			}
-			if !merged {
-				entries = append(entries, held)
+				if !merged {
+					entries = append(entries, held)
+				}
 			}
 			// The restriction seat's own line, where the section draws it,
 			// says its account and the holders its part lies inside.
