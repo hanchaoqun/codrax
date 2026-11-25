@@ -98,18 +98,16 @@ func traceRankRestrictedReadyLines(set types.TraceCausalProjectionSet, authoriti
 	return out
 }
 
-// traceRankRestrictedReadyStatedSeats are, per projection index, the
-// CPU-restriction seats whose restricted time the rank section states on a
-// holder's line. The reader-label section permits their reader label: an
-// engine-absorbed member has no rank line, so no other pool of that section
-// carries it, yet the holder's line speaks its label.
-func traceRankRestrictedReadyStatedSeats(set types.TraceCausalProjectionSet) map[int][]types.TraceCausalProjectionNode {
+// traceRankRestrictedReadyStatedSeats are the CPU-restriction seats whose
+// restricted time the rank section states, read from the same placement. The
+// reader-label section permits their reader label: an engine-absorbed member
+// has no rank line, so no other pool of that section carries it, yet the
+// holder's line speaks its label.
+func traceRankRestrictedReadyStatedSeats(set types.TraceCausalProjectionSet) []types.TraceCausalProjectionNode {
 	authorities := traceReaderRankDisplayAuthorities(set)
-	out := map[int][]types.TraceCausalProjectionNode{}
+	var out []types.TraceCausalProjectionNode
 	for _, e := range traceRankRestrictedReadyPlace(set, authorities, make([]int, len(authorities)), true) {
-		if !e.elsewhere {
-			out[e.projection] = append(out[e.projection], e.hold.Seat)
-		}
+		out = append(out, e.hold.Seat)
 	}
 	return out
 }
