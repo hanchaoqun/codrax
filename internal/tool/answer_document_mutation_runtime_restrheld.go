@@ -25,7 +25,9 @@ package tool
 //   - (a) the restriction seat is an engine-absorbed member of the row
 //     (AbsorbedByRankFamily, AbsorbedInto == the row's RankFamilyKey — the
 //     host rule runtimeTraceProjAbsorbedChainHosts shares with the 「链上并入」
-//     note and the drawn-record index);
+//     note and the drawn-record index); where the family's seat is no row of
+//     its own on the face (its record is drawn inside its chain hop row), the
+//     absorbed seat's own resolved claim names that seat's record, as in (b);
 //   - (b) the restriction seat left part of its restricted ready time to rows
 //     of the published board (RestrictedReadyAccountMS and
 //     ShareCountedElsewhereMS) and the resolver's claim for that part names
@@ -154,30 +156,10 @@ func runtimeTraceProjStampRestrictedHeld(model *runtimeTraceProjTreeModel, ranke
 	holds := func(row *runtimeTraceProjTreeRow) bool {
 		return row != nil && row.HasData && !row.Node.OnChainOverflowFold && !runtimeTraceProjSubjectlessFoldRow(row.Node)
 	}
-	hosts := runtimeTraceProjAbsorbedChainHosts(model)
-	for _, seat := range model.absorbedChainRows {
-		if !runtimeTraceProjRestrictionSeatNode(seat) {
-			continue
-		}
-		host := hosts[strings.TrimSpace(seat.AbsorbedInto)]
-		ms := runtimeTraceProjNodeDisplayImpact(seat)
-		if !holds(host) || ms <= 0 {
-			continue
-		}
-		seats = append(seats, []share{{row: host, held: runtimeTraceProjRestrictedHeld{
-			MS: ms, Seat: seat, Tag: runtimeTraceProjEvidenceTag(seat, evidence, zh)}}})
-	}
 	index := runtimeTraceProjDrawnRecordIndex(model, all)
-	seen := map[string]bool{}
-	for _, seat := range ranked {
-		if !runtimeTraceProjRestrictionSeatNode(seat) || seat.RestrictedReadyAccountMS <= 0 || seat.ShareCountedElsewhereMS <= 0 {
-			continue
-		}
-		key := runtimeTraceCausalProjectionNodeKey(seat)
-		if seen[key] || runtimeTraceProjRestrictionSeatDrawn(seat, index) {
-			continue
-		}
-		seen[key] = true
+	// claimed places the parts of the seat the resolver's claims hand to rows
+	// of the published board on the rows that draw the holders' records.
+	claimed := func(seat types.TraceCausalProjectionNode) []share {
 		chainAccount := false
 		for _, c := range seat.ShareClaims {
 			chainAccount = chainAccount || c.Part == string(tracequery.RootCauseShareClaimChainAccount)
@@ -249,7 +231,39 @@ func runtimeTraceProjStampRestrictedHeld(model *runtimeTraceProjTreeModel, ranke
 				shares = append(shares, share{row: first, held: held})
 			}
 		}
-		if len(shares) > 0 {
+		return shares
+	}
+	hosts := runtimeTraceProjAbsorbedChainHosts(model)
+	for _, seat := range model.absorbedChainRows {
+		if !runtimeTraceProjRestrictionSeatNode(seat) {
+			continue
+		}
+		if host := hosts[strings.TrimSpace(seat.AbsorbedInto)]; host != nil {
+			if ms := runtimeTraceProjNodeDisplayImpact(seat); holds(host) && ms > 0 {
+				seats = append(seats, []share{{row: host, held: runtimeTraceProjRestrictedHeld{
+					MS: ms, Seat: seat, Tag: runtimeTraceProjEvidenceTag(seat, evidence, zh)}}})
+			}
+			continue
+		}
+		// The family's seat is no row of its own on this face: the absorbed
+		// seat's resolved claim names its record, drawn inside another row.
+		// The absorbed seat has no [E#] here (no 「链上并入」 note cites it),
+		// so the line points at none.
+		if shares := claimed(seat); len(shares) > 0 {
+			seats = append(seats, shares)
+		}
+	}
+	seen := map[string]bool{}
+	for _, seat := range ranked {
+		if !runtimeTraceProjRestrictionSeatNode(seat) || seat.RestrictedReadyAccountMS <= 0 || seat.ShareCountedElsewhereMS <= 0 {
+			continue
+		}
+		key := runtimeTraceCausalProjectionNodeKey(seat)
+		if seen[key] || runtimeTraceProjRestrictionSeatDrawn(seat, index) {
+			continue
+		}
+		seen[key] = true
+		if shares := claimed(seat); len(shares) > 0 {
 			seats = append(seats, shares)
 		}
 	}

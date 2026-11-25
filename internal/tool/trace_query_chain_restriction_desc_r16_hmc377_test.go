@@ -188,9 +188,9 @@ func hmc377R16RestrictedWord(zh bool) string {
 	return "is the restricted part of"
 }
 
-var hmc377R16TagRE = regexp.MustCompile(`\[(E\d+)[^\]]*\]\s*$`)
+var hmc377R16TagRE = regexp.MustCompile(`\[(E\d+[^\]]*)\]\s*$`)
 
-// hmc377R16HeadTag returns the first [E#] of the row's bracket.
+// hmc377R16HeadTag returns the row's bracket (the key of its detail block).
 func hmc377R16HeadTag(block string) string {
 	head := strings.SplitN(block, "\n", 2)[0]
 	if m := hmc377R16TagRE.FindStringSubmatch(head); m != nil {
@@ -277,6 +277,8 @@ func hmc377R16WholeResult() tracequery.Result {
 		CPUConstraintKind: hmc377R16Kind, CPUConstraintAllowedCPUs: []int{7}, CPUConstraintExcludedCPUs: []int{0, 1, 2, 3, 4, 5, 6},
 		CPUConstraintPolicy:  "next_info affinity=80 load=72 group=0 ices_boost=false",
 		AbsorbedByRankFamily: true, AbsorbedIntoFamily: holder.RankFamilyKey}
+	absorbed.ShareClaims = []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored, Role: tracequery.RootCauseShareHolderClippedSeat,
+		ShareMs: 0.038, Resolved: true, HolderKeys: []string{"seat-udk"}}}
 	result := hmc377R11Result(holder)
 	result.RootCauseRank.AbsorbedItems = []tracequery.RootCauseRankItem{absorbed}
 	return result
@@ -307,6 +309,89 @@ func TestHMC377R16ChainRowStatesItsAbsorbedRestrictionMember(t *testing.T) {
 		if !strings.Contains(detail, hmc377R16OfWhich("0.038", zh)+" ["+member[1]+"]") {
 			t.Errorf("zh=%t: the detail block carries the same sentence:\n%s", zh, detail)
 		}
+	}
+}
+
+// hmc377R16HopWholeResult: the family's seat is no row of its own — the
+// thread's inversion seat and its chain hop are one measured account, drawn as
+// the one row 「⇅ udk-irq-7-76 · runnable 1.903ms [E#(+1)]」 (the round-14
+// engine-review universes' hop form, Z1own2_H). The absorbed restriction seat
+// (1.050 ms) names the seat's record by its resolved claim.
+func hmc377R16HopWholeResult() tracequery.Result {
+	const account = "state_account:v2:r16-76-900"
+	holder := tracequery.RootCauseRankItem{Rank: 2, Tier: "secondary", Type: "priority_inversion_candidate", Source: "wakeup_chain.causal_impacts", Thread: hmc377R16Thread,
+		ImpactMs: 1.903, CumulativeImpactMs: 1.903, EffectiveImpactMs: 1.903, RunnableMs: 1.903, DominantState: "runnable", GatedRunnableMs: 1.903,
+		PriorityRelationCaliber: "closed_range_stable", PriorityRelationProvenLowerMs: 3, PriorityRelationArtifactSources: []string{"artifact:0"},
+		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Confidence: 0.8, StartTs: 10.2, EndTs: 10.2046, LineStart: 900, LineEnd: 990,
+		ShareHolderKey: "seat-udk", MeasuredStateAccountKey: account}
+	holder.RankFamilyKey = "rank_pair:priority_inversion_candidate>cpu_affinity_or_cpuset|pid:76|on_chain|lines:900-990"
+	holder.AbsorbedRankRows = 1
+	absorbed := tracequery.RootCauseRankItem{Tier: "absorbed", Type: "cpu_affinity_or_cpuset", Source: "window_stats.cpu_constraints", Thread: hmc377R16Thread,
+		ImpactMs: 1.050, CumulativeImpactMs: 1.050, RunnableMs: 1.050, DominantState: "runnable",
+		ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain", Confidence: 0.72, LineStart: 902, LineEnd: 902,
+		CPUConstraintKind: hmc377R16Kind, CPUConstraintAllowedCPUs: []int{7}, CPUConstraintExcludedCPUs: []int{0, 1, 2, 3, 4, 5, 6},
+		AbsorbedByRankFamily: true, AbsorbedIntoFamily: holder.RankFamilyKey}
+	absorbed.ShareClaims = []tracequery.RootCauseShareClaim{{Part: tracequery.RootCauseShareClaimAnchored, Role: tracequery.RootCauseShareHolderChainSeat,
+		ShareMs: 1.050, Resolved: true, HolderKeys: []string{"seat-udk"}}}
+	result := hmc377R11Result(holder)
+	result.RootCauseRank.AbsorbedItems = []tracequery.RootCauseRankItem{absorbed}
+	chain := *result.WakeupChain
+	chain.CausalImpacts = append(append([]tracequery.WakeupCausalImpact(nil), chain.CausalImpacts...), tracequery.WakeupCausalImpact{
+		Thread: hmc377R16Thread, ChainDepth: 2, DominantState: "runnable", DominantImpactMs: 1.903, TotalMs: 1.903, RunnableMs: 1.903,
+		OnChain: true, LineStart: 900, LineEnd: 990, Window: tracequery.TimeWindow{StartTs: 10.2, EndTs: 10.2046},
+		PriorityInversionCandidate: true, PriorityRelation: "lower_priority_dependency", PriorityRelationCaliber: "closed_range_stable",
+		PriorityRelationProvenLowerMs: 3, PriorityRelationArtifactSources: []string{"artifact:0"},
+		PriorityInversionGatedMs: 1.903, GatedRunnableMs: 1.903, StateAccountKey: account})
+	result.WakeupChain = &chain
+	return result
+}
+
+// The whole shape whose family seat is drawn inside its chain hop row: the
+// reader row that draws the seat's record states the absorbed member's time
+// and the description — the same fact the rank preview row of the seat
+// carries. The absorbed seat has no [E#] on this face, so the line points at
+// none.
+func TestHMC377R16AbsorbedMemberOfASeatDrawnInsideItsHopRow(t *testing.T) {
+	faces := hmc377R16Run(t, hmc377R16HopWholeResult())
+	// Universe precondition: one row of the thread, the hop and the seat as
+	// one object; no row wears the family key (no 「链上并入」 note).
+	var rows []runtimeTraceProjTreeRow
+	model := faces.modelZH
+	for _, row := range runtimeTraceProjSMR1AllRows(&model) {
+		if strings.TrimSpace(row.Node.Subject) == hmc377R16Subject {
+			rows = append(rows, *row)
+		}
+	}
+	if len(rows) != 1 || rows[0].Node.Predicate != "wakeup_causal_impact" || len(rows[0].Node.MergedEvidenceIDs) != 1 ||
+		strings.TrimSpace(rows[0].Node.RankFamilyKey) != "" || len(rows[0].AbsorbedChainPeers) != 0 {
+		t.Fatalf("the hop row draws the seat's record as one object and wears no family key: %d row(s)", len(rows))
+	}
+	for _, zh := range []bool{true, false} {
+		fence := faces.fence(zh)
+		block := hmc377R16RowBlock(fence, hmc377R16Subject+" · runnable")
+		if !hmc377R16Has(block, hmc377R16OfWhich("1.050", zh)) || hmc377R16Has(block, hmc377R16OfWhich("1.903", zh)) {
+			t.Errorf("zh=%t: the row states the absorbed member's 1.050 ms, never its own 1.903 ms:\n%s", zh, fence)
+		}
+		if hmc377R16Has(block, hmc377R16OfWhich("1.050", zh)+" [E") {
+			t.Errorf("zh=%t: the absorbed seat has no [E#] on this face; the line points at none:\n%s", zh, block)
+		}
+		if !hmc377R16Has(block, hmc377R16Desc(zh)) || hmc377R16Count(fence, hmc377R16Desc(zh)) != 1 {
+			t.Errorf("zh=%t: the description is printed once, under the row:\n%s", zh, fence)
+		}
+		if detail := r13DetailBlock(faces.detail(zh), hmc377R16HeadTag(block)); !strings.Contains(detail, hmc377R16OfWhich("1.050", zh)) {
+			t.Errorf("zh=%t: the detail block carries the same sentence:\n%s", zh, detail)
+		}
+	}
+	// The rank preview says the same on the seat's board row.
+	var holding []string
+	for _, l := range strings.Split(faces.preview, "\n") {
+		if strings.Contains(l, "cpu_restricted_ready_inside_this_row=") {
+			holding = append(holding, l)
+		}
+	}
+	if len(holding) != 1 || !strings.Contains(holding[0], "type=priority_inversion_candidate subject="+hmc377R16Subject+" ") ||
+		!strings.Contains(holding[0], " cpu_restricted_ready_inside_this_row=1.050ms cpu_constraint_kind=sched_switch_next_info cpu_constraint_allowed_cpus=7 ") {
+		t.Errorf("the seat's preview row carries the same restricted time and judgment:\n%s", faces.preview)
 	}
 }
 
