@@ -2248,6 +2248,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	if ctx != nil && ctx.MaxIterOverride > 0 {
 		maxIter = ctx.MaxIterOverride
 	}
+	// requestsSent counts the requests this dispatch has handed to the model.
+	requestsSent := 0
 	for i := 0; i < maxIter; i++ {
 		// A scoped attachment becoming stale cannot be repaired by another
 		// JSON attempt. Validate before every model call, retaining the parent
@@ -2430,6 +2432,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					}
 					break
 				}
+				var refused *AnswerContextByteBudgetError
+				if errors.As(err, &refused) {
+					refused.RequestsSent = requestsSent
+				}
 				return nil, err
 			}
 		}
@@ -2546,6 +2552,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		streamActivity := &llmStreamActivityTracker{}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry, streamActivity)
 		readDeliverySnapshot := repositoryReadDelivery.snapshot(requestMessages)
+		requestsSent++
 		resp, err := llm.ChatWithRequestBudget(ctx.Context(), b.deps.LLM, requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:       toolChoice,
 			OnContentDelta:   streamBuf.onDelta,

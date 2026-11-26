@@ -4800,7 +4800,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			NoticeKind: render.NoticeFinalizing,
 			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
-		finalizeResult := o.executeStageRequest(newFinalizeStageExecutionRequest(fin, "read_dag_finalize"))
+		finalizeResult := o.executeFinalizeStageRequest(fin, "read_dag_finalize")
 		out, err = finalizeResult.Output, finalizeResult.Err
 		if err != nil {
 			if o.canUseFinalizerOutputAfterTransientProgress(out, err) {
@@ -5838,7 +5838,7 @@ contractFailureBreak:
 			if o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
 			}
-			finalizeResult := o.executeStageRequest(newFinalizeStageExecutionRequest(nil, "read_dag_forced_finalize"))
+			finalizeResult := o.executeFinalizeStageRequest(nil, "read_dag_forced_finalize")
 			out, err = finalizeResult.Output, finalizeResult.Err
 			if err == nil {
 				stepsUsed++

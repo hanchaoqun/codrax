@@ -157,6 +157,11 @@ func (p *finalizerPromptBudget) requiredFits(nativeBytes int) bool {
 type AnswerContextByteBudgetError struct {
 	ActualBytes    int
 	AllocatedBytes int
+	// RequestsSent counts the requests the dispatch had already sent to the
+	// model when this one was refused. Zero means the refused request was the
+	// dispatch's first and nothing of the dispatch reached the model. The
+	// error text does not carry it.
+	RequestsSent int
 }
 
 func (e *AnswerContextByteBudgetError) Error() string {

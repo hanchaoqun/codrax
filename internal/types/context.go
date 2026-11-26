@@ -1074,6 +1074,11 @@ type MutableState struct {
 	// treats patch style as a success-only advisory; noisy style signals
 	// must never consume planner retry budget.
 	patchStyleNudgeFired bool
+
+	// finalizeRequests records answer requests the byte guard refused
+	// (finalizer_request_refusal.go). Scheduler bookkeeping: no stage and no
+	// model-facing text reads it.
+	finalizeRequests finalizeRequestLedger
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
