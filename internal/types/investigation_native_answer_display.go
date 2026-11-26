@@ -72,6 +72,16 @@ func NativeAnswerDisplayChoices(rm *RequestModel, c *RuntimeMeasurementContract)
 // boundary. False rejects just the explicit optional layout instruction; it
 // does not add an answer requirement when the field was omitted.
 func SealInvestigationNativeAnswerDisplay(h *InvestigationNativeFactHandoff, rm *RequestModel, c *RuntimeMeasurementContract) bool {
+	return sealInvestigationNativeAnswerDisplay(h, rm, c, false)
+}
+
+// SealPreparedFrameAnswerDisplay keeps eligible optional displays while the
+// measurements and their evidence continue through the normal strict binder.
+func SealPreparedFrameAnswerDisplay(h *InvestigationNativeFactHandoff, rm *RequestModel, c *RuntimeMeasurementContract) bool {
+	return sealInvestigationNativeAnswerDisplay(h, rm, c, true)
+}
+
+func sealInvestigationNativeAnswerDisplay(h *InvestigationNativeFactHandoff, rm *RequestModel, c *RuntimeMeasurementContract, dropUnavailable bool) bool {
 	if h == nil {
 		return false
 	}
@@ -90,13 +100,23 @@ func SealInvestigationNativeAnswerDisplay(h *InvestigationNativeFactHandoff, rm 
 		selected[nativeAnswerDisplayKey(r)] = true
 	}
 	bindings := map[string]string{}
+	var accepted []AnswerRuntimeMeasurementReceipt
 	for _, r := range h.AnswerDisplay {
 		key := nativeAnswerDisplayKey(r)
-		if !choices[key] || !selected[key] || bindings[key] != "" || r.EventSelection != nil || !BindRuntimeMeasurementReceipt(&r, c) {
+		if dropUnavailable && r.EventSelection == nil && (!choices[key] || !selected[key]) {
+			continue
+		}
+		if !choices[key] || !selected[key] || bindings[key] != "" || r.EventSelection != nil {
 			return false
 		}
-		bindings[key] = nativeAnswerDisplayBinding(r, c)
+		bound := r
+		if !BindRuntimeMeasurementReceipt(&bound, c) {
+			return false
+		}
+		bindings[key] = nativeAnswerDisplayBinding(bound, c)
+		accepted = append(accepted, r)
 	}
+	h.AnswerDisplay = accepted
 	h.answerDisplayBindings = bindings
 	return true
 }

@@ -23,7 +23,12 @@ func TestHMC237AnalysisTeachingSeparatesObservationWindowAndBusinessCondition(t 
 				t.Fatal("real analyzer schema/skill must share exactly one scope decision")
 			}
 		}
-		for _, want := range []string{"observation/reporting-time window", "business payload endpoints", "even when their values are literal timestamps", "independently requests both"} {
+		for _, want := range []string{
+			"observation/reporting-time window",
+			"帧窗口=10.123456..10.234567秒, emit explicit_time_window",
+			"Conditions on business payload timestamps also use bounded_selector",
+			"independently requests both",
+		} {
 			if !strings.Contains(surface, want) {
 				t.Errorf("scope teaching omits %q", want)
 			}

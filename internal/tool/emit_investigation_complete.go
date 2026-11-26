@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,15 @@ type EmitInvestigationComplete struct {
 }
 
 func (t *EmitInvestigationComplete) Name() string { return "emit_investigation_complete" }
+
+// RepairInvestigationCompletionProseQuotes escapes literal quotes in interpretation text.
+func RepairInvestigationCompletionProseQuotes(raw json.RawMessage) (json.RawMessage, bool) {
+	candidate, changed := repairJSONProseFieldQuotes(string(raw), func(key string) bool { return key == "text" })
+	if changed && json.Valid([]byte(candidate)) {
+		return json.RawMessage(candidate), true
+	}
+	return raw, false
+}
 
 func (t *EmitInvestigationComplete) Description() string {
 	return "Signal that the investigation is complete and the system should " +
@@ -151,11 +161,12 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, exhaustive member enumerations, and named-mechanism comparisons. HARD CAP: at most __AGG_FACTS_CAP__ entries per call — budget them toward the highest-value facts. __AGG_FACTS_CAP_TEACHING__ A named-mechanism comparison is different: use ONE principal member_set with one mechanism per members[] entry, its own index-aligned member_notes[] control-path description, and its own index-aligned support_refs[] evidence location. Do not place a compared mechanism only in grouped_count dimensions: dimensions have no member-specific evidence mapping, so that shape cannot prove both sides independently. A carrier-only enum, constant, type, schema, or event-name declaration proves identity only; behavioral member_notes require the actual producer/callsite and consumer/handler control path. For an attached runtime event, a source predicate proves the rule exists but not that this instance satisfied it: bind every load-bearing runtime operand or mark the rule uninstantiated. A payload over the cap is truncated by role priority (principal_answer kept first, audit_ledger dropped first) when the principal_answer facts themselves fit the cap, and rejected otherwise. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. When value is an explicit valid integer, it MUST equal len(members): a numeric mismatch is rejected because it means either the count or the purported exact roster is wrong. Schema-adjacent non-integer value text such as \"1+\" may still be repaired from exact members. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
+					"additionalProperties": false,
 					"properties": {
 						"kind": {
 							"type": "string",
 							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search", "negative_observation", "behavior_outcome", "error_granularity_verdict"],
-							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members), including value=\"0\" with members=[] for a verified empty set; behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. __NEGATIVE_OBSERVATION_TEACHING__ For a supported negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate or a runtime carrier such as missing_signal/missing_event/missing_field, scope, and searched_at; do NOT invent repo dimensions."
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members), including value=\"0\" with members=[] for a verified empty set; behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. __NEGATIVE_OBSERVATION_TEACHING__ For a supported negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target (name of the absent signal, event or field), scope, and searched_at. Use the exact dimension name target for the absent item; do NOT invent repo dimensions."
 						},
 						"label": {
 							"type": "string",
@@ -180,7 +191,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"dimensions": {
 							"type": "array",
-							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. For kind=negative_observation, include origin/evidence_origin plus target, query, pattern, predicate, or runtime carriers such as missing_signal/missing_event/missing_field; include scope for the bounded observed surface, such as a commit range, tool result, artifact id, or trace window. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. For kind=negative_observation, include origin/evidence_origin plus target for the absent signal, event or field, such as {name:\"target\", value:\"cpu_frequency_rows\"}. Use query, pattern or predicate only when they describe the actual filter; include scope for the bounded observed surface, such as a commit range, tool result, artifact id, or trace window. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
 							"items": {
 								"type": "object",
 								"properties": {
@@ -1765,6 +1776,24 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "origin", dims["origin"], aggregateFactBackfillSourceOwnDimensions))
 			}
 		}
+		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" {
+			fieldIndex := -1
+			for j, dimension := range fact.Dimensions {
+				if strings.EqualFold(strings.TrimSpace(dimension.Name), "field") {
+					if fieldIndex >= 0 {
+						fieldIndex = -1
+						break
+					}
+					fieldIndex = j
+				}
+			}
+			if fieldIndex >= 0 && strings.TrimSpace(fact.Dimensions[fieldIndex].Value) != "" {
+				fact.Dimensions = append([]types.AnswerAggregateDimension(nil), fact.Dimensions...)
+				fact.Dimensions[fieldIndex].Name = "target"
+				dims["target"] = strings.TrimSpace(fact.Dimensions[fieldIndex].Value)
+				notes = append(notes, fmt.Sprintf("aggregate_facts[%d]: renamed negative_observation dimension field to target", i))
+			}
+		}
 		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" && len(fact.Excluded) > 0 {
 			if target := strings.TrimSpace(fact.Excluded[0]); target != "" {
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "target", Value: target})
@@ -1985,6 +2014,63 @@ func completionAggregateFactIsCountKind(kind types.AnswerAggregateKind) bool {
 
 func decodeEmitInvestigationCompleteParamsStrict(ctx *types.BusContext, name string, params json.RawMessage, schema json.RawMessage) (emitInvestigationCompleteParams, *types.ToolResult, error) {
 	normalized := applyStructuredPayloadCompat(name, params, schema)
+	if UsesCompactNativeFactHandoff(ctx) {
+		// Accept the same explicit selection if a prepared-frame caller put
+		// it beside the handoff. Scope and all receipt checks stay unchanged.
+		var fields, handoff map[string]json.RawMessage
+		if json.Unmarshal(normalized, &fields) == nil {
+			changed := false
+			if json.Unmarshal(fields["native_fact_handoff"], &handoff) == nil && handoff != nil {
+				handoffChanged := false
+				if fields["measurement_refs"] != nil && handoff["measurement_refs"] == nil && handoff["runtime_measurements"] == nil {
+					handoff["measurement_refs"] = fields["measurement_refs"]
+					delete(fields, "measurement_refs")
+					handoffChanged = true
+				}
+				// Query names are navigation labels. A handoff with exact selected
+				// measurements must not turn those labels into unit-level citations.
+				if len(handoff["measurement_refs"]) > 0 && traceQueryLabelsOnly(handoff["support_refs"]) {
+					delete(handoff, "support_refs")
+					handoffChanged = true
+					logging.Info("[emit_investigation_complete] normalized misplaced native_fact_handoff.support_refs query labels")
+				}
+				if handoffChanged {
+					fields["native_fact_handoff"], _ = json.Marshal(handoff)
+					changed = true
+				}
+			}
+			// emit_evidence annotations do not control the explicit aggregate role.
+			if bytes.Contains(fields["aggregate_facts"], []byte(`"load_bearing_summary"`)) ||
+				bytes.Contains(fields["aggregate_facts"], []byte(`"salience"`)) {
+				var facts []map[string]json.RawMessage
+				if json.Unmarshal(fields["aggregate_facts"], &facts) == nil {
+					removed := false
+					for _, fact := range facts {
+						switch string(fact["load_bearing_summary"]) {
+						case "true", "false":
+							delete(fact, "load_bearing_summary")
+							removed = true
+						}
+						var salience string
+						if json.Unmarshal(fact["salience"], &salience) == nil && salience != "" {
+							if _, known := types.ParseEvidenceSalience(salience); known {
+								delete(fact, "salience")
+								removed = true
+							}
+						}
+					}
+					if removed {
+						fields["aggregate_facts"], _ = json.Marshal(facts)
+						changed = true
+						logging.Info("[emit_investigation_complete] normalized emit_evidence annotations in aggregate_facts")
+					}
+				}
+			}
+			if changed {
+				normalized, _ = json.Marshal(fields)
+			}
+		}
+	}
 	var raw emitInvestigationCompleteRawParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(name, normalized, &raw, nil); err != nil {
 		return emitInvestigationCompleteParams{}, decodeFailure, err
@@ -1996,6 +2082,28 @@ func decodeEmitInvestigationCompleteParamsStrict(ctx *types.BusContext, name str
 		return emitInvestigationCompleteParams{}, &res, retErr
 	}
 	return p, nil, nil
+}
+
+func traceQueryLabelsOnly(raw json.RawMessage) bool {
+	var labels []string
+	if json.Unmarshal(raw, &labels) != nil || len(labels) == 0 {
+		return false
+	}
+	for _, label := range labels {
+		view, window, scoped := strings.Cut(label, ":")
+		if view == "" || tracequery.ValidateViewName(view) != nil {
+			return false
+		}
+		if scoped {
+			start, end, ok := strings.Cut(window, "..")
+			from, fromErr := strconv.ParseFloat(start, 64)
+			to, toErr := strconv.ParseFloat(end, 64)
+			if !ok || fromErr != nil || toErr != nil || !(from < to) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // completionAggregateFactsDecodeRejectSuffix (EMITBURN-1 件1+件2, §29.173)

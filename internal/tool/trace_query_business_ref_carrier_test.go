@@ -348,6 +348,10 @@ func TestTraceQueryBusinessRefPublicCarrierClippingRetainsExplicitScope(t *testi
 	if ref.Data().StartTs != 1 || ref.Data().EndTs != 1.05 {
 		t.Fatalf("clipped interval was relabeled complete: %+v", ref.Data())
 	}
+	if strings.Contains(result.Summary, fmt.Sprintf("business_span_ref=%q", ref.Token())) ||
+		!strings.Contains(result.Summary, "full-instance query unavailable") {
+		t.Fatal("the model was offered a full-instance shortcut outside its requested window")
+	}
 	denied := businessRefTestQuery(t, ctx, map[string]any{"view": "window_stats", "business_span_ref": ref.Token()})
 	if denied.Success || !strings.Contains(denied.Summary, "explicitly requested") {
 		t.Fatalf("navigation overrode user window: %+v", denied)

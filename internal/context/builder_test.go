@@ -4941,10 +4941,10 @@ func TestShouldSuppressAttachedRuntimeLog_CompleteExternalStructuredFrames(t *te
 	if !bundle.IsExternalSource() {
 		t.Fatal("fixture must exercise an external structured log")
 	}
-	if !shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentAnalyzer, LogTriage: bundle}) {
+	if !shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentAnalyzer, LogTriage: bundle}, false) {
 		t.Fatal("complete artifact-local frame bundle should suppress the weaker raw-log channel")
 	}
-	if shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentLogTriager, LogTriage: bundle}) {
+	if shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentLogTriager, LogTriage: bundle}, false) {
 		t.Fatal("log producer must still receive the raw attachment")
 	}
 }

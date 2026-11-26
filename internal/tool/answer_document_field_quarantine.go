@@ -26,6 +26,7 @@ var answerDocumentFullEmitQuarantineProfile = answerDocumentFieldQuarantineProfi
 		"caveats",
 		"snippets",
 		"trace_root_causes",
+		"runtime_work_binding",
 	),
 	BlockArrayFields: []string{"blocks"},
 }

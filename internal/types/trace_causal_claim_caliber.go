@@ -70,8 +70,10 @@ func (c *TraceCausalClaimContract) Allows(caliber TraceCausalClaimCaliber) bool 
 // seats. An unrelated earlier trace query cannot lower a later seat because
 // its observation IDs do not occur on that seat.
 func BuildTraceCausalClaimContract(input ObservationLedgerInput) *TraceCausalClaimContract {
-	ledger := CompileObservationLedger(input)
-	set := CompileTraceCausalProjectionSet(ledger)
+	return buildTraceCausalClaimContractFromProjection(input, CompileTraceCausalProjectionSet(CompileObservationLedger(input)))
+}
+
+func buildTraceCausalClaimContractFromProjection(input ObservationLedgerInput, set TraceCausalProjectionSet) *TraceCausalClaimContract {
 	if !RuntimeTraceReportMaterializationAllowed(input.RequestModel, set) ||
 		!TraceCausalProjectionSetHasPublicationGradeRows(set) {
 		return nil

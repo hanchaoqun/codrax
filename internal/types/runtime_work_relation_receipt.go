@@ -130,7 +130,8 @@ func (r RuntimeWorkRelationRow) SemanticSpanMeasurement() RuntimeWorkSemanticMea
 // at least one exact measured-work row. Ordinary spans retain an unproven
 // work-to-target relation, independent of semantic optimization credentials.
 type RuntimeWorkRelationContract struct {
-	Rows []RuntimeWorkRelationRow
+	Rows                []RuntimeWorkRelationRow
+	businessSpanAliases map[string]string
 }
 
 func (c *RuntimeWorkRelationContract) Active() bool {
@@ -157,6 +158,9 @@ func BindRuntimeWorkRelationReceipt(r *AnswerRuntimeWorkRelationReceipt, contrac
 		return false
 	}
 	id := strings.TrimSpace(r.ObservationID)
+	if canonical := contract.businessSpanAliases[id]; canonical != "" {
+		id = canonical
+	}
 	for _, row := range contract.Rows {
 		if id == row.ObservationID && runtimeWorkRelationConclusionAllowed(r.Conclusion, row.AllowedConclusions) {
 			r.ObservationID = id
@@ -175,7 +179,10 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 		return nil
 	}
 	ledger := CompileObservationLedger(input)
-	set := CompileTraceCausalProjectionSet(ledger)
+	return buildRuntimeWorkRelationContractFromProjection(input, ledger, CompileTraceCausalProjectionSet(ledger))
+}
+
+func buildRuntimeWorkRelationContractFromProjection(input ObservationLedgerInput, ledger ObservationLedger, set TraceCausalProjectionSet) *RuntimeWorkRelationContract {
 	frameQuestion := FrameCausalityQualifierApplicable(input.RequestModel)
 	seen := map[string]bool{}
 	var rows []RuntimeWorkRelationRow
@@ -194,7 +201,8 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 			rows = append(rows, row)
 		}
 	}
-	for i, record := range TraceBusinessSpanFacts(ledger, input.RequestModel) {
+	aliases := map[string]string{}
+	for i, record := range traceBusinessSpanFacts(ledger, input.RequestModel, aliases) {
 		if i >= TraceBusinessSpanFactLimit {
 			break
 		}
@@ -215,7 +223,7 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 	sort.SliceStable(rows, func(i, j int) bool {
 		return TraceObservationCoordinateLess(rows[i].ObservationID, rows[j].ObservationID)
 	})
-	return &RuntimeWorkRelationContract{Rows: rows}
+	return &RuntimeWorkRelationContract{Rows: rows, businessSpanAliases: aliases}
 }
 
 // TraceBusinessSpanFacts exposes the same factual supply to receipt and prompt
@@ -223,6 +231,10 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 // the work, while distinct artifacts or selected windows never collapse.
 // Callers may supply a window-filtered ledger; this reader never broadens it.
 func TraceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel) []ObservationRecord {
+	return traceBusinessSpanFacts(ledger, requestModel, nil)
+}
+
+func traceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel, aliases map[string]string) []ObservationRecord {
 	type factKey struct {
 		path, artifact, timeDomain, canonicalTimeDomain       string
 		window, actualWindow, actualMS, subject, label, value string
@@ -233,7 +245,7 @@ func TraceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel
 		clockCalibrated                                       bool
 		clockOffset, clockSlope                               string
 	}
-	seen := map[factKey]bool{}
+	seen := map[factKey]string{}
 	var facts []ObservationRecord
 	for _, record := range ledger.Records {
 		if _, ok := runtimeWorkRelationRowFromBusinessSpan(record); !ok {
@@ -286,10 +298,13 @@ func TraceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel
 		if record.SourceRef.ClockSlope != nil {
 			key.clockSlope = strconv.FormatFloat(*record.SourceRef.ClockSlope, 'g', -1, 64)
 		}
-		if seen[key] {
+		if previous, duplicate := seen[key]; duplicate {
+			if aliases != nil && record.ID != previous {
+				aliases[record.ID] = previous
+			}
 			continue
 		}
-		seen[key] = true
+		seen[key] = record.ID
 		facts = append(facts, record)
 	}
 	return facts

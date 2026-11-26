@@ -358,7 +358,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			ctx.Mutable.StampTraceStatistics(sourceRead, &out, windowReplayParams)
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
 			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
-			traceQueryAppendBusinessRefs(&out)
+			traceQueryAppendBusinessRefs(ctx, &out)
 		}
 		traceQueryFinalizeMeasurementSources(&out)
 		if ctx != nil && ctx.Mutable != nil {

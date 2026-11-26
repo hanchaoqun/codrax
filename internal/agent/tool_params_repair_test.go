@@ -8,6 +8,14 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 )
 
+func TestExplorerCompletionRepairsLiteralFalseRole(t *testing.T) {
+	raw := json.RawMessage(`{"aggregate_facts":[{"role":"load_bearing" if false else "principal_answer","value":"151.566"}]}`)
+	got, ok := repairToolCallParamsJSON("emit_investigation_complete", raw)
+	if !ok || string(got) != `{"aggregate_facts":[{"role":"principal_answer","value":"151.566"}]}` {
+		t.Fatalf("did not recover the selected literal or changed the fact: %s", got)
+	}
+}
+
 // TestRepairToolParamsJSON_S5aProductionRegression pins the exact
 // LLM-corrupted shape that motivated Fix G — a customer-reported
 // REPL status-line case where the analyzer LLM emitted a grep call
@@ -263,6 +271,21 @@ func TestRepairToolCallParamSyntaxRunsBeforeHistorySanitization(t *testing.T) {
 	}
 	if string(sanitizeToolCallsForHistory(repaired)[0].Params) == `{}` {
 		t.Fatalf("history sanitizer should preserve repaired params, got %s", repaired[0].Params)
+	}
+}
+
+func TestRepairToolCallParamsJSON_InvestigationInterpretationQuotes(t *testing.T) {
+	raw := json.RawMessage(`{"interpretation_units":[{"text":"Observed "Choreographer#doFrame 154619" in the frame.","measurement_refs":["m1"]}]}`)
+	want := `{"interpretation_units":[{"text":"Observed \"Choreographer#doFrame 154619\" in the frame.","measurement_refs":["m1"]}]}`
+	repaired, ok := repairToolCallParamsJSON("emit_investigation_complete", raw)
+	if !ok || string(repaired) != want {
+		t.Fatalf("repair = %s, %v; want %s", repaired, ok, want)
+	}
+
+	raw = json.RawMessage(`{"interpretation_units":[{"text":"Observed frame","measurement_refs":["invalid "ref""]}]}`)
+	repaired, ok = repairToolCallParamsJSON("emit_investigation_complete", raw)
+	if ok || string(repaired) != string(raw) {
+		t.Fatalf("measurement reference must remain untouched: %s", repaired)
 	}
 }
 

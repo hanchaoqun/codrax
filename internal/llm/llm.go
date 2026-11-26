@@ -70,6 +70,12 @@ type Response struct {
 	Usage            TokenUsage `json:"usage"`
 }
 
+// OutputTruncated reports the normalized token-limit stop used by the
+// adapters and the raw finish reason returned by compatible clients.
+func (r Response) OutputTruncated() bool {
+	return r.StopReason == "max_tokens" || r.StopReason == "length"
+}
+
 // ChatOptions carries per-call controls that are orthogonal to the
 // message list and tool catalog. Empty value means "defaults" — a
 // caller that does not care about any of these fields may pass

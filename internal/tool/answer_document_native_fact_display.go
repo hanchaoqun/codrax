@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -64,6 +66,14 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 	for _, receipt := range planned {
 		plannedKeys[receipt.ObservationID+"\x00"+string(receipt.View)] = true
 	}
+	const capNoticeEN = "Some native fact tables were omitted because the document reached its block limit."
+	const capNoticeZH = "报告达到区块上限，部分原生事实表未展示。"
+	doc.Caveats = slices.DeleteFunc(doc.Caveats, func(caveat string) bool {
+		return caveat == capNoticeEN || caveat == capNoticeZH
+	})
+	// Explicit handoff views take the available slots before automatic views.
+	// These refreshed tables must not make a model document fail the block cap.
+	truncated := false
 	for _, receipt := range append(planned, types.RuntimeNativeFactDisplaySelections(rm, view.RuntimeMeasurementContract)...) {
 		key := types.RuntimeMeasurementDisplayKey(receipt, view.RuntimeMeasurementContract)
 		if !types.BindRuntimeMeasurementReceipt(&receipt, view.RuntimeMeasurementContract) {
@@ -90,6 +100,10 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 		if covered {
 			continue
 		}
+		if len(doc.Blocks) >= maxBlocksPerDoc {
+			truncated = true
+			break
+		}
 		digest := sha256.Sum256([]byte(receipt.ObservationID + "\x00" + string(receipt.View)))
 		base := fmt.Sprintf("native-facts-%x", digest[:8])
 		id := base
@@ -102,13 +116,24 @@ func materializeNativeFactDisplay(doc *types.AnswerDocumentV2, ctx *types.BusCon
 			SystemGeneratedKind: types.AnswerSystemGeneratedNativeFacts})
 	}
 	if unavailable > 0 {
-		id := "native-display-unavailable"
-		for n := 1; used[id]; n++ {
-			id = fmt.Sprintf("native-display-unavailable-%d", n)
+		text := fmt.Sprintf("已选择的原生事实视图中有 %d 项当前无法重新核对来源或查询范围；未用旧摘要或预览值补填。", unavailable)
+		if len(doc.Blocks) < maxBlocksPerDoc {
+			id := "native-display-unavailable"
+			for n := 1; used[id]; n++ {
+				id = fmt.Sprintf("native-display-unavailable-%d", n)
+			}
+			doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: id, Kind: types.BlockSection, Text: text,
+				SystemGeneratedKind: types.AnswerSystemGeneratedNativeFacts})
+		} else if !slices.Contains(doc.Caveats, text) {
+			doc.Caveats = append(doc.Caveats, text)
 		}
-		doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: id, Kind: types.BlockSection,
-			Text:                fmt.Sprintf("已选择的原生事实视图中有 %d 项当前无法重新核对来源或查询范围；未用旧摘要或预览值补填。", unavailable),
-			SystemGeneratedKind: types.AnswerSystemGeneratedNativeFacts})
+	}
+	if truncated {
+		text := capNoticeEN
+		if strings.HasPrefix(strings.ToLower(requestedAnswerDocumentLanguage(ctx)), "zh") {
+			text = capNoticeZH
+		}
+		doc.Caveats = append(doc.Caveats, text)
 	}
 }
 

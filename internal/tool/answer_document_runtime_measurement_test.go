@@ -92,6 +92,30 @@ func TestRuntimeMeasurementSchemaDoesNotBorrowSourceInventoryItems(t *testing.T)
 	}
 }
 
+func TestRuntimeMeasurementDuplicateWorkSummaryUsesSharedBlockNormalizer(t *testing.T) {
+	raw := []byte(`{"id":"lead","kind":"summary","text":"A business interval was measured. The wait object remains unknown.","runtime_work_relation":{"observation_id":"span:1","conclusion":"relation_unproven"},"runtime_measurement":{"observation_id":"span:1","view":"summary"}}`)
+	var block emitAnswerBlockV2
+	if err := json.Unmarshal(raw, &block); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"blocks[0]", "replace_blocks[0]", "add_blocks[0]"} {
+		got, err := NormalizeEmitAnswerBlock(block, path)
+		if err != nil || got.Text != block.Text || got.RuntimeWorkRelation == nil ||
+			got.RuntimeWorkRelation.ObservationID != "span:1" || got.RuntimeMeasurement != nil {
+			t.Fatalf("%s changed independent evidence or prose: %+v %v", path, got, err)
+		}
+	}
+	block.RuntimeMeasurement.ObservationID = "other:1"
+	if _, err := NormalizeEmitAnswerBlock(block, "blocks[0]"); err == nil {
+		t.Fatal("independent measurement was silently dropped")
+	}
+	block.RuntimeMeasurement.ObservationID = "span:1"
+	block.RuntimeMeasurement.View = types.RuntimeMeasurementTimeline
+	if _, err := NormalizeEmitAnswerBlock(block, "replace_blocks[0]"); err == nil {
+		t.Fatal("independent timeline was silently dropped")
+	}
+}
+
 func TestRuntimeMeasurementKeepsWorkRelationInSeparateBlocks(t *testing.T) {
 	view := runtimeMeasurementTestView()
 	view.RuntimeWorkRelationContract = &types.RuntimeWorkRelationContract{Rows: []types.RuntimeWorkRelationRow{{

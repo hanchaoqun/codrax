@@ -17,7 +17,9 @@ import (
 // completion-selection lane identical in the query schema and tool message.
 const traceQueryBusinessRefCompletionTeaching = "Using this reference in trace_query is navigation only; it does not accept a completion focus or prove a root cause. To select that exact instance for automatic supplementation, separately copy the published token into the optional top-level emit_investigation_complete.business_span_ref field. Selection takes effect only after the completion is accepted and its exploration dispatch succeeds."
 
-const traceQueryBusinessRefAssertionTeaching = "Prefer only the reference plus view/options; omit copied source, thread and window fields. If supplied, coordinate fields are assertions and must exactly match that same current physical instance; they never override it or apply additional filters. Conflicting fields are rejected, not silently removed. Use ordinary explicit parameters without the reference for a different or clipped scope."
+const traceQueryBusinessRefAssertionTeaching = "Choose one window: for the full instance, send the reference, view and options; omit copied source, thread and window fields, including time_start and time_end. For a custom or clipped window, send time_start/time_end without business_span_ref. If supplied, coordinate fields are assertions and must exactly match that same current physical instance; they never override it or apply additional filters. Conflicting fields are rejected, not silently removed."
+
+const TraceQueryBusinessWindowConflict = "trace_query_business_window_conflict"
 
 // These are navigation candidates, not causal or model-selected focus facts.
 // Only returned native complete pairs can supply coordinates. The view name
@@ -89,18 +91,29 @@ func traceQueryApplyBusinessRef(ctx *types.BusContext, p traceQueryParams) (trac
 		return reject("the reference is unknown, stale or belongs to another capture/run; discover the instance again")
 	}
 	d := ref.Data()
-	if (p.PID.Int() != 0 && p.PID.Int() != d.TID) || (p.Thread != "" && p.Thread != d.Thread) ||
+	windowConflict := (p.TimeStart.Set() && p.TimeStart.Seconds() != d.StartTs) || (p.TimeEnd.Set() && p.TimeEnd.Seconds() != d.EndTs)
+	otherConflict := (p.PID.Int() != 0 && p.PID.Int() != d.TID) || (p.Thread != "" && p.Thread != d.Thread) ||
 		(p.TargetScope != "" && p.TargetScope != tracequery.TargetScopeThread) ||
-		(p.TimeStart.Set() && p.TimeStart.Seconds() != d.StartTs) || (p.TimeEnd.Set() && p.TimeEnd.Seconds() != d.EndTs) ||
 		(p.LineStart.Int() != 0 && p.LineStart.Int() != d.StartLine) || (p.LineEnd.Int() != 0 && p.LineEnd.Int() != d.EndLine) ||
-		(p.SpanName != "" && p.SpanName != d.Name) || !traceQueryBusinessRefSourceAssertionsMatch(ctx, p, d.Path) {
+		(p.SpanName != "" && p.SpanName != d.Name) || !traceQueryBusinessRefSourceAssertionsMatch(ctx, p, d.Path)
+	if windowConflict || otherConflict {
 		// Prepared-material validation observes the caller's context. A
 		// canceled comparison is not evidence of conflicting coordinates.
 		if err := contextFromBus(ctx).Err(); err != nil {
 			r := traceQueryCancellationResult(p.View, p.Source, err)
 			return p, empty, &r
 		}
-		return reject("coordinate assertions conflict with the selected current instance; keep the reference and remove redundant coordinates for that instance, or use ordinary explicit parameters without the reference for a different or clipped scope")
+		_, _, r := reject("coordinate assertions conflict with the selected current instance; keep the reference and remove redundant coordinates for that instance, or use ordinary explicit parameters without the reference for a different or clipped scope")
+		if !otherConflict && p.LineStart.Int() == 0 && p.LineEnd.Int() == 0 {
+			r.Repair = &types.ToolRepair{
+				Code:   TraceQueryBusinessWindowConflict,
+				Fields: []string{"business_span_ref", "time_start", "time_end"},
+				Metadata: map[string]string{
+					"referenced_window": fmt.Sprintf("%q on %q (TID %d), %.9f..%.9f seconds", d.Name, d.Thread, d.TID, d.StartTs, d.EndTs),
+				},
+			}
+		}
+		return p, empty, r
 	}
 	profile, scopeKnown := traceQuerySourceRequestedScope(ctx, d.Path)
 	if !scopeKnown {
@@ -188,7 +201,7 @@ func traceQueryBusinessRefFailure(reason string) types.ToolResult {
 		Summary: "trace_query business_span_ref: " + reason}
 }
 
-func traceQueryAppendBusinessRefs(result *types.ToolResult) {
+func traceQueryAppendBusinessRefs(ctx *types.BusContext, result *types.ToolResult) {
 	if result == nil || !result.Success || len(result.TraceBusinessSpanRefs) == 0 {
 		return
 	}
@@ -198,9 +211,33 @@ func traceQueryAppendBusinessRefs(result *types.ToolResult) {
 	b.WriteByte('\n')
 	b.WriteString(traceQueryBusinessRefCompletionTeaching)
 	b.WriteByte('\n')
-	for _, ref := range result.TraceBusinessSpanRefs {
+	frameRefs := ""
+	first := result.TraceBusinessSpanRefs[0].Data()
+	requested, scopeKnown := traceQuerySourceRequestedScope(ctx, first.Path)
+	for i, ref := range result.TraceBusinessSpanRefs {
 		d := ref.Data()
-		fmt.Fprintf(&b, "- business_span_ref=%q work=%q thread=%q tid=%d source=%q lines=%d-%d complete_window=%.9f..%.9f seconds\n", ref.Token(), d.Name, d.Thread, d.TID, d.Path, d.StartLine, d.EndLine, d.StartTs, d.EndTs)
+		if !scopeKnown || requested.HasExplicitTimeWindows() && !requested.ContainsExplicitTimeWindow(d.StartTs, d.EndTs) {
+			fmt.Fprintf(&b, "- full-instance query unavailable for %q on %q (TID %d) complete_window=%.9f..%.9f; use ordinary explicit parameters within the requested source/window.\n", d.Name, d.Thread, d.TID, d.StartTs, d.EndTs)
+		} else {
+			fmt.Fprintf(&b, "- business_span_ref=%q work=%q thread=%q tid=%d source=%q lines=%d-%d complete_window=%.9f..%.9f seconds\n", ref.Token(), d.Name, d.Thread, d.TID, d.Path, d.StartLine, d.EndLine, d.StartTs, d.EndTs)
+		}
+		if i == 7 {
+			frameRefs = b.String()
+		}
+	}
+	if len(result.TraceFrameBundleCoveredViews) > 0 {
+		// Keep the issued references beside the front-loaded bundle evidence
+		// so a model can queue independent scoped measurements in one response.
+		if frameRefs == "" {
+			frameRefs = b.String()
+		}
+		if preview, rest, ok := strings.Cut(result.Summary, "\n\n"); ok {
+			result.Summary = preview + "\n" + frameRefs + "\n" + rest
+			if more := strings.TrimPrefix(b.String(), frameRefs); more != "" {
+				result.Summary += "\n## Other published business-instance references\n" + more
+			}
+			return
+		}
 	}
 	result.Summary += b.String()
 }

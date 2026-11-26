@@ -837,6 +837,14 @@ func sanitizeToolCallsForHistory(calls []llm.ToolCall) []llm.ToolCall {
 	return calls
 }
 
+func truncatedToolCallsForHistory(calls []llm.ToolCall) []llm.ToolCall {
+	out := append([]llm.ToolCall(nil), calls...)
+	for i := range out {
+		out[i].Params = json.RawMessage(`{}`)
+	}
+	return out
+}
+
 func toolCallParamsValidForHistory(params json.RawMessage) bool {
 	if strings.TrimSpace(string(params)) == "" {
 		return false
@@ -862,7 +870,7 @@ func llmOutputTruncatedToolCallResult(tc llm.ToolCall) *types.ToolResult {
 		ToolName: tc.Name,
 		Success:  false,
 		Summary: "not executed: your response hit the output-token limit before it finished, so the arguments of this tool call may be incomplete even if they look valid. " +
-			"No tool in this batch was executed. Re-issue the calls you still need in your next response — fewer calls per response, or smaller argument payloads, so the whole batch fits.",
+			"No tool in this batch was executed. Re-issue the calls you still need with fewer calls or smaller arguments. Use only declared schema fields and omit optional fields that are not needed.",
 		Timestamp: time.Now(),
 		Repair: &types.ToolRepair{
 			Code:   toolRepairCodeLLMOutputTruncated,
@@ -2192,6 +2200,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	}
 
 	var allToolResults []types.ToolResult
+	var pendingMeasurementPatch *explorerMeasurementPatch
+	var pendingAnalyzerPatch *analyzerDecisionPatch
+	var pendingRuntimeReceiptPatch *finalizerRuntimeReceiptPatch
+	runtimeReceiptPatchUsed := false
 	var allMCPResponses []types.MCPResponse
 	var toolSurfaceState toolSurfaceTransition
 	mcpRenderSeen := map[string]struct{}{}
@@ -2378,6 +2390,63 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if repairTeaching != nil {
 			requestMessages = repairTeaching.project(ctx, b.eval, requestMessages, effectiveTools)
 		}
+		var rootCausePatch *rootCauseIDPatch
+		analyzerPatch := pendingAnalyzerPatch
+		pendingAnalyzerPatch = nil
+		if analyzerPatch != nil {
+			if schema, ok := analyzerPatch.project(canonicalEffectiveTools); ok {
+				requestMessages = []llm.Message{analyzerPatch.message}
+				effectiveTools = []llm.ToolSchema{schema}
+				effectiveToolNames = toolSchemaNameSet(effectiveTools)
+				logging.Debug("[diag %s] iter=%d phase=compact_analyzer_patch fields=%v", b.name, i, analyzerPatch.fields)
+			} else {
+				analyzerPatch = nil
+			}
+		}
+		measurementPatch := pendingMeasurementPatch
+		pendingMeasurementPatch = nil
+		if measurementPatch != nil && effectiveToolNames[measurementPatch.schema.Name] {
+			requestMessages = []llm.Message{measurementPatch.message}
+			effectiveTools = []llm.ToolSchema{measurementPatch.schema}
+			effectiveToolNames = toolSchemaNameSet(effectiveTools)
+			if measurementPatch.schema.Name == "trace_query" {
+				logging.Debug("[diag %s] iter=%d phase=compact_trace_scope_patch", b.name, i)
+			} else {
+				logging.Debug("[diag %s] iter=%d phase=compact_measurement_patch", b.name, i)
+			}
+		} else {
+			measurementPatch = nil
+		}
+		receiptPatch := pendingRuntimeReceiptPatch
+		pendingRuntimeReceiptPatch = nil
+		var receiptChoices map[string]json.RawMessage
+		if receiptPatch != nil {
+			for _, schema := range effectiveTools {
+				if schema.Name != "emit_answer_document_patch" {
+					continue
+				}
+				compact, message, choices := receiptPatch.project(ctx, schema)
+				if len(choices) > 0 {
+					requestMessages = []llm.Message{message}
+					effectiveTools = []llm.ToolSchema{compact}
+					effectiveToolNames = toolSchemaNameSet(effectiveTools)
+					receiptChoices = choices
+					runtimeReceiptPatchUsed = true
+					logging.Debug("[diag %s] iter=%d phase=compact_runtime_receipt_patch", b.name, i)
+				}
+				break
+			}
+		}
+		if evaluator, ok := b.eval.(*answerDocumentEvaluator); ok {
+			if len(receiptChoices) == 0 {
+				rootCausePatch = evaluator.compactRejectedRootCausePatch(ctx, messages, canonicalEffectiveTools)
+			}
+			if rootCausePatch != nil {
+				requestMessages = rootCausePatch.messages
+				effectiveTools = []llm.ToolSchema{rootCausePatch.schema}
+				logging.Debug("[diag %s] iter=%d phase=compact_root_cause_patch", b.name, i)
+			}
+		}
 
 		// Account for the same catalog and ephemeral tails that Chat receives,
 		// not merely durable history. Known output capacity shares this window;
@@ -2400,6 +2469,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					b.name, i, pressure.promptBytes(), pressure.WindowBytes, pressure.MessageBytes, pressure.ToolBytes, pressure.OutputTokens, pressure.OutputKnown, ratio*100, hard*100)
 				directive := llm.Message{Role: "user", Content: contextRequestPressureDirective(b.name, pressure, hard)}
 				requestMessages = append(append([]llm.Message(nil), requestMessages...), directive)
+				if repairTeaching != nil {
+					requestMessages = repairTeaching.project(ctx, b.eval, requestMessages, effectiveTools)
+				}
 				messages = append(messages, directive)
 				forceStop = true
 			case soft > 0 && ratio >= soft:
@@ -2512,6 +2584,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			})
 		}
 		toolChoice := resolveToolChoice(ctx)
+		if measurementPatch != nil || analyzerPatch != nil || len(receiptChoices) > 0 {
+			toolChoice = "required"
+		}
 		if disableToolsThisTurn || len(effectiveTools) == 0 {
 			toolChoice = ""
 		}
@@ -2605,22 +2680,51 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		repositoryReadDelivery.commit(ctx, readDeliverySnapshot)
-		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, canonicalEffectiveTools)
-		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
+		// A capped batch may have valid JSON and still be incomplete. Keep
+		// its original diagnostics, but skip compatibility repair and pruning.
+		ctx.LLMOutputTruncatedBatch = resp.OutputTruncated() && len(resp.ToolCalls) > 0
 		var toolBatchGuardHint string
-		resp.ToolCalls, toolBatchGuardHint = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
-		// PIB-3: stamp the whole-batch refusal signal for this round.
-		// finish_reason=length means the model ran out of output budget
-		// mid-response; any tool call in the batch may carry arguments
-		// that parse but are semantically incomplete. executeTool
-		// refuses each call on this flag instead of executing/repairing
-		// it. Re-stamped every round (false clears a prior round's
-		// flag). degenerate_repetition deliberately keeps its existing
-		// soft-stop lane (customer-validated) and is not gated here.
-		ctx.LLMOutputTruncatedBatch = resp.StopReason == "length" && len(resp.ToolCalls) > 0
 		if ctx.LLMOutputTruncatedBatch {
-			logging.Warning("[agent %s] iter=%d refusing %d tool call(s): response truncated by output-token limit (finish_reason=length)",
-				b.name, i, len(resp.ToolCalls))
+			logging.Warning("[agent %s] iter=%d refusing %d tool call(s): response truncated by output-token limit (stop_reason=%s)",
+				b.name, i, len(resp.ToolCalls), resp.StopReason)
+		} else {
+			if analyzerPatch != nil {
+				for i := range resp.ToolCalls {
+					if resp.ToolCalls[i].Name == "emit_analysis" {
+						resp.ToolCalls[i].Params = analyzerPatch.expand(resp.ToolCalls[i].Params)
+					}
+				}
+			}
+			if measurementPatch != nil {
+				if len(measurementPatch.traceBatch) != 0 {
+					if len(resp.ToolCalls) == 1 && resp.ToolCalls[0].Name == measurementPatch.schema.Name {
+						resp.ToolCalls = measurementPatch.expandTraceScopeBatch(resp.ToolCalls[0])
+					}
+				} else {
+					for i := range resp.ToolCalls {
+						if resp.ToolCalls[i].Name == measurementPatch.schema.Name {
+							resp.ToolCalls[i].Params = measurementPatch.expand(resp.ToolCalls[i].Params)
+						}
+					}
+				}
+			}
+			if rootCausePatch != nil {
+				for i := range resp.ToolCalls {
+					if resp.ToolCalls[i].Name == rootCausePatch.schema.Name {
+						resp.ToolCalls[i].Params = rootCausePatch.expand(resp.ToolCalls[i].Params)
+					}
+				}
+			}
+			if len(receiptChoices) > 0 {
+				for i := range resp.ToolCalls {
+					if resp.ToolCalls[i].Name == "emit_answer_document_patch" {
+						resp.ToolCalls[i].Params = receiptPatch.expand(resp.ToolCalls[i].Params, receiptChoices)
+					}
+				}
+			}
+			resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, canonicalEffectiveTools)
+			resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
+			resp.ToolCalls, toolBatchGuardHint = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
 		}
 
 		// DIAGNOSTIC — dump assistant response (debug only).
@@ -2689,7 +2793,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			logging.Debug("[diag %s] iter=%d phase=toolcall call[%d] tool=%s params=%s",
 				b.name, i, j, tc.Name, string(tc.Params))
 		}
-		historyToolCalls := sanitizeToolCallsForHistory(resp.ToolCalls)
+		var historyToolCalls []llm.ToolCall
+		historyContent, historyReasoning := resp.Content, resp.ReasoningContent
+		if ctx.LLMOutputTruncatedBatch {
+			historyToolCalls = truncatedToolCallsForHistory(resp.ToolCalls)
+			historyContent, historyReasoning = "", ""
+		} else {
+			historyToolCalls = sanitizeToolCallsForHistory(resp.ToolCalls)
+		}
 
 		emitRequiredNoToolNotice := func() {
 			// Must-emit stage visibility: when the stage's tool_choice
@@ -2733,7 +2844,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
-		if !routeNoToolThroughController && !routeEmptyNoToolThroughController && b.eval.ShouldStop(resp, i) {
+		if !ctx.LLMOutputTruncatedBatch && !routeNoToolThroughController && !routeEmptyNoToolThroughController && b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
 				Role:             "assistant",
 				Content:          resp.Content,
@@ -2893,8 +3004,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		answerAttemptStart := len(messages)
 		messages = append(messages, llm.Message{
 			Role:             "assistant",
-			Content:          resp.Content,
-			ReasoningContent: resp.ReasoningContent,
+			Content:          historyContent,
+			ReasoningContent: historyReasoning,
 			ToolCalls:        historyToolCalls,
 		})
 
@@ -2942,7 +3053,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					defer wg.Done()
 					var r *types.ToolResult
 					var m *types.MCPResponse
-					if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
+					if ctx.LLMOutputTruncatedBatch {
+						r = llmOutputTruncatedToolCallResult(call)
+					} else if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
 						b.observeToolRejected(ctx, call, "tool_not_available_in_surface", "tool_unavailable")
 						r = unavailableToolResult(ctx, call, effectiveToolNames)
 					} else {
@@ -3027,7 +3140,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 				var result *types.ToolResult
 				var mcpResp *types.MCPResponse
-				if terminal := validateExplorerTraceQueryTerminalAdmissionRepair(ctx, tc); terminal != nil {
+				if ctx.LLMOutputTruncatedBatch {
+					result = llmOutputTruncatedToolCallResult(tc)
+				} else if terminal := validateExplorerTraceQueryTerminalAdmissionRepair(ctx, tc); terminal != nil {
 					result = terminal
 				} else if skipped := analyzerSameBatchStalePrescanSkipResult(ctx, tc, analyzerPrescanClosedThisBatch); skipped != nil {
 					result = skipped
@@ -3104,6 +3219,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		currentToolResults := allToolResults[toolResultsStart:]
+		if b.name == types.AgentAnalyzer && analyzerPatch == nil && len(currentToolResults) == 1 && len(resp.ToolCalls) == 1 {
+			pendingAnalyzerPatch = newAnalyzerDecisionPatch(ctx, resp.ToolCalls[0], currentToolResults[0])
+		}
+		if b.name == types.AgentExplorer && measurementPatch == nil {
+			if len(currentToolResults) == 1 && len(resp.ToolCalls) == 1 {
+				pendingMeasurementPatch = newExplorerMeasurementPatch(types.ToolBusContext(ctx, types.AgentExplorer), resp.ToolCalls[0], currentToolResults[0])
+			} else {
+				pendingMeasurementPatch = newExplorerTraceScopeBatchPatch(ctx.Objective, resp.ToolCalls, currentToolResults)
+			}
+		}
+		if b.name == types.AgentFinalizer && !runtimeReceiptPatchUsed && len(currentToolResults) == 1 && len(resp.ToolCalls) == 1 {
+			pendingRuntimeReceiptPatch = newFinalizerRuntimeReceiptPatch(currentToolResults[0], resp.ToolCalls[0])
+		}
 		currentMCPResponses := allMCPResponses[mcpResponsesStart:]
 		if observer, ok := b.eval.(ToolResultObserver); ok {
 			observer.ObserveToolResults(ctx, LoopObservation{
@@ -4516,22 +4644,16 @@ func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
 	return types.ToolParamCompatConfig{}
 }
 
-func (b *BaseAgent) normalizeToolCallParamsFromRegistry(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
-	if b == nil || b.deps == nil {
-		return tc, false
-	}
+func (b *BaseAgent) normalizeToolCallParamsForSchema(tc llm.ToolCall, schema json.RawMessage) (llm.ToolCall, bool) {
 	cfg := b.toolParamCompatConfig()
 	mode := cfg.NormalizedMode()
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return tc, false
 	}
-	if schema, ok := b.toolParamSchemaFromRegistry(ctx, tc.Name); ok {
-		if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
-			return tc, false
-		}
-		return b.normalizeOneToolCallParams(tc, schema, cfg)
+	if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
+		return tc, false
 	}
-	return tc, false
+	return b.normalizeOneToolCallParams(tc, schema, cfg)
 }
 
 // Keep schema display, execution fallback, and argument-envelope inspection on
@@ -4677,9 +4799,13 @@ func (b *BaseAgent) buildInitialMessagesAndRepairTeaching(ctx *types.AgentContex
 	if b.finalizerContentBudget && ctx != nil && ctx.Stage == types.StageFinalize &&
 		finalizerRequestBytePolicy(b.deps.AgentSettings) == types.FinalizerRequestByteEnforce {
 		repairTeaching = &finalizerRepairTeaching{}
-		if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && len(messages) > 0 && messages[0].Role == "system" {
-			if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
-				repairTeaching.draftSystem, repairTeaching.patchSystem = messages[0].Content, patch
+		if _, canonical := b.deps.PromptAssembler.(defaultPromptAssembler); canonical && pc != nil {
+			repairTeaching.initialContext = pc
+			repairTeaching.promptSkill = promptSkill
+			if len(messages) > 0 && messages[0].Role == "system" {
+				if patch := promptctx.AnswerDocumentPatchSystemTeaching(pc, promptSkill); patch != "" && len(patch) < len(messages[0].Content) {
+					repairTeaching.draftSystem, repairTeaching.patchSystem = messages[0].Content, patch
+				}
 			}
 		}
 	}
@@ -4898,10 +5024,10 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", "ambiguous_argument_envelope")
 			return toolParamsSchemaInvalidResult(tc, err.Error()), nil
 		}
-	}
-	if normalized, ok := b.normalizeToolCallParamsFromRegistry(ctx, tc); ok {
-		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")
-		tc = normalized
+		if normalized, changed := b.normalizeToolCallParamsForSchema(tc, schema); changed {
+			b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")
+			tc = normalized
+		}
 	}
 	prescanGrepNormalized := false
 	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {

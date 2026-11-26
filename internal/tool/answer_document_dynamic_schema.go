@@ -88,6 +88,17 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView, runtimeRow
 		projectSourceInventoryPrincipalTableItems(blockItems, view)
 	}
 	projectRequiredBlockArrayCardinality(blocksField, view)
+	if view.RuntimeWorkRelationContract.Active() {
+		required, _ := root["required"].([]any)
+		root["required"] = append(required, "runtime_work_binding")
+		binding, _ := properties["runtime_work_binding"].(map[string]any)
+		choices := runtimeWorkRelationSchemaChoices(view.RuntimeWorkRelationContract, true)
+		if binding != nil && len(choices) > 0 {
+			binding["oneOf"] = choices
+		}
+	} else {
+		delete(properties, "runtime_work_binding")
+	}
 
 	// Document-level conditional fields.
 	if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
@@ -110,23 +121,7 @@ func projectRuntimeWorkRelationField(blockProps map[string]any, view *types.Answ
 		delete(blockProps, "runtime_work_relation")
 		return
 	}
-	choices := make([]any, 0, len(contract.Rows))
-	for _, row := range contract.Rows {
-		for _, conclusion := range row.AllowedConclusions {
-			if !conclusion.IsValid() {
-				continue
-			}
-			choices = append(choices, map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"observation_id": map[string]any{"const": row.ObservationID},
-					"conclusion":     map[string]any{"const": string(conclusion)},
-				},
-				"required":             []string{"observation_id", "conclusion"},
-				"additionalProperties": false,
-			})
-		}
-	}
+	choices := runtimeWorkRelationSchemaChoices(contract, false)
 	if len(choices) == 0 {
 		delete(blockProps, "runtime_work_relation")
 		return
@@ -135,6 +130,33 @@ func projectRuntimeWorkRelationField(blockProps map[string]any, view *types.Answ
 		"description": "Select exactly one typed runtime-work row and its evidence-bounded conclusion. The renderer uses that row's own measure: a group's window amount does not belong to its longest named member. It never chooses the row or conclusion or scans block text. Do not repeat machine conclusion tokens in visible text; the renderer localizes them.",
 		"oneOf":       choices,
 	}
+}
+
+func runtimeWorkRelationSchemaChoices(contract *types.RuntimeWorkRelationContract, withBlockID bool) []any {
+	choices := make([]any, 0, len(contract.Rows))
+	for _, row := range contract.Rows {
+		for _, conclusion := range row.AllowedConclusions {
+			if !conclusion.IsValid() {
+				continue
+			}
+			properties := map[string]any{
+				"observation_id": map[string]any{"const": row.ObservationID},
+				"conclusion":     map[string]any{"const": string(conclusion)},
+			}
+			required := []string{"observation_id", "conclusion"}
+			if withBlockID {
+				properties["block_id"] = map[string]any{"type": "string"}
+				required = append(required, "block_id")
+			}
+			choices = append(choices, map[string]any{
+				"type":                 "object",
+				"properties":           properties,
+				"required":             required,
+				"additionalProperties": false,
+			})
+		}
+	}
+	return choices
 }
 
 func projectConceptualTerminalResolutionField(blockProps map[string]any, view *types.AnswerSemanticView) {
@@ -215,10 +237,10 @@ func projectItemEvidenceIdentityField(blockProps map[string]any, view *types.Ans
 	delete(itemProps, "evidence_ids")
 }
 
-// projectTraceRootCauseReport adds an optional model-owned selection receipt
+// projectTraceRootCauseReport adds a model-owned selection receipt
 // to trace root-cause finalizer calls. Only exact typed on-chain candidate IDs
 // are exposed; public report fields are bound after the answer is accepted.
-func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFindingContract, patch bool) json.RawMessage {
+func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFindingContract, patch, requireDecision bool) json.RawMessage {
 	selectable := tracefinding.SelectableRootCauseCandidates(contract)
 	if contract == nil || !contract.RootCauseReportEnabled || len(selectable) == 0 {
 		return schema
@@ -235,7 +257,13 @@ func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFi
 	if patch {
 		name = "replace_trace_root_causes"
 	}
-	properties[name] = traceRootCauseReportJSONSchema(selectable)
+	selection := traceRootCauseReportJSONSchema(selectable)
+	properties[name] = selection
+	if requireDecision {
+		selection["description"] = "Submit the structured decision with this answer. Use exact candidate IDs consistent with the prose, or an explicit empty root_causes array when the evidence supports no selection."
+		required, _ := root["required"].([]any)
+		root["required"] = append(required, name)
+	}
 	out, err := json.Marshal(root)
 	if err != nil {
 		return schema

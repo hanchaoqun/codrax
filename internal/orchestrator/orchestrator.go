@@ -3804,6 +3804,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
+	var finalizeBudgetError *agent.AnswerContextByteBudgetError
 	var firstFinalize firstFinalizeDraftRecord
 	var firstFinalizeConcerns []types.Violation
 	firstFinalizeRejectedForRewrite := false
@@ -4859,6 +4860,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.emitNodeEnd(fin.ID, true, "")
 				break
 			}
+			errors.As(err, &finalizeBudgetError)
 			state.markFailed(fin.ID)
 			o.emitNodeEnd(fin.ID, false, err.Error())
 			break
@@ -5683,6 +5685,14 @@ contractFailureBreak:
 	// §40.43 F-orch Q backstop: a retained contract-rejected draft never
 	// ships bare (blocked DAG / stall / step drain / transient delivery).
 	o.applyRetainedRejectedDraftCaveats(lastFinalize, retainedRejectedDraft)
+	if lastFinalize == nil && finalizeBudgetError != nil {
+		// The finalizer already exhausted its request projections for this
+		// exact dispatch. A forced dispatch with the same evidence cannot
+		// recover a local byte allocation failure.
+		o.busCtx.Mutable.SetResult("")
+		o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(finalizeBudgetError, o.busCtx.Language)
+		return stepsUsed
+	}
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.

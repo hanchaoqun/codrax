@@ -326,7 +326,10 @@ func (t *EmitAnswerDocumentPatch) parametersForContext(
 	if mut == nil {
 		return raw
 	}
-	raw = projectTraceRootCauseReport(raw, mut.TraceFindingContract(), true)
+	_, _, _, knownFrame := types.KnownSingleFrameTraceTarget(mut.RequestModel())
+	raw = projectTraceRootCauseReport(raw, mut.TraceFindingContract(), true, knownFrame &&
+		mut.TraceRootCauseReport() == nil && mut.PendingTraceRootCauseReport() == nil)
+	raw = projectAnswerRuntimeComparison(raw, scopeBus, "replace_blocks", "add_blocks")
 	prev := mut.PendingAnswerDocumentPatchBase()
 	if prev == nil {
 		prev = mut.AnswerDocumentV2()
@@ -2949,6 +2952,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, view, excludedFieldEditTargets)
 	fieldEditSchema = projectAnswerDocumentPatchReceiptEditTargets(fieldEditSchema, prev, excludedFieldEditTargets)
+	if view != nil {
+		if repaired, ok := normalizeRuntimeWorkReceiptAliases(params, view.RuntimeWorkRelationContract); ok {
+			logging.Debug("[emit_answer_document_patch] normalized equivalent runtime-work observation IDs")
+			params = repaired
+		}
+	}
 	if repaired, paths := normalizeMisroutedPatchReceiptFieldEdits(params, fieldEditSchema); len(paths) > 0 {
 		logging.Warning("[emit_answer_document_patch] losslessly remapped exact typed receipt edit(s): %s", strings.Join(paths, ", "))
 		params = repaired

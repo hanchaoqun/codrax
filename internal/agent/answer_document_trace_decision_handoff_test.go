@@ -1012,6 +1012,7 @@ func TestFinalizerInitialInstructionWiresTraceDecisionHandoff(t *testing.T) {
 	}}})
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
+		"Keep wakeup and blocking distinct in the opening summary",
 		"## Trace Decision Inputs (Model Owns The Conclusion)",
 		"axis_A_actual_occupancy_candidates",
 		"subject=`worker-200`; kind=`runnable`; measured_state_occupancy=7.000ms; locator_range=`10.000000..10.020000`; locator_role=\"record range (single occurrence unproven)\"",

@@ -45,7 +45,18 @@ func TestBuildAnswerDocumentParametersForProjectsExactRuntimeWorkReceiptChoices(
 			},
 		}}},
 	}
-	_, props := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	schema := BuildAnswerDocumentParametersFor(view)
+	_, props := answerDocumentProjectedBlockSchema(t, schema)
+	var root struct {
+		Required   []string
+		Properties map[string]json.RawMessage
+	}
+	if err := json.Unmarshal(schema, &root); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(root.Required, []string{"blocks", "runtime_work_binding"}) || root.Properties["runtime_work_binding"] == nil {
+		t.Fatalf("first report must ask explicitly for the selected relation and block: %+v", root.Required)
+	}
 	node, ok := props["runtime_work_relation"].(map[string]any)
 	if !ok {
 		t.Fatal("active typed work-relation contract must expose its exact receipt field")

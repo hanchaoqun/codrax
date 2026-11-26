@@ -6,10 +6,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -88,6 +90,51 @@ func businessRefTestQuery(t *testing.T, ctx *types.BusContext, p map[string]any)
 	return r
 }
 
+func TestTraceQueryAttachedRankMemoPreservesEvidenceAndOriginalNavigation(t *testing.T) {
+	trace, err := os.ReadFile("../../eval/fixtures/hmosperf_business_io_chain/events.systrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, path := businessRefTestContext(t, string(trace))
+	material, err := traceinput.Prepare(t.Context(), traceinput.Options{InputPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.AttachedTraceMaterial = material
+	ctx.AttachedHitrace = material.Preview()
+	ctx.AttachedHitraceSource = path
+	ctx.PipelineStage = types.StageExplore
+	params := map[string]any{"source": "attached_trace", "view": "root_cause_rank",
+		"pid": 100, "time_start": 1, "time_end": 1.051}
+	first := businessRefTestQuery(t, ctx, params)
+	if !first.Success || first.ReusedFromRunMemo || len(first.TraceBusinessSpanRefs) == 0 || first.RawRef == "" {
+		t.Fatalf("expected a fresh ranking with business references: %s", first.Summary)
+	}
+	second := businessRefTestQuery(t, ctx, params)
+	if !second.Success || !second.ReusedFromRunMemo || len(second.TraceBusinessSpanRefs) != 0 {
+		t.Fatalf("expected reused facts without new business references: %s", second.Summary)
+	}
+	firstEvidence, err := json.Marshal(first.Observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvidence, err := json.Marshal(second.Observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RawRef != second.RawRef || string(firstEvidence) != string(secondEvidence) ||
+		!reflect.DeepEqual(first.TraceEvidenceAuthority, second.TraceEvidenceAuthority) ||
+		!reflect.DeepEqual(first.EnumerationAuthority, second.EnumerationAuthority) {
+		t.Fatal("memo replay changed the ranking evidence or coverage")
+	}
+	for _, ref := range first.TraceBusinessSpanRefs {
+		resolved, ok := ctx.Mutable.ResolveTraceBusinessSpanRef(ref.Token())
+		if !ok || resolved.Data() != ref.Data() {
+			t.Fatal("memo replay invalidated previously published business navigation")
+		}
+	}
+}
+
 func TestTraceQueryBusinessRefDistinguishesNestedAndCrossThreadInstances(t *testing.T) {
 	ctx, path := businessRefTestContext(t, `# tracer: nop
 worker-200 (100) [001] .... 1.000000: tracing_mark_write: B|100|Repeat
@@ -134,6 +181,11 @@ func TestTraceQueryBusinessRefRejectsConflictingCoordinatesAndPreservesExplicitW
 			got := businessRefTestQuery(t, ctx, map[string]any{"view": "window_stats", "business_span_ref": token, key: value})
 			if got.Success || !strings.Contains(got.Summary, "coordinate assertions conflict") {
 				t.Fatalf("mixed coordinate accepted: %+v", got)
+			}
+			if key == "time_start" || key == "time_end" {
+				if got.Repair == nil || got.Repair.Code != TraceQueryBusinessWindowConflict || got.Repair.Metadata["referenced_window"] == "" {
+					t.Fatalf("time mismatch must expose the compact scope choice: %+v", got)
+				}
 			}
 		})
 	}

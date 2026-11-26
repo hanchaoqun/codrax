@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -136,6 +137,12 @@ func traceRootCauseSelectionOpportunity(ctx *types.AgentContext, lang string) (s
 	if contract == nil || !contract.RootCauseReportEnabled || len(tracefinding.SelectableRootCauseCandidates(contract)) == 0 {
 		return "", false
 	}
+	if _, _, _, knownFrame := types.KnownSingleFrameTraceTarget(mu.RequestModel()); knownFrame {
+		if postEmitAdvisoryLangIsZH(lang) {
+			return "根因决定尚未通过校验。请在这次 `emit_answer_document_patch` 用 `replace_trace_root_causes` 提交与正文一致的完整有序选择，使用候选清单中的准确 ID。证据不足时提交 `{\"schema_version\":2,\"root_causes\":[]}`。用 `unchanged_block_ids` 保留无需修改的正文块。", true
+		}
+		return "The structured root-cause decision is still missing. In this `emit_answer_document_patch`, submit `replace_trace_root_causes` with the complete ordered selection of exact IDs consistent with the prose, or `{\"schema_version\":2,\"root_causes\":[]}` if no cause is supported. Preserve unaffected blocks with `unchanged_block_ids`.", true
+	}
 	if postEmitAdvisoryLangIsZH(lang) {
 		state := "尚未收到你提交的根因选择。"
 		if mu.TraceRootCauseSelectorRejected() {
@@ -180,15 +187,141 @@ func (e *answerDocumentEvaluator) postEmitAdvisorySignal(ctx *types.AgentContext
 		return LoopSignal{}
 	}
 	e.postEmitAdvisoryDelivered = true
+	e.postEmitRootCauseOnly = len(kinds) == 1 && kinds[0] == postEmitAdvisoryTraceRootCauseSelection
 	logging.Debug("[diag finalizer] post_emit_advisory lanes=%v", kinds)
+	_, _, _, knownFrame := types.KnownSingleFrameTraceTarget(requestModelFromContext(ctx))
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        postEmitAdvisoryHintKey,
-		Hint:           renderPostEmitAdvisoryHint(sections, kinds, lang),
+		Hint:           renderPostEmitAdvisoryHint(sections, kinds, lang, knownFrame),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+type rootCauseIDPatch struct {
+	messages []llm.Message
+	schema   llm.ToolSchema
+	entries  []struct {
+		CandidateID string `json:"candidate_id"`
+		Description string `json:"description,omitempty"`
+	}
+	invalidIndex int
+	blockIDs     []string
+	choices      map[string]bool
+}
+
+func (p *rootCauseIDPatch) expand(raw json.RawMessage) json.RawMessage {
+	var response struct {
+		ID string `json:"replacement_candidate_id"`
+	}
+	if json.Unmarshal(raw, &response) != nil || !p.choices[response.ID] {
+		return json.RawMessage(`{"replacement_candidate_id":null}`)
+	}
+	entries := append(p.entries[:0:0], p.entries...)
+	if response.ID == "no_match" {
+		entries = append(entries[:p.invalidIndex], entries[p.invalidIndex+1:]...)
+	} else {
+		entries[p.invalidIndex].CandidateID = response.ID
+	}
+	out, _ := json.Marshal(map[string]any{
+		"unchanged_block_ids": p.blockIDs,
+		"replace_trace_root_causes": map[string]any{
+			"schema_version": types.TraceRootCauseReportSchemaVersion, "root_causes": entries,
+		},
+	})
+	return out
+}
+
+func (e *answerDocumentEvaluator) compactRejectedRootCausePatch(ctx *types.AgentContext, history []llm.Message, schemas []llm.ToolSchema) *rootCauseIDPatch {
+	if !e.postEmitRootCauseOnly || !ctx.Mutable.TraceRootCauseSelectorRejected() ||
+		len(schemas) != 1 || schemas[0].Name != "emit_answer_document_patch" {
+		return nil
+	}
+	var base struct {
+		Blocks []struct {
+			ID string `json:"id"`
+		} `json:"blocks"`
+		Selection json.RawMessage `json:"trace_root_causes"`
+	}
+	for i := len(history) - 1; i >= 0 && len(base.Selection) == 0; i-- {
+		for _, call := range history[i].ToolCalls {
+			if call.Name == "emit_answer_document" && json.Unmarshal(call.Params, &base) == nil {
+				break
+			}
+		}
+	}
+	if len(base.Blocks) == 0 || len(base.Selection) == 0 {
+		return nil
+	}
+	patch := &rootCauseIDPatch{invalidIndex: -1}
+	var selection struct {
+		Version int             `json:"schema_version"`
+		Entries json.RawMessage `json:"root_causes"`
+	}
+	entries := base.Selection
+	if json.Unmarshal(base.Selection, &selection) == nil {
+		if selection.Version != types.TraceRootCauseReportSchemaVersion {
+			return nil
+		}
+		entries = selection.Entries
+	}
+	if json.Unmarshal(entries, &patch.entries) != nil {
+		return nil
+	}
+	selectable := tracefinding.SelectableRootCauseCandidates(ctx.Mutable.TraceFindingContract())
+	allowed := make(map[string]bool, len(selectable))
+	for _, candidate := range selectable {
+		allowed[candidate.Decision.CandidateID] = true
+	}
+	keep := make(map[string]bool, len(patch.entries))
+	for i, item := range patch.entries {
+		if allowed[item.CandidateID] && !keep[item.CandidateID] {
+			keep[item.CandidateID] = true
+		} else if allowed[item.CandidateID] || patch.invalidIndex >= 0 {
+			return nil
+		} else {
+			patch.invalidIndex = i
+		}
+	}
+	if patch.invalidIndex < 0 || patch.entries[patch.invalidIndex].Description == "" {
+		return nil
+	}
+	for _, block := range base.Blocks {
+		patch.blockIDs = append(patch.blockIDs, block.ID)
+	}
+	// Reuse the frozen candidate roster, projecting only matching evidence.
+	var candidates []traceRootCauseRosterRow
+	ids := []string{"no_match"}
+	patch.choices = map[string]bool{"no_match": true}
+	for _, candidate := range selectable {
+		d := candidate.Decision
+		if keep[d.CandidateID] {
+			continue
+		}
+		ids = append(ids, d.CandidateID)
+		patch.choices[d.CandidateID] = true
+		candidates = append(candidates, traceRootCauseRosterRow{
+			CandidateID: d.CandidateID, ArtifactLabel: d.ArtifactLabel, CauseKind: d.Token.Token,
+			Subject: d.SubjectName, Resource: d.ResourceName, Phase: d.PhaseName, ImpactMS: d.Magnitude.Value,
+			ImpactCaliber: d.Magnitude.Caliber, CausalQualifier: d.CausalQualifier, EvidenceRefs: d.EvidenceRefs,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	roster, _ := json.Marshal(candidates)
+	params, _ := json.Marshal(map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"replacement_candidate_id": map[string]any{"type": "string", "enum": ids}},
+		"required":   []string{"replacement_candidate_id"}, "additionalProperties": false,
+	})
+	item := patch.entries[patch.invalidIndex]
+	patch.messages = []llm.Message{{Role: "user", Content: "Repair this single mistyped Trace candidate ID in an accepted report. Choose the exact candidate whose subject, work, impact and evidence match the existing description, or choose no_match if none matches. A frame_unproven candidate may still match. Submit only the replacement ID using the tool.\nInvalid ID: " +
+		item.CandidateID + "\nExisting description: " + item.Description + "\nSelectable candidates:\n" + string(roster)}}
+	patch.schema = llm.ToolSchema{Name: schemas[0].Name, Description: "Select the replacement ID for one rejected root-cause entry.", Parameters: params}
+	return patch
 }
 
 func postEmitAdvisoryLangIsZH(lang string) bool {
@@ -202,7 +335,7 @@ func postEmitAdvisoryLangIsZH(lang string) bool {
 // items the cross-item constraint is stated once: model_block_order cannot
 // ride a patch that adds or removes blocks, so the other items should prefer
 // replace/local edits over add/remove where possible.
-func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneKind, lang string) string {
+func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneKind, lang string, knownFrame bool) string {
 	zh := postEmitAdvisoryLangIsZH(lang)
 	hasOrder, hasSelection := false, false
 	for _, kind := range kinds {
@@ -215,7 +348,9 @@ func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneK
 	}
 	var b strings.Builder
 	if zh {
-		if hasSelection {
+		if hasSelection && knownFrame {
+			b.WriteString("正文已保留。请用同一次 `emit_answer_document_patch` 补交根因决定并完成所需修订。保留已经核实的结论、数值和引用。\n")
+		} else if hasSelection {
 			b.WriteString("你的 `emit_answer_document` 已经落地。以下建议合并在本次可选补充机会中：最多只调用一次 `emit_answer_document_patch`，合并你决定采纳的补充；根因选择仍由你决定，可以继续省略。不要重新搜索、编造内容或为填满 JSON 改写已有结论、正文、图和引用；不采纳任何补充时，可用 `unchanged_block_ids` 原样保留已有块。不要写工具外散文。\n")
 		} else {
 			b.WriteString("你的 `emit_answer_document` 已经落地。下面列出的每一项都只是答案展示面的修订：请只调用一次 `emit_answer_document_patch`，在同一个 patch 里覆盖全部修订项；不要重新搜索或编造没有证据的内容；保留已有结论和引用；不要写工具外散文。\n")
@@ -228,7 +363,9 @@ func renderPostEmitAdvisoryHint(sections []string, kinds []postEmitAdvisoryLaneK
 		}
 		return b.String()
 	}
-	if hasSelection {
+	if hasSelection && knownFrame {
+		b.WriteString("The answer is retained. Submit the missing structured decision and any repairs in one `emit_answer_document_patch`. Preserve the grounded conclusions, values, and citations.\n")
+	} else if hasSelection {
 		b.WriteString("Your `emit_answer_document` call landed. These suggestions share this optional follow-up: submit at most ONE `emit_answer_document_patch` combining the additions you choose to make; root-cause selection remains yours and may still be omitted. Do not re-open searches, invent content, or rewrite existing conclusions, prose, diagrams or citations just to fill the JSON report. If you decline every addition, preserve the existing blocks with `unchanged_block_ids`. Do not write prose outside the tool call.\n")
 	} else {
 		b.WriteString("Your `emit_answer_document` call landed. Every item below is a surface-only revision: submit ONE `emit_answer_document_patch` that covers all of the items together; do not re-open searches or invent unsupported content; preserve existing conclusions and citations; do not write prose outside the tool call.\n")

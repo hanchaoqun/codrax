@@ -75,6 +75,14 @@ func TestRuntimeWorkBusinessSpanDedupKeepsWindowAndCaptureAxes(t *testing.T) {
 	if contract == nil || len(contract.Rows) != 3 {
 		t.Fatalf("duplicate queries multiplied work or distinct source/windows collapsed: %+v", contract)
 	}
+	receipt := &AnswerRuntimeWorkRelationReceipt{ObservationID: copyQuery.ID, Conclusion: RuntimeWorkRelationConclusionRelationUnproven}
+	if !BindRuntimeWorkRelationReceipt(receipt, contract) || receipt.ObservationID != a.ID {
+		t.Fatalf("identical source/span/window should retain the same evidence binding: %+v", receipt)
+	}
+	receipt.ObservationID, receipt.Conclusion = copyQuery.ID, RuntimeWorkRelationConclusionCausalContributionSupported
+	if BindRuntimeWorkRelationReceipt(receipt, contract) {
+		t.Fatal("an equivalent receipt must not create causal authority")
+	}
 }
 
 func TestRuntimeWorkBusinessSpanDedupPreservesPreciseQueryWindows(t *testing.T) {

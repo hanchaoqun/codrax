@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,12 @@ type emitAnswerDocumentV2Params struct {
 	Caveats               []string                           `json:"caveats,omitempty"`
 	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
 	TraceRootCauses       json.RawMessage                    `json:"trace_root_causes,omitempty"`
+	RuntimeWorkBinding    *emitRuntimeWorkBinding            `json:"runtime_work_binding,omitempty"`
+}
+
+type emitRuntimeWorkBinding struct {
+	BlockID string `json:"block_id"`
+	emitRuntimeWorkRelationReceipt
 }
 
 type emitAnswerCitationV2 struct {
@@ -156,6 +163,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	if bodyErr != nil {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
 		return failEmit(toolName, now, "argument envelope rejected: %s", bodyErr)
+	}
+	if repaired, ok := normalizeFlatRuntimeWorkBinding(raw); ok {
+		logging.Debug("[emit_answer_document] normalized flat runtime_work_binding object")
+		raw = repaired
 	}
 	var recovery answerDocumentRecoveryReport
 	if paths := answerDocumentPayloadOwnershipPaths(raw, answerDocumentFullEmitQuarantineProfile); len(paths) > 0 {
@@ -305,6 +316,30 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// disclosed on whichever result this call returns, never only logged, and
 	// the deferred commit tail stages/marks it on every exit.
 	rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)
+	if binding := p.RuntimeWorkBinding; binding != nil && len(p.Blocks) > 0 {
+		owner := slices.IndexFunc(p.Blocks, func(block emitAnswerBlockV2) bool { return block.ID == binding.BlockID })
+		if binding.BlockID == "" || owner < 0 {
+			return failEmit(toolName, now, "runtime_work_binding.block_id must name a block submitted in blocks[]")
+		}
+		block := &p.Blocks[owner]
+		if block.RuntimeWorkRelation != nil && *block.RuntimeWorkRelation != binding.emitRuntimeWorkRelationReceipt {
+			return failEmit(toolName, now, "runtime_work_binding conflicts with the selected block's runtime_work_relation")
+		}
+		if block.SurfaceRole != "" && block.SurfaceRole != string(types.SurfacePrincipal) {
+			return failEmit(toolName, now, "runtime_work_binding must select a principal block")
+		}
+		block.RuntimeWorkRelation = &binding.emitRuntimeWorkRelationReceipt
+		block.SurfaceRole = string(types.SurfacePrincipal)
+		for _, facet := range []string{string(types.RequestedAnswerDimensionRuntimeWorkRelation), string(types.FacetObservedArtifactFact)} {
+			if !slices.Contains(block.FacetIDs, facet) {
+				block.FacetIDs = append(block.FacetIDs, facet)
+			}
+		}
+		claim := types.RenderedClaimUse{FacetID: string(types.FacetObservedArtifactFact), ClaimForm: types.ClaimExternalObservation}
+		if !slices.Contains(block.ClaimUses, claim) {
+			block.ClaimUses = append(block.ClaimUses, claim)
+		}
+	}
 
 	// document_model is no longer surfaced to the LLM. The system
 	// runs only one carrier so any value (or absence) the model
@@ -318,6 +353,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			Code:   types.ToolRepairCodeAnswerDocBlocksRequired,
 			Fields: []string{"blocks"},
 			Hint:   "Re-emit a complete `emit_answer_document` payload with a non-empty `blocks[]` array. Preserve the same answer facts and citations; do not send only `citations[]`, metadata, or free-form prose outside the tool call.",
+		}
+		if p.RuntimeWorkBinding != nil {
+			repair.Hint = "The previous call supplied a binding but omitted the answer. Write the missing blocks in one call, preserving the chosen binding if the current schema still offers its pair. The evidence and causal limits remain those of the current dispatch."
 		}
 		// Advertise the retained prior draft so the model knows its
 		// previous blocks are recoverable via emit_answer_document_patch
@@ -3352,6 +3390,10 @@ func answerBlocksArraySyntaxCandidates(rawArray string) []string {
 // quote sits inside a known prose carrier. Structural fields such as id/kind/
 // label remain untouched so authority-bearing schema mistakes still fail loud.
 func repairAnswerBlockProseFieldQuotes(s string) (string, bool) {
+	return repairJSONProseFieldQuotes(s, answerBlockProseQuoteRepairField)
+}
+
+func repairJSONProseFieldQuotes(s string, allowedField func(string) bool) (string, bool) {
 	if strings.TrimSpace(s) == "" {
 		return s, false
 	}
@@ -3365,7 +3407,7 @@ func repairAnswerBlockProseFieldQuotes(s string) (string, bool) {
 			continue
 		}
 		key, ok := quotedObjectKeyAt(s, i)
-		if !ok || !answerBlockProseQuoteRepairField(key) {
+		if !ok || !allowedField(key) {
 			b.WriteByte(s[i])
 			i++
 			continue

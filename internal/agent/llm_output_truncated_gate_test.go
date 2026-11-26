@@ -64,3 +64,17 @@ func TestExecuteTool_TruncatedFlagFalseDoesNotInterfere(t *testing.T) {
 		t.Fatalf("expected the malformed-params lane; got %q", result.Repair.Code)
 	}
 }
+
+func TestTruncatedToolBatchHistoryDiscardsEvenValidArgumentObjects(t *testing.T) {
+	calls := []llm.ToolCall{
+		{ID: "first", Name: "trace_query", Params: []byte(`{"view":"window_stats"}`)},
+		{ID: "second", Name: "emit_investigation_complete", Params: []byte(`{"reason":`)},
+	}
+	got := truncatedToolCallsForHistory(calls)
+	for i, call := range got {
+		if call.ID != calls[i].ID || call.Name != calls[i].Name || string(call.Params) != "{}" ||
+			string(calls[i].Params) == "{}" {
+			t.Fatalf("truncated history must preserve only the call identity: %+v", got)
+		}
+	}
+}

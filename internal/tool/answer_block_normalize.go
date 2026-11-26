@@ -49,6 +49,18 @@ import (
 // (patch emit) — this function only carries the typed projection
 // + per-record validation.
 func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string, contracts ...*types.RuntimeMeasurementContract) (types.AnswerBlock, error) {
+	// A principal prose block can repeat its work receipt as a summary
+	// selector. Drop only that duplicate display request. Independent
+	// measurements, explicit event selections and dimension ownership
+	// still go through the normal placement and binding gates.
+	if receipt, work := raw.RuntimeMeasurement, raw.RuntimeWorkRelation; receipt != nil && work != nil &&
+		(raw.Kind == string(types.BlockSummary) || raw.Kind == string(types.BlockSection)) &&
+		strings.TrimSpace(raw.Text) != "" && receipt.ObservationID == work.ObservationID &&
+		receipt.View == types.RuntimeMeasurementSummary && receipt.EventSelection == nil &&
+		len(raw.RequestedDimensionIndices) == 0 {
+		raw.RuntimeMeasurement = nil
+		logging.Debug("[answer_block_normalize] discarded redundant runtime_measurement on bound work prose at %s", fieldPath)
+	}
 	nativeSampling := runtimeFixedSelectorAvailable(raw.RuntimeMeasurement, contracts...)
 	if strings.TrimSpace(raw.ID) == "" {
 		return types.AnswerBlock{}, fmt.Errorf("%s: id is required and must be non-empty", fieldPath)
@@ -117,6 +129,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string, contracts
 		FacetIDs:                  raw.FacetIDs,
 		SurfaceRole:               types.SurfaceRole(raw.SurfaceRole),
 		RequestedDimensionIndices: append([]int(nil), raw.RequestedDimensionIndices...),
+	}
+	if raw.RuntimeComparison != nil {
+		if kind != types.BlockSummary && kind != types.BlockSection {
+			return types.AnswerBlock{}, fmt.Errorf("%s.runtime_comparison requires a summary or section", fieldPath)
+		}
+		if len(raw.Items) != 0 || raw.RuntimeMeasurement != nil || raw.RuntimeWorkRelation != nil || raw.ConceptualTerminalResolution != nil {
+			return types.AnswerBlock{}, fmt.Errorf("%s.runtime_comparison owns its block payload; use text for the explanation", fieldPath)
+		}
+		blk.RuntimeComparison = raw.RuntimeComparison.Clone()
+		blk.RuntimeComparison.Bound = nil
 	}
 	if len(raw.RequestedDimensionIndices) > 0 && raw.RuntimeMeasurement == nil {
 		return types.AnswerBlock{}, fmt.Errorf("%s.requested_dimension_indices requires an exact runtime_measurement table selector", fieldPath)

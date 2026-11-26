@@ -107,3 +107,12 @@ func TestHMC258NativeDisplayAcceptanceLifecycleAndClone(t *testing.T) {
 		t.Fatal("inherited fork resurrected old layout")
 	}
 }
+
+func TestPreparedFrameDisplayDropsOnlyUnavailablePresentation(t *testing.T) {
+	rm, contract, h := nativeDisplayFixtureHMC258()
+	h.RuntimeMeasurements = h.RuntimeMeasurements[:2]
+	if !SealPreparedFrameAnswerDisplay(h, rm, contract) || len(h.AnswerDisplay) != 1 ||
+		h.AnswerDisplay[0].ObservationID != contract.Tables[1].ObservationID || len(h.RuntimeMeasurements) != 2 {
+		t.Fatalf("optional display must retain exact eligible views and all selected facts: %+v", h)
+	}
+}

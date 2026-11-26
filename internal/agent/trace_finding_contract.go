@@ -261,12 +261,22 @@ func renderTraceFindingContractProjection(ctx *types.AgentContext, allowCompact 
 	if contract.RootCauseReportEnabled && len(selectable) > 0 {
 		groups, silent, err := traceRootCauseRosterGroupsWithProjection(selectable, contract, allowCompact)
 		if err == nil {
-			out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
-			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` never replaces or blocks it. " + types.TraceRootCauseSelectorOutcomeTeaching() + " Omitting it on a later re-emit keeps the previously accepted selection.\n")
-			out.WriteString("- If useful, choose zero or more exact `candidate_id` values from the typed on-chain roster below and order them strongest to weakest. The runtime binds category, identity, impact, summary, and evidence from those receipts; do not author those fields.\n")
+			_, _, _, knownFrame := types.KnownSingleFrameTraceTarget(ctx.Mutable.RequestModel())
+			if knownFrame {
+				out.WriteString("\n\n## Trace Root Cause Decision\n\n")
+				out.WriteString("- Submit the structured decision with the first answer. Select the exact `candidate_id` values supported by the same evidence and conclusions as the prose, or submit `root_causes: []` if none is supported. Keep the answer and the structured decision in the same tool call.\n")
+			} else {
+				out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
+				out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` never replaces or blocks it. " + types.TraceRootCauseSelectorOutcomeTeaching() + " Omitting it on a later re-emit keeps the previously accepted selection.\n")
+				out.WriteString("- If useful, choose zero or more exact `candidate_id` values from the typed on-chain roster below and order them strongest to weakest. The runtime binds category, identity, impact, summary, and evidence from those receipts; do not author those fields.\n")
+			}
 			out.WriteString("- Use `trace_root_causes` in `emit_answer_document`; use `replace_trace_root_causes` in `emit_answer_document_patch`. Both fields take the same native object: `{\"schema_version\":2,\"root_causes\":[{\"candidate_id\":\"<exact id from roster>\"}]}`. Keep `schema_version` inside that object, not at the document top level. Do not quote the object or the number.\n")
-			out.WriteString("- A patch that only revises answer blocks should omit `replace_trace_root_causes`; the previously accepted report is retained. A replacement lists the complete ordered selection, not only the added entries.\n")
-			out.WriteString("- Choosing no candidate and declining to provide a selection are both allowed, but they are distinct report states as described above. Background and adjacent observations are intentionally absent from the selectable roster.\n")
+			if knownFrame {
+				out.WriteString("- If the decision is still missing, supply `replace_trace_root_causes` in the same patch as any prose repairs. An unchanged accepted selection carries forward. Supply the complete ordered selection whenever replacing it. The runtime binds category, identity, impact, summary and evidence to the roster.\n")
+			} else {
+				out.WriteString("- A patch that only revises answer blocks should omit `replace_trace_root_causes`; the previously accepted report is retained. A replacement lists the complete ordered selection, not only the added entries.\n")
+				out.WriteString("- Choosing no candidate and declining to provide a selection are both allowed, but they are distinct report states as described above. Background and adjacent observations are intentionally absent from the selectable roster.\n")
+			}
 			for _, candidate := range selectable {
 				if f := candidate.Decision.EvidenceFacts; f != nil && f.SubjectScope != nil {
 					out.WriteString("- " + types.TraceRankSubjectScopeTeaching + "\n")

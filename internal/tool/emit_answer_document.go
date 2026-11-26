@@ -65,8 +65,13 @@ func (t *EmitAnswerDocument) DescriptionFor(ctx *types.AgentContext) string {
 		return t.Description()
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	var workRelationTeaching string
+	if ctx.AnalysisIR != nil && types.RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel) && view != nil && view.RuntimeWorkRelationContract.Active() {
+		workRelationTeaching = "Submit the complete document in one call. Include blocks and a runtime_work_binding object choosing a block_id in blocks and one observation_id/conclusion pair offered for that object in the current schema. The system attaches that exact choice to the selected visible block. "
+	}
 	return types.AnswerDocumentJSONShapeFirstTeaching + "\n\n" +
 		"Emit the FULL final answer document as a structured blocks[] array. " +
+		workRelationTeaching +
 		"Treat the projected tool schema as the only authority for field names, value types, required fields, and enums in this dispatch. " +
 		projectedAnswerBlockKindTeaching(view) + " " +
 		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
@@ -109,7 +114,9 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	parameters := BuildAnswerDocumentParametersFor(view, runtimeDiagramRelationsForContext(agentBusContextForAnswerPatchScope(ctx)))
 	if ctx.Mutable != nil {
-		parameters = projectTraceRootCauseReport(parameters, ctx.Mutable.TraceFindingContract(), false)
+		_, _, _, knownFrame := types.KnownSingleFrameTraceTarget(ctx.Mutable.RequestModel())
+		parameters = projectTraceRootCauseReport(parameters, ctx.Mutable.TraceFindingContract(), false, knownFrame &&
+			ctx.Mutable.TraceRootCauseReport() == nil && ctx.Mutable.PendingTraceRootCauseReport() == nil)
 	}
 	return projectAnswerRuntimeComparison(parameters, agentBusContextForAnswerPatchScope(ctx), "blocks")
 }
@@ -183,6 +190,13 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
       "type": "array",
       "description": "Shared pool of file-line citations. Per-item citation_ref and citation_refs values are zero-based indexes into this array.",
       "items": {"type": "object"}
+    },
+    "runtime_work_binding": {
+      "type": "object",
+      "description": "First select the visible answer block and one exact observation_id/conclusion pair offered by blocks[].runtime_work_relation. Select all three fields yourself; the system binds that choice and supplies its block ownership metadata.",
+      "properties": {"block_id":{"type":"string"},"observation_id":{"type":"string"},"conclusion":{"type":"string"}},
+      "required": ["block_id","observation_id","conclusion"],
+      "additionalProperties": false
     },
     "exact_resolution": {"type": "object", "description": "Optional exact-resolution contract result (status / anchor / context_mode)."},
     "missing_requested_roles": {

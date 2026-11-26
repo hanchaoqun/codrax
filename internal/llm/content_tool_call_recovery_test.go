@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+func TestTextToolRecoveryPreservesOutputLimit(t *testing.T) {
+	tools := []ToolSchema{{Name: "grep"}}
+	content := `{"name":"grep","arguments":{"pattern":"needle"}}`
+	for _, reason := range []string{"max_tokens", "length"} {
+		response := Response{StopReason: reason, Content: content}
+		for _, recover := range []func(Response, []ToolSchema, ChatOptions) Response{
+			recoverStructuredTextToolCalls, recoverTextToolCalls,
+		} {
+			got := recover(response, tools, ChatOptions{ToolChoice: "required"})
+			if got.StopReason != reason || got.Content != content || len(got.ToolCalls) != 0 {
+				t.Fatalf("output limit %s was replaced by a recovered tool: %+v", reason, got)
+			}
+		}
+	}
+}
+
 func TestRecoverTextToolCalls_NameParametersEnvelope(t *testing.T) {
 	resp := Response{
 		Content:    `{"name":"emit_analysis","parameters":{"entities":["Agent"],"question_kind":"registration"}}`,

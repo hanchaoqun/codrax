@@ -819,7 +819,10 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// parallel goroutines), so adding it alongside the raw section
 	// is a small prompt-budget cost in exchange for consistent
 	// causality rendering in downstream answers.
-	if ac.AgentName != types.AgentLogTriager && !finalizerUsesTypedAnswerSupport(ac) {
+	typedAnswerSupport := finalizerUsesTypedAnswerSupport(ac)
+	rawTraceSuppressed := shouldSuppressAttachedRuntimeTrace(ac, typedAnswerSupport)
+	rawLogSuppressed := shouldSuppressAttachedRuntimeLog(ac, typedAnswerSupport)
+	if ac.AgentName != types.AgentLogTriager && !typedAnswerSupport {
 		// Render-time drift surface (Step 2 2026-05-10): pass the
 		// AgentContext's MultiGraph through so the renderer can run
 		// drift detection per frame and warn when a log frame's path
@@ -838,7 +841,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 	if ac.AgentName != types.AgentPerfTriager {
 		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
-		rawTraceVisible := !shouldSuppressAttachedRuntimeTrace(ac) && strings.TrimSpace(ac.AttachedHitrace) != ""
+		rawTraceVisible := !rawTraceSuppressed && strings.TrimSpace(ac.AttachedHitrace) != ""
 		if section := formatPerfTriageStructured(perfTriageBundleForPrompt(ac), locator, perfTriageStructuredRenderOptions{
 			RawTraceVisible:             rawTraceVisible,
 			DeterministicQueryAuthority: finalizerHasDeterministicRuntimeQuery(ac),
@@ -875,8 +878,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//     when the projected stage schema actually includes read_file.
 	//
 	// Empty AttachedLog is a no-op.
-	if !shouldSuppressAttachedRuntimeLog(ac) || ac.AttachedLogCatalog != nil {
-		if section := formatAttachedLogContext(ac, availableTools); section != "" {
+	if !rawLogSuppressed || ac.AttachedLogCatalog != nil {
+		if section := formatAttachedLogContext(ac, availableTools, rawLogSuppressed); section != "" {
 			// This is the original artifact, not a current-source claim. Its
 			// preamble/gutter retain that boundary; source denials must not
 			// rewrite observed names (and still govern repository tool calls).
@@ -896,7 +899,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// is even denser in tuple-shaped tokens (thread ids, hex
 	// timestamps, event ids) that bait the LLM into spurious
 	// caller-provenance claims.
-	if !shouldSuppressAttachedRuntimeTrace(ac) {
+	if !rawTraceSuppressed {
 		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage), attachedTraceRenderOptions{
 			Material:          ac.AttachedTraceMaterial,
 			Excerpt:           ac.AttachedTraceExcerpt,
@@ -1000,7 +1003,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// or the expected subject is SubjectUnknown/SubjectGeneric. Generic
 	// subject matches are intentionally weak, passive hints; rendering
 	// their uniform scores as a ranking directive amplifies noise.
-	if (ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize) && !suppressSubjectMatchSummaryForTypedSupportFinalizer(ac) {
+	if (ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize) && !typedAnswerSupport {
 		if sm := formatSubjectMatchSummary(ac.SubjectMatches, ac.ExpectedAnswerSubject); sm != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionSubjectMatchSummary,
@@ -1062,7 +1065,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// prompt, diluting the load-bearing signal.
 	skipForExtractor := isExtractorSkill(sk)
 
-	if !skipForExtractor && len(ac.RelevantFacts) > 0 && !suppressKnownFactsForTypedSupportFinalizer(ac) {
+	if !skipForExtractor && len(ac.RelevantFacts) > 0 && !typedAnswerSupport {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionKnownFacts,
 			Content: factObservationBoundary + strings.Join(ac.RelevantFacts, "\n"),
@@ -1097,7 +1100,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// partial LLM-derived allowlist can no longer be sold as a
 	// verified complete answer unless the producer explicitly claims
 	// complete AND the claim survives Phase 9 validation.
-	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete && !suppressAnswerSymbolsForTypedSupportFinalizer(ac) {
+	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete && !typedAnswerSupport {
 		var symContent strings.Builder
 		symContent.WriteString("The prior analysis phase has already identified the answer to this question. " +
 			"Your task is to render these symbols as prose. You MUST NOT add or remove symbols; your " +
@@ -1117,7 +1120,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title:   SectionAnswerSymbolsAuth,
 			Content: symContent.String(),
 		})
-	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound && !suppressAnswerSymbolsForTypedSupportFinalizer(ac) {
+	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound && !typedAnswerSupport {
 		var symContent strings.Builder
 		symContent.WriteString(fmt.Sprintf(
 			"The prior analysis phase has confirmed the following symbols as part of the answer, "+
@@ -1171,7 +1174,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		ExactResolutionScenario:   exactResolutionScenarioForRender(ac),
 		TypedRelationHints:        ac.TypedRelationHints,
 	}
-	if finalizerUsesTypedAnswerSupport(ac) {
+	if typedAnswerSupport {
 		evidenceItems = typedSupportFinalizerEvidencePool(ac, evidenceItems)
 		evidencePreamble = typedSupportKnowledgePoolPreamble()
 		evidenceOpts.AuthoritativeSurface = true
@@ -1235,14 +1238,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// is explicitly told not to cite them. The extractor also benefits
 	// from the visibility: it can mention a lead in reasoning text
 	// without pulling it into emit_answer_symbol.
-	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" && !suppressUnverifiedLeadsForTypedSupportFinalizer(ac) {
+	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" && !typedAnswerSupport {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionUnverifiedLeads,
 			Content: leads,
 		})
 	}
 
-	if shouldRenderStandaloneDataflowFindings(ac, findings) {
+	if strings.TrimSpace(findings) != "" && !typedAnswerSupport {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionDataflowFindings,
 			Content: findings,
@@ -1259,7 +1262,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Mutable for this kind of late read. Legacy paths without the
 	// extractor simply produce an empty buffer and the section is
 	// dropped.
-	if ac.Mutable != nil && !finalizerUsesTypedAnswerSupport(ac) {
+	if ac.Mutable != nil && !typedAnswerSupport {
 		if verdicts := ac.Mutable.EmittedHypothesisVerdicts(); len(verdicts) > 0 {
 			var vc strings.Builder
 			vc.WriteString("The prior extraction pass reached the following verdicts on the hypotheses posed during classification. " +
@@ -1343,14 +1346,14 @@ func agentIdentityPrompt(name types.AgentName, stage types.PipelineStage) string
 	return "You are " + role + "."
 }
 
-func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
+func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext, typedAnswerSupport bool) bool {
 	if ac == nil {
 		return false
 	}
 	if ac.AgentName == types.AgentLogTriager {
 		return false
 	}
-	if finalizerUsesTypedAnswerSupport(ac) {
+	if typedAnswerSupport {
 		return true
 	}
 	bundle := ac.LogTriage
@@ -1378,14 +1381,14 @@ func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
 // the authoritative anchor set, and the raw trace's tuple-dense
 // payload (thread ids, hex addresses, μs timestamps) only bait the
 // LLM into rationalising those numbers as causation.
-func shouldSuppressAttachedRuntimeTrace(ac *types.AgentContext) bool {
+func shouldSuppressAttachedRuntimeTrace(ac *types.AgentContext, typedAnswerSupport bool) bool {
 	if ac == nil {
 		return false
 	}
 	if ac.AgentName == types.AgentPerfTriager {
 		return false
 	}
-	if finalizerUsesTypedAnswerSupport(ac) {
+	if typedAnswerSupport {
 		return true
 	}
 	if ac.AgentName == types.AgentFinalizer && ac.Stage == types.StageFinalize &&
@@ -1597,8 +1600,18 @@ func AnswerDocumentPatchSystemTeaching(pc *types.PromptContext, sk *skill.Config
 	if pc == nil || pc.Stage != types.StageFinalize {
 		return ""
 	}
-	patch := sk.AnswerDocumentPatchTeaching()
-	if patch == nil {
+	return answerDocumentProjectedSystemTeaching(pc, sk.AnswerDocumentPatchTeaching())
+}
+
+func AnswerDocumentTraceDraftSystemTeaching(pc *types.PromptContext, sk *skill.Config) string {
+	if pc == nil || pc.Stage != types.StageFinalize {
+		return ""
+	}
+	return answerDocumentProjectedSystemTeaching(pc, sk.AnswerDocumentTraceDraftTeaching())
+}
+
+func answerDocumentProjectedSystemTeaching(pc *types.PromptContext, teaching *skill.Config) string {
+	if teaching == nil {
 		return ""
 	}
 	sections := make([]types.PromptSection, 0, len(pc.SystemSections))
@@ -1607,11 +1620,11 @@ func AnswerDocumentPatchSystemTeaching(pc *types.PromptContext, sk *skill.Config
 		case SectionThinkAloud:
 			continue // This lane needs one patch call, not a second draft.
 		case SectionSkillGoal:
-			section.Content = patch.Goal
+			section.Content = teaching.Goal
 		case SectionWorkflow:
-			section.Content = formatNumberedList(patch.Workflow)
+			section.Content = formatNumberedList(teaching.Workflow)
 		case SectionOutputFormat:
-			section.Content = patch.OutputFormat
+			section.Content = teaching.OutputFormat
 		}
 		sections = append(sections, section)
 	}
@@ -5640,29 +5653,6 @@ func typedSupportFinalizerSupportCeiling(ac *types.AgentContext) (map[string]boo
 		return nil, nil
 	}
 	return allowedLocations, allowedFiles
-}
-
-func suppressKnownFactsForTypedSupportFinalizer(ac *types.AgentContext) bool {
-	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
-}
-
-func suppressAnswerSymbolsForTypedSupportFinalizer(ac *types.AgentContext) bool {
-	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
-}
-
-func suppressSubjectMatchSummaryForTypedSupportFinalizer(ac *types.AgentContext) bool {
-	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
-}
-
-func suppressUnverifiedLeadsForTypedSupportFinalizer(ac *types.AgentContext) bool {
-	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
-}
-
-func shouldRenderStandaloneDataflowFindings(ac *types.AgentContext, findings string) bool {
-	if strings.TrimSpace(findings) == "" {
-		return false
-	}
-	return ac == nil || ac.AgentName != types.AgentFinalizer || !finalizerUsesTypedAnswerSupport(ac)
 }
 
 func supportPlanEntryFile(location string) string {

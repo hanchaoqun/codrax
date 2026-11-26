@@ -380,9 +380,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	}
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
-		applyTraceCausalClaimContractForAgent(cached, ac)
-		applyRuntimeWorkRelationContractForAgent(cached, ac)
-		applyRuntimeMeasurementContract(cached, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit))
+		applyRuntimeEvidenceContracts(cached, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit), ac.Mutable != nil)
 		applyConceptualTerminalResolutionContractForAgent(cached, ac)
 		return cached
 	}
@@ -390,9 +388,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
 	ac.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
-	applyTraceCausalClaimContractForAgent(view, ac)
-	applyRuntimeWorkRelationContractForAgent(view, ac)
-	applyRuntimeMeasurementContract(view, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit))
+	applyRuntimeEvidenceContracts(view, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit), ac.Mutable != nil)
 	applyConceptualTerminalResolutionContractForAgent(view, ac)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
@@ -408,9 +404,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	}
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
-		applyTraceCausalClaimContractForBus(cached, bus)
-		applyRuntimeWorkRelationContractForBus(cached, bus)
-		applyRuntimeMeasurementContract(cached, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit))
+		applyRuntimeEvidenceContracts(cached, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit), bus.Mutable != nil)
 		applyConceptualTerminalResolutionContractForBus(cached, bus)
 		return cached
 	}
@@ -418,48 +412,28 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
 	bus.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
-	applyTraceCausalClaimContractForBus(view, bus)
-	applyRuntimeWorkRelationContractForBus(view, bus)
-	applyRuntimeMeasurementContract(view, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit))
+	applyRuntimeEvidenceContracts(view, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit), bus.Mutable != nil)
 	applyConceptualTerminalResolutionContractForBus(view, bus)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
 
-func applyTraceCausalClaimContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {
-	if view == nil || ctx == nil || ctx.Mutable == nil {
+// Both contracts consume the same current evidence. Compile it once for this
+// build and never carry it across calls that might add new observations.
+func applyRuntimeEvidenceContracts(view *AnswerSemanticView, input ObservationLedgerInput, hasMutable bool) {
+	if view == nil {
 		return
 	}
-	view.TraceCausalClaimContract = BuildTraceCausalClaimContract(
-		ObservationLedgerInputFromAgentContext(ctx, ObservationPromptRecordLimit),
-	)
-}
-
-func applyTraceCausalClaimContractForBus(view *AnswerSemanticView, ctx *BusContext) {
-	if view == nil || ctx == nil || ctx.Mutable == nil {
-		return
+	if hasMutable {
+		ledger := CompileObservationLedger(input)
+		set := CompileTraceCausalProjectionSet(ledger)
+		view.TraceCausalClaimContract = buildTraceCausalClaimContractFromProjection(input, set)
+		view.RuntimeWorkRelationContract = nil
+		if input.RequestModel != nil && RuntimeWorkRelationRequested(*input.RequestModel) {
+			view.RuntimeWorkRelationContract = buildRuntimeWorkRelationContractFromProjection(input, ledger, set)
+		}
 	}
-	view.TraceCausalClaimContract = BuildTraceCausalClaimContract(
-		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit),
-	)
-}
-
-func applyRuntimeWorkRelationContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {
-	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
-		return
-	}
-	requested := RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel)
-	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
-		ObservationLedgerInputFromAgentContext(ctx, ObservationPromptRecordLimit), requested)
-}
-
-func applyRuntimeWorkRelationContractForBus(view *AnswerSemanticView, ctx *BusContext) {
-	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
-		return
-	}
-	requested := RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel)
-	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
-		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit), requested)
+	applyRuntimeMeasurementContract(view, input)
 }
 
 func applyConceptualTerminalResolutionContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {

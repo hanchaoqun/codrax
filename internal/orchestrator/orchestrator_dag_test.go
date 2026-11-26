@@ -1285,6 +1285,26 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_LocalFinalizeBudgetRefusalDoesNotRepeatDispatch(t *testing.T) {
+	calls := 0
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{EvidenceItems: []types.EvidenceItem{{ID: "e", Source: "src.go", LineStart: 1}}}, nil
+		},
+		types.AgentFinalizer: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+			calls++
+			return nil, &agent.AnswerContextByteBudgetError{ActualBytes: 729497, AllocatedBytes: 700000}
+		},
+	})
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	ctx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil || calls != 1 || ctx.TaskState.LastError == "" {
+		t.Fatalf("expected one local refusal and a terminal diagnostic, calls=%d err=%v context=%+v", calls, err, ctx)
+	}
+}
+
 func TestRunTaskGraph_ReadFinalizeNoToolStallUsesBudgetNotPlateau(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 

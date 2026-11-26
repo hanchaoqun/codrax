@@ -31,6 +31,9 @@ func (l *b1672RootSelectionLoopLLM) Chat(_ context.Context, messages []llm.Messa
 	l.schemas = append(l.schemas, append([]llm.ToolSchema(nil), schemas...))
 	l.messages = append(l.messages, append([]llm.Message(nil), messages...))
 	if l.calls == 1 {
+		if l.responseMode == "repair-selection" {
+			return llm.Response{ToolCalls: []llm.ToolCall{{ID: "first-answer", Name: "emit_answer_document", Params: json.RawMessage(`{"blocks":[{"id":"summary","kind":"summary","text":"RenderThread scheduling delay was observed."}],"trace_root_causes":[{"candidate_id":"candidate-typo","description":"RenderThread scheduling delay"}]}`)}}}, nil
+		}
 		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "first-answer", Name: "emit_answer_document", Params: json.RawMessage(`{"blocks":[{"id":"summary","kind":"summary","text":"The model's original useful answer remains unchanged."}]}`)}}}, nil
 	}
 	if l.calls != 2 {
@@ -39,6 +42,8 @@ func (l *b1672RootSelectionLoopLLM) Chat(_ context.Context, messages []llm.Messa
 	l.acceptedAtFollowup = l.mu.AnswerDocumentV2()
 	var params string
 	switch l.responseMode {
+	case "repair-selection":
+		params = `{"replacement_candidate_id":"candidate-sched"}`
 	case "choose":
 		params = `{"unchanged_block_ids":["summary"],"replace_trace_root_causes":{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}}`
 	case "omit":
@@ -49,6 +54,34 @@ func (l *b1672RootSelectionLoopLLM) Chat(_ context.Context, messages []llm.Messa
 		return llm.Response{}, fmt.Errorf("unknown scripted response %q", l.responseMode)
 	}
 	return llm.Response{ToolCalls: []llm.ToolCall{{ID: "optional-supplement", Name: "emit_answer_document_patch", Params: json.RawMessage(params)}}}, nil
+}
+
+func TestBaseAgentCompactsRejectedRootCauseSelectionPatch(t *testing.T) {
+	ctx := b1672RootSelectionLoopContext(false)
+	fake := &b1672RootSelectionLoopLLM{responseMode: "repair-selection", mu: ctx.Mutable}
+	registry := tool.NewRegistry()
+	registry.Register(&tool.EmitAnswerDocument{})
+	registry.Register(&tool.EmitAnswerDocumentPatch{})
+	base := NewBaseAgent(types.AgentFinalizer, &Dependencies{LLM: fake, Tools: registry, MaxIterations: 4}, &answerDocumentEvaluator{})
+	_, err := base.Execute(ctx, &skill.Config{Name: "root-selection", ToolSuggestions: []string{"emit_answer_document", "emit_answer_document_patch"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls != 2 || len(fake.messages[1]) != 1 || len(fake.schemas[1]) != 1 {
+		t.Fatalf("expected one compact patch request after the first emit, got %d requests", fake.calls)
+	}
+	prompt := fake.messages[1][0].Content
+	if !strings.Contains(prompt, "candidate-typo") || !strings.Contains(prompt, "candidate-sched") ||
+		strings.Contains(string(fake.schemas[1][0].Parameters), "replace_blocks") {
+		t.Fatalf("patch context should contain only the rejected selection and valid choices: %q", prompt)
+	}
+	before, _ := json.Marshal(fake.acceptedAtFollowup.Blocks)
+	after, _ := json.Marshal(ctx.Mutable.AnswerDocumentV2().Blocks)
+	report := ctx.Mutable.TraceRootCauseReport()
+	if string(before) != string(after) || report == nil || len(report.RootCauses) != 1 ||
+		report.RootCauses[0].ImpactSeconds == nil || *report.RootCauses[0].ImpactSeconds != 0.0124 {
+		t.Fatalf("patch must bind the candidate and preserve draft blocks: %s; %s; %+v", before, after, report)
+	}
 }
 
 func (*b1672RootSelectionLoopLLM) ModelID() string               { return "b1672-scripted-finalizer" }

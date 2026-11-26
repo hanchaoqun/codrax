@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -130,6 +131,13 @@ func repairToolCallParamsJSON(toolName string, raw json.RawMessage) (json.RawMes
 		return raw, false
 	}
 	switch types.CanonicalToolName(toolName) {
+	case "emit_investigation_complete":
+		// Some models emit a literal conditional instead of its selected enum.
+		// Only this closed role-expression form is evaluated, never arbitrary code.
+		if repaired := completionLiteralRole.ReplaceAll(raw, []byte(`${1}${2}${3}`)); json.Valid(repaired) {
+			return repaired, true
+		}
+		return tool.RepairInvestigationCompletionProseQuotes(raw)
 	case "emit_answer_document":
 		if repaired, ok := tool.RepairEmitAnswerDocumentMalformedParams(raw); ok && json.Valid(repaired) {
 			return repaired, true
@@ -137,6 +145,8 @@ func repairToolCallParamsJSON(toolName string, raw json.RawMessage) (json.RawMes
 	}
 	return raw, false
 }
+
+var completionLiteralRole = regexp.MustCompile(`("role"\s*:\s*)"[^"\\\r\n]*"\s+if\s+false\s+else\s+("(?:principal_answer|supporting_coverage|audit_ledger)")\s*([,}])`)
 
 func tryTrimLeadingGarbage(raw json.RawMessage) (json.RawMessage, bool) {
 	trimmed := bytes.TrimSpace(raw)

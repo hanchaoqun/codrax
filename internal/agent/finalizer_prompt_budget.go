@@ -181,9 +181,11 @@ func (e *answerDocumentEvaluator) finalizerRequestByteError(ctx *types.AgentCont
 // the durable history, each submitted tool call, validation feedback and
 // evidence stay intact.
 type finalizerRepairTeaching struct {
-	draftSystem string
-	patchSystem string
-	history     finalizerRepairHistory
+	draftSystem    string
+	patchSystem    string
+	initialContext *types.PromptContext
+	promptSkill    *skill.Config
+	history        finalizerRepairHistory
 }
 
 // project applies the repair ladder to one request. A request that fits is
@@ -200,8 +202,8 @@ type finalizerRepairTeaching struct {
 // arguments, its paired result and every correction. They give up the content
 // channel only: reasoning a provider returned on its own channel stays with
 // its tool call, so the request size still grows with that channel. What is
-// still over the allocation afterwards is refused by the unchanged dispatch
-// guard.
+// still over the allocation afterwards can lose optional initial context
+// sections before the dispatch guard.
 func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
 	e, ok := eval.(*answerDocumentEvaluator)
 	if !ok || e == nil || ctx == nil || ctx.Mutable == nil || len(messages) == 0 {
@@ -240,6 +242,81 @@ func (t *finalizerRepairTeaching) project(ctx *types.AgentContext, eval Evaluato
 			out = projected
 		}
 	}
+	out = t.compactInitialContext(ctx, e, out, tools)
+	if e.finalizerRequestByteError(ctx, out, tools) != nil && ctx.TraceRootCauseBoard != "" &&
+		len(tools) == 1 && tools[0].Name == "emit_answer_document" &&
+		out[0].Role == "system" && out[0].Content == t.draftSystem &&
+		(answerDocRequestModel(ctx).ExternalObservationPolicy.ExcludesCurrentSource() || runtimeObservationOnlyForAnswerDoc(ctx)) {
+		if compact := promptctx.AnswerDocumentTraceDraftSystemTeaching(t.initialContext, t.promptSkill); compact != "" && len(compact) < len(t.draftSystem) {
+			before := llm.EstimateRequestBytes(out, tools)
+			out = append([]llm.Message(nil), out...)
+			out[0].Content = compact
+			logging.Debug("[diag finalizer] phase=trace_draft_teaching_compaction previous_bytes=%d current_bytes=%d allocation_bytes=%d",
+				before, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes)
+		}
+	}
+	return out
+}
+
+// Work from builder-owned sections, so a heading supplied by the user or an
+// artifact cannot become a deletion boundary. The request, answer contract,
+// evidence pool, runtime decision inputs and source-bound qualifiers stand.
+func (t *finalizerRepairTeaching) compactInitialContext(ctx *types.AgentContext, e *answerDocumentEvaluator, messages []llm.Message, tools []llm.ToolSchema) []llm.Message {
+	if t.initialContext == nil || ctx.Mutable.AnswerDocumentV2() != nil {
+		return messages
+	}
+	err, over := e.finalizerRequestByteError(ctx, messages, tools).(*AnswerContextByteBudgetError)
+	if !over {
+		return messages
+	}
+	pc := *t.initialContext
+	userIndex := 0
+	if len(pc.SystemSections) > 0 {
+		userIndex = 1
+	}
+	// The canonical renderer installs these sections as the first user
+	// message. Later user messages carry the dynamic instruction and tails.
+	if len(pc.UserSections) == 0 || userIndex >= len(messages) || messages[userIndex].Role != "user" {
+		return messages
+	}
+	priority := []string{promptctx.SectionUnverifiedLeads, promptctx.SectionUnverifiedAnalyzer,
+		promptctx.SectionAnalyzerPrescan, promptctx.SectionSubjectMatchSummary, promptctx.SectionRelevantFiles,
+		promptctx.SectionRelationDossier}
+	if ctx.TraceRootCauseBoard != "" && (answerDocRequestModel(ctx).ExternalObservationPolicy.ExcludesCurrentSource() || runtimeObservationOnlyForAnswerDoc(ctx)) {
+		// The scoped Trace board, accepted closure/ledger and user question
+		// are retained. Earlier prose reports and general fact dumps are
+		// supplementary for this artifact-only diagnosis.
+		priority = append(priority, promptctx.SectionKnownFacts, promptctx.SectionPriorStageFindings)
+	}
+	limit := len(messages[userIndex].Content) - (err.ActualBytes - err.AllocatedBytes)
+	sections := append([]types.PromptSection(nil), pc.UserSections...)
+	pc.SystemSections = nil
+	bytes := -len("\n\n")
+	for _, s := range sections {
+		bytes += len("## ") + len(s.Title) + len("\n") + len(s.Content) + len("\n\n")
+	}
+	var omitted []string
+	for _, title := range priority {
+		if bytes <= limit || len(sections) <= 1 {
+			break
+		}
+		for i, s := range sections {
+			if s.Title == title {
+				sections = append(sections[:i], sections[i+1:]...)
+				bytes -= len("## ") + len(s.Title) + len("\n") + len(s.Content) + len("\n\n")
+				omitted = append(omitted, title)
+				break
+			}
+		}
+	}
+	if len(omitted) == 0 || bytes >= len(messages[userIndex].Content) {
+		return messages
+	}
+	pc.UserSections = sections
+	out := append([]llm.Message(nil), messages...)
+	out[userIndex].Content = promptctx.ToMessages(&pc)[0].Content
+	logging.Debug("[diag finalizer] phase=initial_context_compaction previous_bytes=%d current_bytes=%d allocation_bytes=%d omitted_sections=%q",
+		err.ActualBytes, llm.EstimateRequestBytes(out, tools), err.AllocatedBytes, omitted)
 	return out
 }
 

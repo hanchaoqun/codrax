@@ -82,7 +82,7 @@ func (e *writeControllerEvaluator) Observe(_ *types.AgentContext, obs LoopObserv
 	if obs.Phase == PhaseSoftStop && len(obs.Response.ToolCalls) == 0 {
 		key := "write-controller.required-tool.no-tool"
 		boundary := "The completed response did not use the required function-calling channel."
-		if obs.Response.StopReason == "length" {
+		if obs.Response.OutputTruncated() {
 			key = "write-controller.required-tool.length-no-tool"
 			boundary = "The completed response reached the output-token limit before producing the required tool call."
 		}

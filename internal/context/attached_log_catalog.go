@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func formatAttachedLogContext(ac *types.AgentContext, availableTools map[string]bool) string {
+func formatAttachedLogContext(ac *types.AgentContext, availableTools map[string]bool, suppressPreview bool) string {
 	if ac.AttachedLogCatalog == nil {
 		return formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage), attachedArtifactRenderOptions{ReadFileAvailable: availableTools["read_file"]})
 	}
@@ -39,7 +39,7 @@ func formatAttachedLogContext(ac *types.AgentContext, availableTools map[string]
 		bytes += len(row)
 	}
 	fmt.Fprintf(&b, "Source metadata shown: %d/%d; omitted sources remain available to log_query.\n", shown, len(sources))
-	if shouldSuppressAttachedRuntimeLog(ac) {
+	if suppressPreview {
 		return b.String()
 	}
 	if strings.TrimSpace(ac.AttachedLog) != "" {

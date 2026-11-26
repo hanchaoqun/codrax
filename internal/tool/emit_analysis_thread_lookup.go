@@ -57,6 +57,30 @@ func parseRuntimeThreadLookups(raw string, in []types.RuntimeThreadLookup) ([]ty
 	return out, ""
 }
 
+func parseRuntimeThreadLookupsForFrame(raw string, in []types.RuntimeThreadLookup, verifiedFrame bool) ([]types.RuntimeThreadLookup, []string, string) {
+	var warnings []string
+	if verifiedFrame && len(in) != 0 {
+		explicit := make([]types.RuntimeThreadLookup, 0, len(in))
+		for _, item := range in {
+			// The bound frame already carries the requested target. A thread
+			// found in its capture has no user-lookup authority unless the
+			// request names that identity; the Explorer can still inspect it.
+			name := strings.TrimSpace(item.Thread)
+			requestIdentity := types.RuntimeThreadLookup{PID: item.PID, Thread: name, SourceQuote: raw}
+			if item.PID < 0 || item.PID > types.RuntimeTargetMaxPID || (item.PID == 0 && name == "") ||
+				runtimeThreadLookupIdentityInQuote(requestIdentity) ||
+				(name != "" && entityNamedInQuote(raw, name)) {
+				explicit = append(explicit, item)
+			} else {
+				warnings = append(warnings, fmt.Sprintf("ignored runtime thread lookup %q (TID %d) absent from the verified frame request", name, item.PID))
+			}
+		}
+		in = explicit
+	}
+	out, issue := parseRuntimeThreadLookups(raw, in)
+	return out, warnings, issue
+}
+
 // This diagnostic reports only a failed provenance span. Structurally sound
 // input is still unaccepted until the complete object is submitted again.
 func runtimeThreadLookupQuoteRepair(index int, issue string) string {

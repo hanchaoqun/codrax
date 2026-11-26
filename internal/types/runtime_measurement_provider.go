@@ -144,6 +144,10 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 }
 
 func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []RuntimeMeasurementPublication {
+	type sourceWitness struct {
+		original string
+		replay   TraceQueryWindowReplayRef
+	}
 	var publications []RuntimeMeasurementPublication
 	for _, results := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range results {
@@ -151,6 +155,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				continue
 			}
 			participants := NewTraceEventParticipantDisplayRoster(result.Observations)
+			// Check the live receipt once per result and source path during this
+			// build. Each observation still has its own display-window checks.
+			sources := map[string]sourceWitness{}
 			for _, r := range result.Observations {
 				resourceProjection, resourcePoints := RuntimeResourceCurrentDisplayProjection(input, result, r)
 				supplementary := !result.ReusedFromRunMemo && RuntimeResourceQueryIsSupplementary(r, input.RequestModel)
@@ -161,7 +168,14 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 				if !ok {
 					continue
 				}
-				requested, original, qualified := runtimeMeasurementQueryDisplayScope(input, result, r)
+				path := r.SourceRef.Path
+				witness, checked := sources[path]
+				if !checked {
+					witness.original, witness.replay = runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
+					sources[path] = witness
+				}
+				original := witness.original
+				requested, qualified := runtimeMeasurementQueryDisplayScopeForSource(input, result, r, original)
 				if !qualified {
 					continue
 				}
@@ -202,24 +216,18 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					if result.TraceViewCancellation == nil {
 						qualifyRuntimeMeasurementEquivalentFact(&p, r, original, result.TraceQueryWindowReplay)
 					}
-					boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
-					if boundOriginal == original {
-						p.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, p.Source, original, replay)
-						if source := p.sourcePresentation; source != nil {
-							source.referenceUse = runtimeMeasurementProducerContractFor(r.Predicate).referenceUse()
-							// The timeline producer validates this exact numeric
-							// selector against its observed thread. A system query's
-							// exploration cursor is not population membership.
-							if source.referenceUse == runtimeMeasurementReferenceThreadStates && p.Source.QueryTargetPID > 0 && p.Source.QueryTargetPID <= RuntimeTargetMaxPID {
-								source.referenceTID = p.Source.QueryTargetPID
-							}
+					p.sourcePresentation = runtimeMeasurementQuerySourcePresentation(input, p.Source, original, witness.replay)
+					if source := p.sourcePresentation; source != nil {
+						source.referenceUse = runtimeMeasurementProducerContractFor(r.Predicate).referenceUse()
+						// The timeline producer validates this exact numeric
+						// selector against its observed thread. A system query's
+						// exploration cursor is not population membership.
+						if source.referenceUse == runtimeMeasurementReferenceThreadStates && p.Source.QueryTargetPID > 0 && p.Source.QueryTargetPID <= RuntimeTargetMaxPID {
+							source.referenceTID = p.Source.QueryTargetPID
 						}
 					}
 					if !supplementary {
-						boundOriginal, replay := runtimeMeasurementOriginalSourceReplay(input, result, r.SourceRef)
-						if boundOriginal == original {
-							qualifyCurrentNativeMeasurementDisplay(&p, r.Predicate, original, replay, requested, result.TraceViewCancellation != nil)
-						}
+						qualifyCurrentNativeMeasurementDisplay(&p, r.Predicate, original, witness.replay, requested, result.TraceViewCancellation != nil)
 					}
 				}
 				publications = append(publications, p)

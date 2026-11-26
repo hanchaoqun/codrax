@@ -495,7 +495,8 @@ func buildEmitAnalysisSchema() {
 	}
 
 	schema := map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
 			"intent":   stringProp{Type: "string", Enum: skill.AnalysisIntentValues()},
 			"scenario": stringProp{Type: "string", Enum: skill.AnalysisScenarioValues()},
@@ -1336,6 +1337,31 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"call_chain_endpoints",
 	)
 	var compatWarnings []string
+	var workEnvelope, workProfile map[string]json.RawMessage
+	if json.Unmarshal(params, &workEnvelope) == nil {
+		changed := false
+		for _, field := range []string{"rationale", "question_kind_note", "enumeration_boundary_note"} {
+			if raw := bytes.TrimSpace(workEnvelope[field]); len(raw) > 0 && raw[0] == '"' {
+				delete(workEnvelope, field)
+				compatWarnings = append(compatWarnings, "ignored unsupported top-level "+field+"; retained all typed analysis decisions")
+				logging.Info("[emit_analysis] normalized unsupported top-level %s", field)
+				changed = true
+			}
+		}
+		if json.Unmarshal(workEnvelope["runtime_artifact_work_profile"], &workProfile) == nil {
+			var confidence *float64
+			if json.Unmarshal(workProfile["confidence"], &confidence) == nil && confidence != nil && *confidence >= 0 && *confidence <= 1 {
+				delete(workProfile, "confidence")
+				workEnvelope["runtime_artifact_work_profile"], _ = json.Marshal(workProfile)
+				compatWarnings = append(compatWarnings, "ignored unsupported numeric runtime_artifact_work_profile.confidence; retained the declared collection mode, limit and source quote")
+				logging.Info("[emit_analysis] normalized unsupported runtime_artifact_work_profile.confidence")
+				changed = true
+			}
+		}
+		if changed {
+			params, _ = json.Marshal(workEnvelope)
+		}
+	}
 	if repaired, warnings, ok := repairEmitAnalysisIrrelevantFilePathObjects(params); ok {
 		params = repaired
 		compatWarnings = append(compatWarnings, warnings...)
@@ -1368,11 +1394,28 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// carrier, which silently disables every downstream typed coverage lane.
 	// This is a single structured-field presence check; it never scans the
 	// request, model prose, thinking, or answer for completeness keywords.
+	var missingDecisions []string
 	if p.CompletenessObligation == nil {
+		missingDecisions = append(missingDecisions, "completeness_obligation")
+	}
+	if p.RuntimeQuestionProfile == nil && emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		missingDecisions = append(missingDecisions, "runtime_question_profile")
+	}
+	if len(missingDecisions) != 0 {
+		var details []string
+		for _, field := range missingDecisions {
+			switch field {
+			case "completeness_obligation":
+				details = append(details, `completeness_obligation is required; emit required=false with source_quote="" when exhaustive coverage is not requested, or required=true with a verbatim current-request source_quote when it is`)
+			case "runtime_question_profile":
+				details = append(details, "runtime_question_profile object missing — declare the requested analysis breadth and decide which runtime relations are requested")
+			}
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_analysis rejected: completeness_obligation is required; emit required=false with source_quote=\"\" when exhaustive coverage is not requested, or required=true with a verbatim current-request source_quote when it is",
+			Summary:   "emit_analysis rejected: " + strings.Join(details, "; "),
+			Repair:    &types.ToolRepair{Code: EmitAnalysisMissingDecisions, Fields: missingDecisions},
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -1864,7 +1907,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeArtifactWorkProfile, runtimeArtifactWorkErr := parseRuntimeArtifactWorkProfile(raw, p.RuntimeArtifactWorkProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
-	runtimeThreadLookups, runtimeThreadLookupErr := parseRuntimeThreadLookups(raw, p.RuntimeThreadLookups)
+	runtimeThreadLookups, runtimeThreadLookupWarnings, runtimeThreadLookupErr := parseRuntimeThreadLookupsForFrame(raw, p.RuntimeThreadLookups, verifiedFrameBound)
+	compatWarnings = append(compatWarnings, runtimeThreadLookupWarnings...)
 	// Request intent can precede discovery/preparation of a directory or path.
 	// Validated declarations require companion decisions in this fixed order;
 	// they never change material availability or artifact-value authority.
@@ -2601,6 +2645,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Timestamp: time.Now(),
 	}, nil
 }
+
+const EmitAnalysisMissingDecisions = "emit_analysis_missing_decisions"
 
 // diagramParticipantNormalizationConflictReceipt explains the otherwise
 // surprising shape where the model submitted participant rows but exact

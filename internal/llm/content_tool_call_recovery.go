@@ -32,7 +32,7 @@ import (
 // object keys before normal tool execution so small local models that
 // add commentary fields do not bounce on strict decoding.
 func recoverTextToolCalls(resp Response, tools []ToolSchema, opts ChatOptions) Response {
-	if len(resp.ToolCalls) > 0 || len(tools) == 0 || opts.ToolChoice == "none" {
+	if resp.OutputTruncated() || len(resp.ToolCalls) > 0 || len(tools) == 0 || opts.ToolChoice == "none" {
 		return resp
 	}
 	calls, ok := parseTextToolCallEnvelope(resp.Content, tools, textToolChoiceRequiresTool(opts.ToolChoice), textToolChoiceForcedName(opts.ToolChoice))
@@ -58,7 +58,7 @@ func recoverTextToolCalls(resp Response, tools []ToolSchema, opts ChatOptions) R
 // This gives compliant remote models a harmless transport safety net while
 // keeping local-model-only guessier recovery behind recover_text_tool_calls.
 func recoverStructuredTextToolCalls(resp Response, tools []ToolSchema, opts ChatOptions) Response {
-	if len(resp.ToolCalls) > 0 || len(tools) == 0 || opts.ToolChoice == "none" {
+	if resp.OutputTruncated() || len(resp.ToolCalls) > 0 || len(tools) == 0 || opts.ToolChoice == "none" {
 		return resp
 	}
 	calls, ok := parseStrictTextToolCallEnvelope(resp.Content, tools)

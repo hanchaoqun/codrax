@@ -2,11 +2,45 @@ package tool
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestNativeFactDisplayUsesOnlyRemainingBlockSlots(t *testing.T) {
+	rm := nativeFactDisplayRequest(types.RequestedAnswerDimensionObservedValue)
+	ctx := &types.BusContext{Language: "zh-CN", AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	view := runtimeMeasurementTestView()
+	tables := view.RuntimeMeasurementContract.Tables
+	for i := range tables {
+		tables[i].ObservationID = fmt.Sprintf("observation-%d", i)
+		tables[i].DefaultPresentation = true
+	}
+	doc := atCapDoc()
+	doc.Blocks = doc.Blocks[:maxBlocksPerDoc-1]
+	materializeNativeFactDisplay(doc, ctx, view)
+	if got := len(doc.Blocks); got != maxBlocksPerDoc {
+		t.Fatalf("expected one remaining slot to be used, got %d blocks", got)
+	}
+	if last := doc.Blocks[maxBlocksPerDoc-1]; last.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts ||
+		last.RuntimeMeasurement == nil || !last.RuntimeMeasurement.IsBound() {
+		t.Fatal("available slot did not retain a bound native table")
+	}
+	if len(doc.Caveats) != 1 || !strings.Contains(doc.Caveats[0], "区块上限") {
+		t.Fatalf("missing disclosure of omitted tables: %v", doc.Caveats)
+	}
+	materializeNativeFactDisplay(doc, ctx, view)
+	if len(doc.Blocks) != maxBlocksPerDoc || len(doc.Caveats) != 1 {
+		t.Fatal("retry duplicated the auto tables or their disclosure")
+	}
+	doc.Blocks = doc.Blocks[1:]
+	materializeNativeFactDisplay(doc, ctx, view)
+	if len(doc.Blocks) != maxBlocksPerDoc || len(doc.Caveats) != 0 {
+		t.Fatal("freed slot did not restore the second native table and clear the disclosure")
+	}
+}
 
 // These tests pin the maxBlocksPerDoc headroom invariant (see the
 // constant's doc): system-side block inserters that run between the

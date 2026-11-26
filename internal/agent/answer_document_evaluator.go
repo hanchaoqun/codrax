@@ -211,6 +211,7 @@ type answerDocumentEvaluator struct {
 	// round per dispatch. The latch is dispatch-scoped (reset in
 	// BuildInitialInstruction) and never touches hard-reject accounting.
 	postEmitAdvisoryDelivered bool
+	postEmitRootCauseOnly     bool
 }
 
 const (
@@ -418,6 +419,7 @@ func (e *answerDocumentEvaluator) rejectHintBudget() int {
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.postEmitAdvisoryDelivered = false
+	e.postEmitRootCauseOnly = false
 	resolve := e.pendingPromptBudget
 	e.pendingPromptBudget = nil
 	return e.buildInitialInstruction(ctx, sk, resolve)

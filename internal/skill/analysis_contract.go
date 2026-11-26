@@ -330,7 +330,7 @@ var AnalysisHardRules = []string{
 
 // AnalysisSubmissionContract is shared by the skill and tool description.
 // Attempts may fail validation without writing a classified request model.
-const AnalysisSubmissionContract = "Aim for one successful emit_analysis call per dispatch. If an attempt is rejected, resend one complete corrected call matching the tool schema; rejected attempts do not count as successful submissions. Stop after success."
+const AnalysisSubmissionContract = "Aim for one successful emit_analysis call per dispatch. Use only fields declared by the tool schema and omit optional fields that do not apply. If an attempt is rejected, resend one complete corrected call matching the schema; rejected attempts do not count as successful submissions. Stop after success."
 
 // AnalysisIrrelevantFileHintTeaching keeps the optional navigation exclusion
 // inside the analyzer's files-only boundary. It never licenses a content read.
