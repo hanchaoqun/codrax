@@ -3,9 +3,11 @@ package orchestrator
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -97,4 +99,35 @@ func describeChangedAnswerInputs(changed []string, now types.TypedInputSample) s
 		return "refused state not sampled"
 	}
 	return strings.Join(changed, ",")
+}
+
+// logForcedFinalizeFailure reports the forced dispatch truthfully: how many
+// attempts were dispatched, and that none was when the refusal stood.
+func logForcedFinalizeFailure(dispatched int, err error) {
+	if dispatched == 0 {
+		logging.Error("[orchestrator] forced finalize not dispatched (0 attempts): the answer request was refused before sending and its inputs are unchanged, so a rebuild would be refused again: %v", err)
+		return
+	}
+	logging.Error("[orchestrator] forced finalize failed after %d dispatched attempt(s): %v", dispatched, err)
+}
+
+// finalizeNodeFailureText is the detail of the answer step's failure line.
+// A request that was never sent is not a failed model response: the reader
+// gets the notice for that case, and the raw error stays in the log.
+func finalizeNodeFailureText(err error, lang string) string {
+	var refused *agent.AnswerContextByteBudgetError
+	if errors.As(err, &refused) {
+		return answerRequestNotSentMessage(lang)
+	}
+	return err.Error()
+}
+
+func (o *Orchestrator) emitFinalizingNotice() {
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeFinalizing,
+		Reasoning:  softFinalizingMessage(o.busCtx.Language),
+	})
 }

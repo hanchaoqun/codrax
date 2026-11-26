@@ -4860,7 +4860,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				break
 			}
 			state.markFailed(fin.ID)
-			o.emitNodeEnd(fin.ID, false, err.Error())
+			o.emitNodeEnd(fin.ID, false, finalizeNodeFailureText(err, o.busCtx.Language))
 			break
 		}
 		stepsUsed++
@@ -5798,14 +5798,12 @@ contractFailureBreak:
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		// Same pre-dispatch cue as the normal DAG path — the stall
 		// escape still runs a composition-only LLM call with no tool
-		// activity.
-		o.emit(render.Event{
-			Kind:       render.EventOrchestratorNotice,
-			Timestamp:  time.Now(),
-			Agent:      "orchestrator",
-			NoticeKind: render.NoticeFinalizing,
-			Reasoning:  softFinalizingMessage(o.busCtx.Language),
-		})
+		// activity. After an answer request that was refused unsent the
+		// cue waits until the dispatch is known to run.
+		refusedUnsent := o.answerRequestRefusedUnsent()
+		if !refusedUnsent {
+			o.emitFinalizingNotice()
+		}
 		// Force-finalize transient retry. Pre-2026-04-30 the
 		// force-finalize was a single-shot dispatch; an
 		// `unexpected EOF` / `stream stalled` blip on the
@@ -5831,20 +5829,24 @@ contractFailureBreak:
 			forceFinalizeMaxAttempts = types.DefaultForceFinalizeAttempts
 		}
 		var (
-			out *agent.StageOutput
-			err error
+			out        *agent.StageOutput
+			err        error
+			dispatched int
 		)
-		if o.answerRequestRefusedUnsent() {
+		if refusedUnsent {
 			// The same inputs rebuild the same request: report the standing
 			// refusal through the failure path below instead of dispatching.
 			if err = o.repeatedAnswerRequestRefusal(); err != nil {
 				forceFinalizeMaxAttempts = 0
+			} else {
+				o.emitFinalizingNotice()
 			}
 		}
 		for attempt := 0; attempt < forceFinalizeMaxAttempts; attempt++ {
 			if o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
 			}
+			dispatched++
 			finalizeResult := o.executeFinalizeStageRequest(nil, "read_dag_forced_finalize")
 			out, err = finalizeResult.Output, finalizeResult.Err
 			if err == nil {
@@ -5916,8 +5918,7 @@ contractFailureBreak:
 			}
 		}
 		if err != nil {
-			logging.Error("[orchestrator] forced finalize failed after %d attempts: %v",
-				forceFinalizeMaxAttempts, err)
+			logForcedFinalizeFailure(dispatched, err)
 			o.busCtx.Mutable.SetResult("")
 			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, o.busCtx.Language)
 			return stepsUsed

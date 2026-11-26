@@ -104,6 +104,12 @@ var (
 		"模型响应超时",
 		"model service is unavailable or rate-limited",
 		"模型服务暂不可用或限流",
+		// The answer request was too large to send. No model response
+		// existed, and sending the same request again cannot differ, so
+		// the step reads as failed rather than as a response being
+		// re-composed.
+		"larger than one answer request can carry",
+		"超过了一次答案请求能携带的量",
 	}
 	cancelledMarkers = []string{
 		"interrupted by user",
