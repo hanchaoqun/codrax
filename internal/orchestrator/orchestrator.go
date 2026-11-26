@@ -5834,6 +5834,13 @@ contractFailureBreak:
 			out *agent.StageOutput
 			err error
 		)
+		if o.answerRequestRefusedUnsent() {
+			// The same inputs rebuild the same request: report the standing
+			// refusal through the failure path below instead of dispatching.
+			if err = o.repeatedAnswerRequestRefusal(); err != nil {
+				forceFinalizeMaxAttempts = 0
+			}
+		}
 		for attempt := 0; attempt < forceFinalizeMaxAttempts; attempt++ {
 			if o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()

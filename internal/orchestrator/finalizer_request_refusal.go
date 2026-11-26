@@ -2,19 +2,23 @@ package orchestrator
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// finalizer_request_refusal.go — what the scheduler keeps when the answer
+// finalizer_request_refusal.go — what the scheduler does when the answer
 // stage refuses its own request before sending it.
 //
 // A refusal is deterministic: the request is built by local planning over the
-// run's typed state. The scheduler records each refusal with a content digest
-// of that state (types.SampleAnswerRequestInputs) and with whether anything
-// of the answer stage had reached the model.
+// run's typed state, so a second dispatch over the same state builds the same
+// request and is refused again. The scheduler therefore records each refusal
+// with a content digest of that state (types.SampleAnswerRequestInputs) and
+// does not run the forced dispatch when the digest is unchanged. The digest
+// is the whole argument: nothing here trusts a list of mutation points, and a
+// state the digest cannot read is treated as changed.
 
 // executeFinalizeStageRequest runs one answer dispatch and keeps the run's
 // refusal record in step with how it returned.
@@ -47,9 +51,50 @@ func (o *Orchestrator) sampleAnswerRequestInputs() types.TypedInputSample {
 	return types.SampleAnswerRequestInputs(o.busCtx, types.AnswerDispatchStamp{EmitRetryAttempt: o.emitStageRetryAttempt})
 }
 
+// answerRequestRefusedUnsent reports whether the run's last answer dispatch
+// was refused with nothing of the answer stage sent to the model.
+func (o *Orchestrator) answerRequestRefusedUnsent() bool {
+	return finalizeRefusalOf(o.busCtx).NothingSent()
+}
+
 func finalizeRefusalOf(bus *types.BusContext) *types.FinalizerRequestRefusal {
 	if bus == nil {
 		return nil
 	}
 	return bus.Mutable.FinalizerRequestRefusal()
+}
+
+// repeatedAnswerRequestRefusal decides the forced dispatch after a refusal
+// that sent nothing. It returns the refusal to report when the dispatch would
+// rebuild the request from the same inputs, and nil when it must run: the
+// inputs changed (a drained forced read, an ingested extract), the state
+// could not be sampled, or the refusal was of a repair or follow-up request,
+// whose fresh first request is a different one.
+func (o *Orchestrator) repeatedAnswerRequestRefusal() error {
+	refusal := finalizeRefusalOf(o.busCtx)
+	if !refusal.NothingSent() {
+		return nil
+	}
+	now := o.sampleAnswerRequestInputs()
+	changed, same := refusal.InputsChangedSince(now)
+	if !same {
+		logging.Info("[orchestrator] forced finalize: the refused answer request would be rebuilt from different inputs (%s); dispatching",
+			describeChangedAnswerInputs(changed, now))
+		return nil
+	}
+	return &agent.AnswerContextByteBudgetError{ActualBytes: refusal.RequestBytes, AllocatedBytes: refusal.AllocationBytes}
+}
+
+func describeChangedAnswerInputs(changed []string, now types.TypedInputSample) string {
+	if reason := now.Unknown(); reason != "" {
+		return "state not sampled: " + reason
+	}
+	const shown = 12
+	if len(changed) > shown {
+		return strings.Join(changed[:shown], ",") + ",…"
+	}
+	if len(changed) == 0 {
+		return "refused state not sampled"
+	}
+	return strings.Join(changed, ",")
 }
