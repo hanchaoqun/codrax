@@ -32,6 +32,50 @@ func emitAnswerDocumentForNoteTest(t *testing.T, ctx *types.BusContext, payload 
 	return result
 }
 
+func TestKnownFrameFirstAnswerIncludesRootCauseDecision(t *testing.T) {
+	start, end := 1.0, 2.0
+	m := types.NewMutableState("analyze the frame on thread 42 between 1 and 2 seconds")
+	m.SetRequestModel(types.RequestModel{
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: true},
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeStart: &start, TimeEnd: &end, SourceQuote: "between 1 and 2 seconds"},
+		RuntimeTargetProfile: &types.RuntimeTargetProfile{Declaration: types.RuntimeTargetDeclarationNamedTarget, SourceQuote: "thread 42"},
+		RuntimeTargets:       []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 42, Source: "user_explicit"}},
+	})
+	m.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+	ctx := &types.AgentContext{Mutable: m}
+	requires := func(raw json.RawMessage, field string) bool {
+		t.Helper()
+		var schema struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range schema.Required {
+			if name == field {
+				return true
+			}
+		}
+		return false
+	}
+	if !requires((&EmitAnswerDocument{}).ParametersFor(ctx), "trace_root_causes") ||
+		!requires((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), "replace_trace_root_causes") {
+		t.Fatal("known frame did not request a decision with the initial answer and its repair")
+	}
+	emitAnswerDocumentForNoteTest(t, &types.BusContext{Mutable: m}, map[string]any{
+		"blocks": []map[string]any{{"id": "summary", "kind": "summary", "text": "answer with a grounded decision"}},
+		"trace_root_causes": map[string]any{"schema_version": 2,
+			"root_causes": []map[string]any{{"candidate_id": "candidate-sched"}}},
+	})
+	if report := m.TraceRootCauseReport(); report == nil || len(report.RootCauses) != 1 {
+		t.Fatal("accepted first document did not preserve the bound selection")
+	}
+	if requires((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), "replace_trace_root_causes") {
+		t.Fatal("a prose-only repair must be able to inherit the accepted selection")
+	}
+}
+
 func TestEmitAnswerDocumentOmittedSelectorWithSelectableRosterNotesOnce(t *testing.T) {
 	mutable := types.NewMutableState("analyze trace root cause")
 	mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())

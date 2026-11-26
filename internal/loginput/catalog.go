@@ -128,8 +128,9 @@ type preparedSource struct {
 }
 
 type Catalog struct {
-	sources []preparedSource
-	opts    Options
+	sources   []preparedSource
+	opts      Options
+	frameFact *PreparedFrameFact
 }
 
 func normalizedOptions(opts Options) (Options, error) {
@@ -249,6 +250,9 @@ func Prepare(ctx context.Context, inputs []Input, opts Options) (*Catalog, error
 			failures = append(failures, fmt.Sprintf("and %d more failed sources", len(c.sources)-len(failures)))
 		}
 		return c, fmt.Errorf("no attached log source was read completely: %s", strings.Join(failures, "; "))
+	}
+	if len(c.sources) == 1 {
+		c.frameFact = prepareFrameFact(c.sources[0])
 	}
 	return c, nil
 }

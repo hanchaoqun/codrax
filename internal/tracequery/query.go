@@ -663,6 +663,7 @@ func Run(idx *Index, q Query) Result {
 			break
 		}
 		res.FrameRootCauseBundle = &bundle
+		res.nativeTargetTimeline = bundle.nativeTargetTimeline
 		if bundle.WakeupChain != nil {
 			res.WakeupChain = bundle.WakeupChain
 			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(*bundle.WakeupChain)...)
@@ -684,6 +685,9 @@ func Run(idx *Index, q Query) Result {
 			res.RootCauseRank = bundle.RootCauseRank
 			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(*bundle.RootCauseRank)...)
 		}
+		if bundle.WakeupChain != nil {
+			res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(IPCGraphResult{Edges: bundle.WakeupChain.IPCEdges})...)
+		}
 		if bundle.windowStats != nil {
 			res.WindowStats = bundle.windowStats
 		} else {
@@ -691,6 +695,11 @@ func Run(idx *Index, q Query) Result {
 			if !faceCanceled("window_stats") {
 				res.WindowStats = &stats
 			}
+		}
+		if res.WindowStats != nil {
+			statsFacts := evidenceFromStats(*res.WindowStats)
+			res.EvidencePack = append(res.EvidencePack, statsFacts...)
+			res.BundleWindowStatsEvidenceCount = len(statsFacts)
 		}
 	case "trace_perf_bundle":
 		// RSPA-HYG 件② residual (§29.83 续档, 2026-07-14): the bundle's rank
@@ -22038,7 +22047,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		windowStats:           &stats,
 	}
 	if chainPtr != nil {
-		bundle.IOBurstEpisodes = enrichIOBurstEpisodesWithChainContext(*chainPtr, bundle.IOBurstEpisodes)
+		bundle.IOBurstEpisodes = enrichIOBurstEpisodesWithChainContext(*chainPtr, append([]IOBurstEpisodeSummary(nil), bundle.IOBurstEpisodes...))
 	}
 	// RCX③ (§12.3-1 ③): the typed model-facing causal skeleton, built from the
 	// components above so the head region carries a structured spine the model
@@ -22053,6 +22062,9 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		return bundle
 	}
 	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
+	if targetTimelineOK && targetTimeline.IntegrityFailure == "" && len(targetTimeline.Intervals) > 0 {
+		bundle.nativeTargetTimeline = &targetTimeline
+	}
 	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
 	stampTargetWindowRunningWorkScope(bundle.TargetWindowStates, idx, analysisQ)
 	stampTargetWindowCPURepresentativeFrequencies(bundle.TargetWindowStates, idx, analysisQ, &stats)

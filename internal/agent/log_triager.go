@@ -310,6 +310,9 @@ func (a *logTriager) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageO
 	if ctx == nil || ctx.AttachedLog == "" {
 		return a.skipped(ctx, "AttachedLog empty"), nil
 	}
+	if _, ok := ctx.AttachedLogCatalog.PreparedFrameFact(); ok && ctx.AttachedTraceMaterial.SinglePhysicalSource() {
+		return a.skipped(ctx, "complete structured frame fact available in the attached log catalog"), nil
+	}
 	if len(ctx.AttachedLog) < a.settings.MinBytes {
 		return a.skipped(ctx, fmt.Sprintf("log size %d below min %d",
 			len(ctx.AttachedLog), a.settings.MinBytes)), nil

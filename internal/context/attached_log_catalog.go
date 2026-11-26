@@ -12,6 +12,10 @@ func formatAttachedLogContext(ac *types.AgentContext, availableTools map[string]
 	if ac.AttachedLogCatalog == nil {
 		return formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage), attachedArtifactRenderOptions{ReadFileAvailable: availableTools["read_file"]})
 	}
+	if fact, ok := ac.AttachedLogCatalog.PreparedFrameFact(); ok && ac.AttachedTraceMaterial.SinglePhysicalSource() {
+		return fmt.Sprintf("Complete saved frame preanalysis, already read from attached log record_ref=%s (physical line 1). Use the saved measurements at their stated caliber. Verify prior conclusions against the Trace; this record alone grants no causal authority. The full record is below; query this record again only if raw tool evidence is needed.\n\n```json\n%s\n```\n",
+			fact.RecordRef, fact.Text)
+	}
 	var b strings.Builder
 	b.WriteString("Attached logs retain separate complete sources. The text below is a bounded preview, not a complete capture; preview line numbers are not physical evidence coordinates. Missing preview rows do not establish absence. Source metadata describes preparation, not a query or a causal conclusion.\n")
 	if availableTools["log_query"] {

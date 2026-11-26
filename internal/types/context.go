@@ -8173,6 +8173,8 @@ type ToolResult struct {
 	// Current native effective parameters for bounded same-source window repair.
 	// Historical JSON never grants permission to repeat an old query.
 	TraceQueryWindowReplay TraceQueryWindowReplayRef `json:"-"`
+	// Exact-window view families supplied by a current native frame bundle.
+	TraceFrameBundleCoveredViews []string `json:"-"`
 	// Investigation-local native execution/repair identity; never model-restorable.
 	TraceEventSelectionAcquisition TraceEventSelectionAcquisitionRef `json:"-"`
 	// Native statistical availability, not answer completeness or source rights.

@@ -2372,6 +2372,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				requestMessages = append(requestMessages, llm.Message{Role: "user", Content: nudge})
 			}
 		}
+		if b.name == types.AgentExplorer && effectiveToolNames[explorerCompletionToolName] && explorerFrameBundleFollowups(ctx) {
+			requestMessages = append(requestMessages, llm.Message{Role: "user", Content: "Before calling emit_investigation_complete, fill native_fact_handoff.measurement_refs with one or more relevant exact strings from that tool's current enum, or supply native_refs with exact row addresses. support_refs and business-span tokens alone do not select a measurement. Then give the independent findings once and keep reason to one short lifecycle sentence."})
+		}
 		if repairTeaching != nil {
 			requestMessages = repairTeaching.project(ctx, b.eval, requestMessages, effectiveTools)
 		}
@@ -5419,6 +5422,7 @@ func appendTypedToolRefinementFeedback(result *types.ToolResult) {
 const (
 	exploreValidateTraceQueryBatchCap = 3
 	exploreDefaultTraceQueryBatchCap  = 4
+	exploreFrameTraceQueryBatchCap    = 8
 )
 
 type exploreToolBatchPruneReport struct {
@@ -5518,6 +5522,9 @@ func pruneExploreHeavyToolBatch(ctx *types.AgentContext, calls []llm.ToolCall, r
 		perToolCap["trace_query"] = exploreValidateTraceQueryBatchCap
 	} else {
 		perToolCap["trace_query"] = exploreDefaultTraceQueryBatchCap
+		if explorerFrameBundleFollowups(ctx) {
+			perToolCap["trace_query"] = exploreFrameTraceQueryBatchCap
+		}
 	}
 	used := map[string]int{}
 	out := make([]llm.ToolCall, 0, len(calls))

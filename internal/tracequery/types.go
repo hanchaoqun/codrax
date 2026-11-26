@@ -1330,6 +1330,9 @@ type Result struct {
 	// Additive only — nil when no generator row matched.
 	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
 	EvidencePack         []EvidenceFact        `json:"evidence_pack,omitempty"`
+	// BundleWindowStatsEvidenceCount is the number of trailing evidence facts
+	// produced by the window-stats view within a frame bundle.
+	BundleWindowStatsEvidenceCount int `json:"-"`
 	// ViewCancellation (SUPP-CANCEL, 2026-07-14) is the typed in-view
 	// cooperative-cancellation record: non-nil only when the run's context
 	// fired at a sampling point inside this view. Faces present on this
@@ -5436,7 +5439,8 @@ type FrameRootCauseBundle struct {
 	TargetWindowStates *TargetWindowStateAccount `json:"target_window_states,omitempty"`
 	Caveats            []string                  `json:"caveats,omitempty"`
 
-	windowStats *WindowStats `json:"-"`
+	windowStats          *WindowStats `json:"-"`
+	nativeTargetTimeline *TimelineResult
 }
 
 // CausalSkeletonLayer is the typed layer of a skeleton node (§12.3-1 ②/③): the

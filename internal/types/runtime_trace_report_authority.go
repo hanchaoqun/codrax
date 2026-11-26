@@ -24,6 +24,30 @@ func FrameCausalityQualifierApplicable(rm *RequestModel) bool {
 	return rm != nil && rm.RuntimeQuestionProfile.RequestsFrameCausality()
 }
 
+// KnownSingleFrameTraceTarget identifies the request-owned thread and window.
+// Tool-discovered targets and comparison windows do not elect this route.
+func KnownSingleFrameTraceTarget(rm *RequestModel) (pid int, start, end float64, ok bool) {
+	if !FrameCausalityQualifierApplicable(rm) ||
+		rm.RuntimeQuestionProfile.Scope != RuntimeQuestionScopeCausalDiagnosis ||
+		!rm.RuntimeTargetProfile.NamedTarget() {
+		return 0, 0, 0, false
+	}
+	start, end, bounded := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow()
+	if !bounded || rm.RuntimeArtifactScopeProfile.Comparison != nil {
+		return 0, 0, 0, false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if target.Source == RuntimeTargetSourceExplicitToolCall {
+			continue
+		}
+		if pid != 0 || target.Kind != RuntimeTargetKindThread || target.Source != "user_explicit" || target.PID <= 0 {
+			return 0, 0, 0, false
+		}
+		pid = target.PID
+	}
+	return pid, start, end, pid != 0
+}
+
 // TraceAuthorityCausalUnprovenIsFrameOrigin reports whether a trace_query
 // result's "unproven" causal conclusion rests ONLY on the frame family — typed
 // causal rows exist but the frame evidence is absent/unavailable or the typed

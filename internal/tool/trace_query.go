@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -598,6 +599,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if tracequery.CanonicalViewName(p.View) == tracequery.ViewFrameCatalog {
 		return t.streamFrameCatalog(ctx, p, path, window), nil
 	}
+	if reused, ok := reuseTraceFrameBundleView(ctx, p, path, sourceLabel, windowReplayParams); ok {
+		reuse = "frame_bundle"
+		return reused, nil
+	}
 	intervalNavigationParams = traceQueryIntervalNavigationParams(p, windowReplayParams, params)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
@@ -757,24 +762,28 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 		now := time.Now()
 		observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q)
+		if result.FrameRootCauseBundle != nil && result.ViewCancellation == nil {
+			preview = traceFrameBundleBusinessPreview(result, observations, payloadRef) + traceFrameBundleEvidencePreview(observations) + preview
+		}
 		if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now, q); ok {
 			observations = append(observations, coverage)
 		}
 		return traceQuerySamplingTreeRepairResult(types.ToolResult{
-			ToolName:                    t.Name(),
-			Success:                     true,
-			Summary:                     preview,
-			RawRef:                      rawRef,
-			Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
-			Observations:                observations,
-			TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
-			TraceQueryWindowReplay:      traceQueryIntervalNavigationCandidate(result),
-			TraceStatistics:             traceQueryStatisticsCandidate(result),
-			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
-			TraceViewCancellation:       traceQueryToolViewCancellation(result),
-			TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
-			EnumerationAuthority:        traceQueryEnumerationAuthority(result),
-			Timestamp:                   now,
+			ToolName:                     t.Name(),
+			Success:                      true,
+			Summary:                      preview,
+			RawRef:                       rawRef,
+			Refinement:                   traceQueryRefinement(result, q, p, sourceLabel),
+			Observations:                 observations,
+			TraceQuerySourceRead:         traceQuerySourceReadCandidate(result),
+			TraceQueryWindowReplay:       traceQueryIntervalNavigationCandidate(result),
+			TraceFrameBundleCoveredViews: traceFrameBundleCoveredViews(result, p),
+			TraceStatistics:              traceQueryStatisticsCandidate(result),
+			TraceBusinessSpanCandidates:  traceQueryBusinessSpanCandidates(p, result),
+			TraceViewCancellation:        traceQueryToolViewCancellation(result),
+			TraceEvidenceAuthority:       traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
+			EnumerationAuthority:         traceQueryEnumerationAuthority(result),
+			Timestamp:                    now,
 		}, result, q), nil
 	}
 	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok && !t.skipNativeMeasurementMemo {
@@ -795,7 +804,22 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			}
 			return runPureTraceQueryCore()
 		}
+		// Repeated frame ranking can replay its measured facts even if the
+		// first read also published business navigation. The ordinary memo hit
+		// never mints or re-publishes those read-bound navigation tokens.
+		generation := sourceRead.GenerationCacheKey()
+		reuseRankFacts := tracequery.CanonicalViewName(p.View) == "root_cause_rank" &&
+			sourceLabel == "attached_trace" && material.SinglePhysicalSource() && generation != "" &&
+			p.PID.Int() > 0 && p.TimeStart.Set() && p.TimeEnd.Set() &&
+			window.RequestedEnd > window.RequestedStart && p.SpanName == "" &&
+			p.LineStart.Int() == 0 && p.LineEnd.Int() == 0
+		if reuseRankFacts {
+			key += "\x00rank-source-generation\x00" + generation
+		}
 		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {
+			if reuseRankFacts {
+				return result.TraceViewCancellation == nil
+			}
 			return len(result.TraceBusinessSpanCandidates) == 0
 		})
 	}
@@ -834,9 +858,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 // The purity premise (identical input ⇒ identical typed output) is
 // pinned by DET-1.
 func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (string, bool) {
-	// Consuming an instance reference requires a current native read, stronger
-	// than the size/mtime pure-result memo. Results that issue references are
-	// excluded separately by their native candidate field, not just view name.
+	// Consuming an instance reference requires a current native read. The
+	// result policy above handles producers of business navigation candidates.
 	if p.BusinessSpanRef != "" {
 		return "", false
 	}
@@ -5064,6 +5087,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "event_field_filters=%s\n", filters)
 	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
+	writeTraceFrameBundleCoverage(&b, result, p)
 	// Census is an exact scalar inventory of the selected records, not a
 	// reconstruction from the visible cohort/Top-N details. Keep one copy
 	// ahead of the preview cap, even when independent cohorts fill the tail.
@@ -5113,12 +5137,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			traceThreadLabel(selection.Selected), selection.NameMismatch, sanitizeForBanner(selection.Routing),
 			sanitizeForBanner(traceQueryThreadCandidateRoster(selection.NameCandidates)))
 	}
-	// The focused account is independent of global TopRunning/CPU top-N.
-	// Publish its existing values before long generic detail. Bundles retain
-	// their one copy at the existing bundle location, using the same writer.
-	if result.FrameRootCauseBundle == nil || result.FrameRootCauseBundle.TargetWindowStates == nil {
-		writeTraceTargetWindowStateAccount(&b, traceQueryTargetWindowStatesAccount(result))
-	}
+	// Keep the focused account in the model preview even when a frame bundle
+	// carries enough rank and resource detail to push its section past the head.
+	writeTraceTargetWindowStateAccount(&b, traceQueryTargetWindowStatesAccount(result))
 	// Keep each marker's own ruler next to the selected-window account and
 	// before long rank/resource detail can fall into the blob preview gap.
 	if result.WindowStats != nil {
@@ -6168,6 +6189,50 @@ func traceIOBurstResourceSummarySuffix(episode tracequery.IOBurstEpisodeSummary)
 	return tracequery.IOBurstResourceSummarySuffix(episode)
 }
 
+func traceFrameBundleCoveredViews(result tracequery.Result, p traceQueryParams) []string {
+	bundle := result.FrameRootCauseBundle
+	if result.View != "frame_root_cause_bundle" || bundle == nil || result.ViewCancellation != nil ||
+		p.PID.Int() <= 0 || p.PID.Int() != bundle.Target.PID || !p.TimeStart.Set() || !p.TimeEnd.Set() ||
+		bundle.Window.StartTs != p.TimeStart.Seconds() || bundle.Window.EndTs != p.TimeEnd.Seconds() {
+		return nil
+	}
+	sameWindow := func(w tracequery.TimeWindow) bool {
+		return w.StartTs == bundle.Window.StartTs && w.EndTs == bundle.Window.EndTs
+	}
+	var covered []string
+	account := bundle.TargetWindowStates
+	if stats := result.WindowStats; stats != nil && sameWindow(stats.Window) && account != nil &&
+		account.Thread.PID == bundle.Target.PID && sameWindow(account.Window) &&
+		account.TotalMs > 0 && math.Abs(account.TotalMs-account.WindowMs) < 1e-6 {
+		covered = append(covered, "window_stats")
+	}
+	if rank := bundle.RootCauseRank; rank != nil && sameWindow(rank.Window) && rank.Target.PID == bundle.Target.PID && len(rank.Items) > 0 {
+		covered = append(covered, "root_cause_rank")
+	}
+	if chain := bundle.WakeupChain; chain != nil && sameWindow(chain.Window) && chain.Target.PID == bundle.Target.PID && len(chain.Edges) > 0 {
+		covered = append(covered, "wakeup_chain")
+	}
+	return covered
+}
+
+func writeTraceFrameBundleCoverage(b *strings.Builder, result tracequery.Result, p traceQueryParams) {
+	covered := traceFrameBundleCoveredViews(result, p)
+	if len(covered) == 0 {
+		return
+	}
+	var missing []string
+	for _, view := range []string{"window_stats", "root_cause_rank", "wakeup_chain"} {
+		if !slices.Contains(covered, view) {
+			missing = append(missing, view)
+		}
+	}
+	fmt.Fprintf(b, "Bundle evidence already available for this exact source, thread and window: %s. Reuse these observations and references, including the structured sections at payload_ref. A returned wakeup chain and its Binder IPC edges cover the executed branch and depth bounds. State-drilldown suggestions below apply only to unresolved evidence.\n", strings.Join(covered, ", "))
+	if len(missing) > 0 {
+		fmt.Fprintf(b, "Bundle coverage gaps (follow up only if needed for the question): %s.\n", strings.Join(missing, "; "))
+	}
+	b.WriteString("A different thread, interval, filter, or wider chain scope may supply new evidence. When the requested evidence is sufficient, use emit_investigation_complete with the existing references.\n")
+}
+
 func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequery.FrameRootCauseBundle) {
 	if b == nil || bundle == nil {
 		return
@@ -6203,13 +6268,6 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	// adjacent to top_blocking, so the model-facing spine stays inside the
 	// head-24KB anchor zone. Structure only — the model configures the prose.
 	writeTraceFrameBundleSkeleton(b, bundle)
-	// §29.27② (COV-4): the focused thread's full-window state partition rides
-	// the head region so the model sees the four-state wall clock next to the
-	// spine (io_wait is the scheduler-marked IO refinement inside the D-state
-	// wall clock, never a fifth addend; completion-closed S-state IO waits use a
-	// separate typed ruler; total==window only when the timeline covered the
-	// window).
-	writeTraceTargetWindowStateAccount(b, bundle.TargetWindowStates)
 	if bundle.WakeupChain != nil {
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch true paths; flattened
 		// walk only for identity-less legacy results.
@@ -10219,9 +10277,26 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// result (same side-channel routing: no node, no seat, no ordinal).
 	out = append(out, traceQueryTypedSelfRunningFoldUnmeasuredObservations(result.RootCauseRank, ref, scope, at)...)
 
+	evidenceFactCap := traceQueryWidthTypedEvidenceFactCap()
+	windowStatsStart := len(result.EvidencePack) - result.BundleWindowStatsEvidenceCount
+	bundleBinderFacts := 0
 	for i, fact := range result.EvidencePack {
-		if i >= traceQueryWidthTypedEvidenceFactCap() {
-			break
+		if i >= windowStatsStart {
+			if i-windowStatsStart >= evidenceFactCap {
+				break
+			}
+		} else if result.View == "frame_root_cause_bundle" && fact.Predicate == "binder_ipc" {
+			// Retain the standalone Binder evidence budget alongside the
+			// bundle's existing facts.
+			if bundleBinderFacts >= evidenceFactCap {
+				continue
+			}
+			bundleBinderFacts++
+		} else if i >= evidenceFactCap {
+			if result.View != "frame_root_cause_bundle" {
+				break
+			}
+			continue
 		}
 		if strings.TrimSpace(fact.Subject) == "" && strings.TrimSpace(fact.Summary) == "" {
 			continue
@@ -16904,7 +16979,14 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 func traceQueryPriorityResultForPublication(result tracequery.Result) tracequery.Result {
 	published := result
 	universe := traceQueryPriorityArtifactUniverseForResult(result)
-	published.EvidencePack = traceQueryPriorityEvidencePackForPublication(result.EvidencePack)
+	if result.BundleWindowStatsEvidenceCount > 0 {
+		start := len(result.EvidencePack) - result.BundleWindowStatsEvidenceCount
+		windowStats := traceQueryPriorityEvidencePackForPublication(result.EvidencePack[start:])
+		published.EvidencePack = append(traceQueryPriorityEvidencePackForPublication(result.EvidencePack[:start]), windowStats...)
+		published.BundleWindowStatsEvidenceCount = len(windowStats)
+	} else {
+		published.EvidencePack = traceQueryPriorityEvidencePackForPublication(result.EvidencePack)
+	}
 	published.WakeupChain = traceQueryPriorityChainForPublicationInUniverse(result.WakeupChain, universe)
 	published.RootCauseRank = traceQueryPriorityRankForPublicationInUniverse(result.RootCauseRank, universe)
 	if result.FrameRootCauseBundle != nil {

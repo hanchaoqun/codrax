@@ -1860,6 +1860,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			}, nil
 		}
 	}
+	verifiedFrameBound := bindPreparedFrameRequest(ctx, raw, &p)
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeArtifactWorkProfile, runtimeArtifactWorkErr := parseRuntimeArtifactWorkProfile(raw, p.RuntimeArtifactWorkProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
@@ -1918,6 +1919,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			),
 			Timestamp: time.Now(),
 		}, nil
+	}
+	if verifiedFrameBound {
+		start, end, _ := runtimeArtifactScopeProfile.ExplicitTimeWindow()
+		logging.Info("[emit_analysis] verified single-frame scope thread=%d window=%g..%g", runtimeTargets[0].PID, start, end)
 	}
 	for _, warning := range runtimeArtifactScopeWarnings {
 		logging.Warning("[emit_analysis] %s", warning)

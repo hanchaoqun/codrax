@@ -141,7 +141,7 @@ func TestB1625ActualWindowsZeroComponentsAndBundleSingleAccount(t *testing.T) {
 		{"bundle", "frame_root_cause_bundle", 1, 1.020, 3, 16},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, wire, text := b1625Execute(t, capture, tc.view, 42, tc.start, tc.end)
+			result, wire, text := b1625Execute(t, capture, tc.view, 42, tc.start, tc.end)
 			account := traceQueryTargetWindowStatesAccount(wire)
 			if account == nil || math.Abs(account.RunningMs-tc.running) > 1e-6 || math.Abs(account.SleepMs-tc.sleep) > 1e-6 {
 				t.Fatalf("wrong actual account: %+v", account)
@@ -155,8 +155,9 @@ func TestB1625ActualWindowsZeroComponentsAndBundleSingleAccount(t *testing.T) {
 			if tc.running == 0 && strings.Contains(text, "target_cpu_running_roster") {
 				t.Fatal("measured zero running fabricated CPU assignment")
 			}
-			if tc.view == "frame_root_cause_bundle" && strings.Index(text, line) < strings.Index(text, "## Frame root cause bundle") {
-				t.Fatal("bundle account moved from existing bundle location")
+			if tc.view == "frame_root_cause_bundle" &&
+				(!strings.Contains(result.Summary, line) || strings.Index(text, line) >= strings.Index(text, "## Frame root cause bundle")) {
+				t.Fatal("bundle state account must appear in the preview before bundle detail")
 			}
 		})
 	}
@@ -249,12 +250,16 @@ func TestB1625SharedStateTextKeepsUnknownCPUAndTypedPayload(t *testing.T) {
 		if again := traceQuerySummary(wire, traceQueryParams{View: "window_stats"}, "path", "payload"); again != text {
 			t.Fatal("text rendering not idempotent")
 		}
-		// Both routes must publish precisely the same account bytes. The
-		// bundle keeps its own location; the generic route gains a head copy.
-		var bundle strings.Builder
-		writeTraceFrameRootCauseBundleSummary(&bundle, &tracequery.FrameRootCauseBundle{Target: account.Thread, Window: account.Window, TargetWindowStates: &account})
-		if b1625StateLine(t, bundle.String()) != b1625StateLine(t, text) {
+		bundle := wire
+		bundle.View = "frame_root_cause_bundle"
+		bundle.FrameRootCauseBundle = &tracequery.FrameRootCauseBundle{Target: account.Thread, Window: account.Window, TargetWindowStates: &account}
+		bundleText := traceQuerySummary(bundle, traceQueryParams{View: bundle.View}, "path", "payload")
+		stateLine := b1625StateLine(t, bundleText)
+		if stateLine != b1625StateLine(t, text) {
 			t.Fatal("generic/bundle state formatter drift")
+		}
+		if strings.Index(bundleText, stateLine) >= strings.Index(bundleText, "## Frame root cause bundle") {
+			t.Fatal("bundle state account is behind the detail that can exceed the model preview")
 		}
 	}
 	for _, missing := range []*tracequery.TargetWindowStateAccount{nil, {}, {TotalMs: math.NaN()}} {

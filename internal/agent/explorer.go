@@ -3839,20 +3839,34 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 		}
 	}
 	b.WriteString("Workflow:\n")
-	if promptctx.SkillWorkflowProvidesSharedGuidance(ctx, sk, skill.TraceQueryViewMatrixGuidance) {
+	pid, start, end, knownFrame := types.KnownSingleFrameTraceTarget(requestModelFromContext(ctx))
+	bundleFirst := knownFrame && ctx.AttachedTraceMaterial.SinglePhysicalSource()
+	if bundleFirst {
+		fmt.Fprintf(&b, "- Use `trace_query(view=\"frame_root_cause_bundle\", pid=%d, time_start=%g, time_end=%g)` as the first trace query after any required attachment reads. Cite the bundle measurements and references directly for their exact scope. Its coverage line takes precedence over generic state-drilldown recommendations for that scope. If only a particular published row is missing from the preview, retrieve that row only. If all requested evidence is covered, call `emit_investigation_complete` with that evidence. If the bundle is unavailable or incomplete, use the existing bounded state-first and focused drilldown views for the missing coverage.\n", pid, start, end)
+	}
+	if !bundleFirst && promptctx.SkillWorkflowProvidesSharedGuidance(ctx, sk, skill.TraceQueryViewMatrixGuidance) {
 		b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations. Select the view from the full view matrix in the system Workflow's TRACE QUERY rule; it remains available on subsequent tool rounds.\n")
-	} else {
+	} else if !bundleFirst {
 		b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
 	}
 	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
-		b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
+		if bundleFirst {
+			b.WriteString("- When the bundle leaves the target state partition unmeasured, use bounded `window_stats` or consume the stream_state_cluster rows from the OOM guard. For remaining gaps, use the target thread's state priority: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
+		} else {
+			b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
+		}
 		b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, preserve the cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to describe raw occupancy, retain `running/runnable/sleep/d_state/io_wait` totals, fragment count, max/p95 segment, and follow the rendered `next_step` instead of looking only for one long continuous interval. The dominant state participates only through its closed-matrix effective attribution, not its cumulative occupancy alone; retain significant unpriced business/semantic work as a separate raw-occupancy finding and follow-up direction.\n")
 	}
 	b.WriteString("- Mixed-unit IO fields have distinct typed contracts: `io_pressure.activity_index` is background activity only (not elapsed time, not a window projection, not a chain cumulative amount; no absolute high/low claim without typed caliber/comparison evidence), while `block_io_by_inode` uses `impact_score`/`cumulative_impact_score`/`effective_impact_score`. Never sum or compare either family with `*_ms` durations; anchor wall-clock conclusions on real `*_ms` rows.\n")
 	b.WriteString("- When `wakeup_chain` reports `aggregated_impact`, treat it as a common fragmented dependency path: preserve `path`, `occurrences`, `occurrence_windows`, cumulative state totals, enumerate representative repeated windows when present, and compare the aggregate against single long intervals.\n")
 	b.WriteString("- When `critical_blocking_calls` reports binder/futex/lock/sync waits, consume `oneway`/`sync_like`/`blocking_candidate` instead of inferring semantics from raw flags, and preserve `peer`, `peer_state`, `chain_relevance`, overlap, and nearest-chain fields before deciding whether the wait is a final cause or an intermediate symptom.\n")
 	b.WriteString("- When `window_stats` reports `file_io`, `page_cache`, `storage_latency`, or `io_pressure`, treat them as runtime-artifact IO signals: use inode/dev/op/bytes/count/latency/churn to identify the dominant IO contributor, relate it to D-state/iowait/block latency, and state clearly when inode-to-path mapping needs `entry_name` in the trace or external filesystem mapping. Treat `entry_name` as a trace file-name label, not an absolute path; never prefix it with `/`, `/data/`, or any directory unless that full path appears in the trace or external mapping.\n")
-	b.WriteString("- For one specific frame id, jank id, trace marker, span label, or timestamp token, first use `trace_query(view=\"event_search\", pattern=\"<literal>\")`; `pattern` is one literal substring, not regex, and `|` remains literal. To search alternatives in one pass, use `patterns=[\"<literal A>\",\"<literal B>\"]`, whose members are literal OR alternatives; do not join them with `|`. If zero rows return, shorten the literal or add `event_types=[\"trace_mark\"]`; if multiple span windows return, pick the returned line/time window before root-cause analysis.\n")
+	if bundleFirst {
+		b.WriteString("- If a follow-up needs a marker or span whose location is still unknown, use ")
+	} else {
+		b.WriteString("- For one specific frame id, jank id, trace marker, span label, or timestamp token, first use ")
+	}
+	b.WriteString("`trace_query(view=\"event_search\", pattern=\"<literal>\")`; `pattern` is one literal substring, not regex, and `|` remains literal. To search alternatives in one pass, use `patterns=[\"<literal A>\",\"<literal B>\"]`, whose members are literal OR alternatives; do not join them with `|`. If zero rows return, shorten the literal or add `event_types=[\"trace_mark\"]`; if multiple span windows return, pick the returned line/time window before root-cause analysis.\n")
 	b.WriteString("- For a specific inode, file name, or page-cache row, use `trace_query(view=\"event_search\", pattern=\"<inode or entry_name>\", event_types=[\"file_io\"]|[\"page_cache\"]|[\"f2fs\"]|[\"android_fs\"])`; these event_types aliases are accepted by the tool-call JSON repair/normalization path.\n")
 	b.WriteString("- If the user's target is a process id, thread id, or concrete thread label, carry that `pid`/`thread` into every follow-up `trace_query` heavy view and split-window call unless deliberately inspecting a named peer; background-only rows must not replace the requested target.\n")
 	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
@@ -7470,6 +7484,13 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	// or fabricated authority IDs.
 	schemas = projectExplorerCompletionRelationClaimSchema(ctx, schemas)
 	schemas = projectExplorerMeasurementMemberSchema(ctx, schemas)
+	if explorerFrameBundleFollowups(ctx) {
+		for i := range schemas {
+			if schemas[i].Name == "trace_query" {
+				schemas[i].Description = explorerFrameFollowupTeaching + "\n\n" + schemas[i].Description
+			}
+		}
+	}
 	// Completion-obligation lane: the scheduler granted ONE bounded
 	// dispatch whose sole purpose is materializing the pending typed
 	// completion handoff. Default to emit-only, but let typed repair
