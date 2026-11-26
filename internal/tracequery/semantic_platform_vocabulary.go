@@ -391,8 +391,47 @@ func semanticSpanMintedByPlatformVocabulary(name string) bool {
 	return ok && owner == traceSpanSemanticOwnerPlatformVocabulary && !traceSpanOperatorPatternClassifies(name)
 }
 
-// semanticSpanAdmitsHostEdgeLane is false only for a span minted by a
-// vocabulary Operation row whose stance is "waits".
+// traceSpanSemanticStance is the one decision of what a classified marker says
+// about the thread that records it: the thread performs the work, or it is
+// parked until work on another thread ends. It reads the classifier's own
+// verdict, and each owner of a class has one closed typed source:
+//
+//   - a vocabulary Operation row carries its stance;
+//   - a compound name of the built-in GC arm carries the stance written
+//     beside it in that arm's table;
+//   - any other built-in name takes the stance of the vocabulary Operation row
+//     of the same class whose head starts the name, when there is one: the row
+//     describes that operation whichever arm owns the class, so one marker
+//     family never has two stances because of the words after its head. A row
+//     of another class says nothing about this name;
+//   - an operator pattern states no stance, and neither does a built-in name
+//     without such a row: the recording thread performs the work.
+//
+// A name the classifier does not classify has no stance.
+func traceSpanSemanticStance(name string) semanticVocabStance {
+	work, owner, ok := traceSpanSemanticWorkClassWithOwner(name)
+	if !ok {
+		return 0
+	}
+	switch owner {
+	case traceSpanSemanticOwnerPlatformVocabulary:
+		if entry, found := semanticPlatformVocabularyLookup(name); found {
+			return entry.Stance
+		}
+	case traceSpanSemanticOwnerBuiltIn:
+		if work.SemanticClass == "gc_pause" {
+			if stance, compound := traceSpanBuiltInGCCompoundShape(traceSpanGCArmName(strings.ToLower(strings.TrimSpace(name)))); compound {
+				return stance
+			}
+		}
+		if entry, found := semanticPlatformVocabularyLookup(name); found && entry.Role == semanticVocabOperation && entry.Family == work.SemanticClass {
+			return entry.Stance
+		}
+	}
+	return semanticVocabExecutes
+}
+
+// semanticSpanAdmitsHostEdgeLane is false only for a span that records a wait.
 //
 // The host-edge lane puts a span of a thread other than the target on the
 // chain when that thread holds a typed wakeup edge toward the target. A wait
@@ -401,20 +440,16 @@ func semanticSpanMintedByPlatformVocabulary(name string) bool {
 // The target's own wait (self lane) and a wait that intersects a typed chain
 // window of its thread (interval lane) are unaffected.
 //
-// This bar applies to vocabulary rows only; names classified by a built-in
-// arm keep the host-edge lane unchanged. Revisited with the dependency-credit
-// bound (HMC377 E2, owner ruling 2026-11-18), which now prices a host only
-// inside the target's waits its own wakeup ended: the bar stays, because a
-// wait recorded on the host inside such a window is the host's own nested
-// wait — the next hop of the dependency, which the bound does not credit to
-// the host unless the chain expansion walked it (the walked hop is priced by
-// the interval lane above).
+// The bar follows the stance, not the arm that owns the class: a wait keeps
+// off the lane whether a vocabulary row or a built-in arm classifies its
+// name. Revisited with the dependency-credit bound (HMC377 E2, owner ruling
+// 2026-11-18), which now prices a host only inside the target's waits its own
+// wakeup ended: the bar stays, because a wait recorded on the host inside
+// such a window is the host's own nested wait — the next hop of the
+// dependency, which the bound does not credit to the host unless the chain
+// expansion walked it (the walked hop is priced by the interval lane above).
 func semanticSpanAdmitsHostEdgeLane(name string) bool {
-	if !semanticSpanMintedByPlatformVocabulary(name) {
-		return true
-	}
-	entry, ok := semanticPlatformVocabularyLookup(name)
-	return !ok || entry.Stance != semanticVocabWaits
+	return !semanticSpanRecordsWait(name)
 }
 
 // semanticSeatQuery is what the platform seat pool reads from the query: the

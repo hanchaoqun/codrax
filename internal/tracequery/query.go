@@ -23400,7 +23400,7 @@ func traceSpanLooksLikeTextureUpload(lower string) bool {
 //   - a garbage-collection prefix with a non-alphanumeric boundary;
 //   - a small closed set of ART/runtime compound pause names.
 func traceSpanLooksLikeGCPause(lower string, _ map[string]bool) bool {
-	lower = strings.TrimSpace(strings.TrimPrefix(lower, "h:"))
+	lower = traceSpanGCArmName(lower)
 	if lower == "gc" {
 		return true
 	}
@@ -23409,14 +23409,8 @@ func traceSpanLooksLikeGCPause(lower string, _ map[string]bool) bool {
 			return true
 		}
 	}
-	for _, exactPrefix := range []string{
-		"suspendallforgc", "suspend_all_for_gc", "suspend all for gc",
-		"waitforgctocomplete", "wait_for_gc_to_complete", "wait for gc to complete",
-		"collectgarbage", "collect_garbage", "collect garbage",
-	} {
-		if semanticSpanHasPrefixBoundary(lower, exactPrefix) {
-			return true
-		}
+	if _, compound := traceSpanBuiltInGCCompoundShape(lower); compound {
+		return true
 	}
 	if !semanticSpanHasPrefixBoundary(lower, "gc") {
 		return false
@@ -23437,6 +23431,39 @@ func traceSpanLooksLikeGCPause(lower string, _ map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// traceSpanBuiltInGCCompoundShapes is the closed set of ART/runtime compound
+// collection names the GC arm classifies. Each shape carries the stance of the
+// thread that records it: a thread inside "wait for GC to complete" is parked
+// until a collection another thread runs has ended, while the thread inside
+// "suspend all for GC" or "collect garbage" performs that step itself. The
+// stance is written beside the name so that the class and the stance of a
+// compound name cannot be decided at two places.
+var traceSpanBuiltInGCCompoundShapes = []struct {
+	prefix string
+	stance semanticVocabStance
+}{
+	{"suspendallforgc", semanticVocabExecutes}, {"suspend_all_for_gc", semanticVocabExecutes}, {"suspend all for gc", semanticVocabExecutes},
+	{"waitforgctocomplete", semanticVocabWaits}, {"wait_for_gc_to_complete", semanticVocabWaits}, {"wait for gc to complete", semanticVocabWaits},
+	{"collectgarbage", semanticVocabExecutes}, {"collect_garbage", semanticVocabExecutes}, {"collect garbage", semanticVocabExecutes},
+}
+
+// traceSpanGCArmName is a lower-case name as the GC arm reads it: one hitrace
+// prefix removed.
+func traceSpanGCArmName(lower string) string {
+	return strings.TrimSpace(strings.TrimPrefix(lower, "h:"))
+}
+
+// traceSpanBuiltInGCCompoundShape returns the stance of the compound shape that
+// starts the name as the GC arm reads it.
+func traceSpanBuiltInGCCompoundShape(armName string) (semanticVocabStance, bool) {
+	for _, shape := range traceSpanBuiltInGCCompoundShapes {
+		if semanticSpanHasPrefixBoundary(armName, shape.prefix) {
+			return shape.stance, true
+		}
+	}
+	return 0, false
 }
 
 func semanticSpanHasPrefixBoundary(lower, prefix string) bool {

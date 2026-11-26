@@ -730,11 +730,12 @@ func semanticFamilyYieldsSeat(fam SemanticSpanFamily) bool {
 	return fam.platformVocabularyMinted && !fam.OnChain
 }
 
-// semanticSpanRecordsWait is the one stance predicate of the fold: a span
-// minted by a vocabulary row whose stance is "waits" records the thread parked
-// until someone else's work ends. Such a span is never own work.
+// semanticSpanRecordsWait is the one stance predicate every lane reads: a span
+// whose stance is "waits" records the thread parked until someone else's work
+// ends. Such a span is never own work, whichever arm of the classifier owns
+// its class.
 func semanticSpanRecordsWait(name string) bool {
-	return !semanticSpanAdmitsHostEdgeLane(name)
+	return traceSpanSemanticStance(name) == semanticVocabWaits
 }
 
 // Own-work account parts (HMC377 R-377-11 ③). The own-work family of the

@@ -223,24 +223,40 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 	}
 
 	// Each symbol and the complete set of functions that may reference it.
-	// The vocabulary may only feed the one classifier, the advisory
-	// naming-drift signal, the seat pools and the wait-lane bar. Adding a
-	// consumer fails here on purpose: no gate, completion path or score may
+	// The vocabulary may only feed the one classifier, the one stance
+	// decision, the advisory naming-drift signal and the seat pools. Adding
+	// a consumer fails here on purpose: no gate, completion path or score may
 	// read the vocabulary.
+	//
+	// RE-BASED: the stance of a classified marker is decided at one place.
+	// The wait-lane bar used to read the vocabulary itself and the stance
+	// predicate read the bar, so a wait whose class a built-in arm owns had
+	// no stance. Now traceSpanSemanticStance reads the classifier's verdict
+	// and the vocabulary row, semanticSpanRecordsWait reads the stance, and
+	// the bar reads semanticSpanRecordsWait. Kept: the vocabulary still has
+	// no consumer besides the classifier, the stance, the naming-drift
+	// signal and the exported description; every lane that asked the bar or
+	// the stance predicate before still asks the same function.
 	pins := map[string][]string{
 		"semanticPlatformVocabulary":             {"semanticPlatformVocabularyLookup", "semanticPlatformVocabularyNearMiss"},
-		"semanticPlatformVocabularyLookup":       {"traceSpanSemanticWorkClassWithOwner", "traceSpanNearMissesSemanticWorkClassification", "semanticSpanAdmitsHostEdgeLane", "TraceSpanVocabulary"},
+		"semanticPlatformVocabularyLookup":       {"traceSpanSemanticWorkClassWithOwner", "traceSpanNearMissesSemanticWorkClassification", "traceSpanSemanticStance", "TraceSpanVocabulary"},
 		"semanticPlatformVocabularyNearMiss":     {"traceSpanNearMissesSemanticWorkClassification"},
-		"traceSpanSemanticWorkClassWithOwner":    {"traceSpanSemanticWorkClass", "semanticSpanMintedByPlatformVocabulary", "partitionTraceMarkSpansBySemanticOwner"},
-		"semanticSpanMintedByPlatformVocabulary": {"init", "semanticSpanAdmitsHostEdgeLane", "semanticSpanCapLowerBoundCaveat", "semanticFamilyMintedByPlatformVocabulary", "FoldSemanticSpanFamilies", "computeBusinessSpanMentions"},
-		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions", "semanticSpanRecordsWait"},
+		"traceSpanSemanticWorkClassWithOwner":    {"traceSpanSemanticWorkClass", "semanticSpanMintedByPlatformVocabulary", "partitionTraceMarkSpansBySemanticOwner", "traceSpanSemanticStance"},
+		"semanticSpanMintedByPlatformVocabulary": {"init", "semanticSpanCapLowerBoundCaveat", "semanticFamilyMintedByPlatformVocabulary", "FoldSemanticSpanFamilies", "computeBusinessSpanMentions"},
+		"semanticSpanAdmitsHostEdgeLane":         {"semanticTraceSpanProjectionForRootCause", "semanticSpanFamilyLane", "semanticSpanSeatTier", "computeBusinessSpanMentions"},
 		"semanticSpanSeatTier":                   {"tierOf"},
-		// HMC377 own-work pricing: the one stance predicate ("this marker
-		// records a wait") feeds the family key, the own-work bar, the
-		// deterministic-running lane and the own-work on-CPU share — the same
-		// wait-lane bar in four places that must agree. The exported lookup
-		// keeps only its tool and tracediag consumers.
-		"semanticSpanRecordsWait": {"FoldSemanticSpanFamilies", "semanticSpanIsTargetOwnWork", "targetSemanticRunningMs", "stampOwnWorkOnCPU"},
+		// The one stance decision and its two typed sources: the compound
+		// table of the built-in GC arm (read by that arm for the class and by
+		// the stance decision for the stance) and the vocabulary row.
+		"traceSpanSemanticStance":          {"semanticSpanRecordsWait"},
+		"traceSpanBuiltInGCCompoundShapes": {"traceSpanBuiltInGCCompoundShape"},
+		"traceSpanBuiltInGCCompoundShape":  {"traceSpanLooksLikeGCPause", "traceSpanSemanticStance"},
+		"traceSpanGCArmName":               {"traceSpanLooksLikeGCPause", "traceSpanSemanticStance"},
+		// The one stance predicate ("this marker records a wait") feeds the
+		// family key, the own-work bar, the deterministic-running lane, the
+		// own-work on-CPU share and the wait-lane bar: the same question in
+		// five places that must agree.
+		"semanticSpanRecordsWait": {"FoldSemanticSpanFamilies", "semanticSpanIsTargetOwnWork", "targetSemanticRunningMs", "stampOwnWorkOnCPU", "semanticSpanAdmitsHostEdgeLane"},
 		"TraceSpanVocabulary":     {},
 		// The advisory naming-drift signal: two caveat builders and the
 		// exported census wrapper. No lane, tier, gate or score reads it.
@@ -643,7 +659,17 @@ func TestHMC376ReferenceOnlyMarkersSyntheticMatrix(t *testing.T) {
 // Every name a built-in arm classified before the vocabulary existed is still
 // classified by that arm: the vocabulary never owns it, even where a table
 // row would also match.
+//
+// EVOLUTION RECORD: this test also asserted that every built-in name keeps the
+// host-edge lane. That held only because the stance of a marker was decided
+// for vocabulary-owned names alone, so a built-in name that records a wait
+// ("WaitForGcToComplete", "GC: Wait For Completion collector") was priced as
+// work its thread executed. The stance is now decided for every classified
+// name; the two built-in names that record a wait keep off the lane like any
+// other wait. Class, owner and seat pool of every name are asserted as
+// before.
 func TestHMC376BuiltInArmsKeepTheirNames(t *testing.T) {
+	recordsWait := map[string]bool{"WaitForGcToComplete": true, "GC: Wait For Completion collector": true}
 	for _, c := range []struct{ name, class string }{
 		// Positives of the existing collection, compiler, class-verification,
 		// shader and texture pins.
@@ -671,8 +697,11 @@ func TestHMC376BuiltInArmsKeepTheirNames(t *testing.T) {
 		if semanticSpanMintedByPlatformVocabulary(c.name) {
 			t.Errorf("%q: a built-in name must never sit in the platform seat pool", c.name)
 		}
-		if !semanticSpanAdmitsHostEdgeLane(c.name) {
-			t.Errorf("%q: a built-in name keeps the host-edge lane", c.name)
+		if semanticSpanRecordsWait(c.name) != recordsWait[c.name] {
+			t.Errorf("%q: records a wait = %v, want %v", c.name, !recordsWait[c.name], recordsWait[c.name])
+		}
+		if semanticSpanAdmitsHostEdgeLane(c.name) == recordsWait[c.name] {
+			t.Errorf("%q: a built-in name keeps the host-edge lane unless it records a wait", c.name)
 		}
 	}
 	// The built-in negatives stay negative.
@@ -779,10 +808,11 @@ func TestHMC376TraceChainPrefixShape(t *testing.T) {
 // --- wait-lane bar ----------------------------------------------------------------
 
 // A wait recorded on a thread other than the target never takes the host-edge
-// lane, on both faces (family fold and single span). Work executed on the same
-// host, and a built-in class on the same host, take it exactly as before. The
-// target's own wait, and a wait that intersects a typed chain window of its
-// thread, keep their lanes.
+// lane, on both faces (family fold and single span), whichever arm of the
+// classifier owns its class. Work executed on the same host, and a built-in
+// class on the same host, take it exactly as before. The target's own wait,
+// and a wait that intersects a typed chain window of its thread, keep their
+// lanes.
 func TestHMC376WaitOnAnotherThreadNeverTakesHostEdgeLane(t *testing.T) {
 	chain := r3SyntheticChain() // target app-100; relay-200 is a chain node; hostw-300 holds a direct edge at 6.006
 	host := ThreadRef{Comm: "hostw", PID: 300}
@@ -803,6 +833,9 @@ func TestHMC376WaitOnAnotherThreadNeverTakesHostEdgeLane(t *testing.T) {
 	}{
 		{"wait on a host with a wakeup edge", span(host, wait, 6.001, 6.002), semanticSpanLaneOff, false, ""},
 		{"shared-heap wait on a host with a wakeup edge", span(host, "H:SuspendTime::WaitGCFinished", 6.001, 6.002), semanticSpanLaneOff, false, ""},
+		{"built-in compound wait on a host with a wakeup edge", span(host, "WaitForGcToComplete", 6.001, 6.002), semanticSpanLaneOff, false, ""},
+		{"wait whose cause word a built-in arm reads, on a host with a wakeup edge", span(host, "GC: Wait For Completion collector", 6.001, 6.002), semanticSpanLaneOff, false, ""},
+		{"built-in compound work executed on the same host", span(host, "SuspendAllForGC", 6.001, 6.002), semanticSpanLaneChainEdgeAnchored, true, RootCauseOnChainBasisHostWakeupEdge},
 		{"work executed on the same host", span(host, work, 6.001, 6.002), semanticSpanLaneChainEdgeAnchored, true, RootCauseOnChainBasisHostWakeupEdge},
 		{"built-in class on the same host", span(host, builtIn, 6.001, 6.002), semanticSpanLaneChainEdgeAnchored, true, RootCauseOnChainBasisHostWakeupEdge},
 		{"wait on a chain member outside its chain window", span(relay, wait, 6.0041, 6.0044), semanticSpanLaneOff, false, ""},
