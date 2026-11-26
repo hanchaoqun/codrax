@@ -34,7 +34,10 @@ type TraceQuery struct {
 	// Comparison may need one fresh read when the pure memo predates native
 	// source receipts. This flag belongs to a call-local tool value only.
 	skipNativeMeasurementMemo bool
+	pairWindowStatsSelector   string
 }
+
+const tracePairWindowStatsMemo = "trace_query_pair_window_stats"
 
 const traceQueryFrameCrossThreadScopeContract = "In frame_timeline/frame_flow, a thread-scope pid/thread selector chooses the anchor but member enumeration remains selected-window cross-thread; explicit target_scope=process remains a proven process-membership filter."
 
@@ -324,6 +327,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var windowReplayParams json.RawMessage
 	var intervalNavigationParams json.RawMessage
 	var eventSelectionParams json.RawMessage
+	var pairMemoKey string
+	var reusedPairResult bool
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
@@ -338,6 +343,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		if executeErr == nil && out.Success && recordBusinessQuery != nil {
 			recordBusinessQuery()
+		}
+		if reusedPairResult {
+			// The existing native receipt remains sealed; the preparation
+			// check above still covers this invocation's selected material.
+			traceCatalogFinishQuery(ctx, catalogTickets, &out, executeErr)
+			return
 		}
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
@@ -354,6 +365,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			ctx.Mutable.StampTraceEventSelectionAcquisition(sourceRead, &out, eventSelectionParams)
 		}
 		traceCatalogFinishQuery(ctx, catalogTickets, &out, executeErr)
+		if pairMemoKey != "" && executeErr == nil && out.Success && out.TraceViewCancellation == nil {
+			ctx.Mutable.StoreToolResultMemo(tracePairWindowStatsMemo, pairMemoKey, out)
+		}
 	}()
 
 	schema := t.Parameters()
@@ -770,6 +784,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			// to the pure memo, not a model-visible selector or a new read.
 			b := rawRecordBinding
 			key += "\x00direct-raw-record\x00" + b.Source.Path + "\x00" + b.Source.SHA256 + "\x00" + b.Artifact.CacheToken()
+		}
+		if t.pairWindowStatsSelector != "" {
+			if generation := sourceRead.GenerationCacheKey(); generation != "" {
+				pairMemoKey = key + "\x00" + generation + "\x00" + t.pairWindowStatsSelector
+				if cached, ok := ctx.Mutable.CurrentNativeTraceQueryMemo(tracePairWindowStatsMemo, pairMemoKey); ok {
+					reuse, reusedPairResult = "pair_native_result", true
+					return cached, nil
+				}
+			}
+			return runPureTraceQueryCore()
 		}
 		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {
 			return len(result.TraceBusinessSpanCandidates) == 0

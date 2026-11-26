@@ -30,6 +30,15 @@ type traceSourceReadGeneration struct {
 
 func (r TraceQuerySourceReadRef) Path() string { return r.path }
 
+// GenerationCacheKey partitions query memos by the physical file version.
+// Consumers must still revalidate the receipt before using native authority.
+func (r TraceQuerySourceReadRef) GenerationCacheKey() string {
+	if r.generation == nil {
+		return ""
+	}
+	return r.identity.CacheToken()
+}
+
 // TraceQueryPhysicalSourceReadCandidate is a producer-only single-physical-
 // capture qualification, not a read permission. Keeping it on the opaque
 // ToolResult receipt leaves serializable observation/frequency facts intact.

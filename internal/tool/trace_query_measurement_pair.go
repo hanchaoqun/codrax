@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -145,7 +146,18 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 			inputs[i].Result = traceQueryCancellationResult(child.View, child.Path, err)
 			continue
 		}
-		result, err := t.Execute(ctx, request)
+		sideCtx := ctx
+		if logging.IsDebug() && ctx != nil {
+			side := *ctx
+			side.Ctx = logging.TraceTimingRole(contextFromBus(ctx), [...]string{"baseline", "current"}[i])
+			sideCtx = &side
+		}
+		childTool := *t
+		if child.View == "window_stats" && !t.skipNativeMeasurementMemo {
+			selector, _ := json.Marshal(fields)
+			childTool.pairWindowStatsSelector = [...]string{"baseline", "current"}[i] + "\x00" + string(selector)
+		}
+		result, err := childTool.Execute(sideCtx, request)
 		if err == nil && result.Success && result.ReusedFromRunMemo && result.TraceViewCancellation == nil && contextFromBus(ctx).Err() == nil {
 			// Pure results are memoized before Execute's source/replay stamps.
 			// A comparison needs independently current read credentials, not
@@ -153,7 +165,7 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 			// leave ordinary query memo behavior and all failure paths intact.
 			fresh := *t
 			fresh.skipNativeMeasurementMemo = true
-			result, err = fresh.Execute(ctx, request)
+			result, err = fresh.Execute(sideCtx, request)
 		}
 		if err != nil && result.Summary == "" {
 			result.Summary = err.Error()
@@ -170,12 +182,40 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 	}
 	receipt := types.NewNativeMeasurementPair(owner, inputs)
 	report, _ := receipt.Report()
-	encoded, _ := json.Marshal(report)
+	publishStarted := time.Now()
+	encoded, _ := json.MarshalIndent(report, "", "  ")
 	ref := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-measurement-pair.json", string(encoded))
-	summary := fmt.Sprintf("Independent native measurements: baseline=%s; current=%s. %s\nFull report: %s", report.Sides[0].Status, report.Sides[1].Status, report.Boundary, ref)
+	logging.TraceTiming(contextFromBus(ctx), "phase=pair_publish baseline=%q current=%q bytes=%d elapsed=%s",
+		report.Sides[0].Status, report.Sides[1].Status, len(encoded), time.Since(publishStarted))
+	var summary strings.Builder
+	fmt.Fprintf(&summary, "Independent native measurements: baseline=%s; current=%s. %s\n", report.Sides[0].Status, report.Sides[1].Status, report.Boundary)
+	for i, side := range report.Sides {
+		if side.Status != "available" {
+			continue
+		}
+		for j, publication := range side.Publications {
+			if side.ProducerStates[j].Predicate != TraceThreadTimelinePredicate {
+				continue
+			}
+			for _, table := range publication.Tables {
+				if table.View == types.RuntimeMeasurementTimeline {
+					fmt.Fprintf(&summary, "%s: retained thread timeline rows=%d observation_id=%s view=%s\n", side.Role, len(table.Rows), publication.ObservationID, table.View)
+				}
+			}
+		}
+		for _, observation := range inputs[i].Result.Observations {
+			if observation.Predicate == "target_window_states" {
+				fmt.Fprintf(&summary, "%s: %s evidence_lines=%d-%d\n", side.Role, observation.Summary, observation.Span.LineStart, observation.Span.LineEnd)
+				break
+			}
+		}
+	}
+	if ref != "" {
+		fmt.Fprintf(&summary, "Full report: %s\nRead the existing report by observation_id and line range for details from these same selectors.", ref)
+	}
 	// Composition succeeded even if a side failed. The explicit side statuses,
 	// not this wrapper transport flag, report acquisition success.
-	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: summary, RawRef: ref, Timestamp: now, RuntimeMeasurementPair: receipt}, nil
+	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: summary.String(), RawRef: ref, Timestamp: now, RuntimeMeasurementPair: receipt}, nil
 }
 
 func traceMeasurementPairMaterial(ctx *types.BusContext, result types.ToolResult) *attachment.TraceMaterial {

@@ -200,6 +200,26 @@ func nativeFactCurrentPublication(m *MutableState, result ToolResult) (*runtimeC
 	return census, true
 }
 
+// CurrentNativeTracePublication checks that a query still owns its exact
+// producer rows and physical source in this investigation.
+func (m *MutableState) CurrentNativeTracePublication(result ToolResult) bool {
+	_, current := nativeFactCurrentPublication(m, result)
+	return current
+}
+
+// CurrentNativeTraceQueryMemo reuses a sealed query from the current
+// investigation only while its producer rows and physical source are current.
+func (m *MutableState) CurrentNativeTraceQueryMemo(tool, key string) (ToolResult, bool) {
+	result, ok := m.ToolResultMemo(tool, key)
+	if !ok {
+		return ToolResult{}, false
+	}
+	if _, current := nativeFactCurrentPublication(m, result); !current {
+		return ToolResult{}, false
+	}
+	return result, true
+}
+
 func freezeNativeFact(result ToolResult, census *runtimeCurrentQueryCensus) *retainedNativeFact {
 	wire := nativeFactWireValue(result)
 	encoded, err := json.Marshal(wire)
