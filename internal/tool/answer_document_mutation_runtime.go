@@ -137,14 +137,24 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 			"mutation apply produced a nil document — internal error")
 	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
-	if _, err := normalizeNativeDiagramParticipants(merged, runtimeDiagramRelationsForContext(ctx), nativeDiagramParticipantRequest(ctx)); err != nil {
+	var diagramRelations []RuntimeDiagramRelation
+	for _, block := range merged.Blocks {
+		if block.Diagram != nil && (len(block.Diagram.RuntimeParticipantsV1) > 0 || len(block.Diagram.RuntimeNotesV1) > 0) {
+			diagramRelations = runtimeDiagramRelationsForContext(ctx)
+			break
+		}
+	}
+	if _, err := normalizeNativeDiagramParticipants(merged, diagramRelations, nativeDiagramParticipantRequest(ctx)); err != nil {
 		return failEmit(toolName, now, "%v", err)
 	}
-	if err := materializeNativeDiagramNotes(merged, view, runtimeDiagramRelationsForContext(ctx)); err != nil {
+	if err := materializeNativeDiagramNotes(merged, view, diagramRelations); err != nil {
 		return failEmit(toolName, now, "%v", err)
 	}
 	materializeNativeFactDisplay(merged, ctx, view)
 	if err := bindRuntimeMeasurementReceipts(merged, view); err != nil {
+		return failEmit(toolName, now, "%v", err)
+	}
+	if err := bindAnswerRuntimeComparisons(merged, ctx); err != nil {
 		return failEmit(toolName, now, "%v", err)
 	}
 	if view != nil {
@@ -305,7 +315,7 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	// every block-mutating pass above so the stamp targets the final
 	// decision block; the block's own verdict field is never modified
 	// (audit position).
-	if stampCurrentStatusVerdictEvidenceDowngrade(ctx, merged) {
+	if stampCurrentStatusVerdictEvidenceDowngrade(ctx, merged, view) {
 		logging.Info("[%s] current-status verdict downgraded to not-evaluable disclosure: origin-lane ledger has zero current_source evidence this run (original verdict retained for audit)", toolName)
 	}
 	// A patch can correctly replace an item's evidence_ids while leaving the

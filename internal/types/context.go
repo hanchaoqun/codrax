@@ -4487,6 +4487,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				cloned.RelationClaims = CloneAnswerRelationClaims(b.RelationClaims)
 			}
 			cloned.RuntimeMeasurement = b.RuntimeMeasurement.Clone()
+			cloned.RuntimeComparison = b.RuntimeComparison.Clone()
 			if b.RuntimeWorkRelation != nil {
 				receipt := *b.RuntimeWorkRelation
 				receipt.BoundRow.AllowedConclusions = append([]RuntimeWorkRelationConclusion(nil), b.RuntimeWorkRelation.BoundRow.AllowedConclusions...)

@@ -78,6 +78,7 @@ type emitAnswerBlockV2 struct {
 	SourceInventoryFamily        string                                   `json:"source_inventory_family,omitempty"`
 	RuntimeWorkRelation          *emitRuntimeWorkRelationReceipt          `json:"runtime_work_relation,omitempty"`
 	RuntimeMeasurement           *types.AnswerRuntimeMeasurementReceipt   `json:"runtime_measurement,omitempty"`
+	RuntimeComparison            *types.AnswerRuntimeComparisonReceipt    `json:"runtime_comparison,omitempty"`
 	RequestedDimensionIndices    []int                                    `json:"requested_dimension_indices,omitempty"`
 	ConceptualTerminalResolution *emitConceptualTerminalResolutionReceipt `json:"conceptual_terminal_resolution,omitempty"`
 	Columns                      []string                                 `json:"columns,omitempty"`
@@ -374,7 +375,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// its historical text byte-identical.
 	var blockViolations []string
 	completeRejectedProjection := true
-	measurementContract := runtimeMeasurementContractForBusContext(ctx)
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	measurementContract := runtimeMeasurementContractForView(view)
 	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
 		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex), measurementContract)
 		if err != nil {
@@ -445,7 +447,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// View-aware: when no view is available (single-shot tests,
 	// pre-AnalysisIR paths) the pre-check returns nil and the
 	// post-emit chain in internal/orchestrator runs unchanged.
-	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+	if view != nil {
 		preEmitCtx := newPreEmitCheckContext(ctx)
 		// Capture model-owned citation-index carriers before any deterministic
 		// repair can add, move, or remove an item citation. B1224's exact
@@ -547,6 +549,7 @@ func validateRecoveredAnswerBlocksAgainstDispatchSchema(ctx *types.BusContext, r
 		return fmt.Errorf("blocks property is missing after recovery")
 	}
 	schema := BuildAnswerDocumentParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx), runtimeDiagramRelationsForContext(ctx))
+	schema = projectAnswerRuntimeComparison(schema, ctx, "blocks")
 	var schemaRoot struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
@@ -891,6 +894,9 @@ func rememberRejectedAnswerDocumentDraft(ctx *types.BusContext, doc *types.Answe
 func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) {
 	if doc == nil || view == nil {
 		return
+	}
+	if n := repairRuntimeComparisonSummaries(doc, view, ctx); n > 0 {
+		logging.Info("[%s] moved %d surplus Trace comparison summaries to sections", toolName, n)
 	}
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)

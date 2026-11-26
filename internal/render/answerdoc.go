@@ -49,8 +49,12 @@ func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) type
 
 	renderAnswerDocV2ExactResolution(&b, doc.ExactResolution, docLang)
 	primary.WriteString(b.String())
+	if lead := doc.FrameComparisonLead; lead != nil {
+		renderFrameComparisonLead(&b, lead, docLang)
+	}
 	renderedScopeDisclosures := map[types.ScopeDisclosureKind]bool{}
 	var renderedConceptualReceipts []*types.AnswerConceptualTerminalResolutionReceipt
+	var comparison types.TraceComparisonReport
 	for index, blk := range doc.Blocks {
 		start := b.Len()
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
@@ -58,6 +62,9 @@ func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) type
 			blk.Items = nil
 		}
 		renderAnswerDocV2BlockWithNativeData(&b, blk, doc, docLang, nativeDataReuse[index])
+		if blk.RuntimeComparison != nil && blk.RuntimeComparison.Bound != nil {
+			comparison.Add(blk.RuntimeComparison.Bound)
+		}
 		renderedConceptualReceipts = renderV2ConceptualTerminalResolutionReceiptOnce(&b, blk, docLang, renderedConceptualReceipts)
 		renderAnswerDocV2ScopeDisclosure(&b, blk.ScopeDisclosure, docLang, renderedScopeDisclosures)
 		if blk.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown {
@@ -86,10 +93,29 @@ func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) type
 
 	primaryText := strings.TrimRight(primary.String(), "\n")
 	principalText := strings.TrimRight(primary.String()+b.String()[appendixStart:], "\n")
-	return types.AnswerRenderedSurfaces{
+	surfaces := types.AnswerRenderedSurfaces{
 		Answer:  strings.TrimRight(b.String(), "\n") + "\n",
 		Primary: primaryText, Principal: principalText,
 	}
+	if len(comparison.Comparisons) > 0 {
+		surfaces.ComparisonReport = &comparison
+	}
+	return surfaces
+}
+
+func renderFrameComparisonLead(b *strings.Builder, fact *types.TraceComparisonFact, lang answerDocLang) {
+	delta := *fact.Delta
+	verb, verbZH := "increased", "增加"
+	if delta < 0 {
+		verb, verbZH = "decreased", "缩短"
+		delta = -delta
+	}
+	baseline, current, magnitude := float64(*fact.Baseline.Value)/1e6, float64(*fact.Current.Value)/1e6, float64(delta)/1e6
+	if lang == answerDocLangZH {
+		fmt.Fprintf(b, "**目标侧 `%s` 区间耗时%s %.3f ms**，基线为 %.3f ms，目标为 %.3f ms。两侧使用各自参考帧内的测量，差异原因尚未证实。\n\n", fact.Metric, verbZH, magnitude, baseline, current)
+		return
+	}
+	fmt.Fprintf(b, "**The target `%s` span %s by %.3f ms**, from %.3f ms on the baseline side to %.3f ms on the target side. Each measurement is from its own reference frame. The cause of the difference remains unproven.\n\n", fact.Metric, verb, magnitude, baseline, current)
 }
 
 func answerDocumentDuplicatedSectionItemBlocks(doc *types.AnswerDocumentV2) map[string]bool {
@@ -189,6 +215,17 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 }
 
 func renderAnswerDocV2BlockWithNativeData(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang, placement nativeMeasurementDataPlacement) {
+	if blk.RuntimeComparison != nil && blk.RuntimeComparison.Bound != nil {
+		if title := strings.TrimSpace(blk.Title); title != "" {
+			fmt.Fprintf(b, "### %s\n\n", title)
+		}
+		fact := blk.RuntimeComparison.Bound
+		fmt.Fprintf(b, "%s\n\n", renderUserSurfaceProseText(fact.Summary))
+		if text := renderUserSurfaceProseText(fact.Explanation); text != "" {
+			fmt.Fprintf(b, "%s\n\n", text)
+		}
+		return
+	}
 	if renderV2RuntimeEventMeasurement(b, blk, lang) {
 		return
 	}

@@ -7,6 +7,34 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestRenderV2_FrameComparisonLeadUsesPublishedDifference(t *testing.T) {
+	baseline, current, delta := int64(4_781_000), int64(27_157_000), int64(22_376_000)
+	fact := &types.TraceComparisonFact{
+		Metric: "measure", Status: "available", CausalStatus: "unresolved", Delta: &delta,
+		Baseline: &types.TraceComparisonMeasurement{Value: &baseline},
+		Current:  &types.TraceComparisonMeasurement{Value: &current},
+		Summary:  "Existing measurement detail.",
+	}
+	doc := &types.AnswerDocumentV2{FrameComparisonLead: fact, Blocks: []types.AnswerBlock{
+		{ID: "lead", Kind: types.BlockSummary, Text: "Existing model summary."},
+		{ID: "measure", Kind: types.BlockSection, RuntimeComparison: &types.AnswerRuntimeComparisonReceipt{Bound: fact}},
+	}}
+	got := RenderAnswerDocumentSurfaces(doc, "zh-CN")
+	want := "**目标侧 `measure` 区间耗时增加 22.376 ms**，基线为 4.781 ms，目标为 27.157 ms。"
+	if !strings.HasPrefix(got.Answer, want) || !strings.Contains(got.Answer, "差异原因尚未证实") ||
+		!strings.Contains(got.Answer, "Existing model summary.") || !strings.Contains(got.Answer, fact.Summary) {
+		t.Fatalf("leading comparison or original report text missing: %q", got.Answer)
+	}
+	doc.FrameComparisonLead = nil
+	withoutLead := RenderAnswerDocumentSurfaces(doc, "zh-CN")
+	if got.Primary != withoutLead.Primary || got.Principal != withoutLead.Principal ||
+		got.ComparisonReport == nil || len(got.ComparisonReport.Comparisons) != 1 ||
+		*got.ComparisonReport.Comparisons[0].Delta != delta ||
+		got.ComparisonReport.Comparisons[0].CausalStatus != "unresolved" {
+		t.Fatalf("presentation changed report evidence or model-owned surfaces: %+v", got)
+	}
+}
+
 // ── B5-T8 V2 renderer per-BlockKind 单测 ───────────────────────────
 
 func TestRenderV2_BlockSummary(t *testing.T) {

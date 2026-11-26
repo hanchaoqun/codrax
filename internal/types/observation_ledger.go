@@ -224,6 +224,8 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // evidence remains the only lane that may become repo citations. The ledger
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
+	TraceComparisonMeasurements []TraceComparisonMeasurement `json:"trace_comparison_measurements,omitempty"`
+
 	runtimeRawMeasurementPublication *runtimeRawMeasurementWitness
 	runtimeMeasurementFactIdentity   *runtimeMeasurementFactWitness
 
@@ -696,6 +698,9 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
 		record.StateAccounting = CloneTraceSchedulerStateAccounts(record.StateAccounting)
 		record.EventSearchInventory = CloneTraceEventSearchInventory(record.EventSearchInventory)
+		if record.TraceComparisonMeasurements != nil {
+			record.TraceComparisonMeasurements = *cloneTraceComparisonJSON(&record.TraceComparisonMeasurements)
+		}
 		record.TracePriorityOverlap = record.TracePriorityOverlap.Clone()
 		if record.IORequestEndpoints != nil {
 			endpoints := *record.IORequestEndpoints

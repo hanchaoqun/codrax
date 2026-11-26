@@ -72,6 +72,7 @@ type ExplicitRootCauseArtifact struct {
 	ArtifactSchemaVersion int                           `json:"artifact_schema_version"`
 	Status                string                        `json:"status"`
 	TraceRootCauses       *types.TraceRootCauseReportV2 `json:"trace_root_causes,omitempty"`
+	ComparisonReport      *types.TraceComparisonReport  `json:"comparison_report,omitempty"`
 	ReasonCode            string                        `json:"reason_code,omitempty"`
 }
 
@@ -151,7 +152,7 @@ func recordExplicitReportWrite(r ExplicitReport, w ExplicitReportWrite) {
 // are logged at WARN with the offending path and recorded for the CLI
 // status surface — like the default dump, they must never alter answer
 // delivery.
-func writeExplicitReportCopies(r ExplicitReport, body string, rootCauses *types.TraceRootCauseReportV2, unavailableReason string) string {
+func writeExplicitReportCopies(r ExplicitReport, body string, rootCauses *types.TraceRootCauseReportV2, unavailableReason string, comparison *types.TraceComparisonReport) string {
 	if p := strings.TrimSpace(r.MarkdownPath); p != "" {
 		recordExplicitReportWrite(r, publishExplicitReport(context.Background(), r, "markdown", p, []byte(body)))
 	}
@@ -165,7 +166,7 @@ func writeExplicitReportCopies(r ExplicitReport, body string, rootCauses *types.
 			recordExplicitReportWrite(r, publishExplicitReport(context.Background(), r, "html", p, []byte(htmlBody)))
 		}
 	}
-	write := writeExplicitRootCauseArtifact(r, rootCauses, unavailableReason)
+	write := writeExplicitRootCauseArtifact(r, rootCauses, unavailableReason, comparison)
 	if write.Err == nil {
 		return write.Path
 	}
@@ -182,7 +183,7 @@ func EnsureExplicitRootCauseArtifact(unavailableReason string) {
 	if strings.TrimSpace(r.RootCauseJSONPath) == "" || explicitRootCauseWriteRecorded() {
 		return
 	}
-	writeExplicitRootCauseArtifact(r, nil, unavailableReason)
+	writeExplicitRootCauseArtifact(r, nil, unavailableReason, nil)
 }
 
 func explicitRootCauseWriteRecorded() bool {
@@ -196,7 +197,7 @@ func explicitRootCauseWriteRecorded() bool {
 	return false
 }
 
-func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCauseReportV2, unavailableReason string) ExplicitReportWrite {
+func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCauseReportV2, unavailableReason string, comparison *types.TraceComparisonReport) ExplicitReportWrite {
 	p := strings.TrimSpace(r.RootCauseJSONPath)
 	if p == "" {
 		return ExplicitReportWrite{}
@@ -205,6 +206,7 @@ func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCau
 		ArtifactSchemaVersion: ExplicitRootCauseArtifactSchemaVersion,
 		Status:                ExplicitRootCauseStatusAvailable,
 		TraceRootCauses:       report,
+		ComparisonReport:      comparison,
 	}
 	if report == nil {
 		artifact.Status = ExplicitRootCauseStatusUnavailable

@@ -69,6 +69,7 @@ var (
 		"source_inventory_family",
 		"runtime_work_relation",
 		"runtime_measurement",
+		"runtime_comparison",
 		"requested_dimension_indices",
 		"conceptual_terminal_resolution",
 		"columns",

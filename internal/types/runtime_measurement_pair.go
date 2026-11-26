@@ -21,7 +21,8 @@ type RuntimeMeasurementPairRef struct {
 	material   [2]*attachment.TraceMaterial
 	// Preserve producer-private coverage through the report's JSON copy-out.
 	// These decoded values are never exposed or reconstructed from JSON.
-	publications [2][]RuntimeMeasurementPublication
+	publications      [2][]RuntimeMeasurementPublication
+	comparisonResults [2]*ToolResult
 }
 
 // NativeMeasurementPairSide is an internal producer input, not a model schema.
@@ -100,6 +101,10 @@ func NewNativeMeasurementPair(owner *MutableState, sides [2]NativeMeasurementPai
 		}
 		if !input.Result.Success || input.Result.ToolName != "trace_query" || input.Result.ReusedFromRunMemo {
 			continue
+		}
+		if _, ok := nativeFactCurrentPublication(owner, input.Result); ok {
+			child := input.Result
+			ref.comparisonResults[i] = &child
 		}
 		side.Status, side.Detail = "unavailable", "查询完成，但没有可绑定的原生测量表；不是值为0。"
 		for _, record := range input.Result.Observations {

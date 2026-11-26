@@ -70,6 +70,9 @@ type AnswerDocumentV2 struct {
 	// V2 doc carries at least one Summary block).
 	Blocks []AnswerBlock `json:"blocks"`
 
+	// FrameComparisonLead is set only on the revalidated render snapshot.
+	FrameComparisonLead *TraceComparisonFact `json:"-"`
+
 	// Citations is the shared zero-based pool. Each block / item
 	// references citations by integer index (or -1 for "no cite").
 	// Reused as-is from V1 (B3 does NOT redefine the Citation type;
@@ -321,6 +324,7 @@ type AnswerBlock struct {
 	// only on a table without competing text/items/columns or a work-relation
 	// receipt; interpretation belongs in separate blocks. It grants no causal authority.
 	RuntimeMeasurement *AnswerRuntimeMeasurementReceipt `json:"runtime_measurement,omitempty"`
+	RuntimeComparison  *AnswerRuntimeComparisonReceipt  `json:"runtime_comparison,omitempty"`
 	// RequestedDimensionIndices binds an exact native table to model-selected
 	// requested display dimensions. It grants neither completion nor cause.
 	RequestedDimensionIndices []int `json:"requested_dimension_indices,omitempty"`

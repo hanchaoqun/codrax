@@ -2939,13 +2939,15 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			strings.Join(paths, ", "))
 		params = repaired
 	}
-	fieldEditSchema := BuildAnswerDocumentPatchParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx), runtimeDiagramRelationsForContext(ctx))
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	fieldEditSchema := BuildAnswerDocumentPatchParametersFor(view, runtimeDiagramRelationsForContext(ctx))
+	fieldEditSchema = projectAnswerRuntimeComparison(fieldEditSchema, ctx, "replace_blocks", "add_blocks")
 	leaseForFieldProjection := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	var excludedFieldEditTargets []string
 	if types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(leaseForFieldProjection) {
 		excludedFieldEditTargets = localLeaseAtomicTargetBlockIDs(leaseForFieldProjection, prev)
 	}
-	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, types.BuildAnswerSemanticViewForBusContext(ctx), excludedFieldEditTargets)
+	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, view, excludedFieldEditTargets)
 	fieldEditSchema = projectAnswerDocumentPatchReceiptEditTargets(fieldEditSchema, prev, excludedFieldEditTargets)
 	if repaired, paths := normalizeMisroutedPatchReceiptFieldEdits(params, fieldEditSchema); len(paths) > 0 {
 		logging.Warning("[emit_answer_document_patch] losslessly remapped exact typed receipt edit(s): %s", strings.Join(paths, ", "))
@@ -2974,7 +2976,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// Block payloads share the V2 vocabulary, while patch-only atomic
 		// operations have additional nested homes. Keep the hint in the live
 		// operation grammar instead of redirecting a patch retry to full emit.
-		dispatchSchema := t.parametersForContext(types.BuildAnswerSemanticViewForBusContext(ctx), ctx.Mutable, ctx)
+		dispatchSchema := t.parametersForContext(view, ctx.Mutable, ctx)
 		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, dispatchSchema)
 		// §40.43 round-seven #2: the strict-decode reject exit resolves the
 		// selector from the raw object too — a sibling-field type mismatch
@@ -3007,7 +3009,6 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		lease = nil
 	}
-	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if fields := absorbAtomicDiagramEditsShadowedByOptionalRemoval(&p, lease); len(fields) > 0 {
 		logging.Warning("[emit_answer_document_patch] absorbed atomic diagram operation(s) shadowed by explicit optional target removal: %s",
 			strings.Join(fields, ", "))

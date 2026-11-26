@@ -155,7 +155,7 @@ func WriteResult(a Args) Result {
 	if writeDefault {
 		result = writeDefaultDump(a, body)
 	}
-	if explicitRootCausePath := writeExplicitReportCopies(explicit, body, a.RootCauseReport, a.RootCauseUnavailableReason); explicitRootCausePath != "" {
+	if explicitRootCausePath := writeExplicitReportCopies(explicit, body, a.RootCauseReport, a.RootCauseUnavailableReason, a.comparisonReport()); explicitRootCausePath != "" {
 		result.RootCauseJSONPath = explicitRootCausePath
 	}
 	return result

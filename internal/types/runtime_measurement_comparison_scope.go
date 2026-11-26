@@ -9,14 +9,22 @@ import (
 // current-result origin/window check. An observation ID cannot borrow another
 // result's valid read receipt, even when that ID is present in the contract.
 func runtimeMeasurementQueryDisplayScope(input ObservationLedgerInput, result ToolResult, r ObservationRecord) (*RuntimeArtifactScopeProfile, string, bool) {
+	original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
+	requested, qualified := runtimeMeasurementQueryDisplayScopeForSource(input, result, r, original)
+	if !qualified {
+		return nil, "", false
+	}
+	return requested, original, true
+}
+
+func runtimeMeasurementQueryDisplayScopeForSource(input ObservationLedgerInput, result ToolResult, r ObservationRecord, original string) (*RuntimeArtifactScopeProfile, bool) {
 	var requested *RuntimeArtifactScopeProfile
 	if input.RequestModel != nil {
 		requested = input.RequestModel.RuntimeArtifactScopeProfile
 	}
 	start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
-	original := runtimeMeasurementOriginalSource(input, result, r.SourceRef)
 	if r.Predicate == RuntimeResourceMeasurementPredicate && original == "" {
-		return nil, "", false
+		return nil, false
 	}
 	requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
 	_, resourcePoints := runtimeResourceProjectionOriginal(result, r, input.RequestModel)
@@ -24,14 +32,14 @@ func runtimeMeasurementQueryDisplayScope(input ObservationLedgerInput, result To
 		_, resourcePoints = runtimeResourceProjectEvents(r, input.RequestModel, requested)
 	}
 	if !qualified || !runtimeSamplingMeasurementWithinWindows(r, requested) || !resourcePoints && !runtimeResourceMeasurementWithinWindows(r, requested) {
-		return nil, "", false
+		return nil, false
 	}
 	// Event receipts own individual points and are projected row-by-row from a
 	// wider lookup envelope; other native query windows must be contained.
 	if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) && r.Predicate != TraceEventSearchInventoryPredicate && !resourcePoints {
-		return nil, "", false
+		return nil, false
 	}
-	return requested, original, true
+	return requested, true
 }
 
 // RuntimeResourceSupplementaryQueryCurrent validates this exact native result,

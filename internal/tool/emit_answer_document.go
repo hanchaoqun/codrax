@@ -111,7 +111,7 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 	if ctx.Mutable != nil {
 		parameters = projectTraceRootCauseReport(parameters, ctx.Mutable.TraceFindingContract(), false)
 	}
-	return parameters
+	return projectAnswerRuntimeComparison(parameters, agentBusContextForAnswerPatchScope(ctx), "blocks")
 }
 
 func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {

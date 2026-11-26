@@ -458,6 +458,7 @@ func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContex
 		ctx.Mutable.SetFinalizerTypedRelationRecipeAvailable(false)
 	}
 
+	comparisonChoices := tool.RenderRuntimeComparisonChoices(ctx)
 	var b strings.Builder
 	trace := newAnswerDocDynamicTrace(ctx)
 	var nativePresentation answerDocNativePresentationReceipt
@@ -480,6 +481,7 @@ func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContex
 	if langContract := renderAnswerDocResponseLanguageContract(ctx, e.language); langContract != "" {
 		b.WriteString(langContract)
 	}
+	b.WriteString(comparisonChoices)
 
 	// R14 (post_shape_residual_audit.md, 2026-05-04): render
 	// typed retry-state surface BEFORE any other dynamic content
@@ -22586,6 +22588,7 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 	}
+	doc = types.AnswerRuntimeComparisonSnapshot(doc, types.ToolBusContext(ctx, types.AgentFinalizer))
 	surfaces := render.RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, e.language)
 	prose := tool.DeduplicateDiagramIsolationNotice(surfaces.Answer, e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderAnswerExportDeliveries(ctx, e.language), e.language)

@@ -16,8 +16,9 @@ import (
 // Consumers must check Status before interpreting an empty RootCauses array.
 type DefaultRootCauseArtifact struct {
 	types.TraceRootCauseReportV2
-	Status     string `json:"status"`
-	ReasonCode string `json:"reason_code,omitempty"`
+	Status           string                       `json:"status"`
+	ReasonCode       string                       `json:"reason_code,omitempty"`
+	ComparisonReport *types.TraceComparisonReport `json:"comparison_report,omitempty"`
 }
 
 func defaultRootCauseArtifact(report *types.TraceRootCauseReportV2, reason string) DefaultRootCauseArtifact {
@@ -48,7 +49,9 @@ func writeDefaultRootCauseSidecar(a Args, markdownPath string) Result {
 		return Result{}
 	}
 	p := RootCauseJSONPathForMarkdown(markdownPath)
-	body, err := json.MarshalIndent(defaultRootCauseArtifact(a.RootCauseReport, a.RootCauseUnavailableReason), "", "  ")
+	artifact := defaultRootCauseArtifact(a.RootCauseReport, a.RootCauseUnavailableReason)
+	artifact.ComparisonReport = a.comparisonReport()
+	body, err := json.MarshalIndent(artifact, "", "  ")
 	if err != nil {
 		logging.Warning("[output_dump] encode trace root-cause report failed; writing empty unavailable artifact: %v", err)
 		// This fixed fallback contains no model data that could fail encoding.
@@ -78,5 +81,12 @@ func WriteRootCauseOnly(a Args) Result {
 }
 
 func requiresDefaultRootCauseSidecar(a Args) bool {
-	return a.HasTrace || a.RequireRootCauseJSON || a.RootCauseReport != nil
+	return a.HasTrace || a.RequireRootCauseJSON || a.RootCauseReport != nil || a.comparisonReport() != nil
+}
+
+func (a Args) comparisonReport() *types.TraceComparisonReport {
+	if a.AnswerSurfaces == nil || strings.TrimSpace(a.AnswerSurfaces.Answer) != strings.TrimSpace(a.Answer) {
+		return nil
+	}
+	return a.AnswerSurfaces.ComparisonReport
 }

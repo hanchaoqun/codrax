@@ -5,9 +5,10 @@ package types
 // rendering pass, after deduplication; filtering and re-rendering a document
 // could otherwise resurrect content that was not actually visible.
 type AnswerRenderedSurfaces struct {
-	Answer    string `json:"-"`
-	Primary   string `json:"-"`
-	Principal string `json:"-"`
+	Answer           string                 `json:"-"`
+	Primary          string                 `json:"-"`
+	Principal        string                 `json:"-"`
+	ComparisonReport *TraceComparisonReport `json:"-"`
 }
 
 func (m *MutableState) SetAnswerRenderedSurfaces(s AnswerRenderedSurfaces) {
@@ -16,6 +17,7 @@ func (m *MutableState) SetAnswerRenderedSurfaces(s AnswerRenderedSurfaces) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	s.ComparisonReport = s.ComparisonReport.Clone()
 	m.answerRenderedSurfaces = &s
 }
 
@@ -29,5 +31,6 @@ func (m *MutableState) AnswerRenderedSurfaces() *AnswerRenderedSurfaces {
 		return nil
 	}
 	s := *m.answerRenderedSurfaces
+	s.ComparisonReport = s.ComparisonReport.Clone()
 	return &s
 }

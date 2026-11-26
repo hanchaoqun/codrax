@@ -10852,6 +10852,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		}
 	}
 
+	if measurements := traceQueryComparisonMeasurements(result, ref); len(measurements) > 0 {
+		for i := range out {
+			if out[i].SourceRef.Path == ref.Path && out[i].SourceRef.QueryScopeID == ref.QueryScopeID {
+				out[i].TraceComparisonMeasurements = measurements
+				break
+			}
+		}
+	}
 	out = traceQueryApplyArtifactProvenance(result, out)
 	out = traceQueryResourceMeasurementPublications(out)
 	out = traceQueryFilteredPerfMemberReceipts(result, out)

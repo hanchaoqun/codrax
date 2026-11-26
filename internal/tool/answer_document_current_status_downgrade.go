@@ -17,7 +17,7 @@ import (
 // from a previous emit is cleared first, so a later re-emit in a run that
 // HAS gathered current_source evidence drops the downgrade again.
 // Returns true when a downgrade is stamped.
-func stampCurrentStatusVerdictEvidenceDowngrade(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
+func stampCurrentStatusVerdictEvidenceDowngrade(ctx *types.BusContext, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) bool {
 	if doc == nil {
 		return false
 	}
@@ -26,7 +26,7 @@ func stampCurrentStatusVerdictEvidenceDowngrade(ctx *types.BusContext, doc *type
 		return false
 	}
 	var contract *types.CurrentStatusDiagnosticContract
-	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+	if view != nil {
 		contract = view.CurrentStatusDiagnostic
 	}
 	block := types.CurrentStatusDecisionBlock(doc)
