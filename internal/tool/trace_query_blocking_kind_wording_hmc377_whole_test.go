@@ -109,10 +109,15 @@ func TestHMC377WholeOriginalRecordedWaitNeverReadsAsLock(t *testing.T) {
 				t.Fatal("no critical blocking result")
 			}
 			rows := map[int]tracequery.CriticalBlockingCandidate{}
+			// What is asserted is about the published rows: every wait this
+			// window publishes as a blocking row is a recorded collection
+			// wait. Other threads may record a short contention elsewhere in
+			// the window (the container capture has seven, all after the
+			// target's wake); none of them is a published blocking row.
 			for _, item := range blocking.CriticalBlocking.Items {
 				if item.Type == "blocking_span" {
 					if item.BlockingKind != "" {
-						t.Fatalf("the window holds no lock record, yet a blocking row carries kind %q: %+v", item.BlockingKind, item)
+						t.Fatalf("no wait this window publishes as a blocking row is a recorded lock or monitor wait, yet a row carries kind %q: %+v", item.BlockingKind, item)
 					}
 					rows[item.Thread.PID] = item
 				}
@@ -140,7 +145,7 @@ func TestHMC377WholeOriginalRecordedWaitNeverReadsAsLock(t *testing.T) {
 			for lang, text := range faces {
 				for _, banned := range []string{"持锁", "锁竞争", "lock-holder", "lock contention", "holds lock"} {
 					if strings.Contains(text, banned) {
-						t.Fatalf("%s projection names a lock (%q) in a window with no lock record", lang, banned)
+						t.Fatalf("%s projection names a lock (%q), though no row it publishes for this window carries a lock or monitor record", lang, banned)
 					}
 				}
 			}
