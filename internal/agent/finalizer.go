@@ -34,6 +34,7 @@ func NewFinalizerAgent(deps *Dependencies) Agent {
 		preservePriorProse:   deps.AgentSettings.FinalizerPreservePriorProse,
 		shrinkageMinProseLen: deps.AgentSettings.FinalizerShrinkageMinProseLen,
 		shrinkageRatio:       deps.AgentSettings.FinalizerShrinkageRatio,
+		dynamicContextClock:  deps.FinalizerDynamicContextClock,
 	})
 	agent.finalizerContentBudget = true
 	return agent

@@ -223,6 +223,9 @@ type answerDocumentEvaluator struct {
 	// followUpReceiptRecorded closes the delivery receipt of this dispatch's
 	// follow-up after its first request decision (same reset).
 	followUpReceiptRecorded bool
+	// dynamicContextClock is handed to every dispatch of this agent; nil
+	// (production) leaves each dispatch on the wall clock.
+	dynamicContextClock DynamicContextClock
 }
 
 const (
@@ -239,6 +242,21 @@ const (
 	answerDocMaxInvestigationNarrativeNoteBytes = 1400
 )
 
+// DynamicContextCheckpoint names one point at which a finalizer dispatch asks
+// how long it has been building its dynamic context. Unit is the unit the
+// dispatch is about to build or has just built. Deferred is true in the second
+// pass, which renders the groups the first pass only positioned; a deferred
+// group is asked about once, there.
+type DynamicContextCheckpoint struct {
+	Unit     string
+	Deferred bool
+}
+
+// DynamicContextClock reports how long one dispatch has been building its
+// dynamic context when it reaches a checkpoint. The readings of one dispatch
+// are compared with the same budget as the wall clock they replace.
+type DynamicContextClock func(DynamicContextCheckpoint) time.Duration
+
 type answerDocDynamicTrace struct {
 	promptBudget *finalizerPromptBudget
 	deferred     []answerDocDeferredSection
@@ -246,7 +264,18 @@ type answerDocDynamicTrace struct {
 	ctx          *types.AgentContext
 	stage        string
 	started      time.Time
+	// clock, when set, is this dispatch's only time authority; nil reads the
+	// wall clock since started. deferredPass marks the second pass.
+	clock        DynamicContextClock
+	deferredPass bool
 	budgetLogged bool
+}
+
+func (t *answerDocDynamicTrace) elapsed(unit string) time.Duration {
+	if t.clock != nil {
+		return t.clock(DynamicContextCheckpoint{Unit: unit, Deferred: t.deferredPass})
+	}
+	return time.Since(t.started)
 }
 
 // Only pure presentation renderers may register an equivalent projection.
@@ -378,13 +407,14 @@ func (t *answerDocDynamicTrace) shouldStop(b *strings.Builder, section string) b
 			return true
 		}
 	}
-	if answerDocDynamicSoftBudget <= 0 || time.Since(t.started) <= answerDocDynamicSoftBudget {
+	elapsed := t.elapsed(section)
+	if answerDocDynamicSoftBudget <= 0 || elapsed <= answerDocDynamicSoftBudget {
 		return false
 	}
 	if !t.budgetLogged {
 		t.budgetLogged = true
 		logging.Warning("[diag finalizer] phase=prompt_dynamic_instruction stage=%s budget exceeded elapsed=%s; omitting remaining optional finalizer guidance",
-			t.stage, time.Since(t.started).Round(time.Second))
+			t.stage, elapsed.Round(time.Second))
 		if b != nil {
 			b.WriteString("## Dynamic Prompt Budget\n\n")
 			b.WriteString("- Optional answer-writing guidance was omitted because prompt construction exceeded its runtime budget. Follow the answer-document tool schema, the required blocks already rendered above, and the Evidence Items / Findings sections in the main prompt.\n\n")
@@ -475,6 +505,7 @@ func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContex
 
 	var b strings.Builder
 	trace := newAnswerDocDynamicTrace(ctx)
+	trace.clock = e.dynamicContextClock
 	var nativePresentation answerDocNativePresentationReceipt
 	if resolve != nil {
 		e.promptBudget = resolve()

@@ -236,6 +236,13 @@ type Dependencies struct {
 	// BaseAgent never reads graph state to decide prompts, routing, approval,
 	// or tool execution.
 	ReasoningObserver reasoninggraph.Observer
+
+	// FinalizerDynamicContextClock replaces the wall clock that bounds how
+	// long a finalizer dispatch may build its dynamic context. Optional: nil
+	// is the production path. A caller that reproduces a recorded dispatch
+	// sets it so the reproduced request omits exactly the units the recorded
+	// one omitted, whatever the load of the reproducing host.
+	FinalizerDynamicContextClock DynamicContextClock
 }
 
 // BaseAgent provides the common ReAct loop implementation.

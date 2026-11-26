@@ -347,6 +347,7 @@ func (t *answerDocDynamicTrace) finishBudgeted(base string) string {
 		out.WriteString(base[pos:end])
 		pos = end
 	}
+	t.deferredPass = true
 	for _, section := range t.deferred {
 		copyBase(section.offset)
 		if t.shouldStop(&out, section.name) {
