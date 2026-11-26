@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -1134,6 +1135,13 @@ func formatScanElapsed(ms int64) string {
 // terminal failure styling.
 func forcedFinalizeFailureMessage(err error, lang string) string {
 	zh := preferZhMessage(lang)
+	// Typed causes come before every string probe: the text of a typed error
+	// carries figures and words a probe would misread (a byte count
+	// containing "429" is not a rate limit).
+	var refused *agent.AnswerContextByteBudgetError
+	if errors.As(err, &refused) {
+		return answerRequestNotSentFailureMessage(lang)
+	}
 	probe := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(probe, "unexpected eof"),
@@ -1170,4 +1178,26 @@ func forcedFinalizeFailureMessage(err error, lang string) string {
 		return "无法继续：最终答案生成失败"
 	}
 	return "Cannot continue: failed to generate the final answer"
+}
+
+// answerRequestNotSentMessage says, in the reader's terms, what happened when
+// the answer request was too large to send: the evidence did not fit one
+// request, so that request never reached the model. It names no internal
+// stage, limit or mechanism.
+func answerRequestNotSentMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "这一问的证据量超过了一次答案请求能携带的量，这次请求没有发给模型"
+	}
+	return "The evidence for this question is larger than one answer request can carry, so the request was not sent to the model"
+}
+
+// answerRequestNotSentFailureMessage is the run's terminal notice for that
+// case: what happened, that no answer exists, and what the reader can do.
+// Any question's answer request can be too large, so the advice is general
+// first; the two ways to narrow a trace question follow it.
+func answerRequestNotSentFailureMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "无法继续：" + answerRequestNotSentMessage(lang) + "，也没有写出答案。可以缩小问题范围后重试；分析 Trace 时，可缩小时间窗，或减少要问的线程"
+	}
+	return "Cannot continue: the evidence for this question is larger than one answer request can carry, so the request was not sent to the model and no answer was written. Narrow the question and retry; for a trace, narrow the time window or ask about fewer threads"
 }
