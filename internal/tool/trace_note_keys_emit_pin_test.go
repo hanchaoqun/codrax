@@ -1364,7 +1364,23 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		IOValueCaliber: types.TraceIOValueCaliberRQResidence,
 		LineStart:      1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
 	})
+	// The evidence fact mirroring a typed lock rank row writes that row's
+	// blocking kind and holder role under the rank record's own keys.
+	fixture.EvidencePack = append(fixture.EvidencePack, tracequery.EvidenceFact{
+		Subject: "holder-102", Predicate: "root_cause_foreground", Object: "blocking_span",
+		Summary: "lock holder holder-102 blocked app-101", LineStart: 3, LineEnd: 4, Confidence: 0.8,
+		BlockingKind: "monitor_contention", SubjectIsLockHolder: true,
+	})
 	records := traceQueryTypedObservations(fixture, "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
+	sawLockMirror := false
+	for _, record := range records {
+		if record.ClaimKey == "evidence_fact:root_cause_foreground" && record.Object == "blocking_span" {
+			sawLockMirror = strings.HasPrefix(strings.Join(record.RichNotes, " ")+" ", types.TraceNoteKeyBlockingKind+"=monitor_contention "+types.TraceNoteKeySubjectIsLockHolder+"=true ")
+		}
+	}
+	if !sawLockMirror {
+		t.Fatal("the mirror of a typed lock rank row must carry its blocking kind and holder role")
+	}
 	// Exercise optional wait operands through the public producer, retaining
 	// each record's own physical source/query rather than borrowing the
 	// synthetic full.systrace fixture's coordinates or fabricating a note.

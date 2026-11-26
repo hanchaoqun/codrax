@@ -24145,9 +24145,11 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	// forms of the same lock publish exactly one candidate here. P0-E2a: the
 	// counterpart is resolved (payload-direct vs wakeup-edge fallback) inside
 	// collectBlockingSpanRows before this add.
-	for _, row := range collectBlockingSpanRows(idx, q, stats) {
+	blockingRows, refusedBlockingRows := collectBlockingSpanRowsCounted(idx, q, stats)
+	for _, row := range blockingRows {
 		add(row.cand)
 	}
+	res.Caveats = appendBlockingSpanRefusalCaveat(res.Caveats, refusedBlockingRows)
 	// HMC377 D2: a waker that only passed on the wake of a shared recorded
 	// wait is named as such (typed relay verdict, wording input only).
 	stampBlockingWakeRelays(idx, res.Items)
@@ -24904,6 +24906,13 @@ func (r blockingSpanRow) valueBudgetInterval() (startTs, endTs float64, ok bool)
 // phantom, swaps the phantom for the waiter's real wakeup-edge waker (and gives
 // payload-less blocking spans a wait_object).
 func collectBlockingSpanRows(idx *Index, q Query, stats WindowStats) []blockingSpanRow {
+	rows, _ := collectBlockingSpanRowsCounted(idx, q, stats)
+	return rows
+}
+
+// collectBlockingSpanRowsCounted is collectBlockingSpanRows together with the
+// number of rows the refusal guard withheld.
+func collectBlockingSpanRowsCounted(idx *Index, q Query, stats WindowStats) ([]blockingSpanRow, int) {
 	var rows []blockingSpanRow
 	for _, span := range stats.TraceSpans {
 		cand, ok := blockingSpanCandidateFromTraceSpan(span)
@@ -24935,11 +24944,58 @@ func collectBlockingSpanRows(idx *Index, q Query, stats WindowStats) []blockingS
 	for i := range rows {
 		convergeBlockingSpanRowValue(idx, q, &rows[i])
 	}
+	rows, refused := refuseUnbasedKindlessBlockingRows(rows)
 	for i := range rows {
 		resolveBlockingSpanRowCounterpart(idx, &rows[i])
 	}
 	guardLockHolderSelfContradiction(rows)
-	return rows
+	return rows, refused
+}
+
+// BlockingSpanRefusalWithoutKindOrBasis is the typed reason a blocking-like
+// span row is withheld from every view: it carries neither the kind of a
+// parsed contention payload nor a registered value basis.
+const BlockingSpanRefusalWithoutKindOrBasis = "blocking_span_without_kind_or_basis"
+
+// refuseUnbasedKindlessBlockingRows withholds the rows no face could word. A
+// blocking-like span row is worded from one of two typed facts: the kind of
+// its parsed contention payload (lock words), or its value basis (the waiter's
+// wait segments, or the span envelope that contains run time). A row without a
+// kind is a row without a payload, because only a parsed payload mints a kind.
+// Such a row with no registered basis either would be read as a lock wait from
+// its row token alone, so it is not published and is counted instead. The
+// value convergence stamps a basis on every arm, so no row is withheld unless
+// a producer stops doing so.
+func refuseUnbasedKindlessBlockingRows(rows []blockingSpanRow) ([]blockingSpanRow, int) {
+	kept := rows[:0]
+	refused := 0
+	for _, row := range rows {
+		if row.cand.BlockingKind == "" && !blockingValueBasisRegistered(row.cand.BlockingValueBasis) {
+			refused++
+			continue
+		}
+		kept = append(kept, row)
+	}
+	return kept, refused
+}
+
+// blockingValueBasisRegistered reports one of the typed value-basis values.
+func blockingValueBasisRegistered(basis string) bool {
+	switch basis {
+	case BlockingValueBasisWaitSegments, BlockingValueBasisSpanEnvelope:
+		return true
+	}
+	return false
+}
+
+// appendBlockingSpanRefusalCaveat adds the one result caveat of the refusal
+// guard: the typed reason as its prefix, then how many rows were withheld.
+// Nothing is added when no row was withheld.
+func appendBlockingSpanRefusalCaveat(caveats []string, refused int) []string {
+	if refused <= 0 {
+		return caveats
+	}
+	return append(caveats, fmt.Sprintf("%s: %d blocking-like span row(s) carried neither a parsed contention kind nor a value basis and were not published", BlockingSpanRefusalWithoutKindOrBasis, refused))
 }
 
 // Typed value-basis enum of a payload-less blocking_span row (XERR1-FIX 件1,
@@ -28493,6 +28549,11 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 			LineStart:  item.LineStart,
 			LineEnd:    item.LineEnd,
 			Confidence: item.Confidence,
+			// The mirror of a typed lock row keeps the row's kind and holder
+			// role: its Object is the bare row token, which alone reads as a
+			// wait of the subject.
+			BlockingKind:        item.BlockingKind,
+			SubjectIsLockHolder: item.SubjectIsLockHolder,
 		})
 		if len(out) >= 16 {
 			break

@@ -7131,4 +7131,9 @@ type EvidenceFact struct {
 	EndTs       float64             `json:"end_ts,omitempty"`
 	Confidence  float64             `json:"confidence,omitempty"`
 	SourceSpans []TraceArtifactSpan `json:"source_spans,omitempty"`
+	// BlockingKind and SubjectIsLockHolder are the typed lock identity of the
+	// rank row this fact mirrors, so the record minted from the fact is worded
+	// like that row. Empty on every other fact. Never on the wire.
+	BlockingKind        string `json:"-"`
+	SubjectIsLockHolder bool   `json:"-"`
 }

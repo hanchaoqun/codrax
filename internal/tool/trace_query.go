@@ -10201,6 +10201,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			claim += ":" + traceQueryStorageGroupClaim(*storage)
 			notes = traceQueryStorageDistributionNotes(*storage, *result.WindowStats)
 		}
+		// The mirror of a typed lock rank row carries that row's blocking
+		// kind and holder role under the rank record's own note keys, so both
+		// records are worded the same way. Both are empty on every other
+		// fact, which gains no note.
+		notes = append(notes, traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeyBlockingKind, fact.BlockingKind},
+			{types.TraceNoteKeySubjectIsLockHolder, traceQueryTypedBool(fact.SubjectIsLockHolder)},
+		})...)
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#evidence_fact:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
