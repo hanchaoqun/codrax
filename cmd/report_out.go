@@ -203,7 +203,9 @@ func printExplicitReportStatus() (reportErr error) {
 	if strings.TrimSpace(flagReportMD) == "" && strings.TrimSpace(flagReportHTML) == "" && strings.TrimSpace(flagRootCausesOut) == "" {
 		return nil
 	}
-	outputdump.EnsureExplicitRootCauseArtifact(outputdump.RootCauseReasonTranscriptNotAvailable)
+	// Same record as the orchestrator's default side file; a nil orchestrator
+	// had no run and names the transcript reason.
+	outputdump.EnsureExplicitRootCauseArtifact(app.orch.UnformedAnswerRootCauseReason())
 	writes := outputdump.ExplicitReportWrites()
 	if len(writes) == 0 {
 		const msg = "report not written: this run produced no final-answer transcript (write/data/operation lanes and empty answers do not dump)"

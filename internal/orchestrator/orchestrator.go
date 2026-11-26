@@ -92,6 +92,9 @@ type Orchestrator struct {
 	outputDumpMax           int
 	outputTranscriptRequest string
 	rootCauseOutputErr      error // per-Run mandatory sidecar delivery failure
+	// unformedAnswerRefusal is the last Run's standing answer-request refusal
+	// as the default side file read it (finalizer_request_refusal.go).
+	unformedAnswerRefusal *types.FinalizerRequestRefusal
 
 	// memoryReader is the read handle into the REPL memory store.
 	// Wired by cmd/root.go via SetMemoryReader after the Store is

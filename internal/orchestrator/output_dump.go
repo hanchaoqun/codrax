@@ -109,6 +109,9 @@ func (o *Orchestrator) hasTraceRootCauseOutputContext(bus *types.BusContext) boo
 }
 
 func (o *Orchestrator) ensureDefaultTraceRootCauseOutput(bus *types.BusContext) error {
+	// One record names the reason for both side-file producers: this one and
+	// the frontend's explicit file (UnformedAnswerRootCauseReason).
+	o.unformedAnswerRefusal = finalizeRefusalOf(bus)
 	if o.rootCauseOutputErr != nil {
 		return o.rootCauseOutputErr
 	}
@@ -125,7 +128,7 @@ func (o *Orchestrator) ensureDefaultTraceRootCauseOutput(bus *types.BusContext) 
 	// No successful final-output hook: publish no unfinalized draft selection.
 	result := outputdump.WriteRootCauseOnly(outputdump.Args{
 		Dir: o.outputDumpDir, Max: o.outputDumpMax, HasTrace: true,
-		RootCauseUnavailableReason: outputdump.RootCauseReasonTranscriptNotAvailable,
+		RootCauseUnavailableReason: outputdump.RootCauseReasonForUnformedAnswer(o.unformedAnswerRefusal),
 		Now:                        time.Now(), PID: os.Getpid(),
 	})
 	o.rootCauseOutputErr = result.RootCauseJSONError

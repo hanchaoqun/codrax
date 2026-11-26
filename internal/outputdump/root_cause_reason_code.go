@@ -1,5 +1,7 @@
 package outputdump
 
+import "github.com/hanchaoqun/codrax/internal/types"
+
 // root_cause_reason_code.go — the ONE list of customer-facing `reason_code`
 // values a `.root-causes.json` sidecar can carry when `status` is
 // "unavailable" (colleague_merge_audit §40.44 residual a). Append-only wire
@@ -40,7 +42,26 @@ const (
 	// of the model to that offer was received, so this is not a declined
 	// choice.
 	RootCauseReasonSelectionFollowUpNotSent = "root_cause_selection_follow_up_not_sent"
+	// RootCauseReasonRequestExceedsCapacity: the evidence for the question did
+	// not fit one answer request, so the first request was not sent and no
+	// request of the answer step reached the model. No answer was formed;
+	// this is neither a model refusal nor a declined choice. Never used once
+	// any answer request of the run was sent.
+	RootCauseReasonRequestExceedsCapacity = "final_answer_request_exceeds_capacity"
 )
+
+// RootCauseReasonForUnformedAnswer names why a run that formed no answer has
+// no root causes to publish. Every producer of that lane calls it with the
+// run's one refusal record, so they cannot disagree: the capacity reason is
+// given only when the record says nothing was sent, and every other case
+// (no record, a refused repair or follow-up request) keeps the transcript
+// reason.
+func RootCauseReasonForUnformedAnswer(refusal *types.FinalizerRequestRefusal) string {
+	if refusal.NothingSent() {
+		return RootCauseReasonRequestExceedsCapacity
+	}
+	return RootCauseReasonTranscriptNotAvailable
+}
 
 // AllRootCauseUnavailableReasonCodes lists the closed vocabulary in its
 // documented order.
@@ -55,5 +76,6 @@ func AllRootCauseUnavailableReasonCodes() []string {
 		RootCauseReasonEncodingFailed,
 		RootCauseReasonFallbackUnavailable,
 		RootCauseReasonSelectionFollowUpNotSent,
+		RootCauseReasonRequestExceedsCapacity,
 	}
 }

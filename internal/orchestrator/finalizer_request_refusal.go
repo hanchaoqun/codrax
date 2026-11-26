@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -130,4 +131,14 @@ func (o *Orchestrator) emitFinalizingNotice() {
 		NoticeKind: render.NoticeFinalizing,
 		Reasoning:  softFinalizingMessage(o.busCtx.Language),
 	})
+}
+
+// UnformedAnswerRootCauseReason names, for a frontend that writes its own
+// root-cause side file, why the last Run formed no answer. It reads the record
+// the default side file was written from, so the two cannot disagree.
+func (o *Orchestrator) UnformedAnswerRootCauseReason() string {
+	if o == nil {
+		return outputdump.RootCauseReasonForUnformedAnswer(nil)
+	}
+	return outputdump.RootCauseReasonForUnformedAnswer(o.unformedAnswerRefusal)
 }
