@@ -11,10 +11,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
@@ -137,6 +139,7 @@ func (c *Coordinator) PrepareSelection(ctx context.Context, selection attachment
 		return nil, fmt.Errorf("trace preparation requires an absolute regular-file path: %q", absolutePath)
 	}
 	path := filepath.Clean(absolutePath)
+	started := time.Now()
 	pathKey := preparationPathKey(path)
 	key := preparationKey{pathKey, member}
 	canonical, err := preparationCanonicalPath(ctx, path)
@@ -155,6 +158,9 @@ func (c *Coordinator) PrepareSelection(ctx context.Context, selection attachment
 		if entry := c.ready[key]; entry != nil {
 			expected := c.aliases[pathKey]
 			c.mu.Unlock()
+			if logging.IsDebug() {
+				logging.TraceTiming(ctx, "phase=prepare_cache attachment=%q state=hit elapsed=%s", logging.TraceTimingAttachment(path), time.Since(started))
+			}
 			return entry.validateAlias(ctx, path, expected)
 		}
 		if entry := c.ready[preparationKey{canonical, member}]; entry != nil {
@@ -162,14 +168,21 @@ func (c *Coordinator) PrepareSelection(ctx context.Context, selection attachment
 			// stale capture must not be retried later by retargeting this alias.
 			c.ready[key], c.aliases[pathKey] = entry, canonical
 			c.mu.Unlock()
+			if logging.IsDebug() {
+				logging.TraceTiming(ctx, "phase=prepare_cache attachment=%q state=alias_hit elapsed=%s", logging.TraceTimingAttachment(path), time.Since(started))
+			}
 			return entry.validateAlias(ctx, path, canonical)
 		}
 		if flight := c.inflight[canonical]; flight != nil {
 			c.mu.Unlock()
+			waitStarted := time.Now()
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-flight.done:
+			}
+			if logging.IsDebug() {
+				logging.TraceTiming(ctx, "phase=prepare_cache attachment=%q state=wait elapsed=%s", logging.TraceTimingAttachment(path), time.Since(waitStarted))
 			}
 			if err := ctx.Err(); err != nil {
 				return nil, err

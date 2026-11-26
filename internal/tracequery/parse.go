@@ -22,6 +22,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -571,6 +572,28 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 		ctx = context.Background()
 	}
 	path = strings.TrimSpace(path)
+	started := time.Now()
+	var timing *indexTiming
+	if logging.IsDebug() {
+		attachmentID := logging.TraceTimingAttachment(path)
+		timing = &indexTiming{cache: "unresolved"}
+		defer func() {
+			var first, last float64
+			var events, lines int
+			var windowed bool
+			var capEvents, stopLine int
+			if idx != nil {
+				first, last = idx.FirstTs, idx.LastTs
+				events, lines, windowed = len(idx.Events), idx.ScannedLineCount, idx.Windowed
+			} else if limit := (*IndexEventLimitError)(nil); errors.As(err, &limit) {
+				first, last = limit.FirstTs, limit.LastTs
+				events, lines, windowed = limit.Events, limit.ScannedLines, limit.Windowed
+				capEvents, stopLine = limit.MaxEvents, limit.Line
+			}
+			logging.TraceTiming(ctx, "phase=index attachment=%q cache=%q cacheable=%t physical_bytes=%d events=%d lines=%d windowed=%t relation_scoped=%t scope_pid=%d event_limit=%d stop_line=%d observed_start=%.9f observed_end=%.9f observed_span_s=%.9f success=%t elapsed=%s",
+				attachmentID, timing.cache, timing.cacheable, timing.bytes, events, lines, windowed, opts.RelationScoped, opts.ScopePID, capEvents, stopLine, first, last, last-first, err == nil, time.Since(started))
+		}()
+	}
 	if path == "" {
 		return nil, fmt.Errorf("trace path is empty")
 	}
@@ -604,6 +627,9 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 	opts = normalizeBuildOptions(opts)
 	windowKey := opts.cacheKey()
 	cacheable := shouldCacheTraceIndex(sourceBytes, opts)
+	if timing != nil {
+		timing.bytes, timing.cacheable = sourceBytes, cacheable
+	}
 	key := parseCacheKey{
 		path:      path,
 		size:      size,
@@ -617,6 +643,9 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 	}
 	if cacheable {
 		if idx, ok := indexCache.Load(key); ok {
+			if timing != nil {
+				timing.cache = "hit"
+			}
 			if err := selection.finish(context.WithoutCancel(ctx), idx); err != nil {
 				indexCache.Delete(key)
 				return nil, err
@@ -631,6 +660,36 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 	if err := ctx.Err(); err != nil {
 		return nil, selection.closeAfter(err)
 	}
+	frameView, _ := ctx.Value(frameWindowIndexViewKey{}).(string)
+	var frameMemo *indexLimitMemo
+	var frameSource parseCacheKey
+	if frameView != "" && !selection.bundleSet && len(selection.universe.entries) == 1 &&
+		opts.windowed() && !opts.relationScoped() && opts.ScopePID > 0 &&
+		opts.TimeStartSet && opts.TimeEndSet && opts.TimeEnd > opts.TimeStart &&
+		opts.LineStart == 0 && opts.LineEnd == 0 {
+		frameMemo, _ = ctx.Value(activeIndexLimitMemoKey{}).(*indexLimitMemo)
+		frameSource = key
+		frameSource.windowKey = ""
+		if frameMemo != nil {
+			if shared, exact := frameMemo.loadFrameWindow(frameSource, opts, frameView); shared != nil {
+				window := shared
+				// Keep the timeline's normal padding. Otherwise the wider
+				// bundle may close a tail interval the timeline left open.
+				if !exact {
+					window = deriveWindowedIndex(shared, opts)
+					window.platformSurfaces = shared.platformSurfaces.clone()
+					window.setSchedulerHead(shared.schedulerHeadAt(opts.TimeStart))
+				}
+				if timing != nil {
+					timing.cache = "frame_window_hit"
+				}
+				if err := selection.finish(ctx, window); err != nil {
+					return nil, err
+				}
+				return window, nil
+			}
+		}
+	}
 	// A relation-scoped index must be built by pruning during the streamed
 	// parse; deriving it from a cached FULL index would hand back the unpruned
 	// window (correct data, but defeats the memory goal and misses the point).
@@ -644,6 +703,9 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 			sourceKey: sourceKey,
 		}
 		if idx, ok := indexCache.Load(fullKey); ok {
+			if timing != nil {
+				timing.cache = "derived_from_full"
+			}
 			if err := selection.validate(context.WithoutCancel(ctx)); err != nil {
 				indexCache.Delete(fullKey)
 				return nil, selection.closeAfter(err)
@@ -757,7 +819,17 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 			return derived, nil
 		}
 	}
-	return buildIndexSingleflight(ctx, key, selection, opts, cacheable, observer)
+	idx, err = buildIndexSingleflight(ctx, key, selection, opts, cacheable, observer, timing)
+	if err == nil && frameMemo != nil && frameView != "thread_timeline" {
+		frameMemo.storeFrameWindow(frameSource, opts, idx, frameView)
+	}
+	return idx, err
+}
+
+type indexTiming struct {
+	bytes     int64
+	cache     string
+	cacheable bool
 }
 
 func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
@@ -806,15 +878,37 @@ func canonicalTraceIndexPath(path string) string {
 	return path
 }
 
-func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *traceIndexSelection, opts BuildOptions, cacheable bool, observer traceIndexBuildObserver) (*Index, error) {
+func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *traceIndexSelection, opts BuildOptions, cacheable bool, observer traceIndexBuildObserver, timing *indexTiming) (*Index, error) {
+	memo, _ := ctx.Value(activeIndexLimitMemoKey{}).(*indexLimitMemo)
+	memoKey := indexLimitMemoKey{source: key, opts: opts}
 	indexBuildMu.Lock()
+	if memo != nil {
+		if limit, ok := memo.get(memoKey); ok {
+			indexBuildMu.Unlock()
+			if err := selection.validate(ctx); err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if timing != nil {
+				timing.cache = "limit_verdict_hit"
+			}
+			return nil, selection.closeAfter(&limit)
+		}
+	}
 	if call := indexBuilds[key]; call != nil {
 		indexBuildMu.Unlock()
+		if timing != nil {
+			timing.cache = "wait"
+		}
 		if observer != nil {
 			observer(traceIndexPhaseSingleflightJoined, key)
 		}
+		waitStarted := time.Now()
 		select {
 		case <-call.done:
+			logging.TraceTiming(ctx, "phase=index_wait success=%t elapsed=%s", call.err == nil, time.Since(waitStarted))
 			if call.err == nil {
 				if err := selection.finish(ctx, call.idx); err != nil {
 					indexCache.Delete(key)
@@ -825,6 +919,7 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *t
 			}
 			return call.idx, call.err
 		case <-ctx.Done():
+			logging.TraceTiming(ctx, "phase=index_wait success=false elapsed=%s", time.Since(waitStarted))
 			return nil, ctx.Err()
 		}
 	}
@@ -832,7 +927,12 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *t
 	indexBuilds[key] = call
 	indexBuildMu.Unlock()
 
+	if timing != nil {
+		timing.cache = "build"
+	}
+	parsed := time.Now()
 	call.idx, call.err = parseSelectedFile(ctx, selection, opts)
+	logging.TraceTiming(ctx, "phase=parse success=%t elapsed=%s", call.err == nil, time.Since(parsed))
 	if call.err == nil && opts.windowed() {
 		if call.err = populateWindowPerfGenerationHeads(ctx, call.idx); call.err != nil {
 			call.idx = nil
@@ -862,7 +962,12 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *t
 	if call.err == nil && cacheable {
 		indexCache.Store(key, call.idx)
 	} else if call.err != nil {
+		limit, limited := call.err.(*IndexEventLimitError)
+		recordLimit := memo != nil && limited && ctx.Err() == nil && selection.validate(ctx) == nil
 		call.err = selection.closeAfter(call.err)
+		if recordLimit && call.err == limit && ctx.Err() == nil {
+			memo.put(memoKey, *limit)
+		}
 		indexCache.Delete(key)
 	}
 	indexBuildMu.Lock()
@@ -1004,7 +1109,9 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 	if out.ScannedLineCount < 0 {
 		out.ScannedLineCount = 0
 	}
-	seedPerfGenerationHeadsFromFull(out, full)
+	if !full.Windowed {
+		seedPerfGenerationHeadsFromFull(out, full)
+	}
 	return out
 }
 

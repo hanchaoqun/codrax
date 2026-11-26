@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/pcapinput"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -92,12 +94,27 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	source = filepath.Clean(source)
+	started := time.Now()
 	held, original, err := filegeneration.OpenRegularReadOnly(source)
 	if err != nil {
 		return nil, err
 	}
 	owned := opts.streamDirectory
 	sourceFormat, queryFormat := "", "text"
+	var probeElapsed, conversionElapsed time.Duration
+	if logging.IsDebug() {
+		defer func() {
+			queryID := ""
+			previewBytes := 0
+			if material != nil {
+				queryID = logging.TraceTimingAttachment(material.QueryPath())
+				previewBytes = len(material.Preview())
+			}
+			logging.TraceTiming(ctx, "phase=prepare attachment=%q query_attachment=%q format=%q query_format=%q physical_bytes=%d preview_bytes=%d probe_elapsed=%s convert_elapsed=%s success=%t elapsed=%s",
+				logging.TraceTimingAttachment(source), queryID, sourceFormat, queryFormat, original.Size(), previewBytes,
+				probeElapsed, conversionElapsed, err == nil, time.Since(started))
+		}()
+	}
 	defer func() {
 		// A source replacement dominates any provisional format verdict.
 		if identityErr := validateHeld(source, held, original); identityErr != nil {
@@ -124,9 +141,11 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		probeSize = attachment.TextProbeBytes
 	}
 	probe := make([]byte, int(probeSize))
+	probeStarted := time.Now()
 	if _, err := io.ReadFull(io.NewSectionReader(held, 0, probeSize), probe); err != nil {
 		return nil, err
 	}
+	probeElapsed = time.Since(probeStarted)
 	kind, binary := binaryCandidate(probe)
 	sourceFormat = kind
 	if !binary {
@@ -217,7 +236,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if existingDB {
 		result, err = hitraceconv.PrepareExistingTraceDB(ctx, convertOptions)
 	} else {
+		conversionStarted := time.Now()
 		result, err = convert(ctx, convertOptions)
+		conversionElapsed = time.Since(conversionStarted)
 	}
 	if err != nil {
 		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}

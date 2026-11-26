@@ -13,11 +13,12 @@ type traceMarkerTreeStateIndex struct {
 }
 
 type traceMarkerTreeStateCache struct {
-	idx         *Index
-	query       Query
-	cache       *chainQueryCache
-	owners      map[int]*traceMarkerTreeStateIndex
-	unavailable string
+	idx                    *Index
+	query                  Query
+	cache                  *chainQueryCache
+	owners                 map[int]*traceMarkerTreeStateIndex
+	unavailable            string
+	schedulerWindowAudited bool
 }
 
 func newTraceMarkerTreeStateCache(idx *Index, q Query, safe bool) *traceMarkerTreeStateCache {
@@ -48,7 +49,9 @@ func (c *traceMarkerTreeStateCache) owner(n TraceMarkerTreeNode) *traceMarkerTre
 	}
 	owner := c.query
 	owner.PID, owner.Thread, owner.ThreadInput, owner.TargetScope = n.Thread.PID, "", "", TargetScopeThread
-	tl := c.cache.timeline(owner, n.Thread)
+	eventIDs, eventIndexed := c.cache.eventsForThread(n.Thread)
+	blockedIDs, blockedIndexed := c.cache.blockedReasonsForThread(n.Thread)
+	tl := threadTimelineForTarget(c.idx, owner, n.Thread, eventIDs, blockedIDs, eventIndexed && blockedIndexed, c.schedulerWindowAudited)
 	state := &traceMarkerTreeStateIndex{lanes: map[ThreadState]*traceMarkerTreeIntegral{}}
 	c.owners[n.Thread.PID] = state
 	if tl.IntegrityFailure != "" {

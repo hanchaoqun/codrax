@@ -350,6 +350,9 @@ func schedulerHeadForQuery(idx *Index, q Query) *schedulerHeadSnapshot {
 	if q.runCancel.fired() {
 		return nil
 	}
+	if head := q.statsSchedulerHead; head != nil && head.BoundaryTs == q.TimeStart {
+		return head
+	}
 	base := idx.schedulerHeadAt(q.TimeStart)
 	if base == nil {
 		return nil

@@ -294,6 +294,25 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
+	if logging.IsDebug() && ctx != nil {
+		copied := *ctx
+		copied.Ctx = logging.TraceTimingCall(contextFromBus(ctx))
+		ctx = &copied
+	}
+	timingCtx := contextFromBus(ctx)
+	callStart := time.Now()
+	view, sourceID, selector, reuse := "", "", "", ""
+	origin := "tool"
+	if logging.IsDebug() && ctx != nil && ctx.Mutable != nil && ctx.Mutable.SystemTraceSupplementInProgress() {
+		origin = "system_supplement"
+	}
+	defer func() {
+		if out.ReusedFromRunMemo {
+			reuse = "result_memo"
+		}
+		logging.TraceTiming(timingCtx, "phase=query_done origin=%q view=%q attachment=%q selector=%q reuse=%q success=%t elapsed=%s",
+			origin, view, sourceID, selector, reuse, out.Success && executeErr == nil, time.Since(callStart))
+	}()
 	var sourceAdaptation *traceQuerySourceAdaptation
 	var sourceRead types.TraceQuerySourceReadRef
 	var preparedMaterial *attachment.TraceMaterial
@@ -353,8 +372,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
 	}
 	if p.Comparison != nil {
+		view = "comparison"
 		return t.executeMeasurementPair(ctx, params, p.Comparison)
 	}
+	view = p.View
 	if reject := traceQueryArchiveSelectionInput(p); reject != nil {
 		return *reject, nil
 	}
@@ -484,7 +505,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		return traceQueryInputAdmissionFailure("", err), nil
 	}
+	prepareStart := time.Now()
 	path, sourceLabel, material, reject := resolveReadyTraceQuerySource(ctx, p)
+	if logging.IsDebug() {
+		sourceID = logging.TraceTimingAttachment(path)
+		originalID := sourceID
+		if material != nil {
+			originalID = logging.TraceTimingAttachment(material.SourcePath())
+		}
+		logging.TraceTiming(timingCtx, "phase=query_source view=%q source=%q attachment=%q original_attachment=%q success=%t elapsed=%s",
+			view, sourceLabel, sourceID, originalID, reject == nil, time.Since(prepareStart))
+	}
 	preparedMaterial, preparedView = material, p.View
 	if reject == nil && ctx != nil && ctx.Mutable != nil {
 		sourceRead = ctx.Mutable.PrepareTraceQuerySourceRead(path)
@@ -541,6 +572,14 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	}
 	window := normalizedTraceQueryWindow(p)
 	windowReplayParams = traceQueryWindowReplayParams(p, path, sourceLabel, params)
+	if logging.IsDebug() {
+		if len(windowReplayParams) != 0 {
+			digest := sha256.Sum256(windowReplayParams)
+			selector = fmt.Sprintf("%x", digest[:8])
+		}
+		logging.TraceTiming(timingCtx, "phase=query_selector view=%q attachment=%q selector=%q tid=%d start=%.9f end=%.9f line_start=%d line_end=%d",
+			view, sourceID, selector, p.PID.Int(), window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
+	}
 	intervalNavigationParams = traceQueryIntervalNavigationParams(p, windowReplayParams, params)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
@@ -635,7 +674,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		buildStart := time.Now()
 		logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
 			p.View, sourceLabel, path, window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
-		idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, p, window.RequestedStart, window.RequestedEnd)
+		idx, err := traceQueryBuildIndex(traceQueryIndexContext(ctx), path, p, window.RequestedStart, window.RequestedEnd)
 		if err != nil {
 			logging.Debug("[trace_query] phase=build_index view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(buildStart), err)
 			if limit, ok := t.traceQueryIndexLimitResult(ctx, p, path, sourceLabel, err); ok {
@@ -663,9 +702,13 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 			p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd, heapAlloc, heapSys, gcCount)
 		q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd).WithRawPerfRecordBinding(rawRecordBinding)
+		if ctx != nil && ctx.Mutable != nil && ctx.PipelineStage == types.StageExplore {
+			q = q.WithRunContext(traceQueryIndexContext(ctx))
+		}
 		runStart := time.Now()
 		logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
 		result := tracequery.Run(idx, q)
+		logging.TraceTiming(timingCtx, "phase=view view=%q attachment=%q events=%d elapsed=%s", q.View, sourceID, len(idx.Events), time.Since(runStart))
 		heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
 		logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
 		traceQueryAppendCallCaveats(&result, callCaveat)
@@ -679,12 +722,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		result = traceQueryPriorityResultForPublication(result)
 		storeStart := time.Now()
 		payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
+		logging.TraceTiming(timingCtx, "phase=serialize view=%q attachment=%q bytes=%d elapsed=%s", q.View, sourceID, len(payload), time.Since(storeStart))
 		if marshalFailure != nil {
 			return *marshalFailure, nil
 		}
+		writeStart := time.Now()
 		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+		logging.TraceTiming(timingCtx, "phase=write_payload view=%q attachment=%q bytes=%d elapsed=%s", q.View, sourceID, len(payload), time.Since(writeStart))
+		summaryStart := time.Now()
 		summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
 		preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+		logging.TraceTiming(timingCtx, "phase=summary_and_blob view=%q attachment=%q elapsed=%s", q.View, sourceID, time.Since(summaryStart))
 		if rawRef == "" {
 			rawRef = payloadRef
 		}
@@ -1460,20 +1508,33 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 	}
 	summary := traceQueryIndexLimitSummary(path, sourceLabel, p, limitErr)
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
-	if cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, tracequery.StreamStateClusterDefaultMax); clusterErr == nil && cluster.WindowStats != nil {
+	started := time.Now()
+	cluster, clusterErr := tracequery.StreamStateCluster(contextFromBus(ctx), path, q, tracequery.StreamStateClusterDefaultMax)
+	logging.TraceTiming(contextFromBus(ctx), "phase=view view=%q execution=stream_state_cluster_fallback success=%t elapsed=%s",
+		p.View, clusterErr == nil && cluster.WindowStats != nil, time.Since(started))
+	if clusterErr == nil && cluster.WindowStats != nil {
 		cluster.Caveats = append([]string{
 			fmt.Sprintf("index_event_limit_fallback=true; original_view=%s parsed_events=%d max_events=%d%s",
 				sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents,
 				sanitizeForBanner(limitErr.RecoveryParams())),
 		}, cluster.Caveats...)
 		cluster = traceQueryPriorityResultForPublication(cluster)
+		serializeStarted := time.Now()
 		payload, marshalFailure := traceQueryMarshalPayload(t.Name(), cluster)
+		logging.TraceTiming(contextFromBus(ctx), "phase=serialize view=%q execution=stream_state_cluster_fallback bytes=%d elapsed=%s",
+			p.View, len(payload), time.Since(serializeStarted))
 		if marshalFailure != nil {
 			return *marshalFailure, true
 		}
+		writeStarted := time.Now()
 		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-state-cluster.json", string(payload))
+		logging.TraceTiming(contextFromBus(ctx), "phase=write_payload view=%q execution=stream_state_cluster_fallback bytes=%d elapsed=%s",
+			p.View, len(payload), time.Since(writeStarted))
+		summaryStarted := time.Now()
 		summary += "\n" + traceQuerySummary(cluster, p, sourceLabel, payloadRef)
 		preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+		logging.TraceTiming(contextFromBus(ctx), "phase=summary_and_blob view=%q execution=stream_state_cluster_fallback elapsed=%s",
+			p.View, time.Since(summaryStarted))
 		if rawRef == "" {
 			rawRef = payloadRef
 		}
@@ -1794,7 +1855,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	buildStart := time.Now()
 	logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s start pattern=%s time_start=%.6f time_end=%.6f matches=%d",
 		p.View, path, pattern, start, end, len(searchResult.Events))
-	idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, boundedP, start, end)
+	idx, err := traceQueryBuildIndex(traceQueryIndexContext(ctx), path, boundedP, start, end)
 	if err != nil {
 		logging.Debug("[trace_query] phase=auto_window_build view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(buildStart), err)
 		if limit, ok := t.traceQueryIndexLimitResult(ctx, boundedP, path, sourceLabel, err); ok {
@@ -2152,7 +2213,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		boundedP.TimeEnd = traceSecondFromAutoWindow(candidate.End)
 		logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d token=%s time_start=%.6f time_end=%.6f",
 			mode, p.View, path, candidate.Rank, candidate.Token, candidate.Start, candidate.End)
-		idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, boundedP, candidate.Start, candidate.End)
+		idx, err := traceQueryBuildIndex(traceQueryIndexContext(ctx), path, boundedP, candidate.Start, candidate.End)
 		if err != nil {
 			logging.Debug("[trace_query] phase=auto_window_candidate_build mode=%s view=%s path=%s rank=%d failed err=%v", mode, p.View, path, candidate.Rank, err)
 			children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Error: err.Error()})
@@ -3000,10 +3061,12 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 		return nil, err
 	}
 	if !traceQueryHasExplicitIndexWindow(p) {
+		logging.TraceTiming(ctx, "phase=index_route view=%q policy=full reason=no_explicit_window bytes=%d", p.View, info.Size())
 		return tracequery.BuildIndex(ctx, path)
 	}
 	opts := traceQueryWindowedIndexOptions(p, timeStart, timeEnd)
 	if info.Size() < traceQueryWindowedIndexMinBytes {
+		logging.TraceTiming(ctx, "phase=index_route view=%q policy=full_first reason=below_byte_threshold bytes=%d threshold=%d", p.View, info.Size(), traceQueryWindowedIndexMinBytes)
 		// Preserve the small-file full-index fast path. Byte size is not an
 		// event-density guarantee: only a typed event-budget refusal authorizes
 		// a retry against the request's already explicit window. Capture the
@@ -3025,12 +3088,14 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 		// a small file happened to be dense. Every retry inherits the refused
 		// build's actual cap, including relation/padding fallbacks.
 		opts.MaxEvents = limitErr.MaxEvents
+		logging.TraceTiming(ctx, "phase=index_route view=%q policy=window_retry reason=event_limit scoped_pid=%d max_events=%d", p.View, opts.ScopePID, opts.MaxEvents)
 		idx, buildErr = traceQueryBuildWindowedIndex(ctx, path, p, timeStart, timeEnd, opts)
 		if err := version.ValidateContext(ctx, path); err != nil {
 			return nil, err
 		}
 		return idx, buildErr
 	}
+	logging.TraceTiming(ctx, "phase=index_route view=%q policy=window_first reason=at_byte_threshold bytes=%d threshold=%d", p.View, info.Size(), traceQueryWindowedIndexMinBytes)
 	return traceQueryBuildWindowedIndex(ctx, path, p, timeStart, timeEnd, opts)
 }
 
@@ -3066,7 +3131,7 @@ func traceQueryBuildWindowedIndex(ctx context.Context, path string, p traceQuery
 	// and the smaller full-index recovery policy remain distinct.
 	wantRelationScoped := opts.RelationScoped
 	opts.RelationScoped = false
-	idx, buildErr := tracequery.BuildIndexWithOptions(ctx, path, opts)
+	idx, buildErr := tracequery.BuildIndexWithOptions(tracequery.UseFrameWindowIndex(ctx, p.View), path, opts)
 	if wantRelationScoped && traceQuerySoleIndexLimit(buildErr) != nil {
 		opts.RelationScoped = true
 		idx, buildErr = tracequery.BuildIndexWithOptions(ctx, path, opts)
@@ -7953,6 +8018,16 @@ func contextFromBus(ctx *types.BusContext) context.Context {
 		return context.Background()
 	}
 	return ctx.Context()
+}
+
+func traceQueryIndexContext(ctx *types.BusContext) context.Context {
+	queryCtx := contextFromBus(ctx)
+	if ctx != nil && ctx.Mutable != nil && (ctx.PipelineStage == types.StageExplore || ctx.Mutable.SystemTraceSupplementInProgress()) {
+		// Supplement views still compute their own results. Only the index
+		// builder can reuse a validated window or event-limit failure.
+		return tracequery.UseIndexLimitMemo(queryCtx)
+	}
+	return queryCtx
 }
 
 func ctxWorkDir(ctx *types.BusContext) string {

@@ -118,7 +118,7 @@ func TestBuildIndexSingleflight_JoinerWaitsAndSharesResult(t *testing.T) {
 	}
 	got := make(chan *Index, 1)
 	go func() {
-		idx, _ := buildIndexSingleflight(context.Background(), key, selection, BuildOptions{}, false, nil)
+		idx, _ := buildIndexSingleflight(context.Background(), key, selection, BuildOptions{}, false, nil, nil)
 		got <- idx
 	}()
 	select {

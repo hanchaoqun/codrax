@@ -126,6 +126,9 @@ func (c *traceMarkerTreeCollector) build(idx *Index, q Query, schedulerSafe bool
 		out.Coverage = "partial_topology"
 	}
 	states := newTraceMarkerTreeStateCache(idx, q, schedulerSafe)
+	// ComputeWindowStats has audited all scheduler lanes and incarnations
+	// for this exact window; an owner's narrower TID lane shares that proof.
+	states.schedulerWindowAudited = schedulerSafe
 	for i := range c.entries {
 		if q.runCancel.tick() {
 			return nil

@@ -36,8 +36,9 @@ type ToolCall struct {
 
 // TokenUsage tracks token consumption.
 type TokenUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens       int  `json:"input_tokens"`
+	OutputTokens      int  `json:"output_tokens"`
+	CachedInputTokens *int `json:"cached_input_tokens,omitempty"`
 }
 
 // Message represents a conversation message.

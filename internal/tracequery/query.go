@@ -11,9 +11,11 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -294,7 +296,26 @@ func Run(idx *Index, q Query) Result {
 			return ChainResult{}
 		}
 		if !cachedChainOK {
-			cachedChain = buildWakeupChainWithCache(idx, q, getChainQueryCache())
+			var memo *indexLimitMemo
+			status := "built"
+			started := time.Now()
+			if cancel != nil {
+				memo, _ = cancel.ctx.Value(activeIndexLimitMemoKey{}).(*indexLimitMemo)
+			}
+			if memo != nil && q.View == "wakeup_chain" {
+				cachedChain, cachedChainOK = memo.loadFrameChain(idx, frameChainSelector(q))
+			}
+			if cachedChainOK {
+				status = "reused"
+			} else {
+				cachedChain = buildWakeupChainWithCache(idx, q, getChainQueryCache())
+				if memo != nil && q.View == "root_cause_rank" && !cancel.sample() {
+					memo.storeFrameChain(idx, frameChainSelector(q), cachedChain)
+				}
+			}
+			if cancel != nil {
+				logging.TraceTiming(cancel.ctx, "phase=wakeup_chain_compute view=%q status=%q elapsed=%s", q.View, status, time.Since(started))
+			}
 			cachedChainOK = true
 		}
 		return cachedChain
@@ -2169,7 +2190,7 @@ func perfSampleHasTypedThreadIdentity(ev Event) bool {
 func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	q = ensureQueryFlavor(idx, q)
 	resolution := resolveThreadSelection(idx, q)
-	res := threadTimelineForTarget(idx, q, resolution.Thread, nil, nil, false)
+	res := threadTimelineForTarget(idx, q, resolution.Thread, nil, nil, false, false)
 	if caveat := threadResolutionCaveat(idx, q); caveat != "" {
 		res.Caveats = append([]string{caveat}, res.Caveats...)
 	}
@@ -2202,7 +2223,7 @@ func schedulerArtifactTailCaveat(q Query, artifactEnd float64) string {
 		q.TimeEnd, artifactEnd, (q.TimeEnd-artifactEnd)*1000)
 }
 
-func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
+func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents, schedulerWindowAudited bool) TimelineResult {
 	q = withSchedulerWakeCompletions(idx, q, target.PID, eventIDs, useIndexedEvents)
 	res := TimelineResult{
 		Thread: target,
@@ -2218,21 +2239,23 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	}
 	res.Caveats = append(res.Caveats, blockedReasonIntegrityCaveats(idx, q, target.PID)...)
 	res.Caveats = append(res.Caveats, blockedReasonHeadCarryCaveats(idx, q, target.PID)...)
-	if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
-		res.IntegrityFailure = "thread_incarnation_conflict"
-		if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
-			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_selector_spans_incarnations"}
+	if !schedulerWindowAudited {
+		if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
+			res.IntegrityFailure = "thread_incarnation_conflict"
+			if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+				res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_selector_spans_incarnations"}
+			}
+			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; one numeric TID denotes multiple tasks inside the selected window, so target intervals are omitted; split the query at boundary_ts/boundary_line")
+			return res
 		}
-		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; one numeric TID denotes multiple tasks inside the selected window, so target intervals are omitted; split the query at boundary_ts/boundary_line")
-		return res
-	}
-	if failure := schedulerStateIntegrityFailureForQuery(idx, q, target.PID); failure != nil {
-		res.IntegrityFailure = failure.code
-		if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
-			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: failure.code}
+		if failure := schedulerStateIntegrityFailureForQuery(idx, q, target.PID); failure != nil {
+			res.IntegrityFailure = failure.code
+			if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+				res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: failure.code}
+			}
+			res.Caveats = append(res.Caveats, "scheduler_duration_fail_closed=true; "+failure.reason()+"; elapsed thread-state intervals are omitted because scheduler input completeness and same-lane ordering are not provable")
+			return res
 		}
-		res.Caveats = append(res.Caveats, "scheduler_duration_fail_closed=true; "+failure.reason()+"; elapsed thread-state intervals are omitted because scheduler input completeness and same-lane ordering are not provable")
-		return res
 	}
 	var runningStart float64
 	var runningOpen bool
@@ -2811,6 +2834,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.Caveats = append(stats.Caveats, cpuInputIntegrityCaveats(idx, q)...)
 	stats.Caveats = append(stats.Caveats, traceMarkIntegrityCaveats(idx, q)...)
 	stats.Caveats = append(stats.Caveats, blockedReasonIntegrityCaveats(idx, q, 0)...)
+	q.statsSchedulerHead = schedulerHeadForQuery(idx, q)
 	stats.Caveats = append(stats.Caveats, blockedReasonHeadCarryCaveats(idx, q, 0)...)
 	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
 	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
@@ -25945,7 +25969,7 @@ func (c *chainQueryCache) timeline(q Query, thread ThreadRef) TimelineResult {
 	}
 	eventIDs, eventIndexed := c.eventsForThread(thread)
 	blockedIDs, blockedIndexed := c.blockedReasonsForThread(thread)
-	tl := threadTimelineForTarget(c.idx, q, thread, eventIDs, blockedIDs, eventIndexed && blockedIndexed)
+	tl := threadTimelineForTarget(c.idx, q, thread, eventIDs, blockedIDs, eventIndexed && blockedIndexed, false)
 	c.timelineByKey[key] = cloneTimelineResult(tl)
 	return tl
 }

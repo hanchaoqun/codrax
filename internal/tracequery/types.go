@@ -1204,6 +1204,8 @@ type Query struct {
 	// nil (tracediag lane, direct builder calls, tests) keeps every scan
 	// byte-identical.
 	runCancel *runCancelState
+	// Immutable head for this stats build's window, shared by its subviews.
+	statsSchedulerHead *schedulerHeadSnapshot
 	// schedulerWakeCompletions is a query-local, non-serialized index of
 	// precisely paired waking/completed-wake metadata. It never moves a
 	// measured state boundary or grants a new causal edge.

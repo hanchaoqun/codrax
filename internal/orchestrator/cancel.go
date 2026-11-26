@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // CancelToken is the cooperative cancellation handle the orchestrator
@@ -50,7 +52,8 @@ const (
 // one per Run; idle tokens (between Runs) are nil.
 func NewCancelToken() *CancelToken {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &CancelToken{ctx: ctx, cancel: cancel}
+	// Parallel Explorer workers also derive their context from this token.
+	return &CancelToken{ctx: tracequery.WithIndexLimitMemo(ctx), cancel: cancel}
 }
 
 // Cancel marks the token as canceled. Safe to call from any goroutine,

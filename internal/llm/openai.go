@@ -647,7 +647,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	return Response{}, errors.New("llm stream auth retry exhausted")
 }
 
-func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), onStreamActivity func(StreamActivity)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), onStreamActivity func(StreamActivity)) (resp Response, err error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending useful stream progress for too
@@ -696,6 +696,25 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	}
 
 	preHeaderStart := time.Now()
+	var firstOutput, streamEnd time.Time
+	var firstOutputKind StreamActivityKind = "none"
+	defer func() {
+		if streamEnd.IsZero() {
+			streamEnd = time.Now()
+		}
+		ttft, afterFirstOutput, cached := "unknown", "unknown", "unknown"
+		if !firstOutput.IsZero() {
+			ttft = fmt.Sprint(firstOutput.Sub(preHeaderStart).Milliseconds())
+			afterFirstOutput = fmt.Sprint(streamEnd.Sub(firstOutput).Milliseconds())
+		}
+		if resp.Usage.CachedInputTokens != nil {
+			cached = fmt.Sprint(*resp.Usage.CachedInputTokens)
+		}
+		logging.Debug("[llm/stream] timing: model=%s ok=%t started_at=%s first_output_kind=%s ttft_ms=%s after_first_output_ms=%s total_ms=%d input_tokens=%d output_tokens=%d cached_input_tokens=%s",
+			o.model, err == nil, preHeaderStart.UTC().Format(time.RFC3339Nano), firstOutputKind,
+			ttft, afterFirstOutput, streamEnd.Sub(preHeaderStart).Milliseconds(),
+			resp.Usage.InputTokens, resp.Usage.OutputTokens, cached)
+	}()
 	var preHeaderFired atomic.Bool
 	preHeaderDone := make(chan struct{})
 	preHeaderTimer := time.AfterFunc(firstByteTimeout, func() {
@@ -825,7 +844,17 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		}
 	}()
 
-	resp, err := parseSSEStreamTrackedWithActivity(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, onStreamActivity)
+	resp, err = parseSSEStreamTrackedWithActivity(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, func(activity StreamActivity) {
+		if firstOutput.IsZero() && activity.Bytes > 0 &&
+			(activity.Kind == StreamActivityContent || activity.Kind == StreamActivityToolCall) {
+			firstOutput = time.Now()
+			firstOutputKind = activity.Kind
+		}
+		if onStreamActivity != nil {
+			onStreamActivity(activity)
+		}
+	})
+	streamEnd = time.Now()
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -1338,10 +1367,7 @@ scan:
 		Content:          contentBuf.String(),
 		ReasoningContent: reasoningBuf.String(),
 		StopReason:       mapFinishReason(finishReason),
-		Usage: TokenUsage{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-		},
+		Usage:            usage.tokenUsage(),
 	}
 	for _, idx := range toolCallOrder {
 		tc := toolCalls[idx]
@@ -1453,8 +1479,24 @@ type openaiChoice struct {
 }
 
 type openaiUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens       int `json:"prompt_tokens"`
+	CompletionTokens   int `json:"completion_tokens"`
+	PromptTokenDetails struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	PromptCacheHitTokens *int `json:"prompt_cache_hit_tokens"`
+}
+
+func (u openaiUsage) tokenUsage() TokenUsage {
+	cached := u.PromptTokenDetails.CachedTokens
+	if cached == nil {
+		cached = u.PromptCacheHitTokens
+	}
+	return TokenUsage{
+		InputTokens:       u.PromptTokens,
+		OutputTokens:      u.CompletionTokens,
+		CachedInputTokens: cached,
+	}
 }
 
 // --- conversion ---
@@ -1736,10 +1778,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 		Content:          openAIResponseContentString(choice.Message.Content),
 		ReasoningContent: choice.Message.ReasoningContent,
 		StopReason:       mapFinishReason(choice.FinishReason),
-		Usage: TokenUsage{
-			InputTokens:  oResp.Usage.PromptTokens,
-			OutputTokens: oResp.Usage.CompletionTokens,
-		},
+		Usage:            oResp.Usage.tokenUsage(),
 	}
 
 	// Convert tool calls

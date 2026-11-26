@@ -189,10 +189,11 @@ func TestTraceMarkerTreeStateIntegralScalesByOwner(t *testing.T) {
 	q := normalizeQuery(idx, Query{TimeStart: 1, TimeEnd: 1.01})
 	cache := newTraceMarkerTreeStateCache(idx, q, true)
 	node := TraceMarkerTreeNode{SourcePath: idx.Path, Thread: ThreadRef{PID: 7, Comm: "task"}}
+	owner := cache.owner(node)
 	for i := 0; i < 100; i++ {
 		cache.account(node, []TimeWindow{{StartTs: 1 + float64(i)*.00001, EndTs: 1.01}})
 	}
-	if cache.cache == nil || len(cache.cache.timelineByKey) != 1 || len(cache.owners) != 1 {
+	if len(cache.owners) != 1 || cache.owners[node.Thread.PID] != owner || owner.unavailable != "" {
 		t.Fatal("nested intervals rebuilt owner timelines")
 	}
 	integral := traceMarkerTreeIntegral{}

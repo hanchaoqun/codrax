@@ -729,6 +729,8 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+var cliProcessStarted = time.Now()
+
 // Execute runs the root command.
 func Execute() error {
 	return ExecuteArgs(os.Args[1:])
@@ -852,21 +854,32 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	if request == "" && len(args) > 0 {
 		request = args[0]
 	}
+	if request != "" && logging.IsDebug() {
+		started := time.Now()
+		logging.Debug("[trace_timing] phase=request_start request_pid=%d startup_elapsed=%s", os.Getpid(), started.Sub(cliProcessStarted))
+		defer func() {
+			logging.Debug("[trace_timing] phase=request_done request_pid=%d elapsed=%s", os.Getpid(), time.Since(started))
+		}()
+	}
 
 	// Resolve attached log (file / stdin / inline text) before Run so
 	// both CLI single-shot and REPL sticky-log paths share one source.
 	if request != "" {
 		printCLIAttachmentReadPlan(flagLang)
 	}
+	logStarted := time.Now()
 	preparedLog, err := loadPreparedAttachedLog(cmd.Context())
+	logging.TraceTiming(cmd.Context(), "phase=cli_log_attachment preview_bytes=%d success=%t elapsed=%s", len(preparedLog.body), err == nil, time.Since(logStarted))
 	if err != nil {
 		return err
 	}
 	// Prepare both inputs before publishing either attachment. A failed or
 	// canceled trace conversion must not leave partially updated run state.
+	traceStarted := time.Now()
 	preparedTrace, err := loadPreparedAttachedTrace(cmd.Context(), func(event hitraceconv.ProgressEvent) {
 		printCLIStatusLines([]string{traceConvertProgressLine(flagLang, event)})
 	})
+	logging.TraceTiming(cmd.Context(), "phase=cli_trace_attachment preview_bytes=%d success=%t elapsed=%s", len(preparedTrace.body), err == nil, time.Since(traceStarted))
 	if err != nil {
 		return err
 	}
