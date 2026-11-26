@@ -3476,19 +3476,30 @@ func traceCausalProjectionSpanMembersClearOfNesting(nodes []TraceCausalProjectio
 }
 
 // traceCausalProjectionSpanRowsNest is the pair rule of the two functions above.
-// A row without a query window may have been read from the other row's window.
 func traceCausalProjectionSpanRowsNest(a, b TraceCausalProjectionNode) bool {
 	if traceCausalProjectionCanonicalNode(a.Object) != "trace_span" || traceCausalProjectionCanonicalNode(b.Object) != "trace_span" {
 		return false
 	}
-	if traceCausalProjectionIntervalValid(a.QueryWindowStartTs, a.QueryWindowEndTs) &&
-		traceCausalProjectionIntervalValid(b.QueryWindowStartTs, b.QueryWindowEndTs) &&
-		(math.Abs(a.QueryWindowStartTs-b.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
-			math.Abs(a.QueryWindowEndTs-b.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS) {
+	if !traceCausalProjectionSpanRowsShareQueryWindow(a, b) {
 		return false
 	}
 	if a.StartTs == b.StartTs && a.EndTs == b.EndTs {
 		return false
 	}
 	return traceCausalProjectionSpansOverlap(a, b)
+}
+
+// traceCausalProjectionSpanRowsShareQueryWindow is the one query-window rule
+// for two trace-span rows of a thread, read by the nesting rule above and by
+// the containment rule of the capped context buckets. Two rows are separate
+// readings only when each carries a query window and an endpoint differs
+// beyond the same-window tolerance. A row without a query window may have been
+// read from the other row's window, so a missing window never separates them.
+func traceCausalProjectionSpanRowsShareQueryWindow(a, b TraceCausalProjectionNode) bool {
+	if !TraceCausalProjectionWindowPresent(a.QueryWindowStartTs, a.QueryWindowEndTs) ||
+		!TraceCausalProjectionWindowPresent(b.QueryWindowStartTs, b.QueryWindowEndTs) {
+		return true
+	}
+	return math.Abs(a.QueryWindowStartTs-b.QueryWindowStartTs) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+		math.Abs(a.QueryWindowEndTs-b.QueryWindowEndTs) <= traceCausalProjectionFullWindowSameWindowToleranceS
 }

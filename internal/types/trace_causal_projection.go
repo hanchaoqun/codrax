@@ -5543,12 +5543,14 @@ func traceCausalProjectionLimitContextNodesFold(nodes []TraceCausalProjectionNod
 	kept := append([]TraceCausalProjectionNode(nil), seatable[:limit]...)
 	overflow := append([]TraceCausalProjectionNode(nil), seatable[limit:]...)
 	var phases []TraceCausalProjectionNode
-	for _, row := range contained {
-		if traceCausalProjectionSpanRowContainedByAny(row, kept) {
-			phases = append(phases, row)
+	for i, beside := range traceCausalProjectionContainedRowsShown(contained, kept) {
+		if beside {
+			phases = append(phases, contained[i])
 			continue
 		}
-		overflow = append(overflow, row)
+		// Its collection was cut at the cap, so the phase folds with it: the
+		// fold counts it and keeps its evidence id and thread.
+		overflow = append(overflow, contained[i])
 	}
 	out := kept
 	if len(overflow) > 0 {
@@ -5561,8 +5563,8 @@ func traceCausalProjectionLimitContextNodesFold(nodes []TraceCausalProjectionNod
 }
 
 // traceCausalProjectionSplitContainedSpanRows separates the rows recorded inside
-// a longer row of the same thread and query window. A phase shown beside its
-// seated collection takes no seat from another thread's row.
+// a longer row of the same thread and reading. A phase shown beside its seated
+// collection takes no seat from another thread's row.
 func traceCausalProjectionSplitContainedSpanRows(nodes []TraceCausalProjectionNode) (seatable, contained []TraceCausalProjectionNode) {
 	for _, node := range nodes {
 		if traceCausalProjectionSpanRowContainedByAny(node, nodes) {
@@ -5574,8 +5576,35 @@ func traceCausalProjectionSplitContainedSpanRows(nodes []TraceCausalProjectionNo
 	return seatable, contained
 }
 
+// traceCausalProjectionContainedRowsShown reports, for each contained row,
+// whether a shown row contains it: a seated row, or a contained row already
+// shown beside one. The rows are decided from the longest down, so every row is
+// decided after the rows that can contain it. A row without a query window
+// shares the window of both a row of one window and a row of another, so the
+// innermost of three such rows is reached only through the middle one.
+func traceCausalProjectionContainedRowsShown(contained, seated []TraceCausalProjectionNode) []bool {
+	order := make([]int, len(contained))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := contained[order[i]], contained[order[j]]
+		return a.EndTs-a.StartTs > b.EndTs-b.StartTs
+	})
+	shown := append([]TraceCausalProjectionNode(nil), seated...)
+	beside := make([]bool, len(contained))
+	for _, idx := range order {
+		if traceCausalProjectionSpanRowContainedByAny(contained[idx], shown) {
+			beside[idx] = true
+			shown = append(shown, contained[idx])
+		}
+	}
+	return beside
+}
+
 // traceCausalProjectionSpanRowContainedByAny reports a row strictly inside a
-// longer row of the same thread that was read from the same query window. The
+// longer row of the same thread and the same reading (the shared query-window
+// rule: a row without a query window never proves a different one). The
 // interval of a merged family only spans its occurrences, so it contains nothing.
 func traceCausalProjectionSpanRowContainedByAny(row TraceCausalProjectionNode, nodes []TraceCausalProjectionNode) bool {
 	if traceCausalProjectionCanonicalNode(row.Object) != "trace_span" ||
@@ -5589,8 +5618,7 @@ func traceCausalProjectionSpanRowContainedByAny(row TraceCausalProjectionNode, n
 			other.MergedCount > 1 ||
 			strings.TrimSpace(other.Subject) != strings.TrimSpace(row.Subject) ||
 			!traceCausalProjectionIntervalValid(other.StartTs, other.EndTs) ||
-			math.Abs(other.QueryWindowStartTs-row.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
-			math.Abs(other.QueryWindowEndTs-row.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS {
+			!traceCausalProjectionSpanRowsShareQueryWindow(other, row) {
 			continue
 		}
 		if other.StartTs <= row.StartTs && row.EndTs <= other.EndTs && other.EndTs-other.StartTs > row.EndTs-row.StartTs {
