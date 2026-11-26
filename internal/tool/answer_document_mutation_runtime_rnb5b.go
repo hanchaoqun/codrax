@@ -250,6 +250,7 @@ func runtimeTraceProjBuildMicroAnchorFoldRow(group []*runtimeTraceProjTreeRow) r
 		memberNodes = append(memberNodes, member.Node)
 	}
 	node.BlockedReasonCallerShares, node.BlockedReasonUnprovenMS = types.TraceCausalProjectionFoldBlockedReasonCauses(memberNodes)
+	node.MergedRecordsWait = types.TraceCausalProjectionMembersRecordWait(memberNodes)
 	if uniformStateOK && uniformState != "" {
 		node.StateKind = uniformState // U4: 全员一致态词保留
 	}

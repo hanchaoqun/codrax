@@ -255,8 +255,10 @@ func consumer(n string) bool { _, ok := semanticPlatformVocabularyLookup(n); ret
 		// The one stance predicate ("this marker records a wait") feeds the
 		// family key, the own-work bar, the deterministic-running lane, the
 		// own-work on-CPU share and the wait-lane bar: the same question in
-		// five places that must agree.
-		"semanticSpanRecordsWait": {"FoldSemanticSpanFamilies", "semanticSpanIsTargetOwnWork", "targetSemanticRunningMs", "stampOwnWorkOnCPU", "semanticSpanAdmitsHostEdgeLane"},
+		// five places that must agree. init hands the same predicate to the
+		// projection package, where every reader lane and every merge of
+		// projection rows asks it.
+		"semanticSpanRecordsWait": {"init", "FoldSemanticSpanFamilies", "semanticSpanIsTargetOwnWork", "targetSemanticRunningMs", "stampOwnWorkOnCPU", "semanticSpanAdmitsHostEdgeLane"},
 		"TraceSpanVocabulary":     {},
 		// The advisory naming-drift signal: two caveat builders and the
 		// exported census wrapper. No lane, tier, gate or score reads it.
@@ -313,11 +315,19 @@ func hmc376ExportedReferences(file *ast.File, symbols map[string]bool) (counts m
 	return counts, dotImport
 }
 
-// The exported description has two display consumers outside this package: the
-// zero-model trace census, and the running breakdown sentence, which reads the
-// stance to keep a recorded wait out of running time. Neither gates or ranks
-// anything, so each reference is pinned to its file and function, one by one.
-// (The advisory wrapper beside it has the census alone.)
+// The exported description has one consumer outside this package: the
+// zero-model trace census, which gates and ranks nothing. Its references are
+// pinned to their file and function, one by one. (The advisory wrapper beside
+// it has the census alone too.)
+//
+// RE-BASED: the reader's running breakdown used to be a second consumer. It
+// looked the vocabulary up by name to keep a recorded wait out of running
+// time, which is a second decision of the stance beside the engine's own and
+// disagreed with it on every wait a built-in arm classifies. The reader now
+// asks the engine's registered stance predicate, whose consumers are pinned
+// beside it (TestHMC378RowStanceConsumersPinned, package types). Kept: no
+// gate, completion path or score reads the exported description, and nothing
+// outside the census reads it at all.
 func TestHMC376ExportedVocabularyHasOnlyTheCensusConsumer(t *testing.T) {
 	symbols := map[string]bool{"TraceSpanVocabulary": true, "TraceSpanNearMissesSemanticWork": true}
 
@@ -365,7 +375,6 @@ var bound = TraceSpanVocabulary
 	}
 
 	want := map[string]map[string]int{
-		"tool/answer_document_mutation_runtime_tree.go": {"TraceSpanVocabulary in runtimeTraceProjSemanticRowRecordsWait": 1},
 		"tracediag/census.go": {
 			"TraceSpanVocabulary in renderFormatCensus":             1,
 			"TraceSpanNearMissesSemanticWork in renderFormatCensus": 1,

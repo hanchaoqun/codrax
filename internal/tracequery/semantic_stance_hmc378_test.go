@@ -1,6 +1,10 @@
 package tracequery
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 // The stance of a classified marker — does the recording thread execute the
 // work, or is it parked until someone else's work ends — is a property of the
@@ -163,5 +167,24 @@ func TestHMC378StanceDecisionIsTotalOnClassifiedNames(t *testing.T) {
 		if got := traceSpanSemanticStance(c.name); got != c.want {
 			t.Errorf("%q: stance %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// The projection package holds no classifier of its own: it asks the predicate
+// this package registers, so a projection row and the engine row it was made
+// from can never have two stances.
+func TestHMC378ProjectionRowsReadTheEngineStance(t *testing.T) {
+	for _, name := range []string{
+		"GC: Wait For Completion Alloc", "H:SuspendTime::WaitGCFinished", "WaitForGcToComplete", "wait_for_gc_to_complete",
+		"GC: Wait For Completion collector", "SuspendAllForGC", "H:FullGC::RunPhases;GCReason2", "VerifyClass com.example.Foo",
+		"Choreographer#doFrame", "",
+	} {
+		node := types.TraceCausalProjectionNode{Subject: "main-100", SpanName: name}
+		if got, want := types.TraceCausalProjectionNodeRecordsWait(node), semanticSpanRecordsWait(name); got != want {
+			t.Errorf("%q: the projection row records a wait = %v, the engine = %v", name, got, want)
+		}
+	}
+	if !types.TraceCausalProjectionNodeRecordsWait(types.TraceCausalProjectionNode{SpanName: "WaitForGcToComplete"}) {
+		t.Fatal("the engine's predicate is not registered: a projection row of a recorded wait reads as executed work")
 	}
 }

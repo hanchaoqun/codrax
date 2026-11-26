@@ -1200,6 +1200,15 @@ type TraceCausalProjectionNode struct {
 	// never ran. Display-side merges (aggregate ×N, dedup folds, family
 	// merges) never set this bit.
 	MergedWireFold bool `json:"merged_wire_fold,omitempty"`
+	// MergedRecordsWait is the stance of a merged row: every row it merged
+	// records its thread waiting for other work, so the row's value is waiting
+	// time (TraceCausalProjectionMembersRecordWait). A merged row carries the
+	// span name of one member, or none on a cross-thread fold, so the name
+	// cannot say it; each merge decides it from all its members and readers
+	// ask TraceCausalProjectionNodeRecordsWait. In-process only, same contract
+	// as SameFactRankBoards: the projection is recompiled from records and
+	// never restored from JSON.
+	MergedRecordsWait bool `json:"-"`
 	// MergedValuelessCount (G12-ENG 修根, §29.1,
 	// real_trace_campaign_20260705.md, 2026-07-09) counts the merged members
 	// whose display value (ImpactMS → CumulativeImpactMS fallback) is NOT
@@ -4712,6 +4721,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// the member range and roster.
 	if folded := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyFoldedRows); folded > 0 {
 		node.MergedCount = folded
+		// The engine folds wakeup impact rows on this lane, never markers, so
+		// a fold re-read from its publication is no row of recorded waits
+		// (MergedRecordsWait stays false).
 		// RNB-5B 件⑥: the typed wire-fold source bit — set ONLY on this
 		// folded_* re-materialization (the engine self-published take-MAX
 		// fold); display-side merges never mint it.
@@ -6269,6 +6281,7 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	fold.MergedMaxMS = maxMS
 	fold.MergedValuelessCount = valuelessRows
 	fold.MergedAllDataGap = allDataGap
+	fold.MergedRecordsWait = TraceCausalProjectionMembersRecordWait(overflow)
 	// DISP-3 (§29.8 P3 "E19 跨窗折叠漏拒%", real_trace_campaign_20260705.md,
 	// 2026-07-09): the fold's member query-window roster rides the row through
 	// the SAME F-2 slot builder the R2 merge uses (one tolerance, no second

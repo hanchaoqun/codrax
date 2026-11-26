@@ -312,6 +312,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// RNB-5B 件⑥ (§29.96.2 终判⑥, 2026-07-15): the wire-fold source bit —
 	// the 单次最大 equation face's typed trigger (coincidence trigger retired).
 	"MergedWireFold": {Status: "internal_gate", Ref: "单次最大来源位(runtimeTraceProjCauseEventFoldRow)"},
+	// The stance of a merged row: every row it merged records its thread
+	// waiting for other work. Each merge decides it from all members; the
+	// reader consumes it through the one decision function, which lists a
+	// semantic row under the occupancy table's recorded-wait group and keeps
+	// it out of the classes the running breakdown counts.
+	"MergedRecordsWait": {Status: "displayed", Token: "TraceCausalProjectionNodeRecordsWait", Ref: "占用表分组(已记录的等待 / 确定性工作 span)+ running 分解的确定性工作类计数(runtimeTraceProjSemanticRowRecordsWait)"},
 	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 	// fold row marker (其余N项微额锚定席 word family, tree + ◎ board + detail).
 	"MicroAnchorFold": {Status: "displayed", Ref: "其余N项微额锚定席(RNB-5B 件⑦)"},

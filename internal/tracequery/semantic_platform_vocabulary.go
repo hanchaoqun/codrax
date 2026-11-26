@@ -8,6 +8,7 @@ import (
 
 func init() {
 	types.RegisterTraceSemanticSeatYieldingSpan(semanticSpanMintedByPlatformVocabulary)
+	types.RegisterTraceSemanticSpanRecordsWait(semanticSpanRecordsWait)
 }
 
 // Platform vocabulary for deterministic semantic work.

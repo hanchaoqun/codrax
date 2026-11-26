@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // A marker that records the thread waiting for a collection is a recorded
@@ -108,5 +109,117 @@ func TestHMC378BuiltInWaitNameIsARecordedWait(t *testing.T) {
 				t.Errorf("the running time inside executed work stays deterministic: deterministic_running_ms=%.3f", states.DeterministicRunningMs)
 			}
 		})
+	}
+}
+
+// The reader: its occupancy table lists a recorded wait apart from executed
+// work, and it reads the same stance the engine priced the row with. Public
+// entry and real delivery, both report languages.
+func TestHMC378ReaderListsBuiltInWaitNamesAsRecordedWaits(t *testing.T) {
+	for _, c := range hmc378StanceNames {
+		t.Run(c.name, func(t *testing.T) {
+			delivered := hmc377DeliverWindow(t, hmc378RecordedWaitCapture(t, c.name), 100, 10.0, 10.31)
+			if delivered.rank == nil {
+				t.Fatal("no ranking was published")
+			}
+			engineOwnWork := false
+			for _, row := range delivered.rank.Items {
+				if row.Thread.PID == 100 && row.Type == "gc_pause" && row.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+					engineOwnWork = true
+				}
+			}
+			if engineOwnWork == c.waits {
+				t.Fatalf("engine: own-work row present = %v for a name whose recorded-wait stance is %v", engineOwnWork, c.waits)
+			}
+			for _, face := range []struct{ language, text, waitGroup, workGroup string }{
+				{"zh", delivered.zh, "已记录的等待（墙钟）", "确定性工作 span（墙钟）"},
+				{"en", delivered.en, "Recorded waits (wall clock)", "Deterministic work spans (wall clock)"},
+			} {
+				// Both threads that record the marker: the target (240.000 ms
+				// of marker) and the relay (189.300 ms).
+				for _, row := range []string{"main-100 / " + c.name + " | 240.000ms |", "relay-200 / " + c.name + " | 189.300ms |"} {
+					asWait := strings.Contains(face.text, "| "+face.waitGroup+" | "+row)
+					asWork := strings.Contains(face.text, "| "+face.workGroup+" | "+row)
+					if asWait != c.waits || asWork == c.waits {
+						t.Errorf("%s occupancy table: %q listed as a recorded wait = %v, as executed work = %v; the engine's stance: records a wait = %v",
+							face.language, row, asWait, asWork, c.waits)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The reader's predicate is the engine's decision, for a row of one record and
+// for a merged row alike. A merged row is read from the stance its merge
+// decided from all members, never from the name it inherited; a fold without a
+// name is read the same way.
+func TestHMC378ReaderAndEngineStanceAgree(t *testing.T) {
+	const target = "main-100"
+	leaf := func(span string) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{Subject: target, SpanName: span, SemanticClass: "gc_pause", ImpactMS: 7, EffectiveImpactMS: 7}
+	}
+	merged := func(span string, count int, everyMemberWaits bool) types.TraceCausalProjectionNode {
+		node := leaf(span)
+		node.MergedCount, node.MergedRecordsWait = count, everyMemberWaits
+		return node
+	}
+	for _, c := range []struct {
+		label string
+		node  types.TraceCausalProjectionNode
+		waits bool
+	}{
+		{"the vocabulary's wait row", leaf("GC: Wait For Completion Alloc"), true},
+		{"the shared-heap wait row", leaf("H:SuspendTime::WaitGCFinished"), true},
+		{"a built-in compound wait", leaf("WaitForGcToComplete"), true},
+		{"a built-in compound wait, snake case", leaf("wait_for_gc_to_complete"), true},
+		{"a built-in compound wait behind the hitrace prefix", leaf("H:WaitForGcToComplete"), true},
+		{"the wait head with a cause word the built-in arm reads", leaf("GC: Wait For Completion collector"), true},
+		{"a built-in compound that executes", leaf("SuspendAllForGC"), false},
+		{"a vocabulary row that executes", leaf("H:FullGC::RunPhases;GCReason2"), false},
+		{"another built-in class", leaf("VerifyClass com.example.Foo"), false},
+		{"an unclassified name", leaf("Choreographer#doFrame"), false},
+		{"a merged row seeded by a wait whose members are not all waits", merged("GC: Wait For Completion Alloc", 3, false), false},
+		{"a merged row whose members are all waits", merged("GC: Wait For Completion Alloc", 3, true), true},
+		{"a fold without a name whose members are all waits", merged("", 4, true), true},
+		{"a fold without a name with other members", merged("", 4, false), false},
+	} {
+		if got := runtimeTraceProjSemanticRowRecordsWait(c.node); got != c.waits {
+			t.Errorf("%s: the reader reads records a wait = %v, want %v", c.label, got, c.waits)
+		}
+		// Both reader lanes follow it. The occupancy table lists the row
+		// under the wait group or the work group.
+		model := runtimeTraceProjTreeModel{Target: target, TreeRows: []runtimeTraceProjTreeRow{{
+			Kind: runtimeTraceProjTreeRowSemantic, HasData: true, EvidenceTag: "E1", Node: c.node,
+		}}}
+		rows := runtimeTraceOccupancySemanticCandidates(model, true)
+		if len(rows) != 1 || (rows[0].group == "已记录的等待（墙钟）") != c.waits || (rows[0].group == "确定性工作 span（墙钟）") == c.waits {
+			t.Errorf("%s: occupancy rows %+v, want the wait group = %v", c.label, rows, c.waits)
+		}
+		// The running breakdown counts executed work only: a row of waits is
+		// no class of deterministic work and is never the row it points at.
+		tag, count, _ := runtimeTraceProjFourStateSemanticPointer(model)
+		if (tag == "" && count == 0) != c.waits {
+			t.Errorf("%s: the running breakdown points at %q and counts %d classes, want a pointer only for executed work (waits = %v)", c.label, tag, count, c.waits)
+		}
+	}
+}
+
+// The fold of the small anchored seats at a batch head is one more row made of
+// other rows and carries no span name: like every fold it is a row of waits
+// only when every seat it folded records a wait.
+func TestHMC378MicroAnchorFoldCarriesTheStanceOfItsMembers(t *testing.T) {
+	seat := func(subject, span string) *runtimeTraceProjTreeRow {
+		return &runtimeTraceProjTreeRow{Kind: runtimeTraceProjTreeRowChain, HasData: true, Node: types.TraceCausalProjectionNode{
+			Subject: subject, SpanName: span, ImpactMS: 0.05, EffectiveImpactMS: 0.05,
+		}}
+	}
+	waits := runtimeTraceProjBuildMicroAnchorFoldRow([]*runtimeTraceProjTreeRow{seat("a-1", "WaitForGcToComplete"), seat("b-2", "GC: Wait For Completion Alloc")})
+	if waits.Node.MergedCount != 2 || waits.Node.SpanName != "" || !runtimeTraceProjSemanticRowRecordsWait(waits.Node) {
+		t.Errorf("a fold of two recorded waits is a row of waits: %+v", waits.Node)
+	}
+	mixed := runtimeTraceProjBuildMicroAnchorFoldRow([]*runtimeTraceProjTreeRow{seat("a-1", "WaitForGcToComplete"), seat("b-2", "SuspendAllForGC")})
+	if mixed.Node.MergedCount != 2 || runtimeTraceProjSemanticRowRecordsWait(mixed.Node) {
+		t.Errorf("a fold that holds executed work is no row of waits: %+v", mixed.Node)
 	}
 }

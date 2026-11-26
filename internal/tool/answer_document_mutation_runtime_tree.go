@@ -18377,12 +18377,13 @@ func runtimeTraceProjProsePointer(badge int, evidenceTag string) string {
 	return " [" + evidenceTag + "]"
 }
 
-// runtimeTraceProjSemanticRowRecordsWait reports a row whose marker records the
-// target waiting for other work. Its value is the wait, so it is no part of the
-// running time the deterministic-work clause breaks down.
+// runtimeTraceProjSemanticRowRecordsWait reports a row that records its thread
+// waiting for other work. Its value is the wait, so it is no part of the
+// running time the deterministic-work clause breaks down. The answer is the
+// engine's own stance of the row, the one it priced the row with; the reader
+// keeps no second description of marker names.
 func runtimeTraceProjSemanticRowRecordsWait(node types.TraceCausalProjectionNode) bool {
-	hit, ok := tracequery.TraceSpanVocabulary(strings.TrimSpace(node.SpanName))
-	return ok && hit.Stance == "waits"
+	return types.TraceCausalProjectionNodeRecordsWait(node)
 }
 
 // runtimeTraceProjFourStateSupplyPointer resolves the 供给折算影响 pointer:

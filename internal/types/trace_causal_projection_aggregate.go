@@ -1668,6 +1668,10 @@ func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionN
 		if display <= 0 {
 			display = h.CumulativeImpactMS
 		}
+		// The marker is an instant of the row's own segment and brings no
+		// time, so the row keeps the stance it had before it became a merged
+		// row.
+		h.MergedRecordsWait = TraceCausalProjectionNodeRecordsWait(*h)
 		if h.MergedCount <= 1 {
 			h.MergedCount = 2
 			// Min/max range over POSITIVE displays only (G12-ENG §29.1) — the
@@ -1944,6 +1948,15 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		if form := traceCausalProjectionAnchorFormKey(node); form != "" {
 			key += "\x00" + form
 		}
+		// A recorded wait is not one more occurrence of the work the same
+		// thread executed under the same class: the wait is time the thread
+		// was parked, the work is time it ran. Summed into one ×N row the
+		// total would be neither, and the row would read as whichever member
+		// seeded it. Waits form their own family, as they do in the engine's
+		// family fold.
+		if TraceCausalProjectionNodeRecordsWait(node) {
+			key += "\x00waits"
+		}
 		g, ok := groups[key]
 		if !ok {
 			g = &group{first: i}
@@ -2010,6 +2023,18 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 		out = append(out, node)
 	}
 	return out
+}
+
+// traceCausalProjectionIndexedMembersRecordWait is
+// TraceCausalProjectionMembersRecordWait over the members a merge addresses by
+// index.
+func traceCausalProjectionIndexedMembersRecordWait(nodes []TraceCausalProjectionNode, members []int) bool {
+	for _, idx := range members {
+		if !TraceCausalProjectionNodeRecordsWait(nodes[idx]) {
+			return false
+		}
+	}
+	return len(members) > 0
 }
 
 // traceCausalProjectionMergeSameKindMembers is THE R2 ×N member-merge body
@@ -2242,6 +2267,7 @@ func traceCausalProjectionMergeSameKindMemberValues(nodes []TraceCausalProjectio
 		aggregate.FixDirection = rankSupplierDirection
 	}
 	aggregate.MergedCount = len(members)
+	aggregate.MergedRecordsWait = traceCausalProjectionIndexedMembersRecordWait(nodes, members)
 	aggregate.MergedMinMS = minMS
 	aggregate.MergedMaxMS = maxMS
 	aggregate.MergedValuelessCount = valuelessRows
@@ -3375,6 +3401,7 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		}
 	}
 	aggregate.MergedCount = len(fold)
+	aggregate.MergedRecordsWait = traceCausalProjectionIndexedMembersRecordWait(nodes, fold)
 	aggregate.MergedMinMS = minMS
 	aggregate.MergedMaxMS = maxMS
 	// V3: member MAX, never a cross-thread wall-clock sum (see the fold doc).
