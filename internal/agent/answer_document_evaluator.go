@@ -510,6 +510,9 @@ func (e *answerDocumentEvaluator) buildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if view != nil && view.Family == types.QFRootCauseTrace {
+		b.WriteString("- Keep wakeup and blocking distinct in the opening summary. Keep saved and recomputed state partitions separate.\n\n")
+	}
 	var headerEvidence []types.EvidenceItem
 	headerEvidenceLoaded := false
 	loadHeaderEvidence := func() []types.EvidenceItem {
@@ -22591,6 +22594,10 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 	}
 	doc = types.AnswerRuntimeComparisonSnapshot(doc, types.ToolBusContext(ctx, types.AgentFinalizer))
+	if projected, revised := projectTraceCausalProse(ctx, doc, e.language); revised != 0 {
+		logging.Info("[finalizer] qualified %d unsupported trace causal claim(s) in the rendered answer", revised)
+		doc = projected
+	}
 	surfaces := render.RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, e.language)
 	prose := tool.DeduplicateDiagramIsolationNotice(surfaces.Answer, e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderAnswerExportDeliveries(ctx, e.language), e.language)

@@ -362,6 +362,8 @@ func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems m
 	appendPrincipalKindExclusiveFieldConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
 }
 
+const traceCausalProseEvidenceBoundary = "Name the observed waker separately from any independently proven blocker. For an unknown wait object, say 'A slept for X ms and B woke A; the wait object is unknown'. Overlapping work, a named lock span, and a wakeup do not identify the same owner unless a typed relation joins those exact identities and intervals. Apply this rule in the headline, mechanism and recommendations. Keep ranked candidates qualified when frame causality is unproven. Keep saved and recomputed state partitions separate even for the same window. Aggregate running time is accumulated occupancy."
+
 func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimContract) string {
 	if contract == nil || !contract.Active() {
 		return ""
@@ -376,6 +378,7 @@ func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimCo
 		"Allowed for this dispatch: " + strings.Join(values, ", ") + ".",
 		TraceCausalClaimPrincipalSummaryShape(contract.Allowed),
 		types.AnswerControlMetadataVisibilityGuide,
+		traceCausalProseEvidenceBoundary,
 	}
 	if allowed[types.TraceCausalClaimNoConclusion] {
 		parts = append(parts, "Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.")

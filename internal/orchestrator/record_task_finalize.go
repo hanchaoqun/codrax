@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
@@ -71,6 +72,10 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
 		dumpRequest := o.outputTranscriptRequestForDump()
 		rootCauses := o.busCtx.Mutable.TraceRootCauseReport()
+		if surfaces != nil && rootCauses != nil && len(rootCauses.RootCauses) > 0 {
+			rootCauses = tracefinding.CompleteRootCausesFromAnswerTable(rootCauses,
+				o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx.Mutable.TraceFindingContract())
+		}
 		result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
