@@ -12,8 +12,9 @@ import (
 )
 
 type traceMeasurementPairParams struct {
-	Baseline json.RawMessage `json:"baseline"`
-	Current  json.RawMessage `json:"current"`
+	Baseline         json.RawMessage `json:"baseline"`
+	Current          json.RawMessage `json:"current"`
+	TargetFrameVsync *uint64         `json:"target_frame_vsync,omitempty"`
 }
 
 // Registration is by producer capability, not metric names or question text.
@@ -47,10 +48,12 @@ func traceQueryMeasurementPairSchema(raw json.RawMessage) json.RawMessage {
 			sideProperties[name] = property
 		}
 	}
-	sideProperties["view"] = map[string]any{"type": "string", "enum": traceMeasurementPairViews, "description": "Native measurement producer view; each side retains its own population, units and interval policy."}
+	views := append(append([]string(nil), traceMeasurementPairViews...), "frame_catalog")
+	sideProperties["view"] = map[string]any{"type": "string", "enum": views, "description": "Native measurement producer view; each side retains its own population, units and interval policy. For target_frame_vsync, both sides use frame_catalog."}
 	side := map[string]any{"type": "object", "properties": sideProperties, "required": []string{"source", "view"}, "additionalProperties": false}
-	properties["comparison"] = map[string]any{"type": "object", "properties": map[string]any{"baseline": side, "current": side}, "additionalProperties": false,
-		"description": "Query two captures independently in one call. Each side uses ordinary source/path/view/window selectors and the same automatic binary preparation. Omit an unknown side rather than invent a path; failed or absent sides retain their own status while the other side stays usable. Do not combine comparison with outer single-source fields. This publishes separate native tables and a two-side status table, not differences, clock alignment or causality; keep interpretation separate."}
+	properties["comparison"] = map[string]any{"type": "object", "properties": map[string]any{"baseline": side, "current": side,
+		"target_frame_vsync": map[string]any{"type": "integer", "minimum": 0, "description": "Select this frame number from the current capture only and rank locally enumerated baseline frames. Both sides use frame_catalog with their own operation scope. If the baseline thread is omitted, search its catalog on the exact application thread label discovered on the current capture."}}, "additionalProperties": false,
+		"description": "Query two captures independently in one call. Each side uses ordinary source/path/view/window selectors and the same automatic binary preparation. In frame selection mode, use target_frame_vsync and two frame_catalog sides to acquire and rank a reference from the original traces. Otherwise this publishes separate native tables and a two-side status table, not differences, clock alignment or causality. Omit an unknown measurement side rather than invent a path; failed or absent sides retain their own status. Do not combine comparison with outer single-source fields."}
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)
 	encoder.SetEscapeHTML(false)
@@ -66,8 +69,17 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 	if json.Unmarshal(raw, &outer) != nil || len(outer) != 1 || pair == nil || len(pair.Baseline)+len(pair.Current) == 0 {
 		return types.ToolResult{ToolName: t.Name(), Timestamp: now, Summary: "comparison must contain at least one side and cannot mix outer single-source selectors", Repair: &types.ToolRepair{Code: "trace_measurement_pair_shape", Fields: []string{"comparison"}}}, nil
 	}
+	if pair.TargetFrameVsync != nil && (len(pair.Baseline) == 0 || len(pair.Current) == 0) {
+		return types.ToolResult{ToolName: t.Name(), Timestamp: now, Summary: "frame selection requires both original capture sides"}, nil
+	}
 	var inputs [2]types.NativeMeasurementPairSide
-	for i, request := range []json.RawMessage{pair.Baseline, pair.Current} {
+	sides := [2]json.RawMessage{pair.Baseline, pair.Current}
+	order := [2]int{0, 1}
+	if pair.TargetFrameVsync != nil {
+		order = [2]int{1, 0}
+	}
+	for _, i := range order {
+		request := sides[i]
 		inputs[i].Request = request
 		if len(request) == 0 {
 			continue
@@ -81,6 +93,9 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 			if child.View == view {
 				allowed = true
 			}
+		}
+		if pair.TargetFrameVsync != nil {
+			allowed = child.View == "frame_catalog"
 		}
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(request, &fields) != nil || fields == nil {
@@ -101,6 +116,15 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 		if err != nil || child.Comparison != nil || !allowed || child.Source != "path" && child.Source != "attached_trace" {
 			inputs[i].Result = types.ToolResult{ToolName: t.Name(), Summary: fmt.Sprintf("invalid native measurement side: view=%q; decode=%v", child.View, err)}
 			continue
+		}
+		if pair.TargetFrameVsync != nil && i == 0 && child.PID.Int() <= 0 && strings.TrimSpace(child.Thread) == "" {
+			thread, err := frameCatalogComparisonThread(inputs[1].Result, *pair.TargetFrameVsync)
+			if err != nil {
+				return types.ToolResult{ToolName: t.Name(), Timestamp: now, Summary: err.Error()}, nil
+			}
+			child.Thread = thread
+			fields["thread"], _ = json.Marshal(thread)
+			request, _ = json.Marshal(fields)
 		}
 		if ctx != nil && ctx.AnalysisIR != nil {
 			scope := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
@@ -136,6 +160,9 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 		}
 		inputs[i].Result = result
 		inputs[i].Material = traceMeasurementPairMaterial(ctx, result)
+	}
+	if pair.TargetFrameVsync != nil {
+		return t.finishFrameCatalogMatch(ctx, inputs, *pair.TargetFrameVsync), nil
 	}
 	var owner *types.MutableState
 	if ctx != nil {

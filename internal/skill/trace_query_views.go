@@ -64,6 +64,11 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 			When: "locating one Choreographer/RenderFrame/VSYNC/draw/present frame envelope",
 		},
 		{
+			View:   tracequery.ViewFrameCatalog,
+			Params: "each capture's own `time_start`/`time_end` and optional exact emitter comm or `pid`",
+			When:   "enumerating Android doFrame candidates with locally paired B/E boundaries before selecting a baseline frame across captures",
+		},
+		{
 			View: "render_pipeline",
 			When: "the UI/render-service/GPU draw/present pipeline spans inside a selected frame window",
 		},

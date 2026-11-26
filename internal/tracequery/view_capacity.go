@@ -241,6 +241,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 	// Compactions (a typed compaction would trigger the result_compacted
 	// refinement and steer the model back into window splitting — the exact
 	// loop this view exists to break).
+	ViewFrameCatalog: {View: ViewFrameCatalog, Execution: ExecutionStreamingTrace, DefaultLimit: 40, MaxLimit: 80, Dimension: CompactionDimensionPhaseSpans},
 	ViewWindowSweep: {
 		Execution:    ExecutionStreamingTrace,
 		View:         ViewWindowSweep,

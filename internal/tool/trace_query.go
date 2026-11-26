@@ -276,6 +276,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceIOActivityTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceIntervalDepthDurationTeaching + " " + skill.TraceBusinessTreeTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
+	schema = strings.Replace(schema, "Use frame_window/render_pipeline", "Use frame_catalog before comparing Android frames across captures. It streams numbered Choreographer doFrame markers without building the event index, pairs real B/E rows, and returns source-local frame IDs, TIDs, nanosecond boundaries and frame points. Use an exact emitter comm or TID when known. Review omitted counts and retrieve the full JSON artifact when needed. Select a frame ID, then use its recorded bounds for detail queries. Use frame_window/render_pipeline", 1)
 	schema = strings.Replace(schema,
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not)",
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation, texture upload, and explicit GC pauses (ordinary primary/secondary/tertiary election by positive target-self attribution, by the priced pre-edge share of a host_wakeup_edge_pre_span seat, or by the exact semantic_chain_interval_relation intersection; background_rank only when off-chain)", 1)
@@ -579,6 +580,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		logging.TraceTiming(timingCtx, "phase=query_selector view=%q attachment=%q selector=%q tid=%d start=%.9f end=%.9f line_start=%d line_end=%d",
 			view, sourceID, selector, p.PID.Int(), window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
+	}
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewFrameCatalog {
+		return t.streamFrameCatalog(ctx, p, path, window), nil
 	}
 	intervalNavigationParams = traceQueryIntervalNavigationParams(p, windowReplayParams, params)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit

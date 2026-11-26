@@ -29,6 +29,9 @@ type ViewExecutionCapability struct {
 // ViewExecutionFor is shared by admission and model-facing capability teaching.
 // Returned slices are independent so a consumer cannot change admission rights.
 func ViewExecutionFor(view string) ViewExecutionCapability {
+	if CanonicalViewName(view) == ViewFrameCatalog {
+		return ViewExecutionCapability{ExecutionStreamingTrace, []ViewExecutionEntry{ExecutionEntryNativeTool}, "trace_query_scope"}
+	}
 	mode := ViewCapacityFor(view).Execution
 	switch mode {
 	case ExecutionIndexedTrace:
