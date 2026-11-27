@@ -37,7 +37,8 @@ import (
 var strictDecodeExemptTools = map[string]string{}
 
 // buildProductionToolRegistry mirrors the production registry:
-// tool.RegisterDefaults plus the runtime registrations in cmd/root.go.
+// tool.RegisterDefaults plus the runtime registrations of package cmd
+// (the pipeline composition shared by start-up and reproductions).
 // TestStrictDecodeRegistryMirrorsProductionSites pins the mirror
 // against the registration call sites in source so it cannot drift.
 func buildProductionToolRegistry() *tool.Registry {
@@ -60,7 +61,7 @@ func buildProductionToolRegistry() *tool.Registry {
 	return r
 }
 
-func strictDecodeTestPaths(t *testing.T) (toolDir, repomapDir, defaultsGo, rootGo string) {
+func strictDecodeTestPaths(t *testing.T) (toolDir, repomapDir, defaultsGo, cmdDir string) {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -69,26 +70,41 @@ func strictDecodeTestPaths(t *testing.T) (toolDir, repomapDir, defaultsGo, rootG
 	toolDir = filepath.Dir(file)
 	repomapDir = filepath.Join(toolDir, "repomap")
 	defaultsGo = filepath.Join(toolDir, "defaults.go")
-	rootGo = filepath.Join(toolDir, "..", "..", "cmd", "root.go")
-	return toolDir, repomapDir, defaultsGo, rootGo
+	cmdDir = filepath.Join(toolDir, "..", "..", "cmd")
+	return toolDir, repomapDir, defaultsGo, cmdDir
 }
 
 // TestStrictDecodeRegistryMirrorsProductionSites pins the test-local
 // registry mirror against the registration call sites in source: when
-// cmd/root.go or RegisterDefaults gains or loses a tool, this fails so
-// the mirror (and the wiring classification below) must be updated.
+// a production file of package cmd or RegisterDefaults gains or loses a
+// tool, this fails so the mirror (and the wiring classification below)
+// must be updated. Every non-test file of package cmd is read, so the
+// pin follows a registration that moves between the package's files.
 func TestStrictDecodeRegistryMirrorsProductionSites(t *testing.T) {
-	_, _, defaultsGo, rootGo := strictDecodeTestPaths(t)
+	_, _, defaultsGo, cmdDir := strictDecodeTestPaths(t)
 	defaultsSrc, err := os.ReadFile(defaultsGo)
 	if err != nil {
 		t.Fatalf("read defaults.go: %v", err)
 	}
-	rootSrc, err := os.ReadFile(rootGo)
+	cmdFiles, err := filepath.Glob(filepath.Join(cmdDir, "*.go"))
 	if err != nil {
-		t.Fatalf("read cmd/root.go: %v", err)
+		t.Fatalf("list package cmd: %v", err)
 	}
-	sites := strings.Count(string(defaultsSrc), "r.Register(") +
-		strings.Count(string(rootSrc), "toolRegistry.Register(")
+	cmdSites := 0
+	for _, path := range cmdFiles {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		cmdSites += strings.Count(string(src), "toolRegistry.Register(")
+	}
+	if cmdSites == 0 {
+		t.Fatalf("no toolRegistry.Register( call site in the production files of package cmd (%s): the runtime registrations moved; point this pin at their new place", cmdDir)
+	}
+	sites := strings.Count(string(defaultsSrc), "r.Register(") + cmdSites
 	reg := buildProductionToolRegistry()
 	if got := len(reg.List()); got != sites {
 		t.Fatalf("registry mirror drift: %d production Register call sites, %d tools in test mirror — update buildProductionToolRegistry and classify the new tool (strict decode or exemption entry)", sites, got)

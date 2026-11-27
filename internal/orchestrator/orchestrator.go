@@ -2117,7 +2117,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	if used, err := o.runAnalyzePhase(); err != nil {
 		if llm.IsStreamLevelRetryable(err) {
 			logging.Error("[orchestrator] analyze phase failed on transient model transport after retry budget: %v", err)
-			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, o.busCtx.Language)
+			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, finalizeRefusalOf(o.busCtx), o.busCtx.Language)
 			o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze transport: %v", err)
 			_ = used
 		} else {
@@ -4863,7 +4863,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				break
 			}
 			state.markFailed(fin.ID)
-			o.emitNodeEnd(fin.ID, false, finalizeNodeFailureText(err, o.busCtx.Language))
+			o.emitNodeEnd(fin.ID, false, finalizeNodeFailureText(err, finalizeRefusalOf(o.busCtx), o.busCtx.Language))
 			break
 		}
 		stepsUsed++
@@ -5904,7 +5904,7 @@ contractFailureBreak:
 					case <-c.Done():
 						timer.Stop()
 						o.busCtx.Mutable.SetResult("")
-						o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(c.Err(), o.busCtx.Language)
+						o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(c.Err(), finalizeRefusalOf(o.busCtx), o.busCtx.Language)
 						return stepsUsed
 					case <-timer.C:
 					}
@@ -5923,7 +5923,7 @@ contractFailureBreak:
 		if err != nil {
 			logForcedFinalizeFailure(dispatched, err)
 			o.busCtx.Mutable.SetResult("")
-			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, o.busCtx.Language)
+			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, finalizeRefusalOf(o.busCtx), o.busCtx.Language)
 			return stepsUsed
 		}
 		lastFinalize = out

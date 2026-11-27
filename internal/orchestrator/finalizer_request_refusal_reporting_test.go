@@ -113,18 +113,39 @@ func TestForcedDispatchFailureCountsTheAttemptsDispatched(t *testing.T) {
 }
 
 // The step line's detail: the reader's notice for a request that was never
-// sent, the error text for everything else.
+// sent, the error text for everything else. Which one is read from the run's
+// refusal record, never from the error's own count: a dispatch whose first
+// request is refused after an earlier dispatch had sent one is not a request
+// that was never sent either.
 func TestAnswerStepFailureTextKeepsTheRawErrorOutOfTheRefusalCase(t *testing.T) {
 	wrapped := fmt.Errorf("agent finalizer execution: %w", refusedAnswerRequest())
-	if got := finalizeNodeFailureText(wrapped, "zh"); got != refusalStepNoticeZH {
+	nothingSent := &types.FinalizerRequestRefusal{Kind: types.FinalizerRefusalFirstRequest}
+	if got := finalizeNodeFailureText(wrapped, nothingSent, "zh"); got != refusalStepNoticeZH {
 		t.Errorf("zh step notice\n got: %s\nwant: %s", got, refusalStepNoticeZH)
 	}
-	if got := finalizeNodeFailureText(wrapped, "en"); got != refusalStepNoticeEN {
+	if got := finalizeNodeFailureText(wrapped, nothingSent, "en"); got != refusalStepNoticeEN {
 		t.Errorf("en step notice\n got: %s\nwant: %s", got, refusalStepNoticeEN)
 	}
 	other := errors.New("read stream: unexpected EOF")
-	if got := finalizeNodeFailureText(other, "zh"); got != other.Error() {
+	if got := finalizeNodeFailureText(other, nothingSent, "zh"); got != other.Error() {
 		t.Errorf("another failure keeps its own text: %s", got)
+	}
+	for _, tc := range []struct {
+		name    string
+		err     error
+		refusal *types.FinalizerRequestRefusal
+	}{
+		{"repair round of the dispatch", fmt.Errorf("agent finalizer execution: %w", refusedRepairRequest(1)),
+			&types.FinalizerRequestRefusal{Kind: types.FinalizerRefusalLaterRequest, RequestsSent: 1}},
+		{"first request after a dispatch that sent one", wrapped,
+			&types.FinalizerRequestRefusal{Kind: types.FinalizerRefusalLaterRequest}},
+		{"no record", wrapped, nil},
+	} {
+		for _, lang := range []string{"zh", "en"} {
+			if got := finalizeNodeFailureText(tc.err, tc.refusal, lang); got != tc.err.Error() {
+				t.Errorf("%s (%s): a refusal that is not recorded as nothing sent keeps its own text\n got: %s\nwant: %s", tc.name, lang, got, tc.err.Error())
+			}
+		}
 	}
 }
 

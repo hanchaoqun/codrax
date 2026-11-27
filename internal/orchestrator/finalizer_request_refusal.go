@@ -112,12 +112,27 @@ func logForcedFinalizeFailure(dispatched int, err error) {
 	logging.Error("[orchestrator] forced finalize failed after %d dispatched attempt(s): %v", dispatched, err)
 }
 
+// refusedWithNothingSent reports whether err is the byte guard's refusal and
+// the run's refusal record says that nothing of the answer stage reached the
+// model. It is the one derivation of the reader's texts for a refused request,
+// read from the same record as the root-cause side file's reason
+// (outputdump.RootCauseReasonForUnformedAnswer). A refused repair or
+// follow-up request — its dispatch had already sent a request, or an earlier
+// answer dispatch of the run was not refused before sending — is not a
+// request that was never sent.
+func refusedWithNothingSent(err error, refusal *types.FinalizerRequestRefusal) bool {
+	var refused *agent.AnswerContextByteBudgetError
+	return errors.As(err, &refused) && refusal.NothingSent()
+}
+
 // finalizeNodeFailureText is the detail of the answer step's failure line.
 // A request that was never sent is not a failed model response: the reader
-// gets the notice for that case, and the raw error stays in the log.
-func finalizeNodeFailureText(err error, lang string) string {
-	var refused *agent.AnswerContextByteBudgetError
-	if errors.As(err, &refused) {
+// gets the notice for that case, and the raw error stays in the log. Every
+// other failure keeps its own text, a refused repair request included: a
+// request of the answer stage had been sent, and the forced path that follows
+// composes the answer again, so the step reads as recoverable.
+func finalizeNodeFailureText(err error, refusal *types.FinalizerRequestRefusal, lang string) string {
+	if refusedWithNothingSent(err, refusal) {
 		return answerRequestNotSentMessage(lang)
 	}
 	return err.Error()

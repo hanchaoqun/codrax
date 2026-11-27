@@ -72,30 +72,53 @@ func TestRefusedAnswerRequestMessageIsChosenBeforeStringProbes(t *testing.T) {
 	if !strings.Contains(wrapped.Error(), "429") {
 		t.Fatal("fixture must carry the digits 429 in its byte figure")
 	}
+	nothingSent := &types.FinalizerRequestRefusal{Kind: types.FinalizerRefusalFirstRequest}
 	for lang, want := range map[string]string{"zh": refusalNoticeZH, "en": refusalNoticeEN} {
-		if got := forcedFinalizeFailureMessage(wrapped, lang); got != want {
+		if got := forcedFinalizeFailureMessage(wrapped, nothingSent, lang); got != want {
 			t.Errorf("%s message\n got: %s\nwant: %s", lang, got, want)
 		}
 	}
-	// Every string arm of the chooser, wrapped around the typed refusal: the
-	// typed arm still wins.
-	for _, probe := range []string{"unexpected EOF", "no deployments available", "rate limit", "context canceled", "deadline exceeded", "timeout"} {
-		err := fmt.Errorf("%s: %w", probe, refusedAnswerRequest())
-		if got := forcedFinalizeFailureMessage(err, "en"); got != refusalNoticeEN {
-			t.Errorf("probe %q outranked the typed refusal: %s", probe, got)
+	// A refused repair or follow-up request — a request of the answer stage
+	// had been sent — gets the general text, still from the typed arm: its byte
+	// figure must not read as a rate limit either.
+	for _, refusal := range []*types.FinalizerRequestRefusal{
+		{Kind: types.FinalizerRefusalLaterRequest, RequestsSent: 2},
+		{Kind: types.FinalizerRefusalLaterRequest},
+		nil,
+	} {
+		for lang, want := range map[string]string{"zh": answerNotFormedNoticeZH, "en": answerNotFormedNoticeEN} {
+			if got := forcedFinalizeFailureMessage(fmt.Errorf("agent finalizer execution: %w", refusedRepairRequest(2)), refusal, lang); got != want {
+				t.Errorf("%s message for a refusal after a sent request (%+v)\n got: %s\nwant: %s", lang, refusal, got, want)
+			}
 		}
 	}
-	// The string arms keep their meaning for errors that are not a refusal.
-	if got := forcedFinalizeFailureMessage(errors.New("upstream returned 429"), "en"); !strings.Contains(got, "rate-limited") {
+	// Every string arm of the chooser, wrapped around the typed refusal: the
+	// typed arm still wins, for both kinds.
+	repair := &types.FinalizerRequestRefusal{Kind: types.FinalizerRefusalLaterRequest, RequestsSent: 1}
+	for _, probe := range []string{"unexpected EOF", "no deployments available", "rate limit", "context canceled", "deadline exceeded", "timeout"} {
+		err := fmt.Errorf("%s: %w", probe, refusedAnswerRequest())
+		if got := forcedFinalizeFailureMessage(err, nothingSent, "en"); got != refusalNoticeEN {
+			t.Errorf("probe %q outranked the typed refusal: %s", probe, got)
+		}
+		if got := forcedFinalizeFailureMessage(err, repair, "en"); got != answerNotFormedNoticeEN {
+			t.Errorf("probe %q outranked the typed refusal of a repair request: %s", probe, got)
+		}
+	}
+	// The string arms keep their meaning for errors that are not a refusal,
+	// whatever the record says.
+	if got := forcedFinalizeFailureMessage(errors.New("upstream returned 429"), nothingSent, "en"); !strings.Contains(got, "rate-limited") {
 		t.Errorf("a real rate limit must still read as one: %s", got)
 	}
-	if got := forcedFinalizeFailureMessage(errors.New("read stream: unexpected EOF"), "en"); got == refusalNoticeEN {
+	if got := forcedFinalizeFailureMessage(errors.New("read stream: unexpected EOF"), nothingSent, "en"); got == refusalNoticeEN {
 		t.Errorf("a dropped connection is not a refused request: %s", got)
 	}
 }
 
 // Through the real scheduler: whichever way the run ends on a refused answer
-// request, the reader is told what happened and what they can do.
+// request with nothing of the answer stage sent, the reader is told what
+// happened and what they can do. A run that had sent a request is not told
+// that nothing was sent: the run's refusal record decides, as it does for the
+// root-cause side file.
 func TestRunEndingOnARefusedAnswerRequestTellsTheReaderWhatToDo(t *testing.T) {
 	for _, tc := range []struct {
 		name, lang, want string
@@ -113,7 +136,12 @@ func TestRunEndingOnARefusedAnswerRequestTellsTheReaderWhatToDo(t *testing.T) {
 				return nil, refusedAnswerRequest()
 			},
 		}, 2},
-		{"en, refused after a repair request", "en", refusalNoticeEN, refusalRunOptions{
+		// The repair request of the first dispatch was refused after that
+		// dispatch had sent its request, so the forced dispatch's refusal
+		// is recorded as a later request and the side file keeps the
+		// transcript reason for this run (its "repair request refused"
+		// case): the general text, not the notice that nothing was sent.
+		{"en, refused after a repair request", "en", answerNotFormedNoticeEN, refusalRunOptions{
 			finalizer: func(call int, _ *types.AgentContext) (*agent.StageOutput, error) {
 				if call == 1 {
 					return nil, &agent.AnswerContextByteBudgetError{ActualBytes: 777916, AllocatedBytes: 700000, RequestsSent: 1}

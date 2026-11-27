@@ -1133,14 +1133,23 @@ func formatScanElapsed(ms int64) string {
 // renderer surfaces via classifyStatusError → fatalDetailPhrase
 // (the localized "无法继续" / "Cannot continue" prefix) for
 // terminal failure styling.
-func forcedFinalizeFailureMessage(err error, lang string) string {
+//
+// refusal is the run's answer-request refusal record (nil when there is
+// none). It decides which text a refused request gets.
+func forcedFinalizeFailureMessage(err error, refusal *types.FinalizerRequestRefusal, lang string) string {
 	zh := preferZhMessage(lang)
 	// Typed causes come before every string probe: the text of a typed error
 	// carries figures and words a probe would misread (a byte count
-	// containing "429" is not a rate limit).
+	// containing "429" is not a rate limit). A refused request with nothing
+	// of the answer stage sent gets the notice for that case; a refused
+	// repair or follow-up request — a request of the answer stage had been
+	// sent — gets the general text.
 	var refused *agent.AnswerContextByteBudgetError
 	if errors.As(err, &refused) {
-		return answerRequestNotSentFailureMessage(lang)
+		if refusedWithNothingSent(err, refusal) {
+			return answerRequestNotSentFailureMessage(lang)
+		}
+		return finalAnswerNotFormedMessage(lang)
 	}
 	probe := strings.ToLower(err.Error())
 	switch {
@@ -1174,7 +1183,13 @@ func forcedFinalizeFailureMessage(err error, lang string) string {
 		}
 		return "Cannot continue: model response timed out"
 	}
-	if zh {
+	return finalAnswerNotFormedMessage(lang)
+}
+
+// finalAnswerNotFormedMessage is the run's general terminal text when no
+// answer was formed and no more specific cause applies.
+func finalAnswerNotFormedMessage(lang string) string {
+	if preferZhMessage(lang) {
 		return "无法继续：最终答案生成失败"
 	}
 	return "Cannot continue: failed to generate the final answer"
