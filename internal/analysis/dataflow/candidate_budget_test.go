@@ -268,3 +268,39 @@ func TestAnalyze_NamedFileEvidenceSurvivesNeighboursThatFillTheBudget(t *testing
 		})
 	}
 }
+
+// The boundary between the named group and the expansion is counted after
+// Scope filtering and de-duplication: a named file that Scope drops, or a
+// file named twice, must not hand its slot to a graph neighbour. The
+// sub-explorer reaches this shape by passing the files it read outside its
+// scope together with that scope.
+func TestSelectCandidateFiles_NamedBoundaryCountsOnlyKeptNamedFiles(t *testing.T) {
+	g := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"src/svc/named.go":      {RelPath: "src/svc/named.go", Language: repomap.LangGo},
+			"src/svc/m_dep.go":      {RelPath: "src/svc/m_dep.go", Language: repomap.LangGo},
+			"src/svc/a_importer.go": {RelPath: "src/svc/a_importer.go", Language: repomap.LangGo},
+			"other/read.go":         {RelPath: "other/read.go", Language: repomap.LangGo},
+		},
+		ImportGraph:    map[string][]string{"src/svc/named.go": {"src/svc/m_dep.go"}},
+		ReverseImports: map[string][]string{"src/svc/named.go": {"src/svc/a_importer.go"}},
+	}
+	for _, max := range []int{1, 2} {
+		got, _ := selectCandidateFiles(g, Options{
+			CandidateFiles: []string{"other/read.go", "src/svc/named.go"},
+			Scope:          []string{"src/svc/"},
+			MaxFiles:       max,
+		})
+		want := []string{"src/svc/named.go", "src/svc/a_importer.go"}[:max]
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Scope drops a named file, MaxFiles=%d: got %v, want %v", max, got, want)
+		}
+	}
+	got, _ := selectCandidateFiles(g, Options{
+		CandidateFiles: []string{"src/svc/named.go", "src/svc/named.go"},
+		MaxFiles:       1,
+	})
+	if want := []string{"src/svc/named.go"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("a file named twice: got %v, want %v", got, want)
+	}
+}
