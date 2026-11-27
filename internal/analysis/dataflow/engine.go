@@ -148,6 +148,11 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 		}
 		add(path)
 	}
+	// ordered[:namedCount] are the files the caller named (after Scope and
+	// de-duplication); everything appended below is graph expansion. A
+	// named file that is also a neighbour of another named file was added
+	// above and stays named.
+	namedCount := len(ordered)
 
 	if !opts.ExactCandidates {
 		seed := append([]string(nil), ordered...)
@@ -173,23 +178,46 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 		}
 	}
 
-	// T2.3: re-rank by EntityBias before truncating. The legacy ordering
-	// is alphabetical, which means files containing the question's
-	// entities are arbitrarily sorted relative to unrelated files of the
-	// same name prefix and may be evicted by MaxFiles. With bias, files
-	// whose path or symbol names mention any biased entity float to the
-	// top so they survive truncation.
-	if len(opts.EntityBias) > 0 {
-		ordered = sortByEntityBias(ordered, graph, opts.EntityBias)
-	} else {
-		sort.Strings(ordered)
-	}
+	// The MaxFiles budget goes to the caller's named files first; graph
+	// neighbours only fill what is left. The named files are the
+	// investigation's files (what the model read, what the requirements
+	// point at); their importers, imports and relation targets are context
+	// around them. Ordering both groups as one list let a neighbourhood
+	// that sorts or ranks earlier take every slot: one widely imported
+	// named file can reach thousands of neighbours, and the analysis then
+	// ran on none of the files it was asked about. So the named group is
+	// kept ahead of the expansion group, each group keeps the candidate
+	// order below, and when the caller named more files than MaxFiles the
+	// named files are cut by that same order.
+	//
+	// T2.3: within a group, EntityBias re-ranks before truncating. The
+	// legacy ordering is alphabetical, which means files containing the
+	// question's entities are arbitrarily sorted relative to unrelated
+	// files of the same name prefix and may be evicted by MaxFiles. With
+	// bias, files whose path or symbol names mention any biased entity
+	// float to the top of their group so they survive truncation. The
+	// bias never lifts a neighbour above a named file.
+	named := orderCandidateGroup(ordered[:namedCount], graph, opts.EntityBias)
+	expansion := orderCandidateGroup(ordered[namedCount:], graph, opts.EntityBias)
+	ordered = append(named, expansion...)
 	truncated := false
 	if len(ordered) > opts.MaxFiles {
 		ordered = ordered[:opts.MaxFiles]
 		truncated = true
 	}
 	return ordered, truncated
+}
+
+// orderCandidateGroup returns one candidate group (named or expansion) in
+// candidate order — EntityBias ranking when the caller gave a bias, else
+// alphabetical — as a new slice, so the two groups never share storage.
+func orderCandidateGroup(files []string, graph *repomap.Graph, entityBias []string) []string {
+	group := append([]string(nil), files...)
+	if len(entityBias) > 0 {
+		return sortByEntityBias(group, graph, entityBias)
+	}
+	sort.Strings(group)
+	return group
 }
 
 // sortByEntityBias re-orders the candidate file list so that files

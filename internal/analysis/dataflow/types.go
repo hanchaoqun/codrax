@@ -120,10 +120,15 @@ type LoweredFile struct {
 
 // Options controls the bounded scope of the analysis.
 type Options struct {
-	Context         context.Context
-	RepoRoot        string
-	Question        string
-	Scope           []string
+	Context  context.Context
+	RepoRoot string
+	Question string
+	Scope    []string
+	// CandidateFiles are the files the caller names for the analysis.
+	// Unless ExactCandidates is set, selectCandidateFiles widens them with
+	// graph neighbours; when the widened set exceeds MaxFiles the named
+	// files keep their slots ahead of every neighbour, and neighbours only
+	// fill the remaining budget.
 	CandidateFiles  []string
 	WorkDir         string
 	MaxFiles        int
@@ -146,8 +151,11 @@ type Options struct {
 	// (typically derived from ERM). When non-empty, selectCandidateFiles
 	// scores each candidate by the number of biased entities that appear
 	// in the file path OR in the file's symbol names, then sorts by
-	// score descending before truncating to MaxFiles. Files with no
-	// match still survive — the bias only re-ranks; it does not filter.
+	// score descending before truncating to MaxFiles. The ranking applies
+	// within the named CandidateFiles and within their graph neighbours
+	// separately; it never moves a neighbour ahead of a named file. Files
+	// with no match still survive — the bias only re-ranks; it does not
+	// filter.
 	//
 	// When EntityBias is non-empty, it is also consulted at symbol
 	// granularity inside LowerFile: symbols whose name AND whose file
